@@ -12,18 +12,19 @@ import { AgentStore } from '../core/agent.store';
 import { Entry } from '../core/model';
 import { ModelsStore } from '../core/models.store';
 import { Diff, diffStats } from './diff';
+import { Icon, IconName } from './kit/icon';
 import { Markdown } from './markdown';
 
-const TOOL_ICONS: Record<string, string> = {
-  read: '◎',
-  edit: '✎',
-  delete: '⌫',
-  move: '⇄',
-  search: '⌕',
-  execute: '▶',
-  fetch: '⇣',
-  think: '✦',
-  other: '•',
+const TOOL_ICONS: Record<string, IconName> = {
+  read: 'eye',
+  edit: 'pencil',
+  delete: 'trash',
+  move: 'move',
+  search: 'search',
+  execute: 'terminal',
+  fetch: 'globe',
+  think: 'sparkles',
+  other: 'circle-dot',
 };
 
 /** A step inside one assistant turn. */
@@ -39,19 +40,43 @@ type Item =
 
 @Component({
   selector: 'pa-conversation',
-  imports: [Markdown, Diff],
+  imports: [Markdown, Diff, Icon],
   template: `
     <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
-        <div class="empty">
-          <div class="empty-orb"></div>
-          <h1>What are we building?</h1>
+        <div class="welcome">
+          <img class="welcome-mark" src="/pwr-mark-96.png" alt="" width="44" height="44" />
+          <h2 class="t-display">What are we building?</h2>
           @if (store.model()) {
-            <p>Describe the goal. PWR works in <code>{{ store.workspace() || '…' }}</code> with
-              <strong>{{ store.modelName() }}</strong>, and shows every step as it happens.</p>
+            <p class="welcome-text">
+              @if (store.chatMode()) {
+                Ask anything. PWR reads only what you attach, and cannot edit files or run commands.
+              } @else {
+                Describe the goal. PWR works in this folder and shows every step as it happens.
+              }
+            </p>
+            <div class="welcome-context">
+              @if (!store.chatMode()) {
+                <span class="path-token" [attr.title]="store.workspace()">
+                  <pa-icon name="folder" [size]="14" />
+                  <span class="truncate">{{ store.workspace() || '…' }}</span>
+                </span>
+              }
+              <span class="path-token">
+                <pa-icon name="box" [size]="14" />
+                <span class="truncate">{{ store.modelName() }}</span>
+              </span>
+            </div>
           } @else if (store.coreState() === 'ready') {
-            <p>Choose a model to start. {{ store.models().length ? 'Pick one of the models on this machine, or find another' : 'There are no models on this machine yet — find one' }} that fits it.</p>
-            <button class="primary" (click)="models.show()">Open the Model Manager</button>
+            <p class="welcome-text">
+              Choose a model to start.
+              {{ store.models().length ? 'Pick one of the models on this machine, or find another that fits it.' : 'There are no models on this machine yet — find one that fits it.' }}
+            </p>
+            <button class="btn btn-primary btn-lg" (click)="models.show()">
+              <pa-icon name="box" [size]="16" /> Open Model Manager
+            </button>
+          } @else if (store.coreState() === 'starting') {
+            <p class="welcome-text"><span class="spinner spinner-sm"></span> Starting the core…</p>
           }
         </div>
       }
@@ -59,52 +84,68 @@ type Item =
         @for (item of items(); track item.key) {
           @switch (item.type) {
             @case ('user') {
-              <article class="bubble user">
-                <div class="text">{{ item.entry.text }}</div>
+              <article class="message-user" aria-label="Your message">
+                <div class="message-user-text selectable">{{ item.entry.text }}</div>
                 @if (item.entry.attachments?.length) {
-                  <div class="chips">
+                  <div class="attachment-chips">
                     @for (path of item.entry.attachments; track path) {
-                      <span class="chip">{{ kindOf(path).glyph }} {{ name(path) }}</span>
+                      <span class="attachment-chip" [attr.title]="path">
+                        <pa-icon [name]="kindOf(path).icon" [size]="14" />
+                        <span class="truncate">{{ name(path) }}</span>
+                      </span>
                     }
                   </div>
                 }
               </article>
             }
             @case ('notice') {
-              <article class="notice" [class.error]="item.entry.status === 'error'">
-                <strong>{{ item.entry.title }}</strong> {{ item.entry.text }}
+              <article class="banner" [class.banner-danger]="item.entry.status === 'error'" role="note">
+                <pa-icon [name]="item.entry.status === 'error' ? 'alert' : 'info'" [size]="16" />
+                <span class="selectable"><strong>{{ item.entry.title }}</strong> {{ item.entry.text }}</span>
               </article>
             }
             @case ('turn') {
-              <article class="turn" [class.live]="item.live">
+              <article class="turn" [class.live]="item.live" aria-label="PWR">
                 <header class="turn-head">
-                  <span class="avatar">p</span>
+                  <img class="turn-avatar" src="/pwr-mark-96.png" alt="" width="22" height="22" />
                   <strong>PWR</strong>
-                  <span class="turn-meta">{{ store.modelName() }} · {{ item.live ? 'working' : 'done' }} · {{ duration(item) }}</span>
+                  <span class="turn-meta truncate">{{ store.modelName() }}</span>
+                  <span class="turn-meta num">· {{ item.live ? 'working' : 'done' }} · {{ duration(item) }}</span>
                 </header>
                 <div class="turn-body">
                   @for (step of item.steps; track step.key) {
                     @if (step.type === 'actions') {
                       <section class="step actions" [class.busy]="busy(step.entries)">
-                        <button class="actions-head" (click)="toggle(step.key, step.last)">
+                        <button class="actions-head" (click)="toggle(step.key, step.last)" [attr.aria-expanded]="isOpen(step.key, step.last)">
                           <span class="actions-icon">
-                            @if (busy(step.entries)) { <span class="spinner"></span> } @else { ⚙ }
+                            @if (busy(step.entries)) {
+                              <span class="spinner spinner-sm"></span>
+                            } @else if (refused(step.entries)) {
+                              <pa-icon name="alert" [size]="16" />
+                            } @else {
+                              <pa-icon name="check-circle" [size]="16" />
+                            }
                           </span>
                           <span class="actions-summary">{{ summary(step.entries) }}</span>
                           @if (malformed(step.entries); as retried) {
-                            <span class="pill soft">{{ retried }} retried</span>
+                            <span class="badge">{{ retried }} retried</span>
                           }
                           @if (refused(step.entries); as failed) {
-                            <span class="pill bad">{{ failed }} refused</span>
+                            <span class="badge badge-danger">{{ failed }} refused</span>
                           }
-                          <span class="chev">{{ isOpen(step.key, step.last) ? '▾' : '▸' }}</span>
+                          <pa-icon class="chevron" [class.open]="isOpen(step.key, step.last)" name="chevron-right" [size]="16" />
                         </button>
                         @if (isOpen(step.key, step.last)) {
                           <ul class="action-list">
                             @for (entry of step.entries; track entry.key) {
                               <li [class]="'action ' + entry.status" [class.malformed]="isMalformed(entry)">
-                                <button class="action-row" (click)="toggle(entry.key, false)" [disabled]="!entry.diff">
-                                  <span class="tool-icon">{{ icon(entry) }}</span>
+                                <button
+                                  class="action-row"
+                                  (click)="toggle(entry.key, false)"
+                                  [disabled]="!entry.diff"
+                                  [attr.aria-expanded]="entry.diff ? isOpen(entry.key, false) : null"
+                                >
+                                  <span class="tool-icon"><pa-icon [name]="icon(entry)" [size]="14" /></span>
                                   <span class="tool-title">{{ isMalformed(entry) ? 'malformed call' : verb(entry) }}</span>
                                   <span class="tool-detail">{{ isMalformed(entry) ? explainMalformed(entry) : entry.text }}</span>
                                   @if (entry.diff) {
@@ -113,7 +154,7 @@ type Item =
                                       <span class="del">−{{ stats(entry).removed }}</span>
                                     </span>
                                   }
-                                  <span [class]="'status-dot ' + entry.status" [title]="label(entry)"></span>
+                                  <span [class]="'status-dot ' + entry.status" role="img" [attr.aria-label]="label(entry)" [attr.title]="label(entry)"></span>
                                 </button>
                                 @if (entry.diff && isOpen(entry.key, false)) {
                                   <pa-diff [diff]="entry.diff" />
@@ -127,19 +168,19 @@ type Item =
                       @switch (step.entry.kind) {
                         @case ('thought') {
                           <div class="step thought" [class.live]="step.entry.status === 'live'">
-                            <button class="thought-head" (click)="toggle(step.key, false)">
-                              <span class="spark">✦</span>
+                            <button class="thought-head" (click)="toggle(step.key, false)" [attr.aria-expanded]="isOpen(step.key, false)">
+                              <pa-icon class="spark" name="sparkles" [size]="14" />
                               {{ step.entry.status === 'live' ? 'Thinking…' : 'Thought' }}
-                              <span class="muted">{{ words(step.entry.text) }} words</span>
-                              <span class="chev">{{ isOpen(step.key, false) ? '▾' : '▸' }}</span>
+                              <span class="muted num">{{ words(step.entry.text) }} words</span>
+                              <pa-icon class="chevron" [class.open]="isOpen(step.key, false)" name="chevron-right" [size]="14" />
                             </button>
                             @if (step.entry.status === 'live' && !isOpen(step.key, false)) {
                               <!-- Anchored to the bottom: the newest lines are always whole, the
                                    older ones fade out above instead of being cut mid-line. -->
-                              <div class="thought-window"><pa-markdown class="thought-md" [text]="tail(step.entry.text)" /></div>
+                              <div class="thought-window"><pa-markdown class="thought-md" [text]="tail(step.entry.text)" [copyable]="false" /></div>
                             }
                             @if (isOpen(step.key, false)) {
-                              <div class="thought-body"><pa-markdown class="thought-md" [text]="step.entry.text" /></div>
+                              <div class="thought-body"><pa-markdown class="thought-md" [text]="step.entry.text" [copyable]="false" /></div>
                             }
                           </div>
                         }
@@ -149,14 +190,14 @@ type Item =
                           </div>
                         }
                         @case ('notice') {
-                          <div class="step checkpoint">↻ {{ step.entry.text }}</div>
+                          <div class="step checkpoint"><pa-icon name="refresh" [size]="14" /> {{ step.entry.text }}</div>
                         }
                       }
                     }
                   }
                   @if (item.live) {
-                    <div class="step working">
-                      <span class="dots"><i></i><i></i><i></i></span>
+                    <div class="step working" role="status">
+                      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
                       {{ workingLabel() }}
                     </div>
                   }
@@ -166,22 +207,22 @@ type Item =
           }
         }
         @if (store.turnActive() && lastIsUser()) {
-          <article class="turn live">
+          <article class="turn live" aria-label="PWR">
             <header class="turn-head">
-              <span class="avatar">p</span>
+              <img class="turn-avatar" src="/pwr-mark-96.png" alt="" width="22" height="22" />
               <strong>PWR</strong>
-              <span class="turn-meta">{{ store.modelName() }} · working</span>
+              <span class="turn-meta truncate">{{ store.modelName() }} · working</span>
             </header>
             <div class="turn-body">
-              <div class="step working">
-                <span class="dots"><i></i><i></i><i></i></span>
+              <div class="step working" role="status">
+                <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
                 {{ workingLabel() }}
               </div>
             </div>
           </article>
         }
         @if (!store.turnActive() && store.outcome()) {
-          <div class="outcome">{{ store.outcome() }}</div>
+          <div class="outcome" role="status"><pa-icon name="check-circle" [size]="14" /> {{ store.outcome() }}</div>
         }
       </div>
     </section>
@@ -248,7 +289,10 @@ export class Conversation {
   });
 
   constructor() {
-    setInterval(() => this.now.set(Date.now()), 1000);
+    // The clock only matters for a running turn's duration and quiet time.
+    setInterval(() => {
+      if (this.store.turnActive()) this.now.set(Date.now());
+    }, 1000);
     // Follow the newest entry while the person is at the bottom; leave them
     // where they are when they have scrolled up to read.
     effect(() => {
@@ -330,8 +374,8 @@ export class Conversation {
     return entry.title.split(' ')[0];
   }
 
-  protected icon(entry: Entry): string {
-    return TOOL_ICONS[entry.toolKind ?? 'other'] ?? '•';
+  protected icon(entry: Entry): IconName {
+    return TOOL_ICONS[entry.toolKind ?? 'other'] ?? 'circle-dot';
   }
 
   protected label(entry: Entry): string {
@@ -356,17 +400,17 @@ export class Conversation {
     return path.split('/').filter(Boolean).pop() ?? path;
   }
 
-  protected kindOf(path: string): { glyph: string } {
+  protected kindOf(path: string) {
     return fileKind(path);
   }
 }
 
 /** A short visual type for an attachment. */
-export function fileKind(path: string): { glyph: string; label: string; tone: string } {
+export function fileKind(path: string): { icon: IconName; label: string; tone: string } {
   const extension = /\.([a-z0-9]{1,6})$/i.exec(path)?.[1]?.toLowerCase();
-  if (!extension) return { glyph: '▦', label: 'Folder', tone: 'folder' };
-  if (extension === 'pdf') return { glyph: '◧', label: 'PDF', tone: 'pdf' };
-  if (['md', 'txt', 'rst'].includes(extension)) return { glyph: '≡', label: extension.toUpperCase(), tone: 'text' };
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension)) return { glyph: '◩', label: 'Image', tone: 'image' };
-  return { glyph: '‹›', label: extension.toUpperCase(), tone: 'code' };
+  if (!extension) return { icon: 'folder', label: 'Folder', tone: 'folder' };
+  if (extension === 'pdf') return { icon: 'file-text', label: 'PDF', tone: 'pdf' };
+  if (['md', 'txt', 'rst'].includes(extension)) return { icon: 'file-text', label: extension.toUpperCase(), tone: 'text' };
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension)) return { icon: 'image', label: 'Image', tone: 'image' };
+  return { icon: 'file-code', label: extension.toUpperCase(), tone: 'code' };
 }

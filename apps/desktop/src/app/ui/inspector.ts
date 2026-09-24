@@ -1,147 +1,237 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, inject, Input, Output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
+import { LayoutService, RIGHT } from '../core/layout';
+import { FileDiff } from '../core/model';
+import { ConfirmService, SHORTCUTS, ToastService, UiStore, roveFocus } from '../core/ui';
 import { Diff, diffStats } from './diff';
+import { Icon, IconName } from './kit/icon';
+import { ResizeHandle } from './kit/resize-handle';
+import { Tooltip } from './kit/tooltip';
+
+type Tab = 'changes' | 'evidence' | 'log';
+type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
 
 @Component({
   selector: 'pa-inspector',
-  imports: [Diff],
+  imports: [Diff, Icon, Tooltip, ResizeHandle],
   template: `
-    <aside class="inspector">
-      <div class="inspector-heading">
-        <button class="sidecar-toggle" (click)="toggleCollapsed()" [attr.aria-expanded]="!collapsed()" [attr.aria-label]="collapsed() ? 'Apri barra laterale destra' : 'Chiudi barra laterale destra'" title="Mostra o nascondi la barra laterale">
-          <span class="sidecar-icon sidecar-icon-right" aria-hidden="true"></span>
-        </button>
-        <strong>Changes</strong>
-      </div>
-      <nav class="tabs">
-        @for (tab of tabs; track tab.id) {
-          <button [class.active]="active() === tab.id" (click)="active.set(tab.id)">
-            {{ tab.label }}
-            @if (tab.id === 'changes' && store.changes().length) { <span class="badge">{{ store.changes().length }}</span> }
-          </button>
-        }
-      </nav>
-
-      @switch (active()) {
-        @case ('changes') {
-          @if (store.changes().length) {
-            <div class="revert-all-row"><button class="ghost" (click)="revertAll()" [disabled]="store.turnActive()">Revert all</button></div>
+    <aside class="inspector" aria-label="Inspector">
+      <header class="inspector-head titlebar-row" data-tauri-drag-region="deep">
+        <div class="tabs" role="tablist" aria-label="Inspector" (keydown)="tabKeys($event)">
+          @for (tab of tabs; track tab.id) {
+            <button
+              class="tab"
+              role="tab"
+              [id]="'inspector-tab-' + tab.id"
+              [attr.aria-selected]="active() === tab.id"
+              aria-controls="inspector-panel"
+              [attr.tabindex]="active() === tab.id ? 0 : -1"
+              (click)="active.set(tab.id)"
+            >
+              {{ tab.label }}
+              @if (tab.id === 'changes' && store.changes().length) {
+                <span class="count" [attr.aria-label]="store.changes().length + ' changed files'">{{ store.changes().length }}</span>
+              }
+            </button>
           }
-          <div class="pane">
-            @for (change of store.changes(); track change.path; let first = $first) {
-              <details class="change" [open]="first">
-                <summary>
-                  <span class="change-path">{{ change.path }}</span>
-                  <button class="change-revert" (click)="$event.preventDefault(); $event.stopPropagation(); revert(change)" [disabled]="store.turnActive()" [attr.aria-label]="'Revert ' + change.path">Revert</button>
-                  <span class="delta">
-                    <span class="add">+{{ stats(change).added }}</span>
-                    <span class="del">−{{ stats(change).removed }}</span>
-                  </span>
-                </summary>
-                <pa-diff [diff]="change" />
-              </details>
-            } @empty {
-              <p class="muted">No file changed in this conversation yet.</p>
+        </div>
+        <button
+          class="icon-btn icon-btn-sm"
+          (click)="layout.toggleRight()"
+          aria-label="Hide inspector"
+          paTooltip="Hide inspector"
+          [paTooltipKeys]="keys.toggleInspector"
+        >
+          <pa-icon name="x" [size]="16" />
+        </button>
+      </header>
+
+      <div class="inspector-body" role="tabpanel" id="inspector-panel" [attr.aria-labelledby]="'inspector-tab-' + active()">
+        @switch (active()) {
+          @case ('changes') {
+            @if (store.changes().length) {
+              <div class="inspector-toolbar">
+                <span class="num">{{ store.changes().length }} file{{ store.changes().length === 1 ? '' : 's' }} changed</span>
+                <span class="num text-success">+{{ totals().added }}</span>
+                <span class="num text-danger">−{{ totals().removed }}</span>
+                <span class="spacer"></span>
+                <button class="btn btn-sm btn-ghost" (click)="revertAll()" [disabled]="store.turnActive()">
+                  <pa-icon name="undo" [size]="14" /> Revert all
+                </button>
+              </div>
+              <div class="inspector-pad">
+                @for (change of store.changes(); track change.path; let first = $first) {
+                  <details class="change" [open]="first">
+                    <summary>
+                      <pa-icon class="chevron" name="chevron-right" [size]="14" />
+                      <span class="change-path truncate" [attr.title]="change.path">{{ change.path }}</span>
+                      <span class="delta">
+                        <span class="add">+{{ stats(change).added }}</span>
+                        <span class="del">−{{ stats(change).removed }}</span>
+                      </span>
+                      <button
+                        class="icon-btn icon-btn-sm"
+                        (click)="$event.preventDefault(); $event.stopPropagation(); revert(change)"
+                        [disabled]="store.turnActive()"
+                        [attr.aria-label]="'Revert ' + change.path"
+                        paTooltip="Revert this file"
+                      >
+                        <pa-icon name="undo" [size]="14" />
+                      </button>
+                    </summary>
+                    <pa-diff [diff]="change" />
+                  </details>
+                }
+              </div>
+            } @else {
+              <div class="empty-state">
+                <span class="empty-state-icon"><pa-icon name="git-compare" /></span>
+                <p class="empty-state-title">No changes yet</p>
+                <p class="empty-state-text">Files PWR edits in this conversation appear here, with their diffs.</p>
+              </div>
             }
-            @if (revertError()) { <p class="warn">{{ revertError() }}</p> }
-          </div>
-        }
-        @case ('evidence') {
-          <div class="pane">
-            <div class="commands">
-              @for (command of commands; track command) {
-                <button (click)="store.runCommand(command)">{{ command }}</button>
+          }
+          @case ('evidence') {
+            <div class="inspector-pad">
+              <div class="evidence-actions">
+                @for (command of commands; track command.id) {
+                  <button
+                    [class]="command.id === 'verify' ? 'btn btn-primary' : 'btn'"
+                    (click)="store.runCommand(command.id)"
+                    [disabled]="!!store.commandRunning()"
+                    [attr.aria-busy]="store.commandRunning() === command.id"
+                    [paTooltip]="command.help"
+                  >
+                    <pa-icon [name]="command.icon" [size]="16" />
+                    {{ command.label }}
+                  </button>
+                }
+              </div>
+              @if (store.commandOutput(); as output) {
+                <section class="output-block" [attr.aria-busy]="!!store.commandRunning()">
+                  <header class="output-head">
+                    {{ output.name }}
+                    @if (store.commandRunning()) {
+                      <span class="spinner spinner-sm" aria-hidden="true"></span>
+                    }
+                    <span class="spacer"></span>
+                    <button class="icon-btn icon-btn-sm" (click)="copy(output.text)" aria-label="Copy output" paTooltip="Copy">
+                      <pa-icon name="copy" [size]="14" />
+                    </button>
+                  </header>
+                  <pre class="output">{{ output.text }}</pre>
+                </section>
+              } @else {
+                <p class="fine">Run the repository's checks, list the changes, or read the session's report.</p>
               }
             </div>
-            @if (store.commandOutput(); as output) {
-              <h4>{{ output.name }}</h4>
-              <pre class="output">{{ output.text }}</pre>
-            } @else {
-              <p class="muted">Run the repository's checks, list the changes, or read the session's report.</p>
-            }
-          </div>
+          }
+          @case ('log') {
+            <section class="output-block log-block">
+              <header class="output-head">
+                <span class="truncate mono" [attr.title]="store.corePath()">{{ store.corePath() || 'Core log' }}</span>
+                <span class="spacer"></span>
+                <button
+                  class="icon-btn icon-btn-sm"
+                  (click)="copy(store.logs().join('\\n'))"
+                  [disabled]="!store.logs().length"
+                  aria-label="Copy log"
+                  paTooltip="Copy log"
+                >
+                  <pa-icon name="copy" [size]="14" />
+                </button>
+              </header>
+              <pre class="output">{{ store.logs().join('\\n') || 'The core has written nothing to its log.' }}</pre>
+            </section>
+          }
         }
-        @case ('log') {
-          <div class="pane">
-            <p class="muted small">{{ store.corePath() }}</p>
-            <pre class="output log">{{ store.logs().join('\\n') || 'The core has written nothing to its log.' }}</pre>
-          </div>
-        }
-      }
+      </div>
     </aside>
-    <div class="resize-handle resize-handle-right" role="separator" aria-label="Ridimensiona barra laterale destra" aria-orientation="vertical" [attr.aria-valuenow]="width" aria-valuemin="230" aria-valuemax="500" tabindex="0" (pointerdown)="startResize($event)" (pointermove)="moveResize($event)" (pointerup)="endResize($event)" (pointercancel)="endResize($event)" (keydown)="resizeByKey($event)"></div>
+    @if (layout.right() === 'docked') {
+      <pa-resize-handle
+        edge="left"
+        label="Resize inspector"
+        [width]="layout.rightWidth()"
+        [min]="bounds.min"
+        [max]="bounds.max"
+        [initial]="bounds.initial"
+        (resize)="layout.setRightWidth($event)"
+      />
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[class.collapsed]': 'collapsed()' },
 })
 export class Inspector {
   protected readonly store = inject(AgentStore);
-  private autoCollapsed = typeof window !== 'undefined' && window.innerWidth <= 1180;
-  protected readonly collapsed = signal(this.autoCollapsed);
-  @Input() width = 360;
-  @Output() widthChange = new EventEmitter<number>();
-  private drag: { pointerId: number; x: number; width: number } | null = null;
-  protected readonly revertError = signal('');
-  protected readonly active = signal<'changes' | 'evidence' | 'log'>('changes');
-  protected readonly tabs = [
-    { id: 'changes' as const, label: 'Changes' },
-    { id: 'evidence' as const, label: 'Evidence' },
-    { id: 'log' as const, label: 'Core log' },
+  protected readonly layout = inject(LayoutService);
+  private readonly confirm = inject(ConfirmService);
+  private readonly toast = inject(ToastService);
+  protected readonly keys = SHORTCUTS;
+  protected readonly bounds = RIGHT;
+  protected readonly active = inject(UiStore).inspectorTab;
+  protected readonly tabs: { id: Tab; label: string }[] = [
+    { id: 'changes', label: 'Changes' },
+    { id: 'evidence', label: 'Evidence' },
+    { id: 'log', label: 'Core log' },
   ];
-  protected readonly commands = ['verify', 'changes', 'report', 'diagnose', 'doctor'] as const;
+  protected readonly commands: { id: Command; label: string; icon: IconName; help: string }[] = [
+    { id: 'verify', label: 'Verify', icon: 'shield-check', help: "Run the workspace's own checks" },
+    { id: 'changes', label: 'Changes', icon: 'git-compare', help: 'List the files this session changed' },
+    { id: 'report', label: 'Report', icon: 'file-text', help: 'Read what happened in this session' },
+    { id: 'diagnose', label: 'Diagnose', icon: 'activity', help: 'What happened, including failed generations' },
+    { id: 'doctor', label: 'Doctor', icon: 'stethoscope', help: 'Check this machine and the engine' },
+  ];
 
-  protected toggleCollapsed(): void { this.collapsed.update((value) => !value); }
-
-  @HostListener('window:resize')
-  protected syncWindowWidth(): void {
-    const compact = window.innerWidth <= 1180;
-    if (compact !== this.autoCollapsed) {
-      this.autoCollapsed = compact;
-      this.collapsed.set(compact);
-    }
-  }
-
-  protected startResize(event: PointerEvent): void {
-    this.drag = { pointerId: event.pointerId, x: event.clientX, width: this.width };
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    event.preventDefault();
-  }
-
-  protected moveResize(event: PointerEvent): void {
-    if (!this.drag || this.drag.pointerId !== event.pointerId) return;
-    this.widthChange.emit(this.clampWidth(this.drag.width - (event.clientX - this.drag.x)));
-  }
-
-  protected endResize(event: PointerEvent): void {
-    if (this.drag?.pointerId !== event.pointerId) return;
-    this.drag = null;
-    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-  }
-
-  protected resizeByKey(event: KeyboardEvent): void {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    this.widthChange.emit(this.clampWidth(this.width + (event.key === 'ArrowLeft' ? 16 : -16)));
-    event.preventDefault();
-  }
-
-  private clampWidth(width: number): number {
-    const left = document.querySelector('pa-sidebar')?.getBoundingClientRect().width ?? 48;
-    return Math.max(230, Math.min(500, window.innerWidth - left - 540, width));
-  }
+  protected readonly totals = computed(() =>
+    this.store.changes().reduce(
+      (sum, change) => {
+        const stats = diffStats(change.oldText, change.newText);
+        return { added: sum.added + stats.added, removed: sum.removed + stats.removed };
+      },
+      { added: 0, removed: 0 },
+    ),
+  );
 
   protected stats(change: { oldText: string; newText: string }) {
     return diffStats(change.oldText, change.newText);
   }
 
-  protected async revert(change: import('../core/model').FileDiff): Promise<void> {
-    if (!confirm(`Restore ${change.path} to how it was before this conversation changed it?`)) return;
-    try { await this.store.revertChange(change); this.revertError.set(''); }
-    catch (error) { this.revertError.set(String(error)); }
+  protected tabKeys(event: KeyboardEvent): void {
+    if (roveFocus(event, event.currentTarget as HTMLElement, '[role=tab]', 'horizontal')) {
+      (document.activeElement as HTMLElement | null)?.click();
+    }
+  }
+
+  protected async copy(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast.show('Copied to clipboard', 'success', 1800);
+    } catch {
+      this.toast.show('Could not copy to the clipboard', 'danger');
+    }
+  }
+
+  protected async revert(change: FileDiff): Promise<void> {
+    const reverted = await this.confirm.ask({
+      title: 'Revert this file?',
+      message: 'It is restored to how it was before this conversation changed it.',
+      subject: change.path,
+      confirmLabel: 'Revert file',
+      tone: 'danger',
+      action: () => this.store.revertChange(change),
+    });
+    if (reverted) this.toast.show(`Reverted ${change.path.split('/').pop()}`, 'success');
   }
 
   protected async revertAll(): Promise<void> {
-    if (!confirm(`Restore all ${this.store.changes().length} changed files to their original contents?`)) return;
-    try { await this.store.revertAllChanges(); this.revertError.set(''); }
-    catch (error) { this.revertError.set(String(error)); }
+    const count = this.store.changes().length;
+    const reverted = await this.confirm.ask({
+      title: `Revert all ${count} changed file${count === 1 ? '' : 's'}?`,
+      message: 'Each file is restored to its contents before this conversation changed it.',
+      confirmLabel: 'Revert all',
+      tone: 'danger',
+      action: () => this.store.revertAllChanges(),
+    });
+    if (reverted) this.toast.show('All changes reverted', 'success');
   }
 }

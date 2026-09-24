@@ -1,4 +1,4 @@
-import { bytes, fitTone, fullness, parameters, percent, tokens } from './format';
+import { bytes, fitTone, fullness, parameters, percent, shortDate, tokens } from './format';
 
 describe('format', () => {
   it('writes sizes as the OS reports them', () => {
@@ -37,5 +37,21 @@ describe('format', () => {
     expect(fullness(80, 75)).toBe('high');
     expect(fullness(60, 75)).toBe('mid');
     expect(fullness(20, 75)).toBe('low');
+  });
+});
+
+describe('shortDate', () => {
+  const now = new Date(2026, 8, 24, 15, 0);
+  it('shows the time today, then Yesterday, a weekday, a date', () => {
+    expect(shortDate(new Date(2026, 8, 24, 9, 5).toISOString(), now)).toMatch(/9|09/);
+    expect(shortDate(new Date(2026, 8, 23, 22, 0).toISOString(), now)).toBe('Yesterday');
+    expect(shortDate(new Date(2026, 8, 20).toISOString(), now)).toBe('Sun');
+    expect(shortDate(new Date(2026, 5, 2).toISOString(), now)).toBe('2 Jun');
+    expect(shortDate(new Date(2025, 1, 3).toISOString(), now)).toMatch(/2025/);
+  });
+
+  it('is empty for nothing or an invalid date', () => {
+    expect(shortDate(null, now)).toBe('');
+    expect(shortDate('not a date', now)).toBe('');
   });
 });

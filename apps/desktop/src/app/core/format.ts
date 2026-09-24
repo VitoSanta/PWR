@@ -68,3 +68,19 @@ export function when(value: string | null | undefined): string {
   if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
   return date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
 }
+
+/** A compact timestamp for lists: "14:32", "Yesterday", "Mon", "12 Sep", "12 Sep 2025". */
+export function shortDate(value: string | null | undefined, now = new Date()): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return '';
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(now) - day(date)) / 86_400_000);
+  if (days <= 0) return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (days === 1) return 'Yesterday';
+  // Names in the interface's language (English), the clock as the system sets it.
+  if (days < 7) return date.toLocaleDateString('en-GB', { weekday: 'short' });
+  if (date.getFullYear() === now.getFullYear())
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}

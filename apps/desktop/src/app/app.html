@@ -1,27 +1,76 @@
-<div class="aurora" aria-hidden="true"></div>
-<div class="shell" [class.mac-titlebar]="isMac" [style.--left-width]="leftWidth() + 'px'" [style.--right-width]="rightWidth() + 'px'">
-  @if (isMac) { <div class="titlebar-space" data-tauri-drag-region="deep"></div> }
-  <pa-sidebar [width]="leftWidth()" (widthChange)="setLeftWidth($event)" />
-  <main class="center">
-    <header class="topbar" data-tauri-drag-region="deep">
-      <div class="title" data-tauri-drag-region="deep">
-        <span class="live-dot" [class.on]="store.turnActive()"></span>
-        {{ store.turnActive() ? 'Working' : store.sessionId() ? 'Conversation' : 'New conversation' }}
-        @if (store.actionCount()) { <small>· {{ store.actionCount() }} actions</small> }
+<div
+  class="shell"
+  [class.is-mac]="isMac"
+  [class.is-fullscreen]="fullscreen()"
+  [class.is-resizing]="layout.resizing()"
+  [class.left-docked]="layout.left() === 'docked'"
+  [style.--left-col.px]="layout.left() === 'docked' ? layout.leftWidth() : rail"
+  [style.--right-col.px]="layout.right() === 'docked' ? layout.rightWidth() : 0"
+  [style.--left-w.px]="layout.leftWidth()"
+  [style.--right-w.px]="layout.rightWidth()"
+>
+  @if (layout.left() === 'docked') {
+    <pa-sidebar />
+  } @else {
+    <pa-rail />
+  }
+
+  <main class="main" aria-label="Conversation">
+    <header class="topbar titlebar-row" data-tauri-drag-region="deep">
+      <div class="topbar-title" data-tauri-drag-region="deep">
+        <span class="dot" [class.dot-live]="store.turnActive()" aria-hidden="true"></span>
+        <h1 class="truncate topbar-heading">{{ title() }}</h1>
+        @if (store.turnActive()) {
+          <span class="badge badge-info">Working</span>
+        } @else if (store.actionCount()) {
+          <span class="t-meta num">{{ store.actionCount() }} action{{ store.actionCount() === 1 ? '' : 's' }}</span>
+        }
       </div>
-      <div class="topbar-right">
+      <div class="topbar-actions">
         <pa-context-meter />
         <pa-model-picker />
+        <span class="topbar-sep" aria-hidden="true"></span>
+        <button
+          class="icon-btn"
+          (click)="layout.toggleRight()"
+          [attr.aria-pressed]="layout.right() !== 'hidden'"
+          aria-label="Inspector"
+          paTooltip="Inspector"
+          [paTooltipKeys]="keys.toggleInspector"
+        >
+          <pa-icon name="panel-right" />
+        </button>
       </div>
     </header>
     @if (store.coreError()) {
-      <div class="banner error">{{ store.coreError() }}</div>
+      <div class="core-error banner banner-danger" role="alert">
+        <pa-icon name="alert" [size]="16" />
+        <span class="selectable">{{ store.coreError() }}</span>
+      </div>
     }
     <pa-conversation />
     <pa-composer />
   </main>
-  <pa-inspector [width]="rightWidth()" (widthChange)="setRightWidth($event)" />
+
+  @if (layout.right() === 'docked') {
+    <pa-inspector />
+  }
+
+  @if (layout.left() === 'overlay' || layout.right() === 'overlay') {
+    <div class="overlay-backdrop" (click)="layout.closeOverlays()" animate.leave="is-leaving"></div>
+  }
+  @if (layout.left() === 'overlay') {
+    <pa-sidebar class="is-overlay" animate.leave="is-leaving" />
+  }
+  @if (layout.right() === 'overlay') {
+    <pa-inspector class="is-overlay" animate.leave="is-leaving" />
+  }
 </div>
+
 <pa-permission />
 <pa-workspace-trust />
 <pa-model-manager />
+<pa-settings />
+<pa-command-palette />
+<pa-confirm-host />
+<pa-toasts />

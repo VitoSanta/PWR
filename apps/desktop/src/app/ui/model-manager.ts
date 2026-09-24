@@ -1,8 +1,13 @@
-import { ChangeDetectionStrategy, Component, effect, ElementRef, HostListener, inject, signal, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { bytes, fitTone, parameters, percent, tokens } from '../core/format';
 import { CatalogEntry, CatalogVariant, DownloadView } from '../core/model';
 import { ModelsStore } from '../core/models.store';
+import { roveFocus } from '../core/ui';
+import { Dialog } from './kit/dialog';
+import { Icon } from './kit/icon';
+import { Select, SelectOption } from './kit/select';
+import { Tooltip } from './kit/tooltip';
 
 /**
  * Find, judge and download models this machine can run. Every rating,
@@ -10,474 +15,384 @@ import { ModelsStore } from '../core/models.store';
  */
 @Component({
   selector: 'pa-model-manager',
+  imports: [Dialog, Icon, Select, Tooltip],
   template: `
     @if (models.open()) {
-      <div class="scrim" (mousedown)="$event.target === $event.currentTarget && models.close()">
-        <div class="sheet" role="dialog" aria-modal="true" aria-label="Model Manager">
-          <header class="sheet-head">
-            <div>
-              <h2>Model Manager</h2>
-              <p class="muted">Open-weight models from Hugging Face, rated for this machine.</p>
+      <pa-dialog
+        size="lg"
+        labelledBy="mm-title"
+        describedBy="mm-description"
+        (closed)="models.close()"
+        animate.leave="is-leaving"
+      >
+        <header class="dialog-header mm-head">
+          <span class="dialog-icon tone-accent"><pa-icon name="box" [size]="18" /></span>
+          <div class="dialog-header-text">
+            <h2 class="dialog-title" id="mm-title">Model Manager</h2>
+            <p class="dialog-description" id="mm-description">Open-weight models from Hugging Face, rated for this machine.</p>
+          </div>
+          <button class="icon-btn" (click)="models.close()" aria-label="Close Model Manager" paTooltip="Close">
+            <pa-icon name="x" />
+          </button>
+        </header>
+
+        <section class="machine" aria-label="This machine">
+          @if (models.hardware(); as hw) {
+            <dl class="machine-grid">
+              <div class="machine-stat">
+                <dt><pa-icon name="cpu" [size]="14" /> Machine</dt>
+                <dd class="truncate">{{ hw.host.appleChip?.name ?? hw.host.cpu ?? 'unknown CPU' }} · {{ hw.host.architecture }}</dd>
+              </div>
+              <div class="machine-stat">
+                <dt><pa-icon name="memory" [size]="14" /> {{ hw.host.memory.unified ? 'Unified memory' : 'Memory' }}</dt>
+                <dd class="num">{{ b(hw.host.memory.totalBytes) }}</dd>
+              </div>
+              @for (gpu of discreteGpus(); track gpu.name) {
+                <div class="machine-stat">
+                  <dt><pa-icon name="monitor" [size]="14" /> GPU</dt>
+                  <dd class="truncate">{{ gpu.name }} · {{ gpu.vramBytes ? b(gpu.vramBytes) : 'memory unknown' }}</dd>
+                </div>
+              }
+              <div class="machine-stat">
+                <dt><pa-icon name="hard-drive" [size]="14" /> Free disk</dt>
+                <dd class="num">{{ hw.host.disk ? b(hw.host.disk.freeBytes) : 'unknown' }}</dd>
+              </div>
+              <div class="machine-stat">
+                <dt><pa-icon name="info" [size]="14" /> OS</dt>
+                <dd class="truncate">{{ hw.host.osName }} {{ hw.host.osVersion }}</dd>
+              </div>
+            </dl>
+            <div class="engines" aria-label="Engines">
+              @for (engine of hw.backends; track engine.id) {
+                <span class="badge" [class.badge-success]="engine.available && engine.active" [class.badge-outline]="!engine.active" [paTooltip]="engine.detail" tabindex="0">
+                  <span class="dot" [class.dot-success]="engine.available" [class.dot-danger]="!engine.available" aria-hidden="true"></span>
+                  {{ engine.label }}{{ engine.active ? ' · in use' : engine.available ? '' : ' · unavailable' }}
+                </span>
+              }
             </div>
-            <button class="icon-button" (click)="models.close()" aria-label="Close">×</button>
-          </header>
+          } @else if (models.hardwareError()) {
+            <p class="banner banner-danger" role="alert"><pa-icon name="alert" [size]="16" />This machine could not be read: {{ models.hardwareError() }}</p>
+          } @else {
+            <div class="machine-grid" aria-busy="true">
+              @for (i of [1, 2, 3, 4]; track i) {
+                <div class="machine-stat skeleton machine-skeleton"></div>
+              }
+            </div>
+          }
+        </section>
 
-          <section class="machine">
-            @if (models.hardware(); as hw) {
-              <div class="machine-facts">
-                <span class="fact"
-                  ><small>Machine</small
-                  >{{ hw.host.appleChip?.name ?? hw.host.cpu ?? 'unknown CPU' }} ·
-                  {{ hw.host.architecture }}</span
-                >
-                <span class="fact"
-                  ><small>{{ hw.host.memory.unified ? 'Unified memory' : 'Memory' }}</small
-                  >{{ b(hw.host.memory.totalBytes) }}</span
-                >
-                @for (gpu of discreteGpus(); track gpu.name) {
-                  <span class="fact"
-                    ><small>GPU</small>{{ gpu.name }} ·
-                    {{ gpu.vramBytes ? b(gpu.vramBytes) : 'memory unknown' }}</span
-                  >
-                }
-                <span class="fact"
-                  ><small>Free disk (models)</small
-                  >{{ hw.host.disk ? b(hw.host.disk.freeBytes) : 'unknown' }}</span
-                >
-                <span class="fact"
-                  ><small>OS</small>{{ hw.host.osName }} {{ hw.host.osVersion }}</span
-                >
-              </div>
-              <div class="engines">
-                @for (engine of hw.backends; track engine.id) {
-                  <span class="engine" [class.ok]="engine.available" [title]="engine.detail">
-                    <i></i>{{ engine.label }}{{ engine.active ? ' · in use' : '' }}
-                  </span>
-                }
-              </div>
-            } @else if (models.hardwareError()) {
-              <p class="warn">This machine could not be read: {{ models.hardwareError() }}</p>
-            } @else {
-              <p class="muted">Reading this machine…</p>
+        <div class="mm-tabs tabs" role="tablist" aria-label="Models" (keydown)="tabKeys($event)">
+          <button
+            class="tab"
+            role="tab"
+            id="mm-tab-discover"
+            aria-controls="mm-panel"
+            [attr.aria-selected]="models.tab() === 'discover'"
+            [attr.tabindex]="models.tab() === 'discover' ? 0 : -1"
+            (click)="models.showTab('discover')"
+          >
+            <pa-icon name="search" [size]="14" /> Discover
+          </button>
+          <button
+            class="tab"
+            role="tab"
+            id="mm-tab-local"
+            aria-controls="mm-panel"
+            [attr.aria-selected]="models.tab() === 'local'"
+            [attr.tabindex]="models.tab() === 'local' ? 0 : -1"
+            (click)="models.showTab('local')"
+          >
+            <pa-icon name="hard-drive" [size]="14" /> On this Mac
+            @if (models.local().length) {
+              <span class="count">{{ models.local().length }}</span>
             }
-          </section>
+          </button>
+        </div>
 
-          <nav class="sheet-tabs" role="tablist">
-            <button
-              role="tab"
-              [class.on]="models.tab() === 'discover'"
-              (click)="models.showTab('discover')"
-            >
-              Discover
-            </button>
-            <button
-              role="tab"
-              [class.on]="models.tab() === 'local'"
-              (click)="models.showTab('local')"
-            >
-              On this Mac{{ models.local().length ? ' (' + models.local().length + ')' : '' }}
-            </button>
-          </nav>
-
+        <div class="mm-panel" role="tabpanel" id="mm-panel" [attr.aria-labelledby]="'mm-tab-' + models.tab()">
           @if (models.tab() === 'local') {
-            <div class="results">
+            <div class="mm-results">
               @switch (models.localStatus()) {
                 @case ('loading') {
-                  <p class="result-status">
-                    <span class="spinner"></span> Reading the models folders…
-                  </p>
+                  <p class="result-status"><span class="spinner spinner-sm" aria-hidden="true"></span> Reading the models folders…</p>
                 }
                 @case ('error') {
-                  <div class="state">
-                    <strong>The models folders could not be read</strong>
-                    <p>{{ models.localError() }}</p>
+                  <div class="empty-state">
+                    <span class="empty-state-icon"><pa-icon name="alert" /></span>
+                    <p class="empty-state-title">The models folders could not be read</p>
+                    <p class="empty-state-text">{{ models.localError() }}</p>
                   </div>
                 }
                 @default {
                   @for (model of models.local(); track model.format + model.modelRef) {
-                    <div class="variant local-model">
-                      <div class="variant-main">
-                        <strong [title]="model.modelRef">{{ name(model.modelRef) }}</strong>
-                        <span class="tag">{{ model.format.toUpperCase() }}</span>
-                        <span class="muted"
-                          >{{ b(model.bytes) }} · {{ model.files }} file{{
-                            model.files === 1 ? '' : 's'
-                          }}</span
-                        >
+                    <div class="local-model">
+                      <div class="local-main">
+                        <strong class="truncate" [attr.title]="model.modelRef">{{ name(model.modelRef) }}</strong>
+                        <span class="badge badge-outline">{{ model.format.toUpperCase() }}</span>
                         @if (model.partial) {
-                          <span class="fit warn">unfinished download</span>
+                          <span class="badge badge-warning">unfinished download</span>
                         }
                         @if (model.inUse) {
-                          <span class="fit ok">in use here</span>
+                          <span class="badge badge-success">in use</span>
                         }
                       </div>
+                      <span class="t-meta num local-size">{{ b(model.bytes) }} · {{ model.files }} file{{ model.files === 1 ? '' : 's' }}</span>
                       <div class="variant-action">
                         @if (model.usable && !model.inUse) {
-                          <button
-                            class="ghost"
-                            (click)="models.use(model.modelRef)"
-                            [disabled]="agent.turnActive()"
-                          >
-                            Use
-                          </button>
+                          <button class="btn btn-sm" (click)="models.use(model.modelRef)" [disabled]="agent.turnActive()">Use</button>
                         }
                         <button
-                          class="danger"
+                          class="btn btn-sm btn-danger-quiet"
                           (click)="models.askDelete(model)"
                           [disabled]="model.inUse"
-                          [title]="
-                            model.inUse
-                              ? 'Choose another model for this workspace first'
-                              : 'Delete from this Mac'
-                          "
+                          [paTooltip]="model.inUse ? 'Choose another model for this workspace first' : 'Delete from this Mac'"
                         >
-                          {{ model.partial ? 'Discard' : 'Delete' }}
+                          <pa-icon name="trash" [size]="14" /> {{ model.partial ? 'Discard' : 'Delete' }}
                         </button>
                       </div>
-                      <small class="muted local-path">{{ model.path }}</small>
+                      <small class="local-path selectable">{{ model.path }}</small>
                     </div>
                   } @empty {
-                    <div class="state">
-                      <strong>No models on this Mac yet</strong>
-                      <p>Find one in Discover.</p>
+                    <div class="empty-state">
+                      <span class="empty-state-icon"><pa-icon name="box" /></span>
+                      <p class="empty-state-title">No models on this Mac yet</p>
+                      <p class="empty-state-text">Find one in Discover.</p>
+                      <button class="btn" (click)="models.showTab('discover')"><pa-icon name="search" [size]="16" /> Discover models</button>
                     </div>
                   }
                 }
               }
             </div>
           } @else {
-            <form class="search" (submit)="$event.preventDefault(); models.searchNow()">
-              <input
-                #searchField
-                type="search"
-                placeholder="Search models — qwen coder, gemma, llama…"
-                [value]="models.query()"
-                (input)="models.typeQuery($any($event.target).value)"
-                aria-label="Search models"
-              />
-              <div class="segmented" role="radiogroup" aria-label="Format">
-                <button
-                  type="button"
-                  [class.on]="models.format() === 'mlx'"
-                  (click)="models.setFormat('mlx')"
-                >
-                  MLX
-                </button>
-                <button
-                  type="button"
-                  [class.on]="models.format() === 'gguf'"
-                  (click)="models.setFormat('gguf')"
-                >
-                  GGUF
-                </button>
-              </div>
-              <button class="primary" type="submit">Search</button>
-            </form>
+            <div class="mm-toolbar">
+              <form class="mm-search" (submit)="$event.preventDefault(); models.searchNow()" role="search">
+                <div class="input-group mm-search-field">
+                  <pa-icon name="search" [size]="16" />
+                  <input
+                    #searchField
+                    class="input"
+                    type="search"
+                    placeholder="Search models — qwen coder, gemma, llama…"
+                    [value]="models.query()"
+                    (input)="models.typeQuery($any($event.target).value)"
+                    aria-label="Search models"
+                    data-autofocus
+                  />
+                </div>
+                <div class="segmented" role="radiogroup" aria-label="Format" (keydown)="formatKeys($event)">
+                  <button type="button" role="radio" [attr.aria-checked]="models.format() === 'mlx'" [attr.tabindex]="models.format() === 'mlx' ? 0 : -1" (click)="models.setFormat('mlx')">MLX</button>
+                  <button type="button" role="radio" [attr.aria-checked]="models.format() === 'gguf'" [attr.tabindex]="models.format() === 'gguf' ? 0 : -1" (click)="models.setFormat('gguf')">GGUF</button>
+                </div>
+                <button class="btn btn-primary" type="submit">Search</button>
+              </form>
 
-            <div class="filters">
-              <label class="check"
-                ><input
-                  type="checkbox"
-                  [checked]="models.filters().compatibleOnly"
-                  (change)="models.setFilters({ compatibleOnly: $any($event.target).checked })"
-                />
-                Fits this machine</label
-              >
-              <div class="filter-menu">
-                <button type="button" class="filter-trigger" aria-label="Parameters" aria-haspopup="true" [attr.aria-expanded]="openFilter() === 'size'" (click)="toggleFilter('size')">{{ sizeLabel() }} <span aria-hidden="true">⌄</span></button>
-                @if (openFilter() === 'size') {
-                  <div class="filter-options" role="group" aria-label="Parameters">
-                    @for (option of sizeOptions; track option.value) {
-                      <button type="button" [class.selected]="sizeValue() === option.value" [attr.aria-pressed]="sizeValue() === option.value" (click)="setSize(option.value); openFilter.set(null)">{{ option.label }}</button>
-                    }
-                  </div>
-                }
-              </div>
-              <div class="filter-menu">
-                <button type="button" class="filter-trigger" aria-label="Context length" aria-haspopup="true" [attr.aria-expanded]="openFilter() === 'context'" (click)="toggleFilter('context')">{{ contextLabel() }} <span aria-hidden="true">⌄</span></button>
-                @if (openFilter() === 'context') {
-                  <div class="filter-options" role="group" aria-label="Context length">
-                    @for (option of contextOptions; track option.value) {
-                      <button type="button" [class.selected]="models.filters().minContext === option.value" [attr.aria-pressed]="models.filters().minContext === option.value" (click)="models.setFilters({ minContext: option.value }); openFilter.set(null)">{{ option.label }}</button>
-                    }
-                  </div>
-                }
-              </div>
-              <div class="filter-menu">
-                <button type="button" class="filter-trigger" aria-label="Disk size" aria-haspopup="true" [attr.aria-expanded]="openFilter() === 'download'" (click)="toggleFilter('download')">{{ downloadLabel() }} <span aria-hidden="true">⌄</span></button>
-                @if (openFilter() === 'download') {
-                  <div class="filter-options" role="group" aria-label="Disk size">
-                    @for (option of downloadOptions; track option.value) {
-                      <button type="button" [class.selected]="models.filters().maxBytes === option.value" [attr.aria-pressed]="models.filters().maxBytes === option.value" (click)="models.setFilters({ maxBytes: option.value }); openFilter.set(null)">{{ option.label }}</button>
-                    }
-                  </div>
-                }
-              </div>
-              <label class="filter-field" (pointerdown)="quantizationField.focus()">
+              <div class="mm-filters" aria-label="Filters">
+                <label class="check-label">
+                  <input
+                    class="checkbox"
+                    type="checkbox"
+                    [checked]="models.filters().compatibleOnly"
+                    (change)="models.setFilters({ compatibleOnly: $any($event.target).checked })"
+                  />
+                  Fits this machine
+                </label>
+                <span class="mm-filter-sep" aria-hidden="true"></span>
+                <pa-select size="sm" ariaLabel="Parameters" [options]="sizeOptions" [value]="sizeValue()" (valueChange)="setSize($any($event))" />
+                <pa-select size="sm" ariaLabel="Context length" [options]="contextOptions" [value]="models.filters().minContext" (valueChange)="models.setFilters({ minContext: $any($event) })" />
+                <pa-select size="sm" ariaLabel="Download size" [options]="downloadOptions" [value]="models.filters().maxBytes" (valueChange)="models.setFilters({ maxBytes: $any($event) })" />
                 <input
-                  #quantizationField
                   type="search"
-                  class="small-input"
+                  class="input input-sm mm-filter-input"
                   aria-label="Quantization"
                   placeholder="Quantization (4-bit, Q4_K)"
                   [value]="models.filters().quantization ?? ''"
-                  (input)="
-                    models.typeFilter({ quantization: $any($event.target).value || undefined })
-                  "
+                  (input)="models.typeFilter({ quantization: $any($event.target).value || undefined })"
                 />
-              </label>
-              <label class="filter-field" (pointerdown)="familyField.focus()">
                 <input
-                  #familyField
                   type="search"
-                  class="small-input"
+                  class="input input-sm mm-filter-input"
                   aria-label="Family"
                   placeholder="Family (qwen, gemma)"
                   [value]="models.filters().family ?? ''"
                   (input)="models.typeFilter({ family: $any($event.target).value || undefined })"
                 />
-              </label>
+              </div>
+
+              @if (models.backend(); as engine) {
+                @if (!engine.available) {
+                  <p class="banner banner-warning"><pa-icon name="alert" [size]="16" />{{ engine.detail }}</p>
+                } @else if (!engine.active) {
+                  <p class="banner banner-warning">
+                    <pa-icon name="info" [size]="16" />
+                    <span>
+                      These are {{ engine.format.toUpperCase() }} models for {{ engine.label }}. This app is running the
+                      {{ models.activeBackend() }} engine: a download here can be chosen after starting the app with
+                      <code class="path-token">PWR_BACKEND={{ engine.id }}</code>.
+                    </span>
+                  </p>
+                }
+              }
+
+              <p class="result-status" aria-live="polite">
+                @switch (models.status()) {
+                  @case ('loading') {
+                    <span class="spinner spinner-sm" aria-hidden="true"></span> Searching Hugging Face…
+                  }
+                  @case ('ready') {
+                    <span>
+                      {{ models.results().length }} model{{ models.results().length === 1 ? '' : 's' }}
+                      · {{ (models.format() ?? '').toUpperCase() }}{{ models.query() ? ' · “' + models.query() + '”' : ''
+                      }}{{ models.filters().compatibleOnly ? ' · fits this machine' : '' }}
+                    </span>
+                  }
+                  @case ('error') {
+                    Search failed
+                  }
+                }
+              </p>
             </div>
 
-            @if (models.backend(); as engine) {
-              @if (!engine.available) {
-                <div class="banner warnish">{{ engine.detail }}</div>
-              } @else if (!engine.active) {
-                <div class="banner warnish">
-                  These are {{ engine.format.toUpperCase() }} models for {{ engine.label }}. This
-                  app is running the {{ models.activeBackend() }} engine: a download here can be
-                  chosen after starting the app with <code>PWR_BACKEND={{ engine.id }}</code
-                  >.
-                </div>
-              }
-            }
-
-            <p class="result-status" aria-live="polite">
-              @switch (models.status()) {
-                @case ('loading') {
-                  <span class="spinner"></span> Searching Hugging Face…
-                }
-                @case ('ready') {
-                  {{ models.results().length }} model{{
-                    models.results().length === 1 ? '' : 's'
-                  }}
-                  · {{ (models.format() ?? '').toUpperCase()
-                  }}{{ models.query() ? ' · “' + models.query() + '”' : ''
-                  }}{{ models.filters().compatibleOnly ? ' · fits this machine' : '' }}
-                }
-                @case ('error') {
-                  Search failed
-                }
-              }
-            </p>
-            <div
-              class="results"
-              [class.stale]="models.status() === 'loading' && models.results().length > 0"
-            >
-              @switch (
-                models.status() === 'loading' && models.results().length > 0
-                  ? 'ready'
-                  : models.status()
-              ) {
+            <div class="mm-results" [class.stale]="models.status() === 'loading' && models.results().length > 0">
+              @switch (models.status() === 'loading' && models.results().length > 0 ? 'ready' : models.status()) {
                 @case ('loading') {
                   @for (i of [1, 2, 3]; track i) {
-                    <div class="card skeleton"></div>
+                    <div class="skeleton model-skeleton" aria-hidden="true"></div>
                   }
                 }
                 @case ('error') {
-                  <div class="state">
-                    <strong>{{
+                  <div class="empty-state">
+                    <span class="empty-state-icon"><pa-icon name="globe" /></span>
+                    <p class="empty-state-title">{{
                       models.error()?.kind === 'offline'
                         ? 'Hugging Face is not reachable'
                         : models.error()?.kind === 'rate_limited'
                           ? 'Too many requests'
                           : 'The search failed'
-                    }}</strong>
-                    <p>{{ models.error()?.message }}</p>
-                    <button class="ghost" (click)="models.search()">Retry</button>
+                    }}</p>
+                    <p class="empty-state-text">{{ models.error()?.message }}</p>
+                    <button class="btn" (click)="models.search()"><pa-icon name="refresh" [size]="16" /> Retry</button>
                   </div>
                 }
                 @default {
                   @for (entry of models.results(); track entry.repository) {
-                    <article class="card">
-                      <header class="card-head">
-                        <div>
-                          <h3>{{ entry.name }}</h3>
-                          <p class="muted">
+                    <article class="model-card" [attr.aria-labelledby]="'model-' + $index">
+                      <header class="model-card-head">
+                        <div class="model-card-title">
+                          <h3 class="t-heading truncate" [id]="'model-' + $index" [attr.title]="entry.repository">{{ entry.name }}</h3>
+                          <p class="t-meta truncate">
                             {{ entry.author ?? 'unknown author' }}
                             @if (entry.baseModel) {
                               · based on {{ entry.baseModel }}
                             }
                           </p>
                         </div>
-                        <a class="hub-link" [href]="entry.url" target="_blank" rel="noopener"
-                          >Hugging Face ↗</a
-                        >
+                        <div class="model-card-stats">
+                          @if (entry.downloads !== null) {
+                            <span class="stat num" paTooltip="Downloads"><pa-icon name="download" [size]="12" />{{ entry.downloads.toLocaleString('en-US') }}</span>
+                          }
+                          @if (entry.likes !== null) {
+                            <span class="stat num" paTooltip="Likes"><pa-icon name="heart" [size]="12" />{{ entry.likes.toLocaleString('en-US') }}</span>
+                          }
+                          <a class="icon-btn icon-btn-sm" [href]="entry.url" target="_blank" rel="noopener" aria-label="Open on Hugging Face" paTooltip="Open on Hugging Face">
+                            <pa-icon name="external-link" [size]="14" />
+                          </a>
+                        </div>
                       </header>
-                      <dl class="meta">
-                        <div>
-                          <dt>Parameters</dt>
-                          <dd [title]="entry.parametersSource ?? ''">
-                            {{ params(entry.parameters) }}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>Architecture</dt>
-                          <dd [title]="entry.architectureSource ?? ''">
-                            {{ entry.architecture ?? 'unknown' }}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>Context</dt>
-                          <dd [title]="entry.contextSource ?? ''">
-                            {{ entry.contextLength ? t(entry.contextLength) : 'unknown' }}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>License</dt>
-                          <dd>{{ entry.license ?? 'unknown' }}</dd>
-                        </div>
-                        <div>
-                          <dt>Format</dt>
-                          <dd>
-                            {{ entry.format.toUpperCase() }} ·
-                            {{ entry.backend === 'mlx' ? 'MLX' : 'llama.cpp' }}
-                          </dd>
-                        </div>
-                        @if (entry.downloads !== null) {
-                          <div>
-                            <dt>Downloads</dt>
-                            <dd>{{ entry.downloads.toLocaleString('en-US') }}</dd>
-                          </div>
-                        }
-                        @if (entry.likes !== null) {
-                          <div>
-                            <dt>Likes</dt>
-                            <dd>{{ entry.likes.toLocaleString('en-US') }}</dd>
-                          </div>
-                        }
+                      <dl class="spec-line">
+                        <div><dt>Parameters</dt><dd class="num" [attr.title]="entry.parametersSource ?? ''">{{ params(entry.parameters) }}</dd></div>
+                        <div><dt>Context</dt><dd class="num" [attr.title]="entry.contextSource ?? ''">{{ entry.contextLength ? t(entry.contextLength) : 'unknown' }}</dd></div>
+                        <div><dt>Architecture</dt><dd [attr.title]="entry.architectureSource ?? ''">{{ entry.architecture ?? 'unknown' }}</dd></div>
+                        <div><dt>License</dt><dd>{{ entry.license ?? 'unknown' }}</dd></div>
+                        <div><dt>Format</dt><dd>{{ entry.format.toUpperCase() }} · {{ entry.backend === 'mlx' ? 'MLX' : 'llama.cpp' }}</dd></div>
                         @if (entry.vision) {
-                          <div>
-                            <dt>Input</dt>
-                            <dd>text and images</dd>
-                          </div>
+                          <div><dt>Input</dt><dd><span class="badge badge-info"><pa-icon name="eye" [size]="12" /> text and images</span></dd></div>
                         }
                       </dl>
                       @for (note of entry.notes; track note) {
-                        <p class="note">{{ note }}</p>
+                        <p class="model-note"><pa-icon name="alert" [size]="14" />{{ note }}</p>
                       }
 
                       <div class="variants">
                         @for (variant of entry.variants; track variant.id) {
                           <div class="variant">
                             <div class="variant-main">
-                              <strong>{{ variant.quantization ?? 'unquantized' }}</strong>
+                              <strong class="variant-quant">{{ variant.quantization ?? 'unquantized' }}</strong>
                               @if (variant.quantizationSource === 'filename') {
-                                <small class="muted" title="Read from the file name"
-                                  >from name</small
-                                >
+                                <small class="muted" paTooltip="Read from the file name">from name</small>
                               }
-                              <span class="muted"
-                                >{{ b(variant.bytes)
-                                }}{{
-                                  variant.files.length > 1
-                                    ? ' · ' + variant.files.length + ' files'
-                                    : ''
-                                }}</span
-                              >
+                              <span class="t-meta num">{{ b(variant.bytes) }}{{ variant.files.length > 1 ? ' · ' + variant.files.length + ' files' : '' }}</span>
                               <button
-                                class="fit"
-                                [class]="'fit ' + tone(variant.fit.level)"
+                                class="badge"
+                                [class]="'badge ' + fitBadge(variant.fit.level)"
                                 (click)="toggleFit(entry, variant)"
-                                [title]="variant.fit.explanation"
+                                [paTooltip]="variant.fit.explanation"
                                 [attr.aria-expanded]="explained() === key(entry, variant)"
                               >
                                 {{ variant.fit.label }}
+                                <pa-icon name="info" [size]="12" />
                               </button>
                             </div>
                             <div class="variant-action">
                               @if (deletable(entry, variant)) {
                                 <button
-                                  class="ghost danger-text"
+                                  class="btn btn-sm btn-danger-quiet"
                                   (click)="deleteVariant(variant)"
                                   [disabled]="variant.modelRef === agent.model()"
-                                  [title]="
-                                    variant.modelRef === agent.model()
-                                      ? 'Choose another model first'
-                                      : 'Delete from this Mac'
-                                  "
+                                  [paTooltip]="variant.modelRef === agent.model() ? 'Choose another model first' : 'Delete from this Mac'"
                                 >
                                   {{ variant.local === 'partial' ? 'Discard' : 'Delete' }}
                                 </button>
                               }
                               @switch (action(entry, variant)) {
                                 @case ('use') {
-                                  <span class="ok-text">Available</span>
+                                  <span class="variant-state text-success"><pa-icon name="check" [size]="14" /> Available</span>
                                   <button
-                                    class="primary"
+                                    class="btn btn-sm btn-primary"
                                     (click)="models.use(variant.modelRef)"
-                                    [disabled]="
-                                      agent.turnActive() || variant.modelRef === agent.model()
-                                    "
+                                    [disabled]="agent.turnActive() || variant.modelRef === agent.model()"
                                   >
                                     {{ variant.modelRef === agent.model() ? 'In use' : 'Use' }}
                                   </button>
                                 }
                                 @case ('running') {
                                   @if (download(entry, variant); as dl) {
-                                    <div class="progress" [title]="dl.file ?? ''">
-                                      <div class="track">
+                                    <div class="download-progress" [attr.title]="dl.file ?? ''">
+                                      <div class="progress" role="progressbar" [attr.aria-valuenow]="progress(dl)" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="'Downloading ' + entry.name">
                                         <span [style.width.%]="progress(dl)"></span>
                                       </div>
-                                      <small>{{ phase(dl) }}</small>
+                                      <small class="t-caption num">{{ phase(dl) }}</small>
                                     </div>
-                                    <button class="ghost" (click)="models.cancel(entry, variant)">
-                                      Cancel
-                                    </button>
+                                    <button class="btn btn-sm" (click)="models.cancel(entry, variant)">Cancel</button>
                                   }
                                 }
                                 @case ('done') {
-                                  <span class="muted">{{
-                                    download(entry, variant)?.nextStep ?? 'Downloaded.'
-                                  }}</span>
+                                  <span class="variant-state">{{ download(entry, variant)?.nextStep ?? 'Downloaded.' }}</span>
                                 }
                                 @case ('blocked') {
-                                  <span class="muted">{{ variant.blocked }}</span>
+                                  <span class="variant-state">{{ variant.blocked }}</span>
                                 }
                                 @case ('incompatible') {
-                                  <span class="muted">Cannot run here</span>
+                                  <span class="variant-state">Cannot run here</span>
                                 }
                                 @default {
                                   @if (download(entry, variant); as dl) {
                                     @if (dl.state.state === 'failed') {
-                                      <span class="bad-text" [title]="dl.state.message">{{
-                                        failure(dl)
-                                      }}</span>
+                                      <span class="variant-state text-danger" [paTooltip]="dl.state.message">{{ failure(dl) }}</span>
                                     }
                                     @if (dl.state.state === 'cancelled') {
-                                      <span class="muted"
-                                        >Paused · {{ b(dl.state.bytes) }} kept</span
-                                      >
+                                      <span class="variant-state num">Paused · {{ b(dl.state.bytes) }} kept</span>
                                     }
                                   } @else if (variant.local === 'partial') {
-                                    <span class="muted"
-                                      >{{ b(variant.localBytes) }} downloaded</span
-                                    >
+                                    <span class="variant-state num">{{ b(variant.localBytes) }} downloaded</span>
                                   } @else if (variant.local === 'present') {
-                                    <span class="muted">On disk</span>
+                                    <span class="variant-state">On disk</span>
                                   }
                                   <button
-                                    [class]="
-                                      variant.fit.level === 'not_recommended' ? 'ghost' : 'primary'
-                                    "
+                                    [class]="variant.fit.level === 'not_recommended' ? 'btn btn-sm' : 'btn btn-sm btn-primary'"
                                     (click)="models.download(entry, variant)"
-                                    [title]="
-                                      variant.fit.level === 'not_recommended'
-                                        ? 'Likely too large for this machine'
-                                        : 'Download ' + b(variant.bytes)
-                                    "
+                                    [paTooltip]="variant.fit.level === 'not_recommended' ? 'Likely too large for this machine' : 'Download ' + b(variant.bytes)"
                                   >
-                                    {{ verb(entry, variant) }}
+                                    <pa-icon name="download" [size]="14" /> {{ verb(entry, variant) }}
                                   </button>
                                 }
                               }
@@ -494,81 +409,86 @@ import { ModelsStore } from '../core/models.store';
                             }
                           </div>
                         } @empty {
-                          <p class="muted">
-                            No runnable {{ entry.format.toUpperCase() }} files in this repository{{
-                              models.filters().compatibleOnly ? ' that fit this machine' : ''
-                            }}.
+                          <p class="fine">
+                            No runnable {{ entry.format.toUpperCase() }} files in this repository{{ models.filters().compatibleOnly ? ' that fit this machine' : '' }}.
                           </p>
                         }
                       </div>
                     </article>
                   } @empty {
                     @if (models.status() === 'ready') {
-                      <div class="state">
-                        <strong>{{ models.nextCursor() ? 'No matches on this page' : 'No models found' }}</strong>
-                        <p>
-                          Nothing matched{{
-                            models.filters().compatibleOnly ? ' that fits this machine' : ''
-                          }}. {{ models.nextCursor() ? 'Load more to continue searching, or clear a filter.' : 'Try another search, or clear a filter.' }}
+                      <div class="empty-state">
+                        <span class="empty-state-icon"><pa-icon name="search" /></span>
+                        <p class="empty-state-title">{{ models.nextCursor() ? 'No matches on this page' : 'No models found' }}</p>
+                        <p class="empty-state-text">
+                          Nothing matched{{ models.filters().compatibleOnly ? ' that fits this machine' : '' }}.
+                          {{ models.nextCursor() ? 'Load more to continue searching, or clear a filter.' : 'Try another search, or clear a filter.' }}
                         </p>
                       </div>
                     }
                   }
+                  @if (models.nextCursor() && models.status() === 'ready') {
+                    <div class="catalog-more">
+                      @if (models.loadMoreError()) {
+                        <span class="text-danger">{{ models.loadMoreError() }}</span>
+                      }
+                      <button class="btn" (click)="models.loadMore()" [disabled]="models.loadingMore()" [attr.aria-busy]="models.loadingMore()">
+                        Load more models
+                      </button>
+                    </div>
+                  }
                 }
               }
             </div>
-            @if (models.nextCursor() && models.status() === 'ready') {
-              <div class="catalog-more">
-                @if (models.loadMoreError()) {
-                  <span class="bad-text">{{ models.loadMoreError() }}</span>
-                }
-                <button class="ghost" (click)="models.loadMore()" [disabled]="models.loadingMore()">
-                  {{ models.loadingMore() ? 'Loading…' : 'Load more models' }}
-                </button>
-              </div>
-            }
-          }
-          <footer class="sheet-foot muted">
-            Downloads go to {{ models.modelsRoot() || 'the engine’s models folder' }}, pinned to a
-            commit and checked against the Hub's checksums. Fit is an estimate of whether a model
-            loads with a useful context, not of its speed or quality.
-          </footer>
-
-          @if (models.pendingDelete(); as target) {
-            <div class="confirm-scrim">
-              <div class="confirm" role="alertdialog" aria-modal="true">
-                <h3>Delete {{ name(target.modelRef) }}?</h3>
-                <p>
-                  {{ b(target.bytes) }} will be permanently removed from this Mac and PWR will no
-                  longer list it. This cannot be undone; you can download it again later.
-                </p>
-                @if (target.path) {
-                  <p class="muted local-path">{{ target.path }}</p>
-                }
-                @if (models.deleteError()) {
-                  <p class="bad-text">{{ models.deleteError() }}</p>
-                }
-                <div class="choices">
-                  <button
-                    class="ghost"
-                    (click)="models.cancelDelete()"
-                    [disabled]="models.deleting()"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    class="danger"
-                    (click)="models.confirmDelete()"
-                    [disabled]="models.deleting()"
-                  >
-                    {{ models.deleting() ? 'Deleting…' : 'Delete' }}
-                  </button>
-                </div>
-              </div>
-            </div>
           }
         </div>
-      </div>
+        <footer class="mm-foot">
+          <pa-icon name="shield-check" [size]="14" />
+          <span>
+            Downloads go to <span class="mono">{{ models.modelsRoot() || 'the engine’s models folder' }}</span>, pinned to a commit
+            and checked against the Hub's checksums. Fit is an estimate of whether a model loads with a useful context, not of
+            its speed or quality.
+          </span>
+        </footer>
+      </pa-dialog>
+    }
+
+    @if (models.pendingDelete(); as target) {
+      <pa-dialog
+        dialogRole="alertdialog"
+        labelledBy="model-delete-title"
+        describedBy="model-delete-message"
+        [dismissible]="!models.deleting()"
+        (closed)="models.cancelDelete()"
+        animate.leave="is-leaving"
+      >
+        <div class="dialog-header">
+          <span class="dialog-icon tone-danger"><pa-icon name="trash" [size]="18" /></span>
+          <div class="dialog-header-text">
+            <h2 class="dialog-title" id="model-delete-title">Delete {{ name(target.modelRef) }}?</h2>
+            <p class="dialog-description" id="model-delete-message">
+              {{ b(target.bytes) }} will be permanently removed from this Mac and PWR will no longer list it. This cannot be
+              undone; you can download it again later.
+            </p>
+          </div>
+        </div>
+        @if (target.path || models.deleteError()) {
+          <div class="dialog-body">
+            @if (target.path) {
+              <p class="dialog-subject">{{ target.path }}</p>
+            }
+            @if (models.deleteError()) {
+              <p class="banner banner-danger" role="alert"><pa-icon name="alert" [size]="16" />{{ models.deleteError() }}</p>
+            }
+          </div>
+        }
+        <div class="dialog-footer">
+          <button class="btn" (click)="models.cancelDelete()" [disabled]="models.deleting()" data-autofocus>Cancel</button>
+          <button class="btn btn-danger" (click)="models.confirmDelete()" [disabled]="models.deleting()" [attr.aria-busy]="models.deleting()">
+            Delete
+          </button>
+        </div>
+      </pa-dialog>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -576,12 +496,6 @@ import { ModelsStore } from '../core/models.store';
 export class ModelManager {
   protected readonly models = inject(ModelsStore);
   protected readonly agent = inject(AgentStore);
-  @ViewChild('searchField') private searchField?: ElementRef<HTMLInputElement>;
-  private readonly focusDiscover = effect(() => {
-    if (this.models.open() && this.models.tab() === 'discover') {
-      setTimeout(() => this.searchField?.nativeElement.focus(), 0);
-    }
-  });
 
   protected readonly explained = signal<string | null>(null);
   protected readonly b = bytes;
@@ -589,8 +503,7 @@ export class ModelManager {
   protected readonly params = parameters;
   protected readonly tone = fitTone;
   protected readonly gib = 1024 ** 3;
-  protected readonly openFilter = signal<'size' | 'context' | 'download' | null>(null);
-  protected readonly sizeOptions = [
+  protected readonly sizeOptions: SelectOption<string>[] = [
     { value: '', label: 'Any size' },
     { value: '0-4', label: 'Up to 4B' },
     { value: '4-9', label: '4–9B' },
@@ -598,43 +511,22 @@ export class ModelManager {
     { value: '16-40', label: '16–40B' },
     { value: '40-', label: 'Over 40B' },
   ];
-  protected readonly contextOptions = [
+  protected readonly contextOptions: SelectOption<number | undefined>[] = [
     { value: undefined, label: 'Any context' },
     { value: 32768, label: '≥ 32k' },
     { value: 131072, label: '≥ 128k' },
   ];
-  protected readonly downloadOptions = [
+  protected readonly downloadOptions: SelectOption<number | undefined>[] = [
     { value: undefined, label: 'Any download' },
     { value: 5 * this.gib, label: '≤ 5 GB' },
     { value: 10 * this.gib, label: '≤ 10 GB' },
     { value: 20 * this.gib, label: '≤ 20 GB' },
   ];
 
-  protected toggleFilter(filter: 'size' | 'context' | 'download'): void {
-    this.openFilter.update((current) => current === filter ? null : filter);
-  }
-
   protected sizeValue(): string {
     const { minParameters, maxParameters } = this.models.filters();
     if (minParameters == null && maxParameters == null) return '';
     return `${minParameters == null ? '0' : minParameters / 1e9}-${maxParameters == null ? '' : maxParameters / 1e9}`;
-  }
-
-  protected sizeLabel(): string {
-    return this.sizeOptions.find((option) => option.value === this.sizeValue())?.label ?? 'Any size';
-  }
-
-  protected contextLabel(): string {
-    return this.contextOptions.find((option) => option.value === this.models.filters().minContext)?.label ?? 'Any context';
-  }
-
-  protected downloadLabel(): string {
-    return this.downloadOptions.find((option) => option.value === this.models.filters().maxBytes)?.label ?? 'Any download';
-  }
-
-  @HostListener('document:pointerdown', ['$event'])
-  protected closeFilterOnOutsideClick(event: PointerEvent): void {
-    if (!(event.target as Element).closest('.filter-menu')) this.openFilter.set(null);
   }
 
   protected discreteGpus() {
@@ -742,10 +634,17 @@ export class ModelManager {
     });
   }
 
-  @HostListener('document:keydown.escape')
-  protected escape(): void {
-    if (this.openFilter()) this.openFilter.set(null);
-    else if (this.models.pendingDelete()) this.models.cancelDelete();
-    else if (this.models.open()) this.models.close();
+  protected fitBadge(level: string): string {
+    return { ok: 'badge-success', fine: 'badge-info', warn: 'badge-warning', bad: 'badge-danger', muted: '' }[this.tone(level)];
+  }
+
+  protected tabKeys(event: KeyboardEvent): void {
+    if (roveFocus(event, event.currentTarget as HTMLElement, '[role=tab]', 'horizontal'))
+      (document.activeElement as HTMLElement | null)?.click();
+  }
+
+  protected formatKeys(event: KeyboardEvent): void {
+    if (roveFocus(event, event.currentTarget as HTMLElement, '[role=radio]', 'horizontal'))
+      (document.activeElement as HTMLElement | null)?.click();
   }
 }

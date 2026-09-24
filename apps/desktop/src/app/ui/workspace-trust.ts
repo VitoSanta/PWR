@@ -1,32 +1,54 @@
-import { ChangeDetectionStrategy, Component, HostListener, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
+import { Dialog } from './kit/dialog';
+import { Icon } from './kit/icon';
 
 @Component({
   selector: 'pa-workspace-trust',
+  imports: [Dialog, Icon],
   template: `
     @if (store.pendingWorkspaceTrust(); as folder) {
-      <div class="scrim">
-        <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="trust-title" aria-describedby="trust-description">
-          <span class="shield" aria-hidden="true">⛨</span>
-          <h2 id="trust-title">Trust this folder?</h2>
-          <p class="asked trust-path">{{ folder }}</p>
-          <p id="trust-description" class="muted">PWR can read and edit files and run commands here. Review this folder and its project instructions before continuing. Your Ask or Auto-approve setting stays as configured.</p>
-          @if (store.workspaceTrustError()) { <p class="warn">{{ store.workspaceTrustError() }}</p> }
-          <div class="choices trust-choices">
-            <button class="ghost" (click)="store.cancelWorkspaceTrust()" [disabled]="store.trustingWorkspace()">Cancel</button>
-            <button class="primary" (click)="store.confirmWorkspaceTrust()" [disabled]="store.trustingWorkspace()">{{ store.trustingWorkspace() ? 'Opening…' : 'Trust folder' }}</button>
+      <pa-dialog
+        dialogRole="alertdialog"
+        labelledBy="trust-title"
+        describedBy="trust-description"
+        [dismissible]="!store.trustingWorkspace()"
+        (closed)="store.cancelWorkspaceTrust()"
+        size="md"
+        animate.leave="is-leaving"
+      >
+        <div class="dialog-header">
+          <span class="dialog-icon tone-warning"><pa-icon name="shield" [size]="18" /></span>
+          <div class="dialog-header-text">
+            <h2 class="dialog-title" id="trust-title">Trust this folder?</h2>
+            <p class="dialog-description" id="trust-description">
+              PWR can read and edit files and run commands here. Review this folder and its project
+              instructions before continuing. Your Ask or Auto-approve setting stays as configured.
+            </p>
           </div>
         </div>
-      </div>
+        <div class="dialog-body">
+          <p class="dialog-subject">{{ folder }}</p>
+          @if (store.workspaceTrustError()) {
+            <p class="banner banner-danger" role="alert"><pa-icon name="alert" [size]="16" />{{ store.workspaceTrustError() }}</p>
+          }
+        </div>
+        <div class="dialog-footer">
+          <button class="btn" (click)="store.cancelWorkspaceTrust()" [disabled]="store.trustingWorkspace()" data-autofocus>Cancel</button>
+          <button
+            class="btn btn-primary"
+            (click)="store.confirmWorkspaceTrust()"
+            [disabled]="store.trustingWorkspace()"
+            [attr.aria-busy]="store.trustingWorkspace()"
+          >
+            Trust folder
+          </button>
+        </div>
+      </pa-dialog>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkspaceTrust {
   protected readonly store = inject(AgentStore);
-
-  @HostListener('document:keydown.escape')
-  protected cancel(): void {
-    this.store.cancelWorkspaceTrust();
-  }
 }
