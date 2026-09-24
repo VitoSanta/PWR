@@ -12,6 +12,8 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
+mod engine;
+
 #[derive(Default)]
 struct Core(Mutex<Option<Running>>);
 
@@ -234,21 +236,10 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     command.env("PATH", login_path());
-    // As the launcher does: the checkout's MLX interpreter when the
-    // environment names none -- the one `scripts/setup-mlx.sh` creates, then
-    // the engine spike's on the maintainer's machine.
-    if std::env::var_os("PWR_MLX_PYTHON").is_none() {
-        if let Some(python) = repository().and_then(|root| {
-            [
-                ".venv-mlx/bin/python",
-                "experiments/engine-spike-mlx-20260917/.venv/bin/python",
-            ]
-            .into_iter()
-            .map(|candidate| root.join(candidate))
-            .find(|path| path.is_file())
-        }) {
-            command.env("PWR_MLX_PYTHON", python);
-        }
+    // The MLX interpreter: named by the environment, installed by this app on
+    // first run, or (in development) the checkout's. See `engine`.
+    if let Some(python) = engine::python(&app) {
+        command.env("PWR_MLX_PYTHON", python);
     }
     let mut child = command
         .spawn()
@@ -348,6 +339,7 @@ fn core_stop(core: State<'_, Core>) {
 pub fn run() {
     tauri::Builder::default()
         .manage(Core::default())
+        .manage(engine::Setup::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -367,7 +359,10 @@ pub fn run() {
             core_start,
             core_send,
             restore_workspace_file,
-            core_stop
+            core_stop,
+            engine::engine_status,
+            engine::engine_install,
+            engine::engine_cancel
         ])
         .build(tauri::generate_context!())
         .expect("error while building the PWR app")

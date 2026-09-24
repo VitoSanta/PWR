@@ -1,4 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { AgentStore } from '../core/agent.store';
+import { EngineStatus } from '../core/model';
 import { ThemeMode, ThemeService } from '../core/theme';
 import { SHORTCUTS, UiStore, roveFocus, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
@@ -61,6 +63,27 @@ import { Icon, IconName } from './kit/icon';
             </p>
           </section>
 
+          @if (store.engine(); as engine) {
+            @if (engine.needed) {
+              <section class="settings-group" aria-labelledby="engine-label">
+                <h3 class="section-label" id="engine-label">Engine</h3>
+                <dl class="shortcut-list">
+                  <div>
+                    <dt>MLX environment</dt>
+                    <dd>
+                      <span class="badge" [class.badge-success]="engine.ready" [class.badge-warning]="!engine.ready">
+                        {{ engine.ready ? sourceLabel(engine.source) : 'not installed' }}
+                      </span>
+                    </dd>
+                  </div>
+                </dl>
+                @if (engine.python) {
+                  <p class="dialog-subject">{{ engine.python }}</p>
+                }
+              </section>
+            }
+          }
+
           <section class="settings-group" aria-labelledby="shortcuts-label">
             <h3 class="section-label" id="shortcuts-label">Keyboard shortcuts</h3>
             <dl class="shortcut-list">
@@ -86,6 +109,7 @@ import { Icon, IconName } from './kit/icon';
 export class Settings {
   protected readonly ui = inject(UiStore);
   protected readonly theme = inject(ThemeService);
+  protected readonly store = inject(AgentStore);
   protected readonly shortcut = shortcut;
   protected readonly themes: { value: ThemeMode; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
@@ -101,6 +125,12 @@ export class Settings {
     { label: 'Send message', keys: 'Enter' },
     { label: 'New line', keys: 'Shift+Enter' },
   ];
+
+  protected sourceLabel(source: EngineStatus['source']): string {
+    return { installed: 'installed by PWR', environment: 'from PWR_MLX_PYTHON', checkout: 'from the checkout' }[
+      source ?? 'installed'
+    ];
+  }
 
   protected themeKeys(event: KeyboardEvent): void {
     if (roveFocus(event, event.currentTarget as HTMLElement, '[role=radio]', 'horizontal'))

@@ -259,3 +259,26 @@ export interface LocalModel {
   inUse: boolean;
   usable: boolean;
 }
+
+/** The MLX engine's Python environment, as the desktop shell found it. */
+export interface EngineStatus {
+  /** This platform runs models on MLX, so it needs the environment. */
+  needed: boolean;
+  /** An Apple-silicon Mac. */
+  supported: boolean;
+  ready: boolean;
+  source: 'environment' | 'installed' | 'checkout' | null;
+  python: string | null;
+  /** Where an install goes. */
+  location: string;
+  packages: string[];
+  pythonVersion: string;
+}
+
+/** One step of the engine install, or a line it printed. */
+export interface EngineProgress {
+  step: number;
+  total: number;
+  label: string;
+  line: string | null;
+}

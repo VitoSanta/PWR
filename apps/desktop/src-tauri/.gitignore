@@ -2,3 +2,6 @@
 # will have compiled files and executables
 /target/
 /gen/schemas
+
+# The uv binary scripts/bundle-uv.sh copies in at build time.
+/resources/uv

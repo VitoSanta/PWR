@@ -5,6 +5,8 @@ import {
   CONTEXT_STEPS,
   ContextInfo,
   ContextWindow,
+  EngineProgress,
+  EngineStatus,
   ModelCompatibility,
   ReasoningEffort,
   ReasoningInfo,
@@ -43,6 +45,17 @@ export class AgentStore {
   readonly trustingWorkspace = signal(false);
   readonly workspaceTrustError = signal('');
   readonly logs = signal<string[]>([]);
+
+  // --------------------------------------------------------- the engine
+  /** The MLX engine's environment, as last checked. */
+  readonly engine = signal<EngineStatus | null>(null);
+  /** First run: the engine must be installed before the core can run a model. */
+  readonly engineSetup = signal(false);
+  readonly engineInstalling = signal(false);
+  readonly engineInstalled = signal(false);
+  readonly engineProgress = signal<EngineProgress | null>(null);
+  readonly engineLog = signal<string[]>([]);
+  readonly engineError = signal('');
 
   // Models and context.
   readonly models = signal<string[]>([]);
@@ -116,7 +129,12 @@ export class AgentStore {
 
   async boot(): Promise<void> {
     if (!inTauri()) {
-      if (new URLSearchParams(location.search).has('demo')) {
+      const params = new URLSearchParams(location.search);
+      if (params.has('setup')) {
+        this.demoEngineSetup();
+        return;
+      }
+      if (params.has('demo')) {
         playDemo(this);
         return;
       }
@@ -134,14 +152,114 @@ export class AgentStore {
       for (const waiting of this.pending.values()) waiting.reject(new Error('the core stopped'));
       this.pending.clear();
     });
+    await bridge.onEngineSetup((progress) => this.engineStep(progress));
     try {
-      const remembered = await bridge.defaultWorkspace();
-      const trusted = await bridge.workspaceIsTrusted(remembered);
-      await this.openWorkspace(trusted ? remembered : await bridge.chatHome());
+      const engine = await bridge.engineStatus();
+      this.engine.set(engine);
+      if (engine.needed && !engine.ready) {
+        // Nothing can run a model yet: the setup screen comes first.
+        this.engineSetup.set(true);
+        return;
+      }
+      await this.openFirstWorkspace();
     } catch (error) {
       this.coreState.set('error');
       this.coreError.set(String(error));
     }
+  }
+
+  private async openFirstWorkspace(): Promise<void> {
+    const remembered = await bridge.defaultWorkspace();
+    const trusted = await bridge.workspaceIsTrusted(remembered);
+    await this.openWorkspace(trusted ? remembered : await bridge.chatHome());
+  }
+
+  /** Installs the MLX engine; progress arrives as `engine-setup` events. */
+  async installEngine(): Promise<void> {
+    if (this.engineInstalling()) return;
+    this.engineInstalling.set(true);
+    this.engineInstalled.set(false);
+    this.engineError.set('');
+    this.engineLog.set([]);
+    this.engineProgress.set(null);
+    try {
+      if (this.demoEngine) await this.demoEngine();
+      else await bridge.engineInstall();
+      this.engineInstalled.set(true);
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      // Stopped on purpose: back to the start, not an error.
+      if (message === 'Cancelled.') this.engineProgress.set(null);
+      else this.engineError.set(message);
+    } finally {
+      this.engineInstalling.set(false);
+    }
+  }
+
+  cancelEngineInstall(): void {
+    if (this.demoEngine) this.demoCancelled = true;
+    else void bridge.engineCancel();
+  }
+
+  /** Leaves the setup screen and starts the app as on any other launch. */
+  async finishEngineSetup(): Promise<void> {
+    this.engineSetup.set(false);
+    if (this.demoEngine) {
+      // What a new person sees next: the engine runs, no model yet.
+      this.coreState.set('ready');
+      this.workspace.set('/Users/you/.pwr/chat');
+      this.chatHome.set('/Users/you/.pwr/chat');
+      this.context.set({ tokens: 32768, rationale: '', ceiling: '', setting: null });
+      return;
+    }
+    try {
+      this.engine.set(await bridge.engineStatus());
+      await this.openFirstWorkspace();
+    } catch (error) {
+      this.coreState.set('error');
+      this.coreError.set(String(error));
+    }
+  }
+
+  private engineStep(progress: EngineProgress): void {
+    this.engineProgress.set(progress);
+    if (progress.line) this.engineLog.update((lines) => [...lines.slice(-300), progress.line!]);
+  }
+
+  /** `?setup` in a browser: the first-run screen with a simulated install. */
+  private demoEngine?: () => Promise<void>;
+  private demoCancelled = false;
+
+  private demoEngineSetup(): void {
+    this.engine.set({
+      needed: true,
+      supported: true,
+      ready: false,
+      source: null,
+      python: null,
+      location: '/Users/you/Library/Application Support/ai.pwr.desktop/engine',
+      packages: ['mlx==0.32.0', 'mlx-lm==0.31.3', 'mlx-embeddings==0.1.0', 'mlx-vlm==0.6.17'],
+      pythonVersion: '3.11',
+    });
+    this.engineSetup.set(true);
+    this.demoEngine = async () => {
+      this.demoCancelled = false;
+      const steps = ['Preparing Python', 'Installing the MLX engine', 'Downloading the search encoder', 'Checking the installation'];
+      const lines = [
+        ['Using CPython 3.11.15', 'Creating virtual environment at: venv'],
+        ['Resolved 64 packages in 1.4s', 'Prepared 64 packages in 9.8s', 'Installed 64 packages in 180ms', ' + mlx==0.32.0', ' + mlx-lm==0.31.3'],
+        ['Fetching 11 files', '/Users/you/.cache/huggingface/hub/models--intfloat--multilingual-e5-small'],
+        ['mlx 0.32.0 on Device(gpu, 0)'],
+      ];
+      for (let step = 1; step <= steps.length; step++) {
+        this.engineStep({ step, total: steps.length, label: steps[step - 1], line: null });
+        for (const line of lines[step - 1]) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (this.demoCancelled) throw new Error('Cancelled.');
+          this.engineStep({ step, total: steps.length, label: steps[step - 1], line });
+        }
+      }
+    };
   }
 
   async openWorkspace(path: string): Promise<boolean> {
