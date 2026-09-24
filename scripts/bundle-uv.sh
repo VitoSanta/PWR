@@ -18,13 +18,23 @@ if [ -z "$UV" ]; then
     echo "bundle-uv: uv not found. Install it (brew install uv) or set UV=/path/to/uv." >&2
     exit 1
 fi
-UV=$(readlink -f "$UV")
+# Resolve symlinks with the macOS/BSD readlink interface (which has no -f).
+while [ -L "$UV" ]; do
+    UV_DIR=$(CDPATH= cd -P -- "$(dirname -- "$UV")" && pwd)
+    UV_LINK=$(readlink "$UV")
+    case "$UV_LINK" in
+        /*) UV=$UV_LINK ;;
+        *) UV=$UV_DIR/$UV_LINK ;;
+    esac
+done
+UV_DIR=$(CDPATH= cd -P -- "$(dirname -- "$UV")" && pwd)
+UV="$UV_DIR/$(basename -- "$UV")"
 
 if ! file "$UV" | grep -q "arm64"; then
     echo "bundle-uv: $UV is not an arm64 executable." >&2
     exit 1
 fi
-if otool -L "$UV" | tail -n +2 | grep -v -E '^\s*(/usr/lib/|/System/Library/)' | grep -q .; then
+if otool -L "$UV" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/usr/lib/|/System/Library/)' | grep -q .; then
     echo "bundle-uv: $UV links libraries outside the system; it would not run elsewhere." >&2
     otool -L "$UV" >&2
     exit 1

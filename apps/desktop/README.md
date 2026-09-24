@@ -145,7 +145,8 @@ npx tauri build --bundles app                # src-tauri/target/release/bundle/m
 ```
 
 Copy `PWR.app` to `/Applications` to install it. `npx tauri build` (all
-targets) also produces `bundle/dmg/PWR_0.1.0_aarch64.dmg`. `npx tauri dev` runs it
+targets) also produces a versioned DMG under `bundle/dmg/`; the repository
+release script renames and verifies it as `PWR-macOS-arm64.dmg`. `npx tauri dev` runs it
 against the development server; `npx ng serve` alone serves the interface in a
 browser, where `?demo` fills it with a recorded conversation (the core is not
 reachable from a browser).
