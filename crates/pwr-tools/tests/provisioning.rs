@@ -202,10 +202,9 @@ async fn the_input_is_closed_so_a_reader_terminates() {
     let root = tempfile::tempdir().unwrap();
     let mut policy = policy(root.path(), vec![Approval::ToolchainInstall]);
     policy.timeout = Duration::from_secs(10);
-    let result =
-        pwr_tools::run_command_with_stdin(&policy, "wc", &["-l".into()], Some("a\nb\n"))
-            .await
-            .expect("a reader that waits for end of input should finish");
+    let result = pwr_tools::run_command_with_stdin(&policy, "wc", &["-l".into()], Some("a\nb\n"))
+        .await
+        .expect("a reader that waits for end of input should finish");
     assert_eq!(result.stdout.trim(), "2");
 }
 

@@ -460,8 +460,20 @@ export class AgentStore {
     return next ? this.refreshModels({ contextTokens: next }) : Promise.resolve();
   }
 
+  /**
+   * Reverts one changed file through the core (`_pwr/revert`), which refuses
+   * when the file no longer holds what the model wrote -- a later manual edit
+   * is never overwritten -- and records the revert in the conversation's log.
+   */
   async revertChange(change: FileDiff): Promise<void> {
-    await bridge.restoreFile(this.workspace(), change.path, change.oldText, !!change.created);
+    const sessionId = this.sessionId();
+    if (!sessionId) throw new Error('No conversation is open.');
+    await this.request('_pwr/revert', {
+      sessionId,
+      path: change.path,
+      expected: change.newText,
+      restore: change.created ? null : change.oldText,
+    });
     this.changes.update((all) => all.filter((item) => item.path !== change.path));
   }
 

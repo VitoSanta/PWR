@@ -44,11 +44,7 @@ use std::{
 };
 
 #[derive(Parser)]
-#[command(
-    name = "pwr",
-    version,
-    about = "Local, evidence-driven coding agent"
-)]
+#[command(name = "pwr", version, about = "Local, evidence-driven coding agent")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -1174,9 +1170,7 @@ impl Default for ChatConfig {
 fn chat_home() -> Result<PathBuf, String> {
     let home = match std::env::var_os("PWR_CHAT_HOME") {
         Some(path) => PathBuf::from(path),
-        None => {
-            PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(".pwr/chat")
-        }
+        None => PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(".pwr/chat"),
     };
     fs::create_dir_all(&home).map_err(|error| format!("{}: {error}", home.display()))?;
     home.canonicalize()
@@ -3534,8 +3528,7 @@ impl ConsoleTurns {
             .map_err(|error| error.context)?;
         if config.model.is_none() {
             return Err(
-                "no model is chosen for this workspace; choose one in `pwr chat` Settings"
-                    .into(),
+                "no model is chosen for this workspace; choose one in `pwr chat` Settings".into(),
             );
         }
         if !chat_is_prepared(&config) {
@@ -3652,9 +3645,7 @@ const REASONING_EFFORT: &str = "reasoning_effort";
 /// four `external-v1` tasks died on `reply exceeded the chunk bound`, one of
 /// them after a single turn carrying 8,488 characters of thinking. A campaign
 /// run that way understates the harness rather than measuring it.
-fn deployment_reasoning_effort(
-    inspection: &pwr_domain::ModelInspection,
-) -> Option<&'static str> {
+fn deployment_reasoning_effort(inspection: &pwr_domain::ModelInspection) -> Option<&'static str> {
     let Some(Observation::Observed(reasoning)) =
         inspection.definition.capabilities.get("reasoning")
     else {
@@ -3870,9 +3861,7 @@ fn compose_chat_turn(
     let delivered = compiled
         .sections
         .iter()
-        .find(|section| {
-            section.kind == pwr_orchestrator::context::SectionKind::RepositoryExcerpts
-        })
+        .find(|section| section.kind == pwr_orchestrator::context::SectionKind::RepositoryExcerpts)
         .filter(|section| !section.dropped && section.estimated_tokens > 0)
         .map(|section| section.estimated_tokens);
     // The images the person attached travel with the request, which the
@@ -4828,8 +4817,7 @@ async fn chat(runtime: RuntimeFactory, args: ChatArgs) -> i32 {
             false,
             Err::<serde_json::Value, _>(SafeError {
                 category: "invalid_input",
-                context: "interactive chat requires a terminal; use `pwr run` for scripts"
-                    .into(),
+                context: "interactive chat requires a terminal; use `pwr run` for scripts".into(),
             }),
         );
     }
@@ -5452,11 +5440,10 @@ fn open_store() -> Result<(std::path::PathBuf, pwr_store::Store), SafeError> {
             category: "internal",
             context: e.to_string(),
         })?;
-    let store =
-        pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
-            category: "internal",
-            context: e.to_string(),
-        })?;
+    let store = pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
+        category: "internal",
+        context: e.to_string(),
+    })?;
     Ok((root, store))
 }
 
@@ -5499,11 +5486,10 @@ fn show_session(name: &str) -> Result<serde_json::Value, SafeError> {
     // The same ledger the next run of this session would be given, so what is
     // shown is what the deployment would see rather than a separate summary
     // that could describe it differently.
-    let ledger =
-        pwr_orchestrator::session_ledger(&store, &runs, &root).map_err(|e| SafeError {
-            category: "internal",
-            context: e,
-        })?;
+    let ledger = pwr_orchestrator::session_ledger(&store, &runs, &root).map_err(|e| SafeError {
+        category: "internal",
+        context: e,
+    })?;
     // Where the session started, as recorded at the time, beside where the
     // workspace stands now. A session resumed onto a different branch is a
     // thing the user needs to see before they resume it, not after.
@@ -5961,13 +5947,11 @@ async fn probe_edit_once(
                     Ok(read) => serde_json::to_value(read).unwrap_or_default(),
                     Err(error) => serde_json::json!({"denied": error.to_string()}),
                 };
-                request
-                    .messages
-                    .push(pwr_orchestrator::tool_result_message(
-                        outcome,
-                        None,
-                        call.id.clone(),
-                    ));
+                request.messages.push(pwr_orchestrator::tool_result_message(
+                    outcome,
+                    None,
+                    call.id.clone(),
+                ));
             }
             continue;
         }
@@ -6819,10 +6803,7 @@ fn select_tasks(
 /// product than the one a user runs, and relied on completion rediscovering
 /// the full suite -- which completion no longer does for a check the workspace
 /// already had. Verifier-supplied supplies neither, by declaration.
-fn escalation_for_mode(
-    mode: pwr_eval::EvaluationMode,
-    root: &Path,
-) -> Result<Escalation, String> {
+fn escalation_for_mode(mode: pwr_eval::EvaluationMode, root: &Path) -> Result<Escalation, String> {
     Ok(match mode {
         pwr_eval::EvaluationMode::VerifierSupplied => (Vec::new(), Vec::new()),
         pwr_eval::EvaluationMode::ProductPath => (
@@ -6979,25 +6960,23 @@ async fn evaluate_task(
         // evaluation: check discovery and full-suite escalation are not exercised.
         messages: pwr_repo::index(&root)
             .map(|index| {
-                pwr_orchestrator::context::compose(
-                    pwr_orchestrator::context::ContextComposition {
-                        root: &root,
-                        index: &index,
-                        task: &task.statement,
-                        context_tokens: execution.context_tokens,
-                        system_prompt: if task.kind == pwr_eval::TaskKind::RepositoryQuestion {
-                            pwr_orchestrator::AGENT_READ_ONLY_SYSTEM_PROMPT
-                        } else {
-                            pwr_orchestrator::AGENT_SYSTEM_PROMPT
-                        },
-                        task_profile,
-                        session_ledger: None,
-                        // An evaluation measures one regime; a ranker that
-                        // is present on one machine and not another would
-                        // change it silently.
-                        ranker: None,
+                pwr_orchestrator::context::compose(pwr_orchestrator::context::ContextComposition {
+                    root: &root,
+                    index: &index,
+                    task: &task.statement,
+                    context_tokens: execution.context_tokens,
+                    system_prompt: if task.kind == pwr_eval::TaskKind::RepositoryQuestion {
+                        pwr_orchestrator::AGENT_READ_ONLY_SYSTEM_PROMPT
+                    } else {
+                        pwr_orchestrator::AGENT_SYSTEM_PROMPT
                     },
-                )
+                    task_profile,
+                    session_ledger: None,
+                    // An evaluation measures one regime; a ranker that
+                    // is present on one machine and not another would
+                    // change it silently.
+                    ranker: None,
+                })
                 .0
             })
             .unwrap_or_default(),
@@ -7214,8 +7193,7 @@ async fn evaluate_task(
             // prose changes whenever a message is reworded, and this one
             // decides whether a task counts against a deployment at all.
             let class = terminal_class(&events_of(&store, run_id));
-            outcome.provider_failure =
-                matches!(class, Some(pwr_domain::TerminalClass::Provider));
+            outcome.provider_failure = matches!(class, Some(pwr_domain::TerminalClass::Provider));
             outcome.declined = matches!(class, Some(pwr_domain::TerminalClass::Declined));
             outcome.terminal = class;
             outcome.error = Some(error);
@@ -7355,10 +7333,7 @@ fn allow_checks(policy: &mut pwr_tools::ToolPolicy, checks: &[(String, Vec<Strin
 }
 
 /// The run's policy with the task's own verifiers allowed, for the harness.
-fn verifier_policy(
-    policy: &pwr_tools::ToolPolicy,
-    task: &pwr_eval::Task,
-) -> pwr_tools::ToolPolicy {
+fn verifier_policy(policy: &pwr_tools::ToolPolicy, task: &pwr_eval::Task) -> pwr_tools::ToolPolicy {
     let mut policy = policy.clone();
     for verifier in [&task.visible_verifier, &task.hidden_verifier] {
         if !policy.allow_commands.contains(&verifier.executable) {
@@ -7905,8 +7880,8 @@ fn load_calibration(path: &Path) -> Result<pwr_domain::CalibrationProfile, SafeE
         .pointer("/run/profile")
         .or_else(|| value.pointer("/profile"))
         .unwrap_or(&value);
-    let profile: pwr_domain::CalibrationProfile = serde_json::from_value(profile.clone())
-        .map_err(|e| SafeError {
+    let profile: pwr_domain::CalibrationProfile =
+        serde_json::from_value(profile.clone()).map_err(|e| SafeError {
             category: "invalid_input",
             context: format!("invalid calibration profile: {e}"),
         })?;
@@ -8048,9 +8023,7 @@ async fn calibrate(
     // deployment could not be calibrated is worth as much as the profile.
     let record = serde_json::json!({"seed": seed, "run": &outcome});
     let name = match &outcome {
-        pwr_orchestrator::CalibrationOutcome::Calibrated { profile, .. } => {
-            profile.id.to_string()
-        }
+        pwr_orchestrator::CalibrationOutcome::Calibrated { profile, .. } => profile.id.to_string(),
         pwr_orchestrator::CalibrationOutcome::Refused { .. } => {
             format!("refused-{}", new_id())
         }
@@ -8124,14 +8097,13 @@ async fn run(
     // which on any repository larger than the corpus is most of them.
     let (index, _index_work) = pwr_repo::index_incremental(&root, Some(&root.join(".pwr")))
         .map_err(|e| SafeError {
-        category: "invalid_input",
-        context: e.to_string(),
-    })?;
-    let plan =
-        pwr_orchestrator::prepare_dry_run(task, model, &index).map_err(|e| SafeError {
             category: "invalid_input",
-            context: e,
+            context: e.to_string(),
         })?;
+    let plan = pwr_orchestrator::prepare_dry_run(task, model, &index).map_err(|e| SafeError {
+        category: "invalid_input",
+        context: e,
+    })?;
     let state_dir = root.join(".pwr");
     std::fs::create_dir_all(&state_dir).map_err(|e| SafeError {
         category: "internal",
@@ -8141,11 +8113,10 @@ async fn run(
         category: "internal",
         context: e.to_string(),
     })?;
-    let store =
-        pwr_store::Store::open(state_dir.join("state.sqlite")).map_err(|e| SafeError {
-            category: "internal",
-            context: e.to_string(),
-        })?;
+    let store = pwr_store::Store::open(state_dir.join("state.sqlite")).map_err(|e| SafeError {
+        category: "internal",
+        context: e.to_string(),
+    })?;
     for checkpoint in &plan.checkpoints {
         store
             .append(
@@ -8370,11 +8341,10 @@ async fn prepare_profiled_run(
         category: "internal",
         context: e.to_string(),
     })?;
-    let store =
-        pwr_store::Store::open(state_dir.join("state.sqlite")).map_err(|e| SafeError {
-            category: "internal",
-            context: e.to_string(),
-        })?;
+    let store = pwr_store::Store::open(state_dir.join("state.sqlite")).map_err(|e| SafeError {
+        category: "internal",
+        context: e.to_string(),
+    })?;
     // The run is anchored to a recorded repository state: without it the audit
     // cannot say which tree an edit was made against.
     let declared = load_strategies(Path::new(STRATEGY_FILE));
@@ -8760,8 +8730,8 @@ fn rank_passages(
     // The share a turn gives passages, at the window a conversation opens with
     // on this host's default model.
     const WINDOW_FOR_THE_SHARE: usize = 262_144;
-    let budget = budget
-        .unwrap_or(WINDOW_FOR_THE_SHARE / pwr_orchestrator::context::RETRIEVAL_TOKEN_SHARE);
+    let budget =
+        budget.unwrap_or(WINDOW_FOR_THE_SHARE / pwr_orchestrator::context::RETRIEVAL_TOKEN_SHARE);
     let started = std::time::Instant::now();
     let (mut ranker, semantic_note) = if semantic {
         match semantic::EmbeddingRanker::open(&path) {
@@ -8825,10 +8795,12 @@ fn index_repository(path: PathBuf) -> Result<serde_json::Value, SafeError> {
             category: "invalid_input",
             context: e.to_string(),
         })?;
-    let artifact = pwr_repo::persist(&index, &PathBuf::from(&index.root).join(".pwr"))
-        .map_err(|e| SafeError {
-            category: "internal",
-            context: e.to_string(),
+    let artifact =
+        pwr_repo::persist(&index, &PathBuf::from(&index.root).join(".pwr")).map_err(|e| {
+            SafeError {
+                category: "internal",
+                context: e.to_string(),
+            }
         })?;
     // How much had to be read. A claim that indexing is incremental is worth
     // nothing beside the number that shows it was.
@@ -8840,10 +8812,7 @@ fn index_repository(path: PathBuf) -> Result<serde_json::Value, SafeError> {
     }))
 }
 /// The typed events of a run, or none if they cannot be read.
-fn events_of(
-    store: &pwr_store::Store,
-    run_id: pwr_domain::Id,
-) -> Vec<pwr_domain::RunEvent> {
+fn events_of(store: &pwr_store::Store, run_id: pwr_domain::Id) -> Vec<pwr_domain::RunEvent> {
     store.typed_events_for_run(run_id).unwrap_or_default()
 }
 
@@ -9258,13 +9227,11 @@ fn compare_campaigns(
         // learn every reason at once, rather than fix one and rerun to find the
         // next: the two directories are already on disk and the faults are all
         // known by the time the first is.
-        let comparison =
-            pwr_eval::compare_strict(&control_reports, &treatment_reports, &declared).map_err(
-                |rejected| SafeError {
-                    category: "invalid_input",
-                    context: rejected.to_string(),
-                },
-            )?;
+        let comparison = pwr_eval::compare_strict(&control_reports, &treatment_reports, &declared)
+            .map_err(|rejected| SafeError {
+                category: "invalid_input",
+                context: rejected.to_string(),
+            })?;
         return Ok(serde_json::json!({
             "markdown": comparison.markdown(),
             "comparison": comparison,
@@ -9297,11 +9264,10 @@ fn diagnose_in(root: &Path, id: String) -> Result<serde_json::Value, SafeError> 
         context: "id must be a UUID".into(),
     })?;
     let root = root.to_path_buf();
-    let store =
-        pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
-            category: "internal",
-            context: e.to_string(),
-        })?;
+    let store = pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
+        category: "internal",
+        context: e.to_string(),
+    })?;
     let events = store.events_for_run(run_id).map_err(|e| SafeError {
         category: "internal",
         context: e.to_string(),
@@ -9354,11 +9320,10 @@ fn report_in(root: &Path, id: String, format: String) -> Result<serde_json::Valu
         context: "id must be a UUID".into(),
     })?;
     let root = root.to_path_buf();
-    let store =
-        pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
-            category: "internal",
-            context: e.to_string(),
-        })?;
+    let store = pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
+        category: "internal",
+        context: e.to_string(),
+    })?;
     let events = store.events_for_run(run_id).map_err(|e| SafeError {
         category: "internal",
         context: e.to_string(),
@@ -9383,10 +9348,7 @@ fn report_in(root: &Path, id: String, format: String) -> Result<serde_json::Valu
                     at: record.at,
                     event_type: record.event_type.clone(),
                     event_hash: record.event_hash.clone(),
-                    event: pwr_domain::RunEvent::from_stored(
-                        &record.event_type,
-                        &record.payload,
-                    )?,
+                    event: pwr_domain::RunEvent::from_stored(&record.event_type, &record.payload)?,
                 })
             })
             .collect();
@@ -9470,11 +9432,10 @@ async fn verify_in(
         category: "internal",
         context: e.to_string(),
     })?;
-    let store =
-        pwr_store::Store::open(state_dir.join("state.sqlite")).map_err(|e| SafeError {
-            category: "internal",
-            context: e.to_string(),
-        })?;
+    let store = pwr_store::Store::open(state_dir.join("state.sqlite")).map_err(|e| SafeError {
+        category: "internal",
+        context: e.to_string(),
+    })?;
     let parsed = run_id
         .as_deref()
         .map(|id| {
@@ -10028,17 +9989,16 @@ async fn download_from_hub(
         bytes: 0,
         total: 0,
     });
-    let plan =
-        pwr_models::resolve_plan(&hub, repository, revision, variant, format, &models_root)
-            .await
-            .map_err(|message| DownloadError {
-                kind: if message.contains("checksum") || message.contains("repository code") {
-                    FailureKind::Unverifiable
-                } else {
-                    FailureKind::Network
-                },
-                message,
-            })?;
+    let plan = pwr_models::resolve_plan(&hub, repository, revision, variant, format, &models_root)
+        .await
+        .map_err(|message| DownloadError {
+            kind: if message.contains("checksum") || message.contains("repository code") {
+                FailureKind::Unverifiable
+            } else {
+                FailureKind::Network
+            },
+            message,
+        })?;
     let preflight = download_preflight(&plan)?;
     let outcomes =
         pwr_models::download::download(hub.transfer(), &plan, hub.token(), progress, stop).await?;
@@ -10126,8 +10086,7 @@ async fn download_artifact(
     let client = reqwest::Client::new();
     let token = std::env::var("HF_TOKEN").ok();
     let outcomes =
-        pwr_models::download::download(&client, &shared, token.as_deref(), progress, stop)
-            .await?;
+        pwr_models::download::download(&client, &shared, token.as_deref(), progress, stop).await?;
     Ok(serde_json::json!({
         "artifact_id": plan.artifact_id,
         "repository": plan.repository,
@@ -10193,9 +10152,7 @@ fn artifact_download_plan(
 fn default_artifact_destination_root() -> PathBuf {
     std::env::var_os("PWR_MODEL_ARTIFACTS")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/artifacts"))
-        })
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/artifacts")))
         .unwrap_or_else(|| PathBuf::from(".pwr/artifacts"))
 }
 
@@ -10422,10 +10379,7 @@ mod tests {
         }
     }
 
-    fn write_evidence(
-        root: &Path,
-        inspection: &pwr_domain::ModelInspection,
-    ) -> pwr_domain::Id {
+    fn write_evidence(root: &Path, inspection: &pwr_domain::ModelInspection) -> pwr_domain::Id {
         let directory = root.join(".pwr/models");
         fs::create_dir_all(&directory).unwrap();
         let id = inspection.definition.id;
@@ -10570,11 +10524,7 @@ mod tests {
 
         // The condition the old message turned on is still true, and on its own
         // it establishes only that nothing was broken.
-        assert!(
-            pwr_verify::compare(&before, &after)
-                .new_failures
-                .is_empty()
-        );
+        assert!(pwr_verify::compare(&before, &after).new_failures.is_empty());
 
         let said = check_verdict(&before, &after).said();
         assert!(!said.contains("checks passed"), "{said}");
@@ -11218,9 +11168,7 @@ mod tests {
         );
         assert!(parse_context_policy("summary", 60, b1).is_err());
         assert!(parse_context_policy("evidence-state", 0, b1).is_err());
-        assert!(
-            parse_context_policy("evidence-state", 60, pwr_eval::Arm::Conventional).is_err()
-        );
+        assert!(parse_context_policy("evidence-state", 60, pwr_eval::Arm::Conventional).is_err());
         assert!(parse_context_policy("current", 60, pwr_eval::Arm::Staged).is_ok());
     }
 

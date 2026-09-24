@@ -427,6 +427,62 @@ impl Session {
     }
 }
 
+/// The audit event a revert from the app records.
+pub const REVERTED_EVENT: &str = "conversation.reverted";
+
+/// Puts one file back as it was before a turn changed it, if it still holds
+/// what the turn wrote. See `_pwr/revert`.
+fn revert_file(
+    root: &Path,
+    conversation_id: pwr_domain::Id,
+    path: &str,
+    expected: &str,
+    restore: Option<&str>,
+) -> Result<(), String> {
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", root.display()))?;
+    let policy = pwr_tools::PolicyProfile::Safe.build(root.clone());
+    let target = policy
+        .resolve(Path::new(path))
+        .map_err(|error| error.to_string())?;
+    if target.is_symlink() {
+        return Err(format!("{path} is a symbolic link; not reverted"));
+    }
+    let current = match std::fs::read(&target) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("{path}: {error}")),
+    };
+    if current.as_deref() != Some(expected.as_bytes()) {
+        return Err(format!(
+            "{path} has changed since PWR edited it, so it was not reverted: reverting would \
+             discard those changes"
+        ));
+    }
+    match restore {
+        Some(text) => std::fs::write(&target, text),
+        None => std::fs::remove_file(&target),
+    }
+    .map_err(|error| format!("{path}: {error}"))?;
+    std::fs::create_dir_all(root.join(".pwr")).map_err(|error| error.to_string())?;
+    let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
+        .map_err(|error| error.to_string())?;
+    store
+        .append(
+            Some(conversation_id),
+            REVERTED_EVENT,
+            json!({
+                "path": path,
+                "removed": restore.is_none(),
+                "expected_hash": pwr_domain::hash_bytes(expected.as_bytes()),
+                "restored_hash": restore.map(|text| pwr_domain::hash_bytes(text.as_bytes())),
+            }),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 /// Only a pre-existing explicit acceptance contract can certify a goal. The
 /// full verifier compares this hash again at completion, so a task cannot
 /// promote a newly-created or self-relaxed check into evidence for itself.
@@ -674,6 +730,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/compact" => self.compact(id, &params).await,
+            "_pwr/revert" => self.revert(id, &params),
             "_pwr/approvals" => {
                 let change = match params.get("askBefore") {
                     None | Some(Value::Null) => None,
@@ -994,11 +1051,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         let download_id = match params.get("downloadId").and_then(Value::as_str) {
             Some(download_id) if !download_id.trim().is_empty() => download_id.to_owned(),
             _ => {
-                return self.send(error_response(
-                    id,
-                    -32602,
-                    "_pwr/download needs downloadId",
-                ));
+                return self.send(error_response(id, -32602, "_pwr/download needs downloadId"));
             }
         };
         if self.downloads.borrow().contains_key(&download_id) {
@@ -1244,7 +1297,10 @@ impl<R: TurnRunner + 'static> Server<R> {
                 .unwrap_or_default()
                 .to_owned(),
             format,
-            cursor: params.get("cursor").and_then(Value::as_str).map(str::to_owned),
+            cursor: params
+                .get("cursor")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             filters,
         };
         let server = Rc::clone(self);
@@ -1339,6 +1395,62 @@ impl<R: TurnRunner + 'static> Server<R> {
                 "busy": busy,
             }),
         ));
+    }
+
+    /// `_pwr/revert`: the person's "Revert" on one changed file.
+    ///
+    /// The app used to write the old content itself, from the Tauri shell --
+    /// outside the core's audit, and without checking that the file still held
+    /// what the model wrote, so a manual edit made after the turn was silently
+    /// overwritten (the v0.1.0-alpha readiness assessment, blocking item 4).
+    /// Now the core does it: the path is resolved by the workspace's policy,
+    /// the file must hold exactly `expected` (the model's version) or nothing
+    /// is touched, and the revert is recorded in the conversation's log.
+    ///
+    /// `restore` is the content to put back; `null` removes a file the turn
+    /// created.
+    fn revert(&self, id: Value, params: &Value) {
+        let session_id = session_param(params).to_owned();
+        let Some((root, conversation_id, busy)) = self
+            .sessions
+            .borrow()
+            .get(&session_id)
+            .map(|session| (session.root.clone(), session.conversation_id, session.busy))
+        else {
+            return self.send(error_response(id, -32602, "no such session"));
+        };
+        if busy {
+            return self.send(error_response(
+                id,
+                -32000,
+                "a turn is running; revert once it ends",
+            ));
+        }
+        let (Some(path), Some(expected)) = (
+            params.get("path").and_then(Value::as_str),
+            params.get("expected").and_then(Value::as_str),
+        ) else {
+            return self.send(error_response(
+                id,
+                -32602,
+                "revert needs a workspace-relative path and the expected current content",
+            ));
+        };
+        let restore = match params.get("restore") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(text)) => Some(text.as_str()),
+            Some(_) => {
+                return self.send(error_response(
+                    id,
+                    -32602,
+                    "restore is the previous content, or null to remove a created file",
+                ));
+            }
+        };
+        match revert_file(&root, conversation_id, path, expected, restore) {
+            Ok(()) => self.send(result(id, json!({"reverted": true, "path": path}))),
+            Err(why) => self.send(error_response(id, -32000, &why)),
+        }
     }
 
     /// `_pwr/compact`: the person's "Compact now", through the same
@@ -2585,11 +2697,7 @@ mod tests {
             Scripted.list(root).await
         }
 
-        async fn resume(
-            &self,
-            root: &Path,
-            id: pwr_domain::Id,
-        ) -> Result<Option<Resumed>, String> {
+        async fn resume(&self, root: &Path, id: pwr_domain::Id) -> Result<Option<Resumed>, String> {
             Scripted.resume(root, id).await
         }
 
@@ -2873,6 +2981,85 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn revert_restores_the_file_only_while_it_holds_what_the_model_wrote() {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.txt"), "model").unwrap();
+        std::fs::write(root.join("new.txt"), "created").unwrap();
+        let cwd = root.display().to_string();
+        with_server(|mut client| async move {
+            client
+                .request(1, "session/new", json!({"cwd": cwd, "mcpServers": []}))
+                .await;
+            let session = client.until_response(1).await.pop().unwrap()["result"]["sessionId"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+
+            // Edited by hand after the turn: refused, and left alone.
+            std::fs::write(root.join("a.txt"), "model, then a person").unwrap();
+            client
+                .request(
+                    2,
+                    "_pwr/revert",
+                    json!({"sessionId": session, "path": "a.txt", "expected": "model", "restore": "before"}),
+                )
+                .await;
+            let refused = client.until_response(2).await.pop().unwrap();
+            assert!(refused["error"]["message"].as_str().unwrap().contains("has changed"));
+            assert_eq!(
+                std::fs::read_to_string(root.join("a.txt")).unwrap(),
+                "model, then a person"
+            );
+
+            // Still the model's version: put back, and recorded.
+            std::fs::write(root.join("a.txt"), "model").unwrap();
+            client
+                .request(
+                    3,
+                    "_pwr/revert",
+                    json!({"sessionId": session, "path": "a.txt", "expected": "model", "restore": "before"}),
+                )
+                .await;
+            let done = client.until_response(3).await.pop().unwrap();
+            assert_eq!(done["result"]["reverted"], true, "{done}");
+            assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "before");
+
+            // A file the turn created is removed.
+            client
+                .request(
+                    4,
+                    "_pwr/revert",
+                    json!({"sessionId": session, "path": "new.txt", "expected": "created", "restore": null}),
+                )
+                .await;
+            client.until_response(4).await;
+            assert!(!root.join("new.txt").exists());
+
+            // Outside the workspace: refused by the policy.
+            client
+                .request(
+                    5,
+                    "_pwr/revert",
+                    json!({"sessionId": session, "path": "../outside.txt", "expected": "", "restore": "x"}),
+                )
+                .await;
+            let outside = client.until_response(5).await.pop().unwrap();
+            assert!(outside["error"].is_object(), "{outside}");
+
+            let store = pwr_store::Store::open(root.join(".pwr/state.sqlite")).unwrap();
+            let conversation = uuid::Uuid::parse_str(&session).unwrap();
+            let recorded = store
+                .latest_payload(conversation, REVERTED_EVENT)
+                .unwrap()
+                .expect("the revert was not recorded");
+            assert_eq!(recorded["path"], "new.txt");
+            assert_eq!(recorded["removed"], true);
+        })
+        .await;
+    }
+
+    #[tokio::test]
     async fn compact_now_folds_the_older_conversation_and_says_so() {
         with_server(|mut client| async move {
             let session = client.new_session(1).await;
@@ -3145,10 +3332,7 @@ mod tests {
                         .is_some_and(|text| text.contains("Checkpoint after 26"))
                 }));
                 let response = messages.last().unwrap();
-                assert_eq!(
-                    response["result"]["_meta"]["pwr"]["goal"]["verified"],
-                    true
-                );
+                assert_eq!(response["result"]["_meta"]["pwr"]["goal"]["verified"], true);
                 assert_eq!(response["result"]["_meta"]["pwr"]["totalActions"], 29);
                 // Two turns under one prompt, each with its own first call:
                 // two distinct actions, so two distinct ids.
@@ -3307,10 +3491,7 @@ mod tests {
             assert_eq!(updates[1]["content"][0]["content"]["text"], "not allowed");
             let response = messages.last().unwrap();
             assert_eq!(response["result"]["stopReason"], "refusal");
-            assert_eq!(
-                response["result"]["_meta"]["pwr"]["terminal"],
-                "declined"
-            );
+            assert_eq!(response["result"]["_meta"]["pwr"]["terminal"], "declined");
         })
         .await;
     }
@@ -3762,11 +3943,7 @@ mod tests {
                 .await;
             assert_eq!(client.receive().await["result"]["model"], "fixture.gguf");
             client
-                .request(
-                    32,
-                    "_pwr/models",
-                    json!({"cwd": "/elsewhere", "model": ""}),
-                )
+                .request(32, "_pwr/models", json!({"cwd": "/elsewhere", "model": ""}))
                 .await;
             assert_eq!(client.receive().await["error"]["code"], -32602);
             client.request(4, "_pwr/models", json!({})).await;

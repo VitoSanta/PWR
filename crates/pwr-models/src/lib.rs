@@ -403,6 +403,7 @@ type Enriched = (
 /// A search, enriched: each result's file tree and config are fetched so its
 /// variants carry exact sizes and a fit. Results whose tree cannot be read are
 /// kept with no variants and a note, rather than silently dropped.
+#[allow(clippy::too_many_arguments)]
 pub async fn search(
     hub: &hub::HubClient,
     query: &str,
@@ -527,8 +528,7 @@ pub async fn resolve_plan(
             .map_err(|error| error.message)?;
         if config.as_ref().is_some_and(catalog::needs_remote_code) {
             return Err(
-                "this model needs code from its repository to load, which PWR does not run"
-                    .into(),
+                "this model needs code from its repository to load, which PWR does not run".into(),
             );
         }
         config

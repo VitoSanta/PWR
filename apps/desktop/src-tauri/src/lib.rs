@@ -52,18 +52,21 @@ fn repository() -> Option<PathBuf> {
     root.join("Cargo.toml").is_file().then(|| root.to_path_buf())
 }
 
+/// A file shipped in the app's resources, if this copy of the app has it.
+fn bundled(app: &AppHandle, relative: &str) -> Option<PathBuf> {
+    app.path()
+        .resource_dir()
+        .ok()
+        .map(|dir| dir.join(relative))
+        .filter(|path| path.is_file())
+}
+
 /// `PWR_CORE`, the bundled core, the checkout build, then `pwr` on PATH.
 fn core_path(app: &AppHandle) -> PathBuf {
     if let Some(path) = std::env::var_os("PWR_CORE") {
         return PathBuf::from(path);
     }
-    if let Some(path) = app
-        .path()
-        .resource_dir()
-        .ok()
-        .map(|dir| dir.join("pwr"))
-        .filter(|path| path.is_file())
-    {
+    if let Some(path) = bundled(app, "pwr") {
         return path;
     }
     repository()
@@ -225,9 +228,15 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
         return Err(format!("Workspace has not been trusted: {}", workspace.display()));
     }
     let program = core_path(&app);
-    let backend = std::env::var("PWR_BACKEND").unwrap_or_else(|_| {
-        if cfg!(target_os = "macos") { "mlx" } else { "llama" }.into()
-    });
+    // On a Mac the app runs MLX only; llama.cpp arrives with Windows. A
+    // development build still honours `PWR_BACKEND` so the GGUF path can be
+    // worked on; a release build never switches engine from the environment.
+    let default_backend = if cfg!(target_os = "macos") { "mlx" } else { "llama" };
+    let backend = if cfg!(debug_assertions) {
+        std::env::var("PWR_BACKEND").unwrap_or_else(|_| default_backend.into())
+    } else {
+        default_backend.into()
+    };
     let mut command = Command::new(&program);
     command
         .args(["--backend", &backend, "serve", "--stdio"])
@@ -240,6 +249,21 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
     // first run, or (in development) the checkout's. See `engine`.
     if let Some(python) = engine::python(&app) {
         command.env("PWR_MLX_PYTHON", python);
+    }
+    // The engine's scripts, bundled beside the core. Without this the core
+    // falls back to the path of the checkout it was compiled in, which exists
+    // only on the machine that built it -- so a downloaded app found an
+    // engine to run and no script to run in it. The environment still wins,
+    // and a development build without bundled scripts keeps the checkout's.
+    for (variable, script) in [
+        ("PWR_MLX_SIDECAR", "sidecar/pwr_mlx.py"),
+        ("PWR_EMBED_SIDECAR", "sidecar/pwr_embed.py"),
+    ] {
+        if std::env::var_os(variable).is_none() {
+            if let Some(path) = bundled(&app, script) {
+                command.env(variable, path);
+            }
+        }
     }
     let mut child = command
         .spawn()
@@ -305,27 +329,6 @@ fn core_send(core: State<'_, Core>, message: serde_json::Value) -> Result<(), St
         .map_err(|error| format!("the core stopped reading: {error}"))
 }
 
-/// Restore one path captured by a conversation diff, constrained to its workspace.
-#[tauri::command]
-fn restore_workspace_file(workspace: String, path: String, content: String, remove: bool) -> Result<(), String> {
-    let root = PathBuf::from(&workspace).canonicalize().map_err(|e| e.to_string())?;
-    let relative = Path::new(&path);
-    if relative.is_absolute() || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
-        return Err("The changed path is not a safe workspace-relative path".into());
-    }
-    let target = root.join(relative);
-    let parent = target.parent().ok_or("The changed path has no parent")?.canonicalize().map_err(|e| e.to_string())?;
-    if !parent.starts_with(&root) || target.is_symlink() {
-        return Err("The changed path resolves outside the workspace".into());
-    }
-    if remove {
-        if target.exists() { std::fs::remove_file(target).map_err(|e| e.to_string())?; }
-    } else {
-        std::fs::write(target, content).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
 /// Opens a web page in the person's browser. Only http(s): the interface
 /// links to the Hub and to what models write, never to local files or apps.
 #[tauri::command]
@@ -387,7 +390,6 @@ pub fn run() {
             trust_workspace,
             core_start,
             core_send,
-            restore_workspace_file,
             core_stop,
             open_external,
             engine::engine_status,

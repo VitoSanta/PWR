@@ -64,10 +64,12 @@ import { Tooltip } from './kit/tooltip';
             </dl>
             <div class="engines" aria-label="Engines">
               @for (engine of hw.backends; track engine.id) {
+                @if (engine.active) {
                 <span class="badge" [class.badge-success]="engine.available && engine.active" [class.badge-outline]="!engine.active" [paTooltip]="engine.detail" tabindex="0">
                   <span class="dot" [class.dot-success]="engine.available" [class.dot-danger]="!engine.available" aria-hidden="true"></span>
                   {{ engine.label }}{{ engine.active ? ' · in use' : engine.available ? '' : ' · unavailable' }}
                 </span>
+                }
               }
             </div>
           } @else if (models.hardwareError()) {
@@ -179,10 +181,14 @@ import { Tooltip } from './kit/tooltip';
                     data-autofocus
                   />
                 </div>
-                <div class="segmented" role="radiogroup" aria-label="Format" (keydown)="formatKeys($event)">
-                  <button type="button" role="radio" [attr.aria-checked]="models.format() === 'mlx'" [attr.tabindex]="models.format() === 'mlx' ? 0 : -1" (click)="models.setFormat('mlx')">MLX</button>
-                  <button type="button" role="radio" [attr.aria-checked]="models.format() === 'gguf'" [attr.tabindex]="models.format() === 'gguf' ? 0 : -1" (click)="models.setFormat('gguf')">GGUF</button>
-                </div>
+                <!-- GGUF (llama.cpp) is offered only where llama.cpp is the engine in
+                     use; on a Mac the app runs MLX alone, so the choice is not shown. -->
+                @if (models.activeBackend() === 'llama') {
+                  <div class="segmented" role="radiogroup" aria-label="Format" (keydown)="formatKeys($event)">
+                    <button type="button" role="radio" [attr.aria-checked]="models.format() === 'mlx'" [attr.tabindex]="models.format() === 'mlx' ? 0 : -1" (click)="models.setFormat('mlx')">MLX</button>
+                    <button type="button" role="radio" [attr.aria-checked]="models.format() === 'gguf'" [attr.tabindex]="models.format() === 'gguf' ? 0 : -1" (click)="models.setFormat('gguf')">GGUF</button>
+                  </div>
+                }
                 <button class="btn btn-primary" type="submit">Search</button>
               </form>
 

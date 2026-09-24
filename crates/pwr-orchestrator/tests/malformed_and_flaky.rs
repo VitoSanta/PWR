@@ -6,9 +6,7 @@
 
 use pwr_orchestrator::parse_action_proposal;
 use pwr_tools::{SandboxPolicy, ToolPolicy};
-use pwr_verify::{
-    FailureClass, RecoveryDecision, classify_with_reproduction, recovery_decision,
-};
+use pwr_verify::{FailureClass, RecoveryDecision, classify_with_reproduction, recovery_decision};
 use std::path::Path;
 use std::time::Duration;
 
@@ -149,9 +147,7 @@ async fn a_reproducible_failure_stays_classified_by_its_output() {
         "-c".to_string(),
         "echo 'error: broken' >&2; exit 1".to_string(),
     ];
-    let first = pwr_tools::run_command(&policy, "sh", &args)
-        .await
-        .unwrap();
+    let first = pwr_tools::run_command(&policy, "sh", &args).await.unwrap();
     let class = classify_with_reproduction(&policy, "sh", &args, &first)
         .await
         .unwrap();
@@ -167,9 +163,7 @@ async fn a_passing_check_is_not_re_run() {
         "-c".to_string(),
         format!("echo x >> {}; exit 0", counter.display()),
     ];
-    let first = pwr_tools::run_command(&policy, "sh", &args)
-        .await
-        .unwrap();
+    let first = pwr_tools::run_command(&policy, "sh", &args).await.unwrap();
     let _ = classify_with_reproduction(&policy, "sh", &args, &first)
         .await
         .unwrap();

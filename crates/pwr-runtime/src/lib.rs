@@ -273,7 +273,8 @@ mod tests {
 
 /// Where an engine looks for models, and so where the Model Manager puts the
 /// ones it downloads: `PWR_MLX_MODELS` / `PWR_LLAMA_MODELS`, by default
-/// `~/.lmstudio/models` for both (LM Studio's folder, used only as storage).
+/// `~/.pwr/models` for both. Until 2026-09-24 the default was LM Studio's
+/// folder, `~/.lmstudio/models`, from when LM Studio served the models.
 pub fn models_root(kind: BackendKind) -> std::path::PathBuf {
     match kind {
         BackendKind::Mlx => MlxConfig::from_env().models_root,

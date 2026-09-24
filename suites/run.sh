@@ -21,7 +21,7 @@ BIN=${PWR_BIN:-$ROOT/target/release/pwr}
 BACKEND=${PWR_SUITE_BACKEND:-mlx}
 MODEL=${PWR_SUITE_MODEL:-lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit}
 if [ "$BACKEND" = "mlx" ]; then
-  export PWR_MLX_PYTHON=${PWR_MLX_PYTHON:-$ROOT/experiments/engine-spike-mlx-20260917/.venv/bin/python}
+  export PWR_MLX_PYTHON=${PWR_MLX_PYTHON:-$ROOT/.venv-mlx/bin/python}
 fi
 # Named by the binary that runs, not by the checkout: they differ whenever a
 # frozen binary is used or the tree moved on after the build.

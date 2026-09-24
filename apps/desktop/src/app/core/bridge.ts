@@ -22,8 +22,6 @@ export const bridge = {
   trustWorkspace: (workspace: string) => invoke<void>('trust_workspace', { workspace }),
   start: (workspace: string) => invoke<Started>('core_start', { workspace }),
   send: (message: unknown) => invoke<void>('core_send', { message }),
-  restoreFile: (workspace: string, path: string, content: string, remove: boolean) =>
-    invoke<void>('restore_workspace_file', { workspace, path, content, remove }),
   stop: () => invoke<void>('core_stop'),
   openExternal: (url: string) => invoke<void>('open_external', { url }),
   engineStatus: () => invoke<EngineStatus>('engine_status'),

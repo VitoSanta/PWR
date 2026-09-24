@@ -755,8 +755,7 @@ fn plans_stay_inside_the_model_folder_and_need_checksums() {
         )
     );
     assert!(
-        pwr_models::plan_for(&hub, "unsloth/Qwen3-8B-GGUF", "main", variant, root.path())
-            .is_err()
+        pwr_models::plan_for(&hub, "unsloth/Qwen3-8B-GGUF", "main", variant, root.path()).is_err()
     );
     let mut unsafe_variant = variant.clone();
     unsafe_variant.files[0].path = "../../escape.gguf".into();
@@ -773,8 +772,7 @@ fn plans_stay_inside_the_model_folder_and_need_checksums() {
     let mut unverified = variant.clone();
     unverified.files[0].sha256 = None;
     assert!(
-        pwr_models::plan_for(&hub, "unsloth/Qwen3-8B-GGUF", REV, &unverified, root.path())
-            .is_err()
+        pwr_models::plan_for(&hub, "unsloth/Qwen3-8B-GGUF", REV, &unverified, root.path()).is_err()
     );
 }
 

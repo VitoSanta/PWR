@@ -72,11 +72,11 @@ function demoAnswer(method: string, params: any): any {
           platform: 'macos', osName: 'Darwin', osVersion: '26.0', architecture: 'arm64', cpu: 'Apple M2', appleChip: { name: 'Apple M2', generation: 2, tier: null },
           memory: { totalBytes: 16 * GIB, availableBytes: 7 * GIB, availableIsEstimate: true, unified: true },
           gpus: [{ name: 'Apple M2 GPU', vendor: 'apple', vramBytes: null, vramSource: 'unified memory', unifiedMemory: true }],
-          disk: { path: '~/.lmstudio/models', freeBytes: 182 * GIB, totalBytes: 460 * GIB }, unknown: [],
+          disk: { path: '~/.pwr/models', freeBytes: 182 * GIB, totalBytes: 460 * GIB }, unknown: [],
         },
         backends: [
-          { id: 'mlx', label: 'MLX (PWR engine)', format: 'mlx', active: true, available: true, detail: 'mlx-lm 0.28', modelsRoot: '~/.lmstudio/models' },
-          { id: 'llama', label: 'llama.cpp', format: 'gguf', active: false, available: false, detail: 'llama.cpp backend is not configured: llama-server was not found.', modelsRoot: '~/.lmstudio/models' },
+          { id: 'mlx', label: 'MLX (PWR engine)', format: 'mlx', active: true, available: true, detail: 'mlx-lm 0.28', modelsRoot: '~/.pwr/models' },
+          { id: 'llama', label: 'llama.cpp', format: 'gguf', active: false, available: false, detail: 'llama.cpp backend is not configured: llama-server was not found.', modelsRoot: '~/.pwr/models' },
         ],
       };
     case '_pwr/catalog': {
@@ -91,10 +91,10 @@ function demoAnswer(method: string, params: any): any {
         downloads: 34567, likes: 42, gated: false, pipelineTag: 'text-generation', vision: false, variants: [v], bestFit: v.fit.level, notes: [],
       });
       if (params?.format === 'gguf') {
-        return { format: 'gguf', backend: 'llama', activeBackend: 'mlx', modelsRoot: '~/.lmstudio/models', error: null, results: [] };
+        return { format: 'gguf', backend: 'llama', activeBackend: 'mlx', modelsRoot: '~/.pwr/models', error: null, results: [] };
       }
       return {
-        format: 'mlx', backend: 'mlx', activeBackend: 'mlx', modelsRoot: '~/.lmstudio/models', error: null,
+        format: 'mlx', backend: 'mlx', activeBackend: 'mlx', modelsRoot: '~/.pwr/models', error: null,
         results: [
           entry('mlx-community/Qwen3-4B-4bit', 4.02e9, 40960, variant('mlx-community/Qwen3-4B-4bit', '4-bit', 2.26 * GIB,
             fit('should_fit', 'Should fit', 2.26 * GIB, 16384, 'Expected memory ~7.8 GB: 2.3 GB of weights, ~1.0 GB for the engine and 4.5 GB of context cache at 32k tokens. This machine has 16 GB of unified memory; after the reserve it leaves 8.0 GB, enough for a ~16k-token working window.'), { installed: true, local: 'present' })),
@@ -109,9 +109,8 @@ function demoAnswer(method: string, params: any): any {
       return {
         activeBackend: 'mlx',
         models: [
-          { modelRef: 'lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', format: 'mlx', backend: 'mlx', path: '~/.lmstudio/models/lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', bytes: 19 * GIB, files: 13, partial: false, inUse: true, usable: true },
-          { modelRef: 'mlx-community/Qwen3-4B-4bit', format: 'mlx', backend: 'mlx', path: '~/.lmstudio/models/mlx-community/Qwen3-4B-4bit', bytes: 2.3 * GIB, files: 9, partial: false, inUse: false, usable: true },
-          { modelRef: 'unsloth/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf', format: 'gguf', backend: 'llama', path: '~/.lmstudio/models/unsloth/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf', bytes: 4.7 * GIB, files: 1, partial: false, inUse: false, usable: false },
+          { modelRef: 'lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', format: 'mlx', backend: 'mlx', path: '~/.pwr/models/lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', bytes: 19 * GIB, files: 13, partial: false, inUse: true, usable: true },
+          { modelRef: 'mlx-community/Qwen3-4B-4bit', format: 'mlx', backend: 'mlx', path: '~/.pwr/models/mlx-community/Qwen3-4B-4bit', bytes: 2.3 * GIB, files: 9, partial: false, inUse: false, usable: true },
         ],
       };
     case '_pwr/model_delete':

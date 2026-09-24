@@ -87,7 +87,9 @@ class StableHistory(unittest.TestCase):
 
     def test_a_user_message_keeps_the_rendered_history_as_a_prefix(self):
         import pathlib
-        path = pathlib.Path.home() / ".lmstudio/models/lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit"
+        import os
+        root = pathlib.Path(os.environ.get("PWR_MLX_MODELS", pathlib.Path.home() / ".pwr/models"))
+        path = root / "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit"
         if not (path / "chat_template.jinja").exists():
             self.skipTest("Qwen3.6 is not on this machine")
         import pwr_mlx

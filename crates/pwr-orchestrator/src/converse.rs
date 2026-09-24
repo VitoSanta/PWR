@@ -776,11 +776,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 envelope,
             )
         } else {
-            pwr_domain::plan_reasoning(
-                continuity.reasoning_effort,
-                &continuity.reasoning,
-                envelope,
-            )
+            pwr_domain::plan_reasoning(continuity.reasoning_effort, &continuity.reasoning, envelope)
         };
         apply_reasoning_plan(&mut request_sampling, &plan);
         let request = ModelRequest {

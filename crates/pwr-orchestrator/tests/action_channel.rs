@@ -132,9 +132,7 @@ fn a_call_naming_complete_without_a_rationale_is_refused() {
 // ------------------------------------------------------- denial feedback
 
 use async_trait::async_trait;
-use pwr_domain::{
-    BackendState, DeploymentDescriptor, ModelChunk, ModelInspection, ModelRequest,
-};
+use pwr_domain::{BackendState, DeploymentDescriptor, ModelChunk, ModelInspection, ModelRequest};
 use pwr_provider::{ModelProvider, ModelStream, ProviderError};
 use pwr_store::Store;
 use pwr_tools::{SandboxPolicy, ToolPolicy};
@@ -217,11 +215,10 @@ async fn a_denied_action_is_returned_to_the_model_rather_than_ending_the_run() {
         sampling: Default::default(),
     };
     let checks = vec![("true".into(), Vec::new())];
-    let result = pwr_orchestrator::run_action_loop(
-        &store, &provider, run_id, request, &policy, &checks, 6,
-    )
-    .await
-    .unwrap();
+    let result =
+        pwr_orchestrator::run_action_loop(&store, &provider, run_id, request, &policy, &checks, 6)
+            .await
+            .unwrap();
     assert!(result.verified);
     assert_eq!(
         std::fs::read_to_string(root.path().join("code.rs")).unwrap(),
@@ -1001,8 +998,8 @@ mod family_conventions {
         let through_qwen =
             pwr_orchestrator::action_from_reply_through_for_test(&QwenFamilyAdapter, &embedded)
                 .expect("a call in the answer text is still a call");
-        let natively = pwr_orchestrator::action_from_reply_for_test(&native)
-            .expect("a natively decoded call");
+        let natively =
+            pwr_orchestrator::action_from_reply_for_test(&native).expect("a natively decoded call");
         // Same action, whichever channel carried it. That is the property the
         // layer exists to provide.
         assert_eq!(
