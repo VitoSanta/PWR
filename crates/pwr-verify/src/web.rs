@@ -85,7 +85,18 @@ pub fn missing_assets(root: &Path) -> Vec<MissingAsset> {
                 } else {
                     directory.join(&target)
                 };
-                let reason = if !within(root, &resolved) {
+                let inside = within(root, &resolved);
+                // Angular copies configured public assets to the served root.
+                // In src/index.html, favicon.svg therefore resolves to
+                // public/favicon.svg even though it is absent beside index.html.
+                let resolved = if inside && !resolved.exists() {
+                    angular_public_target(root, &file, &target)
+                        .filter(|path| path.exists())
+                        .unwrap_or(resolved)
+                } else {
+                    resolved
+                };
+                let reason = if !inside {
                     "resolves outside the workspace"
                 } else if !resolved.exists() {
                     "no such file in the workspace"
@@ -112,6 +123,34 @@ pub fn missing_assets(root: &Path) -> Vec<MissingAsset> {
     }
     findings.sort_by(|a, b| (&a.source, a.line).cmp(&(&b.source, b.line)));
     findings
+}
+
+fn angular_public_target(root: &Path, file: &Path, target: &str) -> Option<PathBuf> {
+    let mut project = file.parent()?;
+    loop {
+        let config = project.join("angular.json");
+        if let Ok(text) = std::fs::read_to_string(config) {
+            let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+            let configured = json["projects"].as_object()?.values().any(|project| {
+                project["architect"]["build"]["options"]["assets"]
+                    .as_array()
+                    .is_some_and(|assets| assets.iter().any(|asset| asset["input"] == "public"))
+            });
+            if configured && file.starts_with(project.join("src")) {
+                let public = project.join("public");
+                let path = public.join(target.trim_start_matches('/'));
+                return (within(root, &path) && within(&public, &path)).then_some(path);
+            }
+        }
+        if project == root {
+            break;
+        }
+        project = project.parent()?;
+        if !project.starts_with(root) {
+            break;
+        }
+    }
+    None
 }
 
 /// The check's output, in the shape a failing command would have written it.
@@ -380,5 +419,27 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("main.rs"), "fn main() {}").unwrap();
         assert!(!has_markup(root.path()));
+    }
+
+    #[test]
+    fn angular_public_assets_resolve_from_the_served_root() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("site");
+        std::fs::create_dir_all(project.join("src")).unwrap();
+        std::fs::create_dir_all(project.join("public")).unwrap();
+        std::fs::write(
+            project.join("angular.json"),
+            r#"{"projects":{"site":{"architect":{"build":{"options":{"assets":[{"glob":"**/*","input":"public"}]}}}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            project.join("src/index.html"),
+            "<link rel=\"icon\" href=\"favicon.svg\">",
+        )
+        .unwrap();
+        std::fs::write(project.join("public/favicon.svg"), "<svg/>").unwrap();
+        assert!(missing_assets(root.path()).is_empty());
+        std::fs::remove_file(project.join("public/favicon.svg")).unwrap();
+        assert_eq!(missing_assets(root.path()).len(), 1);
     }
 }

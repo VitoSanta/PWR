@@ -3,7 +3,7 @@ name: Draft macOS alpha release
 on:
   push:
     tags:
-      - v0.1.0-alpha
+      - v0.1.1-alpha
 
 permissions:
   contents: write
@@ -34,10 +34,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v0.1.0-alpha \
+          gh release create v0.1.1-alpha \
             --repo VitoSanta/PWR \
-            --title "PWR v0.1.0-alpha" \
-            --notes-file docs/release/v0.1.0-alpha-release-notes.md \
+            --title "PWR v0.1.1-alpha" \
+            --notes-file docs/release/v0.1.1-alpha-release-notes.md \
             --draft \
             --prerelease \
             --verify-tag \

@@ -3790,6 +3790,7 @@ pub struct VcsStatus {
 pub async fn vcs_status(policy: &ToolPolicy) -> Result<VcsStatus, ToolError> {
     let porcelain = git_read(policy, &["status", "--porcelain=v1", "--branch"]).await?;
     let mut status = VcsStatus::default();
+    let subdir = git_subdir(policy);
     for line in porcelain.lines() {
         if let Some(header) = line.strip_prefix("## ") {
             status.branch = header
@@ -3803,10 +3804,11 @@ pub async fn vcs_status(policy: &ToolPolicy) -> Result<VcsStatus, ToolError> {
             continue;
         }
         let (code, path) = line.split_at(2);
-        status.changed.push((
-            code.trim().to_string(),
-            path.trim().trim_matches('"').to_string(),
-        ));
+        let path = path.trim().trim_matches('"');
+        let path = subdir
+            .as_ref()
+            .map_or_else(|| path.to_string(), |dir| format!("{dir}/{path}"));
+        status.changed.push((code.trim().to_string(), path));
     }
     status.head = git_read(policy, &["rev-parse", "HEAD"])
         .await
@@ -3830,7 +3832,18 @@ pub async fn vcs_diff(policy: &ToolPolicy, paths: &[String]) -> Result<ToolResul
     ];
     if !paths.is_empty() {
         args.push("--".into());
-        args.extend(paths.iter().cloned());
+        if let Some(dir) = git_subdir(policy) {
+            for path in paths {
+                let relative = path.strip_prefix(&format!("{dir}/")).ok_or_else(|| {
+                    ToolError::Denied(format!(
+                        "{path} is outside the only Git checkout in this workspace ({dir})"
+                    ))
+                })?;
+                args.push(relative.into());
+            }
+        } else {
+            args.extend(paths.iter().cloned());
+        }
     }
     run_git(policy, &args).await
 }
@@ -3900,7 +3913,32 @@ async fn run_git(policy: &ToolPolicy, args: &[String]) -> Result<ToolResult, Too
     if !policy.allow_commands.iter().any(|c| c == git) {
         policy.allow_commands.push(git.into());
     }
-    run_command(&policy, git, args).await
+    let subdir = git_subdir(&policy);
+    run_command_in(&policy, git, args, None, subdir.as_deref()).await
+}
+
+/// A workspace may contain one generated project with its own checkout.
+/// Use it only when the workspace itself is not already inside a checkout;
+/// multiple nested repositories are ambiguous and remain an explicit error.
+fn git_subdir(policy: &ToolPolicy) -> Option<String> {
+    if policy
+        .root
+        .ancestors()
+        .any(|ancestor| ancestor.join(".git").exists())
+    {
+        return None;
+    }
+    let mut found = None;
+    for entry in std::fs::read_dir(&policy.root).ok()?.flatten() {
+        if !entry.file_type().ok()?.is_dir() || !entry.path().join(".git").exists() {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        found = Some(entry.file_name().to_string_lossy().into_owned());
+    }
+    found
 }
 
 /// The git to run for the harness's own version-control tools.
@@ -4186,6 +4224,33 @@ pub async fn run_command_in(
         }
         _ => args,
     };
+    if program == "npx" && args.first().is_some_and(|arg| arg == "run") {
+        return Err(ToolError::Denied(format!(
+            "`npx run {}` invokes the package named `run`, not this project's build script. \
+             Use executable `npm` with args [\"run\", \"{}\"] and cwd set to the project's directory.",
+            args.get(1).map(String::as_str).unwrap_or("<script>"),
+            args.get(1).map(String::as_str).unwrap_or("<script>")
+        )));
+    }
+    if program == "npm"
+        && args.first().is_some_and(|arg| arg == "run")
+        && cwd.is_none()
+        && !policy.root.join("package.json").exists()
+    {
+        let projects: Vec<_> = std::fs::read_dir(&policy.root)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|entry| entry.path().join("package.json").is_file())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        if let [project] = projects.as_slice() {
+            return Err(ToolError::Denied(format!(
+                "package.json is in `{project}/`, not the workspace root. Retry executable `npm` \
+                 with the same args and cwd `{project}`."
+            )));
+        }
+    }
     // The derived allowlist cannot name the toolchain a workspace does not yet
     // have: a task that must install a JDK needs an executable no marker in the
     // repository could have implied. The grant is what widens it, and it is
