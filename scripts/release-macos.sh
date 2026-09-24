@@ -7,7 +7,7 @@ OUTPUT_DIR=${OUTPUT_DIR:-"$ROOT/dist/release"}
 APP_DIR="$ROOT/apps/desktop"
 TAURI_DIR="$APP_DIR/src-tauri"
 DMG_DIR="$TAURI_DIR/target/release/bundle/dmg"
-EXPECTED_VERSION=0.1.1-alpha
+EXPECTED_VERSION=0.1.2-alpha
 
 fail() { printf 'release-macos: %s\n' "$*" >&2; exit 1; }
 
@@ -21,8 +21,8 @@ command -v shasum >/dev/null || fail "shasum is required"
 
 node -e 'const fs=require("node:fs"); const expected=process.argv.at(-1); for (const f of process.argv.slice(1,-1)) { const d=JSON.parse(fs.readFileSync(f,"utf8")); const v=f.endsWith("package-lock.json") ? d.packages[""].version : d.version; if (v!==expected) { console.error(`${f}: expected ${expected}, found ${v}`); process.exitCode=1; } }' \
   "$APP_DIR/package.json" "$APP_DIR/package-lock.json" "$TAURI_DIR/tauri.conf.json" "$EXPECTED_VERSION" || fail "desktop release versions are inconsistent"
-grep -Eq '^version = "0\.1\.1-alpha"$' "$ROOT/Cargo.toml" || fail "workspace version is not $EXPECTED_VERSION"
-grep -Eq '^version = "0\.1\.1-alpha"$' "$TAURI_DIR/Cargo.toml" || fail "Tauri package version is not $EXPECTED_VERSION"
+grep -Eq '^version = "0\.1\.2-alpha"$' "$ROOT/Cargo.toml" || fail "workspace version is not $EXPECTED_VERSION"
+grep -Eq '^version = "0\.1\.2-alpha"$' "$TAURI_DIR/Cargo.toml" || fail "Tauri package version is not $EXPECTED_VERSION"
 
 printf '%s\n' "release-macos: cleaning Rust build outputs"
 cargo clean --manifest-path "$ROOT/Cargo.toml"

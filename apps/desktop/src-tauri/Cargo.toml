@@ -1,6 +1,6 @@
 [package]
 name = "pwr-desktop"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 description = "PWR's desktop app: a client of `pwr serve --stdio`"
 authors = ["Vito Santanelli"]
 license = "Apache-2.0"
