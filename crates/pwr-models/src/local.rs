@@ -11,6 +11,7 @@
 
 use crate::catalog::Format;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 /// A model on disk, as the Model Manager lists it.
@@ -62,7 +63,7 @@ fn list_mlx(root: &Path) -> Vec<LocalModel> {
             let has_config = dir.join("config.json").is_file();
             let has_weights = files.iter().any(|path| extension(path) == "safetensors");
             let has_parts = files.iter().any(|path| extension(path) == "part");
-            if !(has_config && has_weights) && !has_parts {
+            if !has_config && !has_weights && !has_parts {
                 continue;
             }
             // A GGUF folder of the same shape is not an MLX model.
@@ -78,11 +79,61 @@ fn list_mlx(root: &Path) -> Vec<LocalModel> {
                 path: dir.display().to_string(),
                 bytes: files.iter().map(|path| size(path)).sum(),
                 files: files.len(),
-                partial: !(has_config && has_weights),
+                partial: !(has_config && mlx_weights_complete(&dir)),
             });
         }
     }
     found
+}
+
+/// Whether the MLX model's declared weight shards have all arrived.
+///
+/// Hugging Face downloads are renamed from `.part` only after verification, so
+/// the index is the authoritative list of required files for sharded models.
+/// Models without an index use the usual single-file safetensors layout.
+pub fn mlx_weights_complete(dir: &Path) -> bool {
+    let index = dir.join("model.safetensors.index.json");
+    if index.exists() {
+        let Ok(bytes) = std::fs::read(index) else {
+            return false;
+        };
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            return false;
+        };
+        let Some(weight_map) = value
+            .get("weight_map")
+            .and_then(serde_json::Value::as_object)
+        else {
+            return false;
+        };
+        let required: BTreeSet<&str> = weight_map
+            .values()
+            .filter_map(serde_json::Value::as_str)
+            .collect();
+        if required.is_empty() {
+            return false;
+        }
+        return required.into_iter().all(|name| {
+            let path = Path::new(name);
+            path.components().count() == 1
+                && path.file_name().and_then(|part| part.to_str()) == Some(name)
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension == "safetensors")
+                && std::fs::metadata(dir.join(path))
+                    .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+        });
+    }
+
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            let path = entry.path();
+            extension(&path) == "safetensors"
+                && entry
+                    .metadata()
+                    .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+        })
+    })
 }
 
 fn list_gguf(root: &Path) -> Vec<LocalModel> {

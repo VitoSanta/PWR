@@ -105,8 +105,8 @@ import { Tooltip } from './kit/tooltip';
             (click)="models.showTab('local')"
           >
             <pa-icon name="hard-drive" [size]="14" /> On this Mac
-            @if (models.local().length) {
-              <span class="count">{{ models.local().length }}</span>
+            @if (models.localRows().length) {
+              <span class="count">{{ models.localRows().length }}</span>
             }
           </button>
         </div>
@@ -114,32 +114,55 @@ import { Tooltip } from './kit/tooltip';
         <div class="mm-panel" role="tabpanel" id="mm-panel" [attr.aria-labelledby]="'mm-tab-' + models.tab()">
           @if (models.tab() === 'local') {
             <div class="mm-results">
-              @switch (models.localStatus()) {
-                @case ('loading') {
+              @if (models.localStatus() === 'loading' && !models.localRows().length) {
                   <p class="result-status"><span class="spinner spinner-sm" aria-hidden="true"></span> Reading the models folders…</p>
-                }
-                @case ('error') {
+              } @else if (models.localStatus() === 'error' && !models.localRows().length) {
                   <div class="empty-state">
                     <span class="empty-state-icon"><pa-icon name="alert" /></span>
                     <p class="empty-state-title">The models folders could not be read</p>
                     <p class="empty-state-text">{{ models.localError() }}</p>
                   </div>
+              } @else {
+                @if (models.localStatus() === 'loading') {
+                  <p class="result-status"><span class="spinner spinner-sm" aria-hidden="true"></span> Refreshing models…</p>
                 }
-                @default {
-                  @for (model of models.local(); track model.format + model.modelRef) {
-                    <div class="local-model">
+                @for (model of models.localRows(); track model.format + model.modelRef) {
+                    <div class="local-model" [class.local-model-downloading]="!!model.download">
                       <div class="local-main">
                         <strong class="truncate" [attr.title]="model.modelRef">{{ name(model.modelRef) }}</strong>
                         <span class="badge badge-outline">{{ model.format.toUpperCase() }}</span>
-                        @if (model.partial) {
+                        @if (model.download?.state?.state === 'cancelled') {
+                          <span class="badge badge-warning">paused</span>
+                        } @else if (model.download?.state?.state === 'failed') {
+                          <span class="badge badge-danger">download failed</span>
+                        } @else if (model.download && ['preparing', 'downloading', 'verifying'].includes(model.download.state.state)) {
+                          <span class="badge badge-info">{{ downloadStatus(model.download) }}</span>
+                        } @else if (model.partial) {
                           <span class="badge badge-warning">unfinished download</span>
                         }
                         @if (model.inUse) {
                           <span class="badge badge-success">in use</span>
                         }
                       </div>
-                      <span class="t-meta num local-size">{{ b(model.bytes) }} · {{ model.files }} file{{ model.files === 1 ? '' : 's' }}</span>
+                      <span class="t-meta num local-size">
+                        {{ b(model.bytes) }}
+                        @if (model.download?.totalBytes) { of {{ b(model.download.totalBytes) }} }
+                        · {{ model.files }} file{{ model.files === 1 ? '' : 's' }}
+                      </span>
+                      @if (model.download) {
+                        <div class="download-progress local-download-progress" [attr.title]="model.download.file ?? ''">
+                          <div class="progress" role="progressbar" [attr.aria-valuenow]="progress(model.download)" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="'Downloading ' + name(model.modelRef)">
+                            <span [style.width.%]="progress(model.download)"></span>
+                          </div>
+                          <small class="t-caption num">{{ phase(model.download) }}</small>
+                        </div>
+                      }
                       <div class="variant-action">
+                        @if (model.download && ['preparing', 'downloading', 'verifying'].includes(model.download.state.state)) {
+                          <button class="btn btn-sm" (click)="models.pause(model.modelRef, model.format)">Pause</button>
+                        } @else if (model.partial && !model.inUse) {
+                          <button class="btn btn-sm" (click)="models.resume(model.modelRef, model.format)">Resume</button>
+                        }
                         @if (model.usable && !model.inUse) {
                           <button class="btn btn-sm" (click)="models.use(model.modelRef)" [disabled]="agent.turnActive()">Use</button>
                         }
@@ -154,7 +177,10 @@ import { Tooltip } from './kit/tooltip';
                       </div>
                       <small class="local-path selectable">{{ model.path }}</small>
                     </div>
-                  } @empty {
+                } @empty {
+                  @if (models.localStatus() === 'loading') {
+                    <p class="result-status"><span class="spinner spinner-sm" aria-hidden="true"></span> Reading the models folders…</p>
+                  } @else {
                     <div class="empty-state">
                       <span class="empty-state-icon"><pa-icon name="box" /></span>
                       <p class="empty-state-title">No models on this Mac yet</p>
@@ -368,7 +394,7 @@ import { Tooltip } from './kit/tooltip';
                                       </div>
                                       <small class="t-caption num">{{ phase(dl) }}</small>
                                     </div>
-                                    <button class="btn btn-sm" (click)="models.cancel(entry, variant)">Cancel</button>
+                                    <button class="btn btn-sm" (click)="models.pauseVariant(entry, variant)">Pause</button>
                                   }
                                 }
                                 @case ('done') {
@@ -571,7 +597,25 @@ export class ModelManager {
 
   protected progress(dl: DownloadView): number {
     const state = dl.state;
-    return 'total' in state && 'bytes' in state ? percent(state.bytes, state.total) : 0;
+    if ('total' in state && 'bytes' in state) return percent(state.bytes, state.total);
+    return 'bytes' in state && dl.totalBytes ? percent(state.bytes, dl.totalBytes) : 0;
+  }
+
+  protected downloadStatus(dl: DownloadView): string {
+    switch (dl.state.state) {
+      case 'preparing':
+        return 'preparing';
+      case 'downloading':
+        return 'downloading';
+      case 'verifying':
+        return 'verifying';
+      case 'cancelled':
+        return 'paused';
+      case 'failed':
+        return 'failed';
+      case 'completed':
+        return 'downloaded';
+    }
   }
 
   protected phase(dl: DownloadView): string {
@@ -583,6 +627,10 @@ export class ModelManager {
         return `${bytes(state.bytes)} of ${bytes(state.total)}`;
       case 'verifying':
         return `Verifying checksums… ${bytes(state.bytes)} of ${bytes(state.total)}`;
+      case 'cancelled':
+        return `Paused · ${bytes(state.bytes)} kept`;
+      case 'failed':
+        return `Failed · ${bytes(state.bytes)} kept`;
       default:
         return '';
     }

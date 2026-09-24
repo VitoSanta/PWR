@@ -40,6 +40,36 @@ export class ModelsStore {
   /** Discover (the Hub) or the models already on this machine. */
   readonly tab = signal<'discover' | 'local'>('discover');
   readonly local = signal<LocalModel[]>([]);
+  /** Installed models plus active/paused downloads, for the local tab. */
+  readonly localRows = computed(() => {
+    const rows = new Map<string, LocalModelRow>();
+    for (const model of this.local()) rows.set(localKey(model.format, model.modelRef), { ...model });
+
+    for (const view of Object.values(this.downloads())) {
+      if (!view.modelRef || !view.format || view.state.state === 'completed') continue;
+      const key = localKey(view.format, view.modelRef);
+      const row = rows.get(key);
+      if (row) {
+        row.download = view;
+        row.partial = true;
+        row.bytes = downloadBytes(view.state);
+      } else {
+        rows.set(key, {
+          modelRef: view.modelRef,
+          format: view.format,
+          backend: view.format === 'mlx' ? 'mlx' : 'llama',
+          path: `${this.modelsRoot()}/${view.modelRef}`,
+          bytes: downloadBytes(view.state),
+          files: view.fileCount ?? 0,
+          partial: true,
+          inUse: false,
+          usable: false,
+          download: view,
+        });
+      }
+    }
+    return [...rows.values()].sort((a, b) => a.modelRef.localeCompare(b.modelRef));
+  });
   readonly localStatus = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
   readonly localError = signal('');
   /** The model waiting for "Delete" to be confirmed. */
@@ -69,6 +99,7 @@ export class ModelsStore {
     this.open.set(true);
     this.listen();
     if (!this.hardware()) void this.loadHardware();
+    void this.loadLocal();
     if (this.status() === 'idle') void this.search();
   }
 
@@ -271,7 +302,14 @@ export class ModelsStore {
     const current = this.downloads()[key];
     if (current && !isTerminal(current)) return;
     const downloadId = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    this.put(key, { downloadId, state: { state: 'preparing' } });
+    this.put(key, {
+      downloadId,
+      modelRef: variant.modelRef,
+      format: variant.format,
+      totalBytes: variant.bytes,
+      fileCount: variant.files.length,
+      state: { state: 'preparing' },
+    });
     try {
       const reply = await this.agent.call('_pwr/download', {
         cwd: this.agent.workspace(),
@@ -290,6 +328,7 @@ export class ModelsStore {
       // The engine lists it now: the model picker and the cards pick it up.
       await this.agent.refreshModels();
       this.markInstalled(entry.repository, variant.id, reply.ready === true);
+      await this.loadLocal();
     } catch (error) {
       // The core's last `download_progress` carries the state and its kind;
       // this only covers a failure before any was sent.
@@ -302,15 +341,49 @@ export class ModelsStore {
     }
   }
 
-  cancel(entry: CatalogEntry, variant: CatalogVariant): void {
+  pauseVariant(entry: CatalogEntry, variant: CatalogVariant): void {
     const view = this.downloads()[this.key(entry, variant)];
     if (view && !isTerminal(view))
       this.agent.notify('_pwr/download_cancel', { downloadId: view.downloadId });
   }
 
+  /** Pausing cancels the current request while keeping its verified partial file for resume. */
+  pause(modelRef: string, format?: 'mlx' | 'gguf'): void {
+    const view = Object.values(this.downloads()).find(
+      (candidate) =>
+        candidate.modelRef === modelRef &&
+        (!format || candidate.format === format) &&
+        !isTerminal(candidate),
+    );
+    if (view) this.agent.notify('_pwr/download_cancel', { downloadId: view.downloadId });
+  }
+
+  /** Resume a live or persisted partial download from either tab. */
+  async resume(modelRef: string, format?: 'mlx' | 'gguf'): Promise<void> {
+    const locate = () =>
+      this.results()
+        .map((entry) => ({
+          entry,
+          variant: entry.variants.find(
+            (variant) => variant.modelRef === modelRef && (!format || variant.format === format),
+          ),
+        }))
+        .find((match) => match.variant);
+
+    let match = locate();
+    if (!match) {
+      this.query.set(modelRef);
+      this.tab.set('discover');
+      await this.search();
+      match = locate();
+    }
+    if (match?.variant) await this.download(match.entry, match.variant);
+  }
+
   /** Chooses a downloaded model for this workspace and closes the manager. */
   async use(modelRef: string): Promise<void> {
     await this.agent.selectModel(modelRef);
+    await this.loadLocal();
     this.close();
   }
 
@@ -352,6 +425,28 @@ export class ModelsStore {
     this.downloads.update((all) =>
       all[key] ? { ...all, [key]: { ...all[key], ...change } } : all,
     );
+  }
+}
+
+interface LocalModelRow extends LocalModel {
+  download?: DownloadView;
+}
+
+function localKey(format: 'mlx' | 'gguf', modelRef: string): string {
+  return `${format}:${modelRef}`;
+}
+
+function downloadBytes(state: DownloadView['state']): number {
+  switch (state.state) {
+    case 'downloading':
+    case 'verifying':
+    case 'failed':
+    case 'cancelled':
+      return state.bytes;
+    case 'completed':
+      return state.total;
+    default:
+      return 0;
   }
 }
 

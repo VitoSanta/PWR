@@ -734,6 +734,15 @@ pa-model-picker {
   background: var(--surface-primary);
 }
 
+.local-model-downloading {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.local-download-progress,
+.local-model-downloading .variant-action {
+  grid-column: 1 / -1;
+}
+
 .local-path {
   grid-column: 1 / -1;
   overflow-wrap: anywhere;
