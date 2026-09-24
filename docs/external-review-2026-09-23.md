@@ -21,7 +21,7 @@ while checking, not in the report).
 | 3 | The llama.cpp provider starts a server per generation | **confirmed** | `LlamaProvider::chat` starts `LlamaServer`, keeps it alive for one stream, drops it. `prepare_context` returns the requested size without asking the server. Not the live path on macOS (MLX is), but it is the path Windows depends on. |
 | 4 | README status is stale and disagrees with the code | **confirmed** | README: "Status below describes code inspected on **2026-09-13**", "none of the above has been run against a live model", llama as "metadata inspection" — while the provider generates, and live runs are recorded daily since 2026-09-18. |
 | 5 | The Angular app has no tests and is not in CI | **confirmed** | 0 `*.spec.ts`/`*.test.ts` under `apps/desktop/src`; the workflow runs only `cargo fmt`, `clippy`, `cargo test` and the milestone check. |
-| 6 | 108 tracked `.poorai` records, some with home paths | **partly** | True of the local `redefinition` branch (64 models + 44 calibrations, 25 with the maintainer's home path). **The public `main` has 86, and none carries a personal path**: 22 were kept off it on 2026-09-23, and the 3 remaining `/Users/` strings are `/Users/runner/...` paths from Ollama's own CI builds. The maintainer then decided to take all of them off the public repository for now (backlog R.9); which to publish again, anonymised, is open. |
+| 6 | 108 tracked `.pwr` records, some with home paths | **partly** | True of the local `redefinition` branch (64 models + 44 calibrations, 25 with the maintainer's home path). **The public `main` has 86, and none carries a personal path**: 22 were kept off it on 2026-09-23, and the 3 remaining `/Users/` strings are `/Users/runner/...` paths from Ollama's own CI builds. The maintainer then decided to take all of them off the public repository for now (backlog R.9); which to publish again, anonymised, is open. |
 | 7 | No licence inventory of dependencies | **confirmed** | Nothing summarises or checks the Rust, npm and Python licences. |
 | 8 | `.gitignore` has no rules for `.env*`, model weights, keys | **confirmed** | None present. No such file is tracked. |
 | 9 | Two loops, not one runtime | **confirmed** | Already stated by `two_loops.rs` and the README; shared gate and perform, separate planning, compaction, completion and recovery. |
@@ -59,7 +59,7 @@ while checking, not in the report).
 
 ## What is not adopted, or not yet
 
-- **Moving `.poorai` evidence out of the repository** is the maintainer's
+- **Moving `.pwr` evidence out of the repository** is the maintainer's
   decision: the public branch is already free of personal paths, and the
   evidence is tracked on purpose (see `.gitignore`). Recorded as open.
 - **Unifying the two loops** is accepted as direction but not scheduled first:

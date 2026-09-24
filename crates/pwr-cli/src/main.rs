@@ -408,7 +408,7 @@ enum EvalCommand {
         #[arg(long, default_value_t = 900)]
         turn_timeout_secs: u64,
         /// Where reports are written.
-        #[arg(long, default_value = ".poorai/evaluations")]
+        #[arg(long, default_value = ".pwr/evaluations")]
         out_dir: PathBuf,
         /// Which path to measure.
         ///
@@ -942,7 +942,7 @@ async fn compute_context(
 }
 /// Paths the workspace declares part of the task rather than part of the work.
 ///
-/// Read from `.poorai/protected.json`, a list of workspace-relative paths:
+/// Read from `.pwr/protected.json`, a list of workspace-relative paths:
 ///
 /// ```json
 /// {"protected": ["SPECIFICATION.md", "src/app/app-shell.spec.ts"]}
@@ -968,7 +968,7 @@ fn frozen_paths(root: &Path) -> Result<Vec<PathBuf>, SafeError> {
         #[serde(default)]
         protected: Vec<PathBuf>,
     }
-    let path = root.join(".poorai/protected.json");
+    let path = root.join(".pwr/protected.json");
     let body = match std::fs::read_to_string(&path) {
         Ok(body) => body,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -1046,7 +1046,7 @@ struct ChatConfig {
     /// Folders outside the workspace the conversation may read but never
     /// change, relative to the workspace or absolute: a site in a project's
     /// subfolder reading the project's documentation (`[".."]`). Declared,
-    /// never inferred; `.poorai`, `.git` and `.env*` inside them stay closed.
+    /// never inferred; `.pwr`, `.git` and `.env*` inside them stay closed.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     reference_roots: Vec<PathBuf>,
     timeout_secs: u64,
@@ -1170,12 +1170,12 @@ impl Default for ChatConfig {
 /// do not exist are dropped rather than failing the turn.
 /// Where chat mode keeps its conversations, settings and images: a folder of
 /// PWR's own, since chat mode has no workspace (decided 2026-09-23 with
-/// the maintainer). `POORAI_CHAT_HOME` moves it.
+/// the maintainer). `PWR_CHAT_HOME` moves it.
 fn chat_home() -> Result<PathBuf, String> {
-    let home = match std::env::var_os("POORAI_CHAT_HOME") {
+    let home = match std::env::var_os("PWR_CHAT_HOME") {
         Some(path) => PathBuf::from(path),
         None => {
-            PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(".poorai/chat")
+            PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(".pwr/chat")
         }
     };
     fs::create_dir_all(&home).map_err(|error| format!("{}: {error}", home.display()))?;
@@ -1249,7 +1249,7 @@ fn chat_system_prompt_for(root: &Path) -> String {
 fn collect_reference_documents(base: &Path, dir: &Path, depth: usize, out: &mut Vec<String>) {
     const SKIPPED: [&str; 8] = [
         ".git",
-        ".poorai",
+        ".pwr",
         "node_modules",
         "target",
         "dist",
@@ -1286,7 +1286,7 @@ fn chat_is_prepared(config: &ChatConfig) -> bool {
 }
 
 fn chat_config_path(root: &Path) -> PathBuf {
-    root.join(".poorai/chat-config.json")
+    root.join(".pwr/chat-config.json")
 }
 
 /// Capability evidence describes an Ollama deployment rather than one
@@ -1294,15 +1294,15 @@ fn chat_config_path(root: &Path) -> PathBuf {
 /// can be reused from every workspace; each workspace retains its own copy as
 /// an audit trail when a probe is executed there.
 fn global_model_evidence_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".poorai/models"))
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/models"))
 }
 
 fn global_calibration_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".poorai/calibrations"))
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/calibrations"))
 }
 
 fn model_evidence_dirs(root: &Path) -> Vec<PathBuf> {
-    let workspace = root.join(".poorai/models");
+    let workspace = root.join(".pwr/models");
     match global_model_evidence_dir() {
         Some(global) if global != workspace => vec![workspace, global],
         _ => vec![workspace],
@@ -1596,7 +1596,7 @@ fn collect_chat_folder_files(
 fn is_excluded_folder_attachment(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(|name| name.to_str()),
-        Some(".git" | ".poorai" | "node_modules" | "target" | "dist" | "build" | ".next")
+        Some(".git" | ".pwr" | "node_modules" | "target" | "dist" | "build" | ".next")
     )
 }
 
@@ -1626,7 +1626,7 @@ fn attach_chat_bytes(root: &Path, label: &str, bytes: Vec<u8>) -> Result<ChatMes
     }
     let hash = hash_bytes(&bytes);
     let snapshot = root
-        .join(".poorai/chat-attachments")
+        .join(".pwr/chat-attachments")
         .join(format!("{hash}.txt"));
     fs::create_dir_all(snapshot.parent().expect("attachment has a parent")).map_err(|error| {
         SafeError {
@@ -2097,7 +2097,7 @@ fn select_timeout(config: &mut ChatConfig) -> Result<(), SafeError> {
 }
 
 fn select_profile(root: &Path, config: &mut ChatConfig) -> Result<(), SafeError> {
-    let mut profiles: Vec<PathBuf> = fs::read_dir(root.join(".poorai/calibrations"))
+    let mut profiles: Vec<PathBuf> = fs::read_dir(root.join(".pwr/calibrations"))
         .ok()
         .into_iter()
         .flatten()
@@ -2457,7 +2457,7 @@ fn sync_tui_activity(state: &mut TuiState, root: &Path) {
     let Some(run_id) = state.run_id else {
         return;
     };
-    let Ok(store) = pwr_store::Store::open(root.join(".poorai/state.sqlite")) else {
+    let Ok(store) = pwr_store::Store::open(root.join(".pwr/state.sqlite")) else {
         return;
     };
     let Ok(events) = store.events_for_run(run_id) else {
@@ -2815,7 +2815,7 @@ fn resume_into(
 
 /// The latest conversation in `root`'s log, reconciled against the workspace.
 fn resume_latest_conversation(root: &Path) -> Result<Option<ResumedConversation>, String> {
-    let store = pwr_store::Store::open(root.join(".poorai/state.sqlite"))
+    let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
         .map_err(|error| error.to_string())?;
     let Some(conversation_id) = pwr_orchestrator::conversation::latest(&store)? else {
         return Ok(None);
@@ -2934,7 +2934,7 @@ impl serve::TurnRunner for ConsoleTurns {
             use sha2::Digest as _;
             format!("{:x}", sha2::Sha256::digest(&image.bytes))
         };
-        let dir = root.join(".poorai/images");
+        let dir = root.join(".pwr/images");
         std::fs::create_dir_all(&dir).map_err(|error| format!("{}: {error}", dir.display()))?;
         let path = dir.join(format!("{digest}.{extension}"));
         if !path.exists() {
@@ -3380,8 +3380,8 @@ impl serve::TurnRunner for ConsoleTurns {
             .canonicalize()
             .map_err(|error| format!("{}: {error}", root.display()))?;
         let config = load_chat_config(&root).map_err(|error| error.context)?;
-        fs::create_dir_all(root.join(".poorai")).map_err(|error| error.to_string())?;
-        let store = pwr_store::Store::open(root.join(".poorai/state.sqlite"))
+        fs::create_dir_all(root.join(".pwr")).map_err(|error| error.to_string())?;
+        let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
             .map_err(|error| error.to_string())?;
         pwr_orchestrator::compaction::record(
             &store,
@@ -3487,7 +3487,7 @@ impl serve::TurnRunner for ConsoleTurns {
             acceptance_available,
             summary: if technical_passed && !acceptance_available {
                 format!(
-                    "{summary}\n\nNo unchanged product-level acceptance contract was available for this session. Before starting a goal-mode session, declare an executable check with `\"kind\": \"acceptance\"` in `.poorai/checks.json`; it can validate a browser flow, API contract, CLI workflow, desktop smoke test, migration, or other outcome that represents this workspace's real goal. Do not modify that contract during the task: start a new session after human review if it needs to change."
+                    "{summary}\n\nNo unchanged product-level acceptance contract was available for this session. Before starting a goal-mode session, declare an executable check with `\"kind\": \"acceptance\"` in `.pwr/checks.json`; it can validate a browser flow, API contract, CLI workflow, desktop smoke test, migration, or other outcome that represents this workspace's real goal. Do not modify that contract during the task: start a new session after human review if it needs to change."
                 )
             } else {
                 summary
@@ -3551,7 +3551,7 @@ impl ConsoleTurns {
 /// The workspace's log, without creating one where no conversation was ever
 /// held: listing a directory should not leave state behind in it.
 fn conversation_store(root: &Path) -> Result<Option<pwr_store::Store>, String> {
-    let path = root.join(".poorai/state.sqlite");
+    let path = root.join(".pwr/state.sqlite");
     if !path.is_file() {
         return Ok(None);
     }
@@ -3774,7 +3774,7 @@ fn check_verdict(
 /// tokens of passages delivered, or `None` when there was no fresh request to
 /// rank against.
 ///
-/// Indexing is incremental and cached under `.poorai`, so this is a walk of
+/// Indexing is incremental and cached under `.pwr`, so this is a walk of
 /// what changed rather than of the repository -- but the first turn in an
 /// unindexed workspace pays for the first index, which is latency the
 /// conversation did not have before.
@@ -3829,7 +3829,7 @@ fn compose_chat_turn(
     else {
         return Ok(None);
     };
-    let (index, _work) = pwr_repo::index_incremental(root, Some(&root.join(".poorai")))
+    let (index, _work) = pwr_repo::index_incremental(root, Some(&root.join(".pwr")))
         .map_err(|error| error.to_string())?;
     // What the history has left, not the whole window. A conversation composes
     // a turn into a prompt that already holds everything said before it, and
@@ -4299,7 +4299,7 @@ async fn chat_turn(
             approvals: chat_approvals(&effective_ask_before(&config), &session_grants),
         }
     };
-    let store = pwr_store::Store::open(root.join(".poorai/state.sqlite"))
+    let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
         .map_err(|error| error.to_string())?;
     let checks = if chat_only {
         Vec::new()
@@ -5453,7 +5453,7 @@ fn open_store() -> Result<(std::path::PathBuf, pwr_store::Store), SafeError> {
             context: e.to_string(),
         })?;
     let store =
-        pwr_store::Store::open(root.join(".poorai/state.sqlite")).map_err(|e| SafeError {
+        pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
             category: "internal",
             context: e.to_string(),
         })?;
@@ -6706,7 +6706,7 @@ fn load_strategies(path: &Path) -> Vec<pwr_domain::ModelStrategy> {
 }
 
 /// Bump when any scoring or execution step changes; reports record it.
-const EVAL_HARNESS_REV: &str = concat!("eval-", env!("POORAI_HARNESS_REV"));
+const EVAL_HARNESS_REV: &str = concat!("eval-", env!("PWR_HARNESS_REV"));
 
 /// The one thing the evaluator's two modes differ in.
 ///
@@ -6925,7 +6925,7 @@ async fn evaluate_task(
             })
             .collect(),
     };
-    let state_dir = root.join(".poorai");
+    let state_dir = root.join(".pwr");
     if std::fs::create_dir_all(&state_dir).is_err() {
         outcome.error = Some("could not create task state directory".into());
         return outcome;
@@ -7779,7 +7779,7 @@ async fn inspect(
         })?;
     let bytes = serde_json::to_vec_pretty(&inspection).expect("serializable");
     let artifact_name = format!("{}.json", inspection.definition.id);
-    let artifact = root.join(".poorai/models").join(&artifact_name);
+    let artifact = root.join(".pwr/models").join(&artifact_name);
     write_immutable_artifact(&artifact, &bytes)?;
     if let Some(global) = global_model_evidence_dir() {
         write_immutable_artifact(&global.join(artifact_name), &bytes)?;
@@ -8039,7 +8039,7 @@ async fn calibrate(
             category: "internal",
             context: e.to_string(),
         })?;
-    let dir = root.join(".poorai/calibrations");
+    let dir = root.join(".pwr/calibrations");
     std::fs::create_dir_all(&dir).map_err(|e| SafeError {
         category: "internal",
         context: e.to_string(),
@@ -8122,7 +8122,7 @@ async fn run(
         })?;
     // Incremental: a file the previous run already read is not read again,
     // which on any repository larger than the corpus is most of them.
-    let (index, _index_work) = pwr_repo::index_incremental(&root, Some(&root.join(".poorai")))
+    let (index, _index_work) = pwr_repo::index_incremental(&root, Some(&root.join(".pwr")))
         .map_err(|e| SafeError {
         category: "invalid_input",
         context: e.to_string(),
@@ -8132,7 +8132,7 @@ async fn run(
             category: "invalid_input",
             context: e,
         })?;
-    let state_dir = root.join(".poorai");
+    let state_dir = root.join(".pwr");
     std::fs::create_dir_all(&state_dir).map_err(|e| SafeError {
         category: "internal",
         context: e.to_string(),
@@ -8334,7 +8334,7 @@ async fn prepare_profiled_run(
                 "operator-selected, measured stable context point for this workspace chat".into();
         }
     }
-    let dir = root.join(".poorai/execution-profiles");
+    let dir = root.join(".pwr/execution-profiles");
     std::fs::create_dir_all(&dir).map_err(|e| SafeError {
         category: "internal",
         context: e.to_string(),
@@ -8365,7 +8365,7 @@ async fn prepare_profiled_run(
         // Only what the user named on the command line.
         approvals,
     };
-    let state_dir = root.join(".poorai");
+    let state_dir = root.join(".pwr");
     std::fs::create_dir_all(&state_dir).map_err(|e| SafeError {
         category: "internal",
         context: e.to_string(),
@@ -8396,7 +8396,7 @@ async fn prepare_profiled_run(
     let task_profile = task_profile;
     // Incremental: a file the previous run already read is not read again,
     // which on any repository larger than the corpus is most of them.
-    let (index, index_work) = pwr_repo::index_incremental(&root, Some(&root.join(".poorai")))
+    let (index, index_work) = pwr_repo::index_incremental(&root, Some(&root.join(".pwr")))
         .map_err(|e| SafeError {
             category: "invalid_input",
             context: e.to_string(),
@@ -8723,11 +8723,11 @@ async fn prepare_profiled_run(
     }))
 }
 /// The semantic section ranker, when the person asked for it with
-/// `POORAI_SEMANTIC_RETRIEVAL=1` (backlog C.22). Opt-in until a run with a
+/// `PWR_SEMANTIC_RETRIEVAL=1` (backlog C.22). Opt-in until a run with a
 /// small model at a small window says what it is worth; when the encoder
 /// cannot start, retrieval is lexical and stderr says why, once.
 fn semantic_ranker_if_requested(root: &Path) -> Option<semantic::EmbeddingRanker> {
-    if std::env::var("POORAI_SEMANTIC_RETRIEVAL").ok().as_deref() != Some("1") {
+    if std::env::var("PWR_SEMANTIC_RETRIEVAL").ok().as_deref() != Some("1") {
         return None;
     }
     match semantic::EmbeddingRanker::open(root) {
@@ -8750,7 +8750,7 @@ fn rank_passages(
     semantic: bool,
 ) -> Result<serde_json::Value, SafeError> {
     let (index, _) =
-        pwr_repo::index_incremental(&path, Some(&path.join(".poorai"))).map_err(|error| {
+        pwr_repo::index_incremental(&path, Some(&path.join(".pwr"))).map_err(|error| {
             SafeError {
                 category: "invalid_input",
                 context: error.to_string(),
@@ -8820,12 +8820,12 @@ fn rank_passages(
 }
 
 fn index_repository(path: PathBuf) -> Result<serde_json::Value, SafeError> {
-    let (index, index_work) = pwr_repo::index_incremental(&path, Some(&path.join(".poorai")))
+    let (index, index_work) = pwr_repo::index_incremental(&path, Some(&path.join(".pwr")))
         .map_err(|e| SafeError {
             category: "invalid_input",
             context: e.to_string(),
         })?;
-    let artifact = pwr_repo::persist(&index, &PathBuf::from(&index.root).join(".poorai"))
+    let artifact = pwr_repo::persist(&index, &PathBuf::from(&index.root).join(".pwr"))
         .map_err(|e| SafeError {
             category: "internal",
             context: e.to_string(),
@@ -9298,7 +9298,7 @@ fn diagnose_in(root: &Path, id: String) -> Result<serde_json::Value, SafeError> 
     })?;
     let root = root.to_path_buf();
     let store =
-        pwr_store::Store::open(root.join(".poorai/state.sqlite")).map_err(|e| SafeError {
+        pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
             category: "internal",
             context: e.to_string(),
         })?;
@@ -9355,7 +9355,7 @@ fn report_in(root: &Path, id: String, format: String) -> Result<serde_json::Valu
     })?;
     let root = root.to_path_buf();
     let store =
-        pwr_store::Store::open(root.join(".poorai/state.sqlite")).map_err(|e| SafeError {
+        pwr_store::Store::open(root.join(".pwr/state.sqlite")).map_err(|e| SafeError {
             category: "internal",
             context: e.to_string(),
         })?;
@@ -9465,7 +9465,7 @@ async fn verify_in(
         // until a run can actually ask the user for it.
         approvals: Vec::new(),
     };
-    let state_dir = root.join(".poorai");
+    let state_dir = root.join(".pwr");
     std::fs::create_dir_all(&state_dir).map_err(|e| SafeError {
         category: "internal",
         context: e.to_string(),
@@ -9616,7 +9616,7 @@ async fn route_automatically(
         context: error.to_string(),
     })?;
     let calibration = selection::stored_calibration(
-        &root.join(".poorai/calibrations"),
+        &root.join(".pwr/calibrations"),
         Some(&inspection.definition.digest),
         &selected.deployment,
         CALIBRATION_HARNESS_REV,
@@ -9771,7 +9771,7 @@ async fn select_deployment(
                 .map(|inspection| inspection.definition.digest.clone())
         });
         let calibration = selection::stored_calibration(
-            &root.join(".poorai/calibrations"),
+            &root.join(".pwr/calibrations"),
             digest.as_deref(),
             &deployment,
             CALIBRATION_HARNESS_REV,
@@ -9966,21 +9966,24 @@ async fn model_catalog(
         Err(_) => Vec::new(),
     };
     let hub = pwr_models::hub::HubClient::from_env().map_err(|error| error.message)?;
-    let (results, error) = match pwr_models::search(
+    let (results, next_cursor, error) = match pwr_models::search(
         &hub,
         &request.query,
         format,
+        &request.filters,
+        request.cursor.as_deref(),
         &capacity,
         &models_root,
         &installed,
     )
     .await
     {
-        Ok(entries) => (
-            pwr_models::apply_filters(entries, &request.filters),
+        Ok(page) => (
+            pwr_models::apply_filters(page.entries, &request.filters),
+            page.next_cursor,
             None,
         ),
-        Err(error) => (Vec::new(), Some(error)),
+        Err(error) => (Vec::new(), None, Some(error)),
     };
     Ok(serde_json::json!({
         "format": format,
@@ -9988,6 +9991,7 @@ async fn model_catalog(
         "activeBackend": active.id(),
         "modelsRoot": models_root,
         "results": results,
+        "nextCursor": next_cursor,
         "error": error,
     }))
 }
@@ -10049,7 +10053,7 @@ async fn download_from_hub(
     let next_step = if kind != active {
         Some(format!(
             "Downloaded. This is a {} model for {}, and PWR is running the {} engine: start the \
-             app with POORAI_BACKEND={} to choose it.",
+             app with PWR_BACKEND={} to choose it.",
             match format {
                 Format::Mlx => "MLX",
                 Format::Gguf => "GGUF",
@@ -10173,7 +10177,7 @@ fn artifact_download_plan(
     };
     let destination_root = destination_root.unwrap_or_else(default_artifact_destination_root);
     let hub_base =
-        std::env::var("POORAI_HF_BASE_URL").unwrap_or_else(|_| "https://huggingface.co".into());
+        std::env::var("PWR_HF_BASE_URL").unwrap_or_else(|_| "https://huggingface.co".into());
     artifact
         .download_plan_from_base(&destination_root, &hub_base)
         .map_err(|error| SafeError {
@@ -10187,12 +10191,12 @@ fn artifact_download_plan(
 }
 
 fn default_artifact_destination_root() -> PathBuf {
-    std::env::var_os("POORAI_MODEL_ARTIFACTS")
+    std::env::var_os("PWR_MODEL_ARTIFACTS")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".poorai/artifacts"))
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/artifacts"))
         })
-        .unwrap_or_else(|| PathBuf::from(".poorai/artifacts"))
+        .unwrap_or_else(|| PathBuf::from(".pwr/artifacts"))
 }
 
 async fn report_certification(
@@ -10422,7 +10426,7 @@ mod tests {
         root: &Path,
         inspection: &pwr_domain::ModelInspection,
     ) -> pwr_domain::Id {
-        let directory = root.join(".poorai/models");
+        let directory = root.join(".pwr/models");
         fs::create_dir_all(&directory).unwrap();
         let id = inspection.definition.id;
         fs::write(
@@ -10745,11 +10749,11 @@ mod tests {
     #[test]
     fn continuing_restores_the_conversation_and_says_what_changed() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".poorai")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".pwr")).unwrap();
         std::fs::write(dir.path().join("a.rs"), "someone else's version\n").unwrap();
         let id = new_id();
         {
-            let store = pwr_store::Store::open(dir.path().join(".poorai/state.sqlite")).unwrap();
+            let store = pwr_store::Store::open(dir.path().join(".pwr/state.sqlite")).unwrap();
             pwr_orchestrator::conversation::record_snapshot(
                 &store,
                 id,
@@ -10785,7 +10789,7 @@ mod tests {
             "the note did not reach the deployment"
         );
         assert_eq!(resumed.messages[1].content, note);
-        let store = pwr_store::Store::open(dir.path().join(".poorai/state.sqlite")).unwrap();
+        let store = pwr_store::Store::open(dir.path().join(".pwr/state.sqlite")).unwrap();
         assert!(
             store
                 .events_for_run(id)
@@ -10798,7 +10802,7 @@ mod tests {
     #[test]
     fn there_is_nothing_to_continue_in_a_workspace_without_a_conversation() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".poorai")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".pwr")).unwrap();
         assert!(resume_latest_conversation(dir.path()).unwrap().is_none());
     }
 
@@ -11916,7 +11920,7 @@ mod tests {
         assert!(attached.content.ends_with("\nfn unsaved() {}"));
         let snapshot = workspace
             .path()
-            .join(".poorai/chat-attachments")
+            .join(".pwr/chat-attachments")
             .join(format!("{}.txt", hash_bytes(b"fn unsaved() {}")));
         assert_eq!(fs::read_to_string(snapshot).unwrap(), "fn unsaved() {}");
         let Err(refused) = attach_chat_bytes(workspace.path(), "file:///blob", vec![0xff, 0xfe])
@@ -12011,7 +12015,7 @@ mod tests {
     fn composing_a_turn_keeps_the_attached_images() {
         let workspace = tempfile::tempdir().unwrap();
         let mut request = ChatMessage::text("user", "what does this screenshot say?");
-        request.images = vec![PathBuf::from("/w/.poorai/images/ab.png")];
+        request.images = vec![PathBuf::from("/w/.pwr/images/ab.png")];
         let mut messages = vec![ChatMessage::text("system", "be brief"), request];
         compose_chat_turn(
             workspace.path(),
@@ -12024,7 +12028,7 @@ mod tests {
         let last = messages.last().unwrap();
         assert_eq!(last.role, "user");
         assert!(last.content.contains("what does this screenshot say?"));
-        assert_eq!(last.images, [PathBuf::from("/w/.poorai/images/ab.png")]);
+        assert_eq!(last.images, [PathBuf::from("/w/.pwr/images/ab.png")]);
     }
 
     #[test]
@@ -12074,7 +12078,7 @@ mod tests {
         assert!(
             workspace
                 .path()
-                .join(".poorai/chat-attachments")
+                .join(".pwr/chat-attachments")
                 .read_dir()
                 .unwrap()
                 .next()
@@ -12272,9 +12276,9 @@ mod protection_tests {
             "absent means nothing"
         );
 
-        fs::create_dir_all(root.join(".poorai")).unwrap();
+        fs::create_dir_all(root.join(".pwr")).unwrap();
         fs::write(
-            root.join(".poorai/protected.json"),
+            root.join(".pwr/protected.json"),
             r#"{"protected": ["test/orders.test.js"]}"#,
         )
         .unwrap();
@@ -12285,7 +12289,7 @@ mod protection_tests {
 
         // The shape three experiment runs used on 2026-09-23.
         fs::write(
-            root.join(".poorai/protected.json"),
+            root.join(".pwr/protected.json"),
             r#"{"paths": ["test/orders.test.js"]}"#,
         )
         .unwrap();
@@ -12294,7 +12298,7 @@ mod protection_tests {
         };
         assert!(error.context.contains("\"protected\""), "{}", error.context);
 
-        fs::write(root.join(".poorai/protected.json"), "{not json").unwrap();
+        fs::write(root.join(".pwr/protected.json"), "{not json").unwrap();
         assert!(frozen_paths(root).is_err());
     }
 }

@@ -12,28 +12,28 @@ product and is corrected throughout.
 **Status: S1 IMPLEMENTED; increments to 2026-09-23.** Since the first
 version: replies and reasoning **stream** as they are generated
 (`agent_thought_chunk` for reasoning, `agent_message_chunk` with
-`_meta.poorai.live: true` for the reply in progress, 2026-09-22); the window in
-use is reported as a `_poorai/usage` notification (`used`, `window`) after
-every generation; `_poorai/approvals` takes and returns the permission
+`_meta.pwr.live: true` for the reply in progress, 2026-09-22); the window in
+use is reported as a `_pwr/usage` notification (`used`, `window`) after
+every generation; `_pwr/approvals` takes and returns the permission
 `mode` (`ask` / `auto`), the kinds actually asked about (`asking`) and whether
 commands are `sandboxed` (2026-09-23). **Also 2026-09-23** (details in
-[`models-and-context.md`](models-and-context.md)): `_poorai/context`
+[`models-and-context.md`](models-and-context.md)): `_pwr/context`
 (`sessionId`, optional `autoCompactPercent` 50–90) returns the window, the
 engine's count or an estimate, an estimated composition, the auto-compaction
-threshold and the last compaction; `_poorai/compact` (`sessionId`) compacts
+threshold and the last compaction; `_pwr/compact` (`sessionId`) compacts
 between turns through the same function as automatic compaction and records
-`context.compacted`; every compaction is announced as a `_poorai/compacted`
-notification (`sessionId`, `trigger`, `note`); `_poorai/hardware` returns the
-normalized host profile and each engine's readiness; `_poorai/catalog`
+`context.compacted`; every compaction is announced as a `_pwr/compacted`
+notification (`sessionId`, `trigger`, `note`); `_pwr/hardware` returns the
+normalized host profile and each engine's readiness; `_pwr/catalog`
 (`query`, `format` `mlx`/`gguf`, `filters`) searches the Hugging Face Hub and
-returns rated variants; `_poorai/download` also takes a Hub variant
+returns rated variants; `_pwr/download` also takes a Hub variant
 (`repository`, `revision`, `variant`, `format`) whose files the core re-reads
-at that commit, and `_poorai/download_progress` now carries the download's
+at that commit, and `_pwr/download_progress` now carries the download's
 `state` (`preparing`, `downloading`, `verifying`, `completed`, `failed` with a
-`kind`, `cancelled`); `_poorai/local_models` (`cwd`) lists the models on
-this machine and `_poorai/model_delete` (`cwd`, `modelRef`, `format`)
+`kind`, `cancelled`); `_pwr/local_models` (`cwd`) lists the models on
+this machine and `_pwr/model_delete` (`cwd`, `modelRef`, `format`)
 deletes one, refusing the model the workspace uses. **2026-09-24** (details in
-[`model-compatibility.md`](model-compatibility.md)): `_poorai/models` also
+[`model-compatibility.md`](model-compatibility.md)): `_pwr/models` also
 returns `compatibility` (the selected model's status -- `verified`,
 `locally_calibrated`, `provisional`, `limited`, `incompatible` -- with
 confidence, reasons, `features` {`chat`, `agent`}, calibration `checks`,
@@ -41,12 +41,12 @@ succinct `capabilities` and provenance) and `reasoning` (how Reasoning
 Effort applies: `applies`, `control`, `capability`, `budgets`,
 `budgetSource`); it takes `reasoningEffort` (`low` / `medium` / `high`, any
 other value refused) and `acknowledgeProvisional: true` ("Use Conservative
-Defaults"). `_poorai/quick_calibration` (`cwd`, `calibrationId`) runs Quick
-Calibration on the workspace's model, reports `_poorai/calibration_progress`
+Defaults"). `_pwr/quick_calibration` (`cwd`, `calibrationId`) runs Quick
+Calibration on the workspace's model, reports `_pwr/calibration_progress`
 (`calibrationId`, `step`, `total`, `name`) and returns `assessment` and
-`reasoning`; the notification `_poorai/quick_calibration_cancel`
+`reasoning`; the notification `_pwr/quick_calibration_cancel`
 (`calibrationId`) stops it, including the generation in progress. One
-calibration runs at a time. `_poorai/context` also returns `lastGeneration`
+calibration runs at a time. `_pwr/context` also returns `lastGeneration`
 (the last reply's reasoning and answer tokens, their `tokenAccounting`, the
 effort, the effective budget and whether it was lowered to fit). The Tauri app (`apps/desktop`) is the client of
 record. What follows is the description of 2026-09-20 with those
@@ -55,23 +55,23 @@ additions marked where they change it.
 `session/new`, `load`, `resume`, `list` and `close`; `session/prompt` with text,
 attachments, tool calls, diffs and the answer; `session/request_permission`;
 `session/cancel`; the console's commands as `available_commands_update`, as
-`/name` prompts and as `_poorai/<name>` requests; `_poorai/steer`; and
-`_poorai/models`, `_poorai/download` and `_poorai/approvals`. All of it runs the console's own turn,
+`/name` prompts and as `_pwr/<name>` requests; `_pwr/steer`; and
+`_pwr/models`, `_pwr/download` and `_pwr/approvals`. All of it runs the console's own turn,
 resume, commands and attachment handling. Every message the server sends is
 validated against the published ACP schema in the tests, and a golden transcript
 fixes what a client sees for an edit, an approval granted and one refused. The
 manual end-to-end pass belongs to the PWR app and moves to S3. Three permission options
 are offered, since `reject_always` needs the denylist of open question 2.
-`_poorai/models` is a read when called without `model`; with a non-empty
+`_pwr/models` is a read when called without `model`; with a non-empty
 `model` it selects an artifact from the active backend's discovered catalog and
 writes only that workspace's chat configuration. It cannot select an arbitrary
 path or change engine. It also computes the working window. Its read response
 now includes declared downloadable artifacts and their local final/`.part` byte
 state; it never hashes files or starts the network merely to refresh status.
-`_poorai/download` starts a declared artifact download for a workspace named by
+`_pwr/download` starts a declared artifact download for a workspace named by
 `cwd`; a `sessionId` is optional. The caller supplies a `downloadId`, receives
-byte progress as `_poorai/download_progress` notifications, and can send
-`_poorai/download_cancel` at any time. Cancellation preserves the `.part` file
+byte progress as `_pwr/download_progress` notifications, and can send
+`_pwr/download_cancel` at any time. Cancellation preserves the `.part` file
 for a later retry, including across a client restart because status is derived
 from disk. Nothing here is
 evidence that a front end improves anything; that is R5's to measure.
@@ -116,7 +116,7 @@ semantics for the hard cases -- cancellation, a permission question left open, a
 session reloaded after a crash. It was chosen for that, not for the editors that
 also speak it. That an editor could drive `pwr serve` is a side effect; it is
 not supported, not tested, and not a reason to shape anything. Where PWR has
-something ACP does not, it is carried in `_meta` or in `_poorai/*` extension
+something ACP does not, it is carried in `_meta` or in `_pwr/*` extension
 methods, never by bending an ACP method's meaning. (ACP reserves names that
 begin with `_` for implementations, so the leading underscore is required.)
 
@@ -131,7 +131,7 @@ an upgrade to plan rather than a break to absorb.
 | ACP | PWR |
 |---|---|
 | `initialize` | Advertise `loadSession`, `sessionCapabilities` `list`, `resume` and `close`, and `embeddedContext`; image prompt content (accepted only for a model with a vision encoder, C.25), no audio; no MCP servers (declined until R6 admits one). |
-| `initialize` → `_meta.poorai.chatHome` | Chat mode's folder (C.26). A session whose `cwd` is this folder has no workspace: it may only read what is attached -- files, folders (read-only, listed with `list_tree`), images -- and cannot write or run anything. Models and conversations are chosen there as for a workspace. |
+| `initialize` → `_meta.pwr.chatHome` | Chat mode's folder (C.26). A session whose `cwd` is this folder has no workspace: it may only read what is attached -- files, folders (read-only, listed with `list_tree`), images -- and cannot write or run anything. Models and conversations are chosen there as for a workspace. |
 | `session/new` (`cwd`) | A conversation rooted at `cwd`, with the workspace's chat config (backend, model, calibration, approvals). Refused with a readable error when the model is not prepared, as the console refuses. |
 | `session/load` | `conversation::resume` (restore, reconcile, record `conversation.resumed`), shared with the console's `/resume`: what the person asked and the deployment answered replayed as `user_message_chunk` and `agent_message_chunk` (system prompt, ledgers, excerpts and tool results are not transcript), then the reconciliation note (files edited since, uncertain writes) as an agent message. The session id is the conversation id. |
 | `session/resume` | The same resume without the replay; the note is still sent. |
@@ -142,10 +142,10 @@ an upgrade to plan rather than a break to absorb.
 
 | ACP | PWR |
 |---|---|
-| `session/prompt` | One `converse::take_turn`. Text blocks are the request; `resource_link` (a `file:` URI) and embedded `resource` blocks are attachments, extracted, bounded and snapshotted by content hash exactly as the console's `/attach`, and appended to that turn only. A `resource_link` to a folder outside the workspace is not pasted: it is declared as a read-only reference folder (`reference_roots` in the workspace's `chat-config.json`, `..` for an ancestor), readable with `read_file` for the rest of the session and never writable, and the attachment lists its Markdown documents (2026-09-22). An attachment that cannot be read refuses the prompt rather than running a turn without it. `image` blocks, and a `resource_link` to a PNG, JPEG, WebP or GIF, are images: stored in `.poorai/images/<sha256>.<ext>` and shown to the model before the text, when the chosen model has a vision encoder and the engine has `mlx-vlm` (C.25, 2026-09-23); otherwise the prompt is refused with "image refused: ...". Audio is refused, as `initialize` said. |
-| `session/update` `agent_message_chunk` | The turn's answer, and the post-turn check verdict. **Streamed since 2026-09-22:** chunks of a reply still being generated carry `_meta.poorai.live: true`; the final text follows without it. |
+| `session/prompt` | One `converse::take_turn`. Text blocks are the request; `resource_link` (a `file:` URI) and embedded `resource` blocks are attachments, extracted, bounded and snapshotted by content hash exactly as the console's `/attach`, and appended to that turn only. A `resource_link` to a folder outside the workspace is not pasted: it is declared as a read-only reference folder (`reference_roots` in the workspace's `chat-config.json`, `..` for an ancestor), readable with `read_file` for the rest of the session and never writable, and the attachment lists its Markdown documents (2026-09-22). An attachment that cannot be read refuses the prompt rather than running a turn without it. `image` blocks, and a `resource_link` to a PNG, JPEG, WebP or GIF, are images: stored in `.pwr/images/<sha256>.<ext>` and shown to the model before the text, when the chosen model has a vision encoder and the engine has `mlx-vlm` (C.25, 2026-09-23); otherwise the prompt is refused with "image refused: ...". Audio is refused, as `initialize` said. |
+| `session/update` `agent_message_chunk` | The turn's answer, and the post-turn check verdict. **Streamed since 2026-09-22:** chunks of a reply still being generated carry `_meta.pwr.live: true`; the final text follows without it. |
 | `session/update` `agent_thought_chunk` | The model's reasoning as it is generated (2026-09-22), for models that reason. |
-| `_poorai/usage` (notification) | After each generation: `used` (prompt plus generated tokens) and `window`, for a context meter (2026-09-22). |
+| `_pwr/usage` (notification) | After each generation: `used` (prompt plus generated tokens) and `window`, for a context meter (2026-09-22). |
 | `session/update` `tool_call` | `pending`, when the turn proposes an action and before the policy is asked about it, with `kind` from the action (below) and its file in `locations`. |
 | `session/update` `tool_call_update` | `in_progress` at the intent, `completed` or `failed` at the receipt; an edit carries `diff` content (`path`, `oldText`, `newText`) from the file before and after. An action refused at the gate goes straight to `failed`. |
 | `session/request_permission` | `session::gate` reaching an approval the policy does not hold, carrying the `toolCallId` of the action just proposed. Options `allow_once`, `allow_always` (PWR's "for this session"), `reject_once`; `reject_always` waits on a session denylist PWR does not have. `cancelled` outcome is a refusal. |
@@ -162,11 +162,11 @@ Tool kinds: `read_file` → `read`; `search`, `find_definition`, `list_tree` →
 
 ACP defines `end_turn`, `max_tokens`, `max_turn_requests`, `refusal` and
 `cancelled`. Every response also carries PWR's `TerminalClass` in
-`_meta.poorai.terminal`, because several of PWR's endings have no ACP name and
+`_meta.pwr.terminal`, because several of PWR's endings have no ACP name and
 a client should not have to parse prose to tell a backend fault from a stuck
 deployment.
 
-| PWR ending | ACP | `_meta.poorai.terminal` |
+| PWR ending | ACP | `_meta.pwr.terminal` |
 |---|---|---|
 | answered | `end_turn` | — |
 | declined | `refusal` | `declined` |
@@ -185,10 +185,10 @@ deployment.
   client is one PWR can neither confine nor record. Declared, not an
   omission. The app shows files and diffs; it never writes them.
 - **Steering.** A message typed while a turn works is delivered at the next
-  action boundary. ACP has no mid-turn prompt, so `_poorai/steer`
+  action boundary. ACP has no mid-turn prompt, so `_pwr/steer`
   (`sessionId`, `text`) carries it; between turns it is refused, as the text is
   then a prompt.
-- **Extensions** (`_poorai/*`, each taking `sessionId`): `steer`; `changes`,
+- **Extensions** (`_pwr/*`, each taking `sessionId`): `steer`; `changes`,
   `verify`, `report`, `diagnose` and `doctor`, answering `{text}` with the
   console's own summary; later `models` (backend, model, readiness, prepare)
   and `approvals` (the ask-before settings).
@@ -209,7 +209,7 @@ deployment.
   sandbox, protected state, and approvals asked through the client.
 - **Concurrency.** One active turn per session; `session/prompt` on a busy
   session is refused with a JSON-RPC error rather than queued.
-- **Audit.** Every session is a conversation in `.poorai/state.sqlite`, so
+- **Audit.** Every session is a conversation in `.pwr/state.sqlite`, so
   `pwr report` and `--continue` read a served session exactly as a console
   one.
 
@@ -239,7 +239,7 @@ deployment.
   of `converse::take_turn` driven by a scripted deployment in a real workspace
   -- an edit, a dependency change approved, and the same change refused in the
   next turn -- compared byte for byte with the session id and workspace path
-  replaced. `POORAI_UPDATE_GOLDEN=1` rewrites it, and the diff is the review.
+  replaced. `PWR_UPDATE_GOLDEN=1` rewrites it, and the diff is the review.
 - **In S3:** the manual end-to-end pass is done with the PWR app itself, not
   with a third-party client. The checklist is below and is part of S3's exit.
 
@@ -336,7 +336,7 @@ not a product candidate.
 
 | | Scope | Exit |
 |---|---|---|
-| **S1** protocol | Move `converse` to a library; `pwr serve --stdio` with lifecycle, prompt turns, tool calls, permissions, cancellation, load/resume/list, attachments and `_poorai/*` extensions. **Done 2026-09-16.** | Protocol tests, schema validation and the golden transcript pass; the terminal console's behaviour is unchanged. |
+| **S1** protocol | Move `converse` to a library; `pwr serve --stdio` with lifecycle, prompt turns, tool calls, permissions, cancellation, load/resume/list, attachments and `_pwr/*` extensions. **Done 2026-09-16.** | Protocol tests, schema validation and the golden transcript pass; the terminal console's behaviour is unchanged. |
 | **S2** toolkit spike | GPUI and Slint, same four-panel screen, as `serve` clients, on macOS and Windows | A written choice against the fixed criteria. |
 | **S3** the PWR app | The chosen toolkit, for macOS and Windows, covering everything the terminal console does -- including choosing and preparing a model | The manual pass above completed and recorded; every capability admitted so far is drivable from the app; signed installable builds for both platforms. It is part of R5's product evaluation, not a substitute for it. |
 
@@ -354,7 +354,7 @@ evaluation.
    offer only the three options PWR can honour?
 3. Should `session/set_mode` map to a read-only "ask" mode (every mutating
    capability refused at the gate) and a normal "code" mode?
-4. Model download and expensive preparation take minutes. `_poorai/models` now
+4. Model download and expensive preparation take minutes. `_pwr/models` now
    selects an already discovered model, computes its window and reports the
    non-verifying local state of declared download files. It still needs download
    progress notifications, cancellation and resumption after the app quits.

@@ -269,11 +269,11 @@ fn composition_accounts_for_every_estimated_token() {
 #[test]
 fn a_compaction_is_audited_with_its_trigger_and_leaves_the_workspace_alone() {
     let workspace = tempfile::tempdir().unwrap();
-    let index = workspace.path().join(".poorai/index/symbols.json");
+    let index = workspace.path().join(".pwr/index/symbols.json");
     std::fs::create_dir_all(index.parent().unwrap()).unwrap();
     std::fs::write(&index, "{\"symbols\": [\"parse_args\"]}").unwrap();
     std::fs::write(workspace.path().join("main.rs"), "fn main() {}\n").unwrap();
-    let store = pwr_store::Store::open(workspace.path().join(".poorai/state.sqlite")).unwrap();
+    let store = pwr_store::Store::open(workspace.path().join(".pwr/state.sqlite")).unwrap();
     let conversation = pwr_domain::new_id();
 
     let mut messages = working_session();

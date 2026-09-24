@@ -246,7 +246,7 @@ import { ModelsStore } from '../core/models.store';
                 <div class="banner warnish">
                   These are {{ engine.format.toUpperCase() }} models for {{ engine.label }}. This
                   app is running the {{ models.activeBackend() }} engine: a download here can be
-                  chosen after starting the app with <code>POORAI_BACKEND={{ engine.id }}</code
+                  chosen after starting the app with <code>PWR_BACKEND={{ engine.id }}</code
                   >.
                 </div>
               }
@@ -505,11 +505,11 @@ import { ModelsStore } from '../core/models.store';
                   } @empty {
                     @if (models.status() === 'ready') {
                       <div class="state">
-                        <strong>No models found</strong>
+                        <strong>{{ models.nextCursor() ? 'No matches on this page' : 'No models found' }}</strong>
                         <p>
                           Nothing matched{{
                             models.filters().compatibleOnly ? ' that fits this machine' : ''
-                          }}. Try another search, or clear a filter.
+                          }}. {{ models.nextCursor() ? 'Load more to continue searching, or clear a filter.' : 'Try another search, or clear a filter.' }}
                         </p>
                       </div>
                     }
@@ -517,6 +517,16 @@ import { ModelsStore } from '../core/models.store';
                 }
               }
             </div>
+            @if (models.nextCursor() && models.status() === 'ready') {
+              <div class="catalog-more">
+                @if (models.loadMoreError()) {
+                  <span class="bad-text">{{ models.loadMoreError() }}</span>
+                }
+                <button class="ghost" (click)="models.loadMore()" [disabled]="models.loadingMore()">
+                  {{ models.loadingMore() ? 'Loading…' : 'Load more models' }}
+                </button>
+              </div>
+            }
           }
           <footer class="sheet-foot muted">
             Downloads go to {{ models.modelsRoot() || 'the engine’s models folder' }}, pinned to a

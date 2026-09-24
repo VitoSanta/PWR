@@ -619,7 +619,7 @@ async fn package_and_harness_directories_are_not_scored_as_changes() {
     materialise(&t, root.path()).await.unwrap();
     for dir in [
         "node_modules/lodash",
-        ".poorai",
+        ".pwr",
         "target/debug",
         ".pwr-scratch",
     ] {
@@ -724,7 +724,7 @@ fn harness_directories_stay_out_of_the_snapshot() {
     let before = snapshot(root.path()).unwrap();
     for dir in [
         "target/debug",
-        ".poorai",
+        ".pwr",
         "node_modules/pkg",
         ".pwr-scratch",
     ] {

@@ -7,7 +7,7 @@
 The retained protocol below describes the earlier `run` path. The current
 manual product pass is the desktop app, launched by running `pwr` from the
 root of the repository to test. On macOS it uses MLX by default; use
-`POORAI_BACKEND=llama PWR` only when deliberately testing a GGUF through
+`PWR_BACKEND=llama PWR` only when deliberately testing a GGUF through
 llama.cpp.
 
 The installed launcher resolves PWR's own Cargo workspace before it checks
@@ -29,7 +29,7 @@ pauses for a human decision and never represents a successful completion.
 
 Before testing, make the acceptance evidence real. `package.json` and CI help
 PWR discover technical checks, but a goal needs a command with
-`"kind": "acceptance"` in `.poorai/checks.json` **before opening the Goal
+`"kind": "acceptance"` in `.pwr/checks.json` **before opening the Goal
 mode session**. The declaration is snapshotted and must remain unchanged: the
 model may improve tests while it works, but it must not manufacture or relax
 the evidence that certifies its own completion. Start a new session after human
@@ -68,10 +68,10 @@ Use the `+` button in the desktop composer to choose a text file or PDF from
 Finder. The file may live outside the workspace: PWR reads only the selected
 path once, extracts bounded text (for PDFs when extractable), and writes a
 content-addressed read-only snapshot under
-`<workspace>/.poorai/chat-attachments/`. It does not grant the model general
+`<workspace>/.pwr/chat-attachments/`. It does not grant the model general
 access to the folder that contains the selected file. The same picker can
 attach a folder as a bounded read-only text snapshot; generated and private
-workspace directories such as `.git`, `.poorai`, `node_modules`, `target` and
+workspace directories such as `.git`, `.pwr`, `node_modules`, `target` and
 `dist` are excluded.
 
 ### Desktop end-to-end evidence — 2026-09-21
@@ -97,7 +97,7 @@ success.
 ### Session logs and support evidence — 2026-09-21
 
 The desktop app persists each conversation in
-`<workspace>/.poorai/state.sqlite`; its authoritative listing is ACP
+`<workspace>/.pwr/state.sqlite`; its authoritative listing is ACP
 `session/list`, which includes the conversation id, workspace, title, time and
 message count. The app's Review controls can request a human-readable report
 or diagnosis for the active session, but it does not yet expose a complete
@@ -153,16 +153,16 @@ pwr models inspect gpt-oss:20b --probe       # required; about 2 minutes
 
 The probe is not optional and its absence is the first thing you will hit:
 without it a run refuses with `no active capability evidence`. It measures how
-the deployment forms tool calls on this host and is stored under `.poorai/`.
+the deployment forms tool calls on this host and is stored under `.pwr/`.
 
 A run also needs a calibration profile, which authorises how much context it may
 use. The three MVP deployments already have v5 profiles on this machine:
 
 | Deployment | `--profile` |
 |---|---|
-| `qwen3.8:27b-mlx` | `.poorai/calibrations/01a075b4-07a5-7b53-b111-950f934c1a67.json` |
-| `ornith-1.5:35b` | `.poorai/calibrations/01a075b5-e692-7dc0-8ddd-6e767bcb2729.json` |
-| `gpt-oss:20b` | `.poorai/calibrations/01a075b7-57a4-7672-8845-c2ae4ff58f42.json` |
+| `qwen3.8:27b-mlx` | `.pwr/calibrations/01a075b4-07a5-7b53-b111-950f934c1a67.json` |
+| `ornith-1.5:35b` | `.pwr/calibrations/01a075b5-e692-7dc0-8ddd-6e767bcb2729.json` |
+| `gpt-oss:20b` | `.pwr/calibrations/01a075b7-57a4-7672-8845-c2ae4ff58f42.json` |
 
 Pass the absolute path. For any other deployment, calibrate it first —
 `pwr calibrate <model> --ladder 8192,16384,32768` — and keep every profile:
@@ -195,7 +195,7 @@ Run it from the root of the repository under test. Useful flags:
 - `--provision` — grants network *and* arbitrary executables together, to
   install a toolchain. Use it only for work you are willing to watch.
 
-Checks are discovered rather than assumed, in this order: `.poorai/checks.json`
+Checks are discovered rather than assumed, in this order: `.pwr/checks.json`
 if the repository declares one, then CI configuration, then `package.json`'s
 test script, then a build-system marker. If discovery picks the wrong command,
 declare the right one:

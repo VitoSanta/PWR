@@ -31,10 +31,10 @@ import r2_classify_failures as classifier
 
 SUITES = ["external-v1", "external-v2", "m6-hard-v1", "longhaul-v1", "realistic-v1"]
 # The arm as the classifier labels it, from the suite report's conditions.
-ARMS = ["conventional", "poor_ai", "staged"]
+ARMS = ["conventional", "pwr", "staged"]
 ARM_NAMES = {
     "conventional": "B0 conventional",
-    "poor_ai": "B1 PWR",
+    "pwr": "B1 PWR",
     "staged": "B2 staged",
 }
 
@@ -164,7 +164,7 @@ def markdown(experiment: Path, rows: list[dict[str, Any]]) -> str:
         lines.append("")
         lines.append("| Comparison | Tasks | Resolved | Only left | Only right | Sign test |")
         lines.append("|---|---:|---|---:|---:|---:|")
-        for left, right in (("poor_ai", "conventional"), ("poor_ai", "staged"), ("staged", "conventional")):
+        for left, right in (("pwr", "conventional"), ("pwr", "staged"), ("staged", "conventional")):
             for drop in (False, True):
                 result = paired(rows, deployment, left, right, drop)
                 if not result["tasks"]:
@@ -178,7 +178,7 @@ def markdown(experiment: Path, rows: list[dict[str, Any]]) -> str:
                     f"{len(result['only_right'])} | p = {result['p']:.3f} |"
                 )
         lines.append("")
-        for left, right in (("poor_ai", "conventional"), ("poor_ai", "staged")):
+        for left, right in (("pwr", "conventional"), ("pwr", "staged")):
             result = paired(rows, deployment, left, right, False)
             if result["only_left"] or result["only_right"]:
                 lines.append(
@@ -213,7 +213,7 @@ def markdown(experiment: Path, rows: list[dict[str, Any]]) -> str:
                 lines.append(f"| `{suite}` | `{deployment}` | " + " | ".join(cells) + " |")
     # The choice rule: what R3 should test is the largest class B1 loses trials
     # to that a treatment could address -- never `harness`, which is repaired.
-    b1_unresolved = [r for r in rows if r["arm"] == "poor_ai" and not r["resolved"]]
+    b1_unresolved = [r for r in rows if r["arm"] == "pwr" and not r["resolved"]]
     testable = Counter(r["class"] for r in b1_unresolved if r["class"] in classifier.AVOIDABLE_FOR_R3 and r["class"] != "harness")
     lines += [
         "",

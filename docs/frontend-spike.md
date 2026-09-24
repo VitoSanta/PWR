@@ -8,8 +8,8 @@ selected client. Reasons and criteria are recorded in the roadmap's S2 entry.
 ## Tauri + Angular candidate — first cut, 2026-09-22
 
 `apps/desktop/` runs with `npm run tauri dev` (a release core is expected at
-`target/release/pwr`, or set `POORAI_CORE`; the workspace defaults to
-`pwr-website/` in a checkout, or `POORAI_WORKSPACE`). Its native side,
+`target/release/pwr`, or set `PWR_CORE`; the workspace defaults to
+`pwr-website/` in a checkout, or `PWR_WORKSPACE`). Its native side,
 `src-tauri/src/lib.rs`, is only a bridge: it starts `pwr serve --stdio` in
 the chosen workspace, emits every protocol line as an `acp` event, writes the
 interface's messages, and stops the core when the app exits. Everything else is
@@ -51,7 +51,7 @@ it streams and one line once done; replies are text, not cards. The composer
 grows with its text, sends on ↵ (⇧↵ breaks the line), shows attachments as
 typed cards and accepts files dropped on the window. Changes lists the most
 recent file first and open, the others closed, each with `+/−`. The context
-meter ("58K / 262K · 22%") reports the core's `_poorai/usage` after every
+meter ("58K / 262K · 22%") reports the core's `_pwr/usage` after every
 reply. Fixed: the model picker showed the first model while another was in
 use (a `select` value bound before its options existed).
 
@@ -79,7 +79,7 @@ another implementation loop.
 
 `crates/pwr-app-slint/` is a standalone workspace to avoid changing the
 dependency graph of the tested terminal. It launches `pwr serve --stdio`,
-then can read and select an installed model through `_poorai/models`, create a
+then can read and select an installed model through `_pwr/models`, create a
 session, send a task and request cancellation. Its first screen reserves the
 four target regions and shows protocol notifications in the action feed. A
 permission request now appears with the protocol's `allow_once`, `allow_always`

@@ -73,7 +73,7 @@
       "id": "rename-across-twelve-callers",
       "kind": "multi_file",
       "max_actions": 60,
-      "provenance": "authored for poorAI 2026-09-02; a rename reaching twelve call sites, sized so the history must be compacted",
+      "provenance": "authored for PWR 2026-09-02; a rename reaching twelve call sites, sized so the history must be compacted",
       "statement": "Rename the function calc in src/money.rs to apply_rate, and update every call site in the repository so everything still compiles. Do not change any behaviour.",
       "time_budget_secs": 2400,
       "visible_verifier": {

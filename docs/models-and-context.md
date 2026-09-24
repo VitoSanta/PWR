@@ -28,7 +28,7 @@ Calibration and the Reasoning Effort control -- described in
 
 ### What is reported
 
-`_poorai/context` (see [`pwr-serve.md`](pwr-serve.md)) returns, for a
+`_pwr/context` (see [`pwr-serve.md`](pwr-serve.md)) returns, for a
 session:
 
 | Field | Source | Exact? |
@@ -49,7 +49,7 @@ but not in the composition, so the two differ by that overhead.
 compaction. The turn calls it when the prompt passes the threshold between two
 actions (default 75 % of the window, settable per workspace from 50 % to 90 %
 in the context panel, saved as `compact_at_percent` in
-`.poorai/chat-config.json`). **Compact now** (`_poorai/compact`) calls the same
+`.pwr/chat-config.json`). **Compact now** (`_pwr/compact`) calls the same
 function between turns; the only difference is how much recent conversation
 it keeps verbatim (a quarter of the current conversation, never more than the
 automatic tail).
@@ -73,7 +73,7 @@ compaction merges the earlier record rather than nesting it. Compaction
 changes only what the model is sent: the workspace, the repository index and
 the retrieval index are never touched.
 
-Both triggers record `context.compacted` in `.poorai/state.sqlite` with
+Both triggers record `context.compacted` in `.pwr/state.sqlite` with
 `trigger` (`manual` / `automatic`), `session_id`, `model`, `window`,
 `estimated_tokens_before`, `estimated_tokens_after` and `estimate_basis`; the
 event's own timestamp is the time. A manual compaction also writes a
@@ -156,7 +156,7 @@ Opened from the model chip ("Manage models…") or from an empty conversation.
 
 **Source.** The Hugging Face Hub's JSON API only (`/api/models`,
 `/api/models/{repo}`, `/api/models/{repo}/tree/{revision}`,
-`resolve/{revision}/config.json`). No HTML is read. `POORAI_HF_BASE_URL`
+`resolve/{revision}/config.json`). No HTML is read. `PWR_HF_BASE_URL`
 points it elsewhere; `HF_TOKEN` is sent for gated repositories.
 
 **Formats and engines.** MLX (PWR's engine, Apple Silicon) and GGUF
@@ -179,8 +179,8 @@ and whether the engine already lists it.
 **Filters** (applied in the core): fits this machine, parameter range, context
 length, download size, quantization, family (name or base model).
 
-**Downloads** go to the engine's models folder — `POORAI_MLX_MODELS` /
-`POORAI_LLAMA_MODELS`, by default `~/.lmstudio/models` — as
+**Downloads** go to the engine's models folder — `PWR_MLX_MODELS` /
+`PWR_LLAMA_MODELS`, by default `~/.lmstudio/models` — as
 `<owner>/<name>/<files>`, which is where the engines look, so a finished MLX
 download is selectable at once (it appears in the model chip). The client
 names only repository, commit, variant and format; the core re-reads the file
@@ -197,7 +197,7 @@ list, sizes and checksums from the Hub at that commit. Then:
    removed;
 6. progress, verification, completion, failure (with its kind: disk,
    conflict, network, verification) and cancellation are sent as
-   `_poorai/download_progress` with the state the core's state machine holds.
+   `_pwr/download_progress` with the state the core's state machine holds.
 
 The CLI's `pwr models download <artifact>` uses the same downloader.
 
@@ -210,7 +210,7 @@ paused (bytes kept, resume), downloaded, available (use).
 engines' folders (MLX folders and GGUF files, one entry per split, unfinished
 downloads marked), with its size and whether this workspace uses it. **Delete**
 (also on a downloaded variant in Discover) asks for confirmation, then removes
-the model's files permanently (`_poorai/model_delete`). It is refused for the
+the model's files permanently (`_pwr/model_delete`). It is refused for the
 model this workspace uses, for anything that resolves outside the models
 folder (symlinks included), for a folder with no `config.json`, and for a model
 folder that contains another folder; empty parent folders are removed up to,
@@ -218,7 +218,7 @@ never including, the models folder.
 
 When a download is for an engine the app is not running (a GGUF while the app
 runs MLX), it completes and says the remaining step: start the app with
-`POORAI_BACKEND=llama`. PWR does not switch engines in a running app.
+`PWR_BACKEND=llama`. PWR does not switch engines in a running app.
 
 ## Limitations
 
@@ -231,7 +231,11 @@ runs MLX), it completes and says the remaining step: start the app with
 - Windows: hardware detection and GGUF downloads are implemented but have not
   been run on Windows; command sandboxing there is still missing (see
   [SECURITY.md](../SECURITY.md)).
-- Search enrichment makes up to about 60 small Hub requests (tree, config) for
-  20 results; anonymous use is subject to the Hub's rate limits.
+- Discover loads 20 Hub repositories per page in download order. **Load more
+  models** follows the Hub's next-page cursor until the catalog is exhausted;
+  the parameter range is sent to the Hub, while fit and variant filters apply
+  to each page and can leave a page empty. Enriching a page makes
+  additional tree and config requests, so anonymous use is subject to the Hub's
+  rate limits.
 - Downloads are not listed across app restarts except through the files on
   disk (a `.part` shows as "downloaded N MB · Resume").

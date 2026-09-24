@@ -11,7 +11,7 @@ and do not run it unattended on a repository you did not write.**
 
 **Two permission modes, per workspace.** A conversation runs in **Ask**, the
 default, or **Auto**, chosen in the app (`permission_mode` in the workspace's
-`.poorai/chat-config.json`, or `_poorai/approvals` over the protocol):
+`.pwr/chat-config.json`, or `_pwr/approvals` over the protocol):
 
 - **Ask** asks before changing dependencies (manifests, lockfiles and the
   installed packages themselves), reaching the network, installing
@@ -28,7 +28,7 @@ Scripted runs (`pwr run`) grant only what `--approve` names.
 writes to the workspace and denies reading the rest of the home. **macOS is
 the only platform with a sandbox adapter.** Elsewhere -- or wherever the
 profile cannot be expressed -- a command is **refused** unless
-`POORAI_ALLOW_UNCONFINED=1` is set, and then it runs with your full rights and
+`PWR_ALLOW_UNCONFINED=1` is set, and then it runs with your full rights and
 is recorded as `sandboxed: false`; the app shows "commands not sandboxed" when
 that is the case. Until 2026-09-23 such commands ran unconfined silently.
 

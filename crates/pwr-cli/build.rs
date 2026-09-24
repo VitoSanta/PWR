@@ -72,7 +72,7 @@ fn main() {
         .unwrap_or_else(|| "unknown".into());
     let source = source_fingerprint(&root)
         .unwrap_or_else(|error| panic!("cannot fingerprint harness source: {error}"));
-    println!("cargo:rustc-env=POORAI_HARNESS_REV={commit}-source-{source}");
+    println!("cargo:rustc-env=PWR_HARNESS_REV={commit}-source-{source}");
     for name in [
         "crates",
         "Cargo.toml",

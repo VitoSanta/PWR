@@ -47,9 +47,9 @@ describe('ModelsStore downloads', () => {
 
   function core(downloadReply: () => Promise<any>) {
     agent.useDemo((method) => {
-      if (method === '_poorai/download') return downloadReply();
-      if (method === '_poorai/models') return { installed: ['a/b'], model: null };
-      if (method === '_poorai/catalog') return { format: 'mlx', results: [entry], error: null };
+      if (method === '_pwr/download') return downloadReply();
+      if (method === '_pwr/models') return { installed: ['a/b'], model: null };
+      if (method === '_pwr/catalog') return { format: 'mlx', results: [entry], error: null };
       return {};
     });
   }
@@ -62,7 +62,7 @@ describe('ModelsStore downloads', () => {
     const id = models.downloads()['a/b@mlx'].downloadId;
     agent.receive({
       jsonrpc: '2.0',
-      method: '_poorai/download_progress',
+      method: '_pwr/download_progress',
       params: { downloadId: id, state: { state: 'downloading', bytes: 400, total: 1000 } },
     });
     expect(models.downloads()['a/b@mlx'].state).toEqual({
@@ -77,7 +77,7 @@ describe('ModelsStore downloads', () => {
     // A late report cannot revive it.
     agent.receive({
       jsonrpc: '2.0',
-      method: '_poorai/download_progress',
+      method: '_pwr/download_progress',
       params: { downloadId: id, state: { state: 'downloading', bytes: 900, total: 1000 } },
     });
     expect(models.downloads()['a/b@mlx'].state.state).toBe('completed');
@@ -91,7 +91,7 @@ describe('ModelsStore downloads', () => {
     const id = models.downloads()['a/b@mlx'].downloadId;
     agent.receive({
       jsonrpc: '2.0',
-      method: '_poorai/download_progress',
+      method: '_pwr/download_progress',
       params: {
         downloadId: id,
         state: {
@@ -123,5 +123,23 @@ describe('ModelsStore downloads', () => {
     void models.download(entry, variant);
     await new Promise((r) => setTimeout(r, 400));
     expect(calls).toBe(1);
+  });
+
+  it('loads every requested catalog page and keeps its next cursor', async () => {
+    const second = { ...entry, repository: 'c/d' };
+    const requested: Array<string | undefined> = [];
+    agent.useDemo((method, params) => {
+      if (method !== '_pwr/catalog') return {};
+      requested.push(params.cursor);
+      return params.cursor
+        ? { format: 'mlx', results: [second], nextCursor: null, error: null }
+        : { format: 'mlx', results: [entry], nextCursor: 'page-2', error: null };
+    });
+    await models.search();
+    expect(models.nextCursor()).toBe('page-2');
+    await models.loadMore();
+    expect(requested).toEqual([undefined, 'page-2']);
+    expect(models.results().map((model) => model.repository)).toEqual(['a/b', 'c/d']);
+    expect(models.nextCursor()).toBeNull();
   });
 });

@@ -37,7 +37,7 @@
 				"hidden_regression.py": "\"\"\"The regression assertions pyparsing b0e2777 added to tests/test_unit.py, run standalone.\"\"\"\nimport unittest\n\nimport pyparsing as pp\n\n\nclass InPlaceAddGuard(unittest.TestCase):\n    def test_non_parse_results_operands_raise_type_error(self):\n        pr_iadd = pp.ParseResults([\"a\", \"b\"])\n        with self.assertRaises(TypeError):\n            pr_iadd += 1\n        with self.assertRaises(TypeError):\n            pr_iadd += [\"extra\"]\n        pr_iadd += pp.ParseResults([\"c\"])\n        self.assertEqual([\"a\", \"b\", \"c\"], list(pr_iadd))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "pyparsing b0e2777, committed 2026-08-01. Workspace is its parent; the hidden test is the assertions that commit added to tests/test_unit.py, run standalone. The statement gives no file. Not written or adapted by poorAI beyond extraction."
+			"provenance": "pyparsing b0e2777, committed 2026-08-01. Workspace is its parent; the hidden test is the assertions that commit added to tests/test_unit.py, run standalone. The statement gives no file. Not written or adapted by PWR beyond extraction."
 		},
 		{
 			"id": "pyparsing-quotedstring-whitespace-delimiter",
@@ -75,7 +75,7 @@
 				"hidden_regression.py": "\"\"\"The regression test pyparsing 59b167d added (issue #492), run standalone.\"\"\"\nimport unittest\n\nimport pyparsing as pp\nfrom pyparsing import testing as ppt\n\n\nclass QuotedStringWhitespaceDelimiter(ppt.TestParseResultsAsserts, unittest.TestCase):\n    def test_whitespace_in_quote_chars(self):\n        with ppt.reset_pyparsing_context():\n            pp.ParserElement.set_default_whitespace_chars(\"\")\n            newline_quote = pp.QuotedString(\"\\n;\", multiline=True)\n            self.assertParseAndCheckList(newline_quote, \"\\n;Hi \\n mum!\\n;\", [\"Hi \\n mum!\"])\n            self.assertEqual(\n                [[\"Hi \\n mum!\"]],\n                newline_quote.search_string(\"lsjdf \\n;Hi \\n mum!\\n; sldjf\").as_list(),\n            )\n            self.assertEqual(\n                [[\"Hi \\n m;um!\"]],\n                newline_quote.search_string(\"lsjdf \\n;Hi \\n m;um!\\n; sldjf\").as_list(),\n            )\n        for bad_quote in (\"\", \"   \", \"\\n\"):\n            with self.assertRaises(ValueError):\n                pp.QuotedString(bad_quote)\n            with self.assertRaises(ValueError):\n                pp.QuotedString('\"', end_quote_char=bad_quote)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "pyparsing 59b167d, committed 2026-07-25, fixing issue #492. Workspace is its parent; the hidden test is the test that commit added, run standalone. Not written or adapted by poorAI beyond extraction."
+			"provenance": "pyparsing 59b167d, committed 2026-07-25, fixing issue #492. Workspace is its parent; the hidden test is the test that commit added, run standalone. Not written or adapted by PWR beyond extraction."
 		},
 		{
 			"id": "pyparsing-dict-empty-as-dict",
@@ -114,7 +114,7 @@
 				"hidden_regression.py": "\"\"\"The regression test pyparsing a6ae98b added, plus two assertions that hold at that commit.\n\nThey pin that a non-dictionary empty result still serialises as a list, and that\nthe parsed tokens are unchanged, which distinguish the fix from turning every\nempty result into {} or from returning a Python dict as the token.\n\"\"\"\nimport unittest\n\nimport pyparsing as pp\n\n\nclass EmptyDictAsDict(unittest.TestCase):\n    def test_empty_dict_returns_dict(self):\n        parser1 = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))\n        parser2 = parser1.copy()(\"fubar\")\n        self.assertEqual({\"foo\": \"bar\"}, parser1.parse_string(\"foo bar\").as_dict())\n        self.assertEqual({\"fubar\": {\"foo\": \"bar\"}}, parser2.parse_string(\"foo bar\").as_dict())\n        self.assertEqual({}, parser1.parse_string(\"\").as_dict())\n        self.assertEqual({\"fubar\": {}}, parser2.parse_string(\"\").as_dict())\n        # The parsed tokens themselves are unchanged by the fix; only their dict form is.\n        self.assertEqual([[]], parser2.parse_string(\"\").as_list())\n\n    def test_an_empty_list_result_is_still_a_list(self):\n        named = pp.Group(pp.ZeroOrMore(pp.Word(pp.alphas)))(\"x\")\n        self.assertEqual({\"x\": []}, named.parse_string(\"\").as_dict())\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "pyparsing a6ae98b, committed 2026-08-09, incorporating PR #635. Workspace is its parent; the hidden test is the test that commit added plus two assertions, verified to hold at that commit: an empty non-dictionary result stays a list, and the empty named Dict's `as_list()` stays `[[]]`. The commit's other changes (removing _modal, a pickling test, a hashability guard) are not part of this task. Not otherwise adapted by poorAI."
+			"provenance": "pyparsing a6ae98b, committed 2026-08-09, incorporating PR #635. Workspace is its parent; the hidden test is the test that commit added plus two assertions, verified to hold at that commit: an empty non-dictionary result stays a list, and the empty named Dict's `as_list()` stays `[[]]`. The commit's other changes (removing _modal, a pickling test, a hashability guard) are not part of this task. Not otherwise adapted by PWR."
 		},
 		{
 			"id": "filenamify-reserved-name-extension",
@@ -171,7 +171,7 @@
 				"hidden_regression.mjs": "// The assertions sindresorhus/filenamify faae880 (#46) changed in test.js, rewritten against node:assert.\nimport assert from 'node:assert/strict';\nimport filenamify from './filenamify.js';\n\nassert.equal(filenamify('CON'), 'CON!');\nassert.equal(filenamify('con'), 'con!');\nassert.equal(filenamify('Com'), 'Com');\nassert.equal(filenamify('CON.txt'), 'CON!.txt');\nassert.equal(filenamify('con.txt'), 'con!.txt');\nassert.equal(filenamify('NUL.tar.gz'), 'NUL!.tar.gz');\nassert.equal(filenamify('COM1.log'), 'COM1!.log');\nassert.equal(filenamify('LPT9.csv'), 'LPT9!.csv');\nassert.equal(filenamify('COM1'), 'COM1!');\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "sindresorhus/filenamify faae880 (#46), committed 2026-06-16. Workspace is its parent; the hidden test carries the assertions that commit changed in test.js's 'Windows reserved names edge cases', rewritten against node:assert so it needs no test runner. Not written or adapted by poorAI beyond that. Setup pins filename-reserved-regex to 4.0.0: npm resolves the declared ^4.0.0 to 4.0.1 today, whose device-name matching fails the repository's own 'Windows reserved names edge cases' test at this commit (measured 2026-09-13); with 4.0.0 the suite passes."
+			"provenance": "sindresorhus/filenamify faae880 (#46), committed 2026-06-16. Workspace is its parent; the hidden test carries the assertions that commit changed in test.js's 'Windows reserved names edge cases', rewritten against node:assert so it needs no test runner. Not written or adapted by PWR beyond that. Setup pins filename-reserved-regex to 4.0.0: npm resolves the declared ^4.0.0 to 4.0.1 today, whose device-name matching fails the repository's own 'Windows reserved names edge cases' test at this commit (measured 2026-09-13); with 4.0.0 the suite passes."
 		},
 		{
 			"id": "filenamify-replacement-spaces-periods",
@@ -227,7 +227,7 @@
 				"hidden_regression.mjs": "// The test sindresorhus/filenamify 0df0d46 added for issue #45, rewritten against node:assert.\nimport assert from 'node:assert/strict';\nimport filenamify from './filenamify.js';\n\nconst message = {message: 'Replacement string cannot contain reserved filename characters'};\nassert.throws(() => filenamify('test', {replacement: '<'}), message);\nassert.throws(() => filenamify('test', {replacement: 'a/b'}), message);\n\nassert.equal(filenamify('foo/bar', {replacement: ' '}), 'foo bar');\nassert.equal(filenamify('foo:bar', {replacement: ' '}), 'foo bar');\nassert.equal(filenamify('foo/', {replacement: ' '}), 'foo');\nassert.equal(filenamify('foo<', {replacement: ' '}), 'foo');\nassert.equal(filenamify('///', {replacement: ' '}), '!');\nassert.equal(filenamify('<<<', {replacement: ' '}), '!');\nassert.equal(filenamify('foo/bar', {replacement: '.'}), 'foo.bar');\nassert.equal(filenamify('foo/', {replacement: '.'}), 'foo');\nassert.equal(filenamify('///', {replacement: '.'}), '!');\nassert.equal(filenamify('foo/bar', {replacement: '- '}), 'foo- bar');\nassert.equal(filenamify('foo/', {replacement: '- '}), 'foo-');\nassert.equal(filenamify('///', {replacement: '- '}), '-');\nassert.equal(filenamify('foo/bar', {replacement: '-.'}), 'foo-.bar');\nassert.equal(filenamify('foo/', {replacement: '-.'}), 'foo-');\nassert.equal(filenamify('///', {replacement: '-.'}), '-');\nassert.equal(filenamify('foo/bar', {replacement: 'a b'}), 'fooa bbar');\nassert.equal(filenamify('///', {replacement: 'a b'}), 'a b');\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "sindresorhus/filenamify 0df0d46, committed 2025-11-05, for issue #45. Workspace is its parent; the hidden test carries the assertions of the test that commit added, rewritten against node:assert. The commit also moved truncation into a helper, which this task does not require. Not otherwise adapted by poorAI. Setup pins filename-reserved-regex to 4.0.0: npm resolves the declared ^4.0.0 to 4.0.1 today, whose device-name matching fails the repository's own 'Windows reserved names edge cases' test at this commit (measured 2026-09-13); with 4.0.0 the suite passes."
+			"provenance": "sindresorhus/filenamify 0df0d46, committed 2025-11-05, for issue #45. Workspace is its parent; the hidden test carries the assertions of the test that commit added, rewritten against node:assert. The commit also moved truncation into a helper, which this task does not require. Not otherwise adapted by PWR. Setup pins filename-reserved-regex to 4.0.0: npm resolves the declared ^4.0.0 to 4.0.1 today, whose device-name matching fails the repository's own 'Windows reserved names edge cases' test at this commit (measured 2026-09-13); with 4.0.0 the suite passes."
 		},
 		{
 			"id": "filenamify-replacement-tokens-literal",
@@ -415,7 +415,7 @@
 				"hidden_regression.py": "\"\"\"The test hukkin/tomli e1fdb94 (#286) added to tests/test_misc.py, run standalone.\"\"\"\nimport sys\nimport unittest\nsys.path.insert(0, 'src')\nimport tomli as tomllib\n\n\nclass KeyRecursionLimit(unittest.TestCase):\n    def test_key_recursion_limit(self):\n        tomllib.loads('a.' * 310 + 'a = 1')\n        tomllib.loads('a.' * (sys.getrecursionlimit() - 2) + 'a = 1')\n        with self.assertRaisesRegex(RecursionError, r'TOML key has more than the allowed [0-9]+ parts'):\n            tomllib.loads('a.' * (sys.getrecursionlimit() + 2) + 'a = 1')\n\n\nif __name__ == '__main__':\n    unittest.main()\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "hukkin/tomli e1fdb94 (#286), committed 2026-03-25. Workspace is its parent; the hidden test is the test that commit added, run standalone. The statement names the limit and the exception, because the test requires both. Not otherwise adapted by poorAI."
+			"provenance": "hukkin/tomli e1fdb94 (#286), committed 2026-03-25. Workspace is its parent; the hidden test is the test that commit added, run standalone. The statement names the limit and the exception, because the test requires both. Not otherwise adapted by PWR."
 		},
 		{
 			"id": "idna-incremental-domain-length",
@@ -633,10 +633,10 @@
 				]
 			},
 			"hidden_files": {
-				"hidden_regression.mjs": "// Written for poorAI against sindresorhus/filenamify ea8b961, which has no test of its own; holds at that commit.\nimport assert from 'node:assert/strict';\nimport filenamify from './filenamify.js';\n\nassert.equal(filenamify('caf\\u00e9'), 'caf\\u00e9');\nassert.equal(filenamify('cafe\\u0301'), 'caf\\u00e9');\nassert.equal(filenamify('caf\\u00e9').length, 4);\n"
+				"hidden_regression.mjs": "// Written for PWR against sindresorhus/filenamify ea8b961, which has no test of its own; holds at that commit.\nimport assert from 'node:assert/strict';\nimport filenamify from './filenamify.js';\n\nassert.equal(filenamify('caf\\u00e9'), 'caf\\u00e9');\nassert.equal(filenamify('cafe\\u0301'), 'caf\\u00e9');\nassert.equal(filenamify('caf\\u00e9').length, 4);\n"
 			},
 			"time_budget_secs": 900,
-			"provenance": "sindresorhus/filenamify ea8b961, committed 2025-09-15. Workspace is its parent. The expected answer is the line that commit replaced: filenamify.js normalised to NFD after the replacement checks. That commit carries no test, so the hidden check was written for poorAI and verified to hold at the commit; it is not the scoring criterion for a question.",
+			"provenance": "sindresorhus/filenamify ea8b961, committed 2025-09-15. Workspace is its parent. The expected answer is the line that commit replaced: filenamify.js normalised to NFD after the replacement checks. That commit carries no test, so the hidden check was written for PWR and verified to hold at the commit; it is not the scoring criterion for a question.",
 			"expected_in_rationale": [
 				"filenamify.js",
 				"NFD"

@@ -131,9 +131,9 @@ fn completion_commands(store: &Store, run_id: pwr_domain::Id) -> Vec<String> {
 fn a_check_the_caller_left_out_is_not_added_back_at_completion() {
     let (store, run_id, verified) = run(
         |root| {
-            std::fs::create_dir_all(root.join(".poorai")).unwrap();
+            std::fs::create_dir_all(root.join(".pwr")).unwrap();
             std::fs::write(
-                root.join(".poorai/checks.json"),
+                root.join(".pwr/checks.json"),
                 r#"{"checks":[{"executable":"sh","args":["-c","echo 'make: python: No such file or directory' >&2; exit 2"]}]}"#,
             )
             .unwrap();

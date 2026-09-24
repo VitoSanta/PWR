@@ -25,7 +25,7 @@
       "protected_files": [
         "SPEC.md"
       ],
-      "provenance": "authored for poorAI 2026-09-02; specification and verifier written for this suite, not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-02; specification and verifier written for this suite, not derived from any public benchmark",
       "statement": "Build the HTTP JSON API described in SPEC.md. Read SPEC.md first. Create server.js and anything else you need, so that `node server.js` starts a server implementing every endpoint exactly as specified. Do not modify SPEC.md. You may install dependencies with npm if you want them, or use only the Node standard library.",
       "time_budget_secs": 1800,
       "visible_verifier": {

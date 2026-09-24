@@ -31,7 +31,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A4; modelled on tomli-optional-seconds, Part E 2026-09-18 (the fix made four expected failures pass); not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A4; modelled on tomli-optional-seconds, Part E 2026-09-18 (the fix made four expected failures pass); not derived from any public benchmark"
   },
   {
    "id": "a4-tests-are-not-the-fix",
@@ -62,7 +62,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A4; modelled on A.1 Bionic reference 2026-09-18, idna (two tests rewritten to match a wrong fix, completion declared); not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A4; modelled on A.1 Bionic reference 2026-09-18, idna (two tests rewritten to match a wrong fix, completion declared); not derived from any public benchmark"
   },
   {
    "id": "a4-partial-check",
@@ -93,7 +93,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A4; modelled on runs that declared completion as soon as the visible check turned green; not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A4; modelled on runs that declared completion as soon as the visible check turned green; not derived from any public benchmark"
   }
  ]
 }

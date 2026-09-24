@@ -7,16 +7,43 @@
 //! pasting text into a string, and a repository or revision that is not
 //! well-formed is refused before a request is made.
 //!
-//! `POORAI_HF_BASE_URL` points it at another Hub (a mirror, or a test server);
+//! `PWR_HF_BASE_URL` points it at another Hub (a mirror, or a test server);
 //! `HF_TOKEN`, when set, is sent for gated repositories.
 
 use crate::catalog::{self, Format, HubFile, HubModel};
+use crate::Filters;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// `config.json` is read into memory; anything larger is not a config.
 const CONFIG_LIMIT_BYTES: usize = 2 * 1024 * 1024;
+
+fn next_cursor(link: &str) -> Option<String> {
+    link.split(',').find_map(|part| {
+        let (url, relation) = part.trim().split_once(';')?;
+        if !relation.trim().contains("rel=\"next\"") {
+            return None;
+        }
+        url::Url::parse(url.trim().trim_start_matches('<').trim_end_matches('>'))
+            .ok()?
+            .query_pairs()
+            .find(|(key, _)| key == "cursor")
+            .map(|(_, value)| value.into_owned())
+    })
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::next_cursor;
+
+    #[test]
+    fn reads_hub_next_link_cursor() {
+        let link = "<https://huggingface.co/api/models?cursor=ignored>; rel=\"prev\", <https://huggingface.co/api/models?limit=20&cursor=a%2Bb%3D>; rel=\"next\"";
+        assert_eq!(next_cursor(link).as_deref(), Some("a+b="));
+        assert_eq!(next_cursor("<https://huggingface.co/api/models>; rel=\"prev\""), None);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -61,10 +88,15 @@ pub struct HubClient {
     token: Option<String>,
 }
 
+pub struct ModelPage {
+    pub models: Vec<HubModel>,
+    pub next_cursor: Option<String>,
+}
+
 impl HubClient {
     pub fn from_env() -> Result<Self, HubError> {
         let base =
-            std::env::var("POORAI_HF_BASE_URL").unwrap_or_else(|_| "https://huggingface.co".into());
+            std::env::var("PWR_HF_BASE_URL").unwrap_or_else(|_| "https://huggingface.co".into());
         let token = std::env::var("HF_TOKEN")
             .ok()
             .filter(|token| !token.trim().is_empty());
@@ -124,6 +156,13 @@ impl HubClient {
     }
 
     async fn get_json(&self, url: url::Url) -> Result<serde_json::Value, HubError> {
+        self.get_json_page(url).await.map(|(value, _)| value)
+    }
+
+    async fn get_json_page(
+        &self,
+        url: url::Url,
+    ) -> Result<(serde_json::Value, Option<String>), HubError> {
         let mut request = self.http.get(url.clone());
         if let Some(token) = &self.token {
             request = request.bearer_auth(token);
@@ -163,21 +202,29 @@ impl HubClient {
                 ),
             });
         }
-        response.json().await.map_err(|error| {
+        let next_cursor = response
+            .headers()
+            .get(reqwest::header::LINK)
+            .and_then(|header| header.to_str().ok())
+            .and_then(next_cursor);
+        let value = response.json().await.map_err(|error| {
             HubError::new(
                 HubErrorKind::Unexpected,
                 format!("The Hub's answer could not be read: {error}"),
             )
-        })
+        })?;
+        Ok((value, next_cursor))
     }
 
     /// Repositories in `format` matching `query`, most downloaded first.
-    pub async fn search(
+    pub async fn search_page(
         &self,
         query: &str,
         format: Format,
+        filters: &Filters,
+        cursor: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<HubModel>, HubError> {
+    ) -> Result<ModelPage, HubError> {
         let mut url = self.url(&["api", "models"]);
         {
             let mut pairs = url.query_pairs_mut();
@@ -189,18 +236,33 @@ impl HubClient {
                 .append_pair("sort", "downloads")
                 .append_pair("direction", "-1")
                 .append_pair("limit", &limit.clamp(1, 50).to_string());
+            let parameter_range = [
+                filters.min_parameters.map(|min| format!("min:{min}")),
+                filters.max_parameters.map(|max| format!("max:{max}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(",");
+            if !parameter_range.is_empty() {
+                pairs.append_pair("num_parameters", &parameter_range);
+            }
             for field in EXPANDED {
                 pairs.append_pair("expand[]", field);
             }
+            if let Some(cursor) = cursor {
+                pairs.append_pair("cursor", cursor);
+            }
         }
-        let value = self.get_json(url).await?;
-        Ok(value
+        let (value, next_cursor) = self.get_json_page(url).await?;
+        let models = value
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(catalog::parse_model)
             .filter(|model| catalog::is_repository(&model.repository))
-            .collect())
+            .collect();
+        Ok(ModelPage { models, next_cursor })
     }
 
     /// One repository's listing, at its current commit.

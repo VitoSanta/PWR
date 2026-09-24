@@ -20,7 +20,7 @@ cargo build --release -p pwr-cli
 ```
 
 MLX models are folders under `~/.lmstudio/models/<publisher>/<name>` (the
-folder is only storage) or under `POORAI_MLX_MODELS`. `POORAI_MLX_PYTHON`
+folder is only storage) or under `PWR_MLX_MODELS`. `PWR_MLX_PYTHON`
 names another interpreter; without it the launcher and the app look for
 `.venv-mlx`, then the engine spike's environment on the maintainer's machine.
 
@@ -32,16 +32,16 @@ cd /path/to/the/workspace
 ```
 
 The model, window and settings are saved in the workspace
-(`.poorai/chat-config.json`), so the next `pwr chat` reuses them. The
+(`.pwr/chat-config.json`), so the next `pwr chat` reuses them. The
 window is computed from the model's metadata and this host's memory; a
 capability probe is optional for a conversation.
 
 **Permissions.** A conversation runs in **Ask** mode by default -- it asks
 before changing dependencies, reaching the network, installing toolchains,
 rewriting Git history and publishing -- or in **Auto**, which grants all of
-them. The app's **Auto-approve** switch is Auto when on; over the protocol it is `_poorai/approvals`
+them. The app's **Auto-approve** switch is Auto when on; over the protocol it is `_pwr/approvals`
 with `mode`. Commands are confined to the workspace by macOS's sandbox; where
-no sandbox applies they are refused unless `POORAI_ALLOW_UNCONFINED=1`. See
+no sandbox applies they are refused unless `PWR_ALLOW_UNCONFINED=1`. See
 [SECURITY.md](../SECURITY.md).
 
 **Images.** A model whose `config.json` declares a vision encoder (Qwen3.6-35B-A3B,
@@ -52,8 +52,8 @@ models that see. (Backlog C.25.)
 
 **Chat mode.** In the app, "Chat without a workspace" opens a conversation
 with no project: the model reads only what is attached -- files, folders,
-images -- and cannot edit or run anything. It lives in `~/.poorai/chat`
-(`POORAI_CHAT_HOME`). (Backlog C.26.)
+images -- and cannot edit or run anything. It lives in `~/.pwr/chat`
+(`PWR_CHAT_HOME`). (Backlog C.26.)
 
 ## An unattended run
 
@@ -66,7 +66,7 @@ pwr run "the task, stated fully" --model lmstudio-community/Qwen3.6-35B-A3B-MLX-
 it stops with `incompatible_model`. **The newest artifact is the one read**,
 so an `inspect` without `--probe` after a probe hides the probe's
 observations -- probe again, or leave the probed artifact the newest. A run
-grants only what `--approve` names, honours `.poorai/protected.json`
+grants only what `--approve` names, honours `.pwr/protected.json`
 (`{"protected": ["path", ...]}`; an unreadable file stops the run), and ends
 `verified` only when the workspace's own checks pass. `pwr report <id>`
 and `pwr diagnose <id>` read what happened, including failed generations.
@@ -86,10 +86,10 @@ not change with what is installed.
 
 ## Experimental switches
 
-- `POORAI_SEMANTIC_RETRIEVAL=1` -- rank document sections by meaning as well
+- `PWR_SEMANTIC_RETRIEVAL=1` -- rank document sections by meaning as well
   as by words, with a small local encoder (backlog C.22). Needs the encoder
   cached (`setup-mlx.sh` fetches it) and `mlx-embeddings`; without them the
-  ranking is lexical and stderr says why. `POORAI_EMBED_PYTHON` names its
+  ranking is lexical and stderr says why. `PWR_EMBED_PYTHON` names its
   interpreter.
 - `pwr repo rank "<request>" [--semantic] [--content]` -- print the
   passages a turn would be given, with scores and reasons.
@@ -99,8 +99,8 @@ not change with what is installed.
 ## GGUF through llama.cpp (limited)
 
 ```bash
-export POORAI_LLAMA_MODELS="$HOME/.poorai/artifacts"
-export POORAI_LLAMA_SERVER="$(command -v llama-server)"
+export PWR_LLAMA_MODELS="$HOME/.pwr/artifacts"
+export PWR_LLAMA_SERVER="$(command -v llama-server)"
 PWR --backend llama chat --model <publisher>/<repo>/<file>.gguf
 ```
 

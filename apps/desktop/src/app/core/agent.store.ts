@@ -37,6 +37,9 @@ export class AgentStore {
   readonly corePath = signal('');
   readonly coreState = signal<'starting' | 'ready' | 'stopped' | 'error'>('starting');
   readonly coreError = signal('');
+  readonly pendingWorkspaceTrust = signal<string | null>(null);
+  readonly trustingWorkspace = signal(false);
+  readonly workspaceTrustError = signal('');
   readonly logs = signal<string[]>([]);
 
   // Models and context.
@@ -159,7 +162,7 @@ export class AgentStore {
         clientCapabilities: {},
         clientInfo: { name: 'pwr-desktop', version: '0.1.0' },
       });
-      this.chatHome.set(hello?._meta?.pwr?.chatHome ?? hello?._meta?.poorai?.chatHome ?? '');
+      this.chatHome.set(hello?._meta?.pwr?.chatHome ?? '');
       this.coreState.set('ready');
       await Promise.all([this.refreshModels(), this.refreshSessions(), this.refreshPermissions()]);
     } catch (error) {
@@ -173,12 +176,35 @@ export class AgentStore {
     if (!folder) return;
     try {
       if (!(await bridge.workspaceIsTrusted(folder))) {
-        if (!(await bridge.confirmWorkspaceTrust(folder))) return;
-        await bridge.trustWorkspace(folder);
+        this.workspaceTrustError.set('');
+        this.pendingWorkspaceTrust.set(folder);
+        return;
       }
       await this.openWorkspace(folder);
     } catch (error) {
       this.coreError.set(String(error));
+    }
+  }
+
+  cancelWorkspaceTrust(): void {
+    if (this.trustingWorkspace()) return;
+    this.pendingWorkspaceTrust.set(null);
+    this.workspaceTrustError.set('');
+  }
+
+  async confirmWorkspaceTrust(): Promise<void> {
+    const folder = this.pendingWorkspaceTrust();
+    if (!folder || this.trustingWorkspace()) return;
+    this.trustingWorkspace.set(true);
+    this.workspaceTrustError.set('');
+    try {
+      await bridge.trustWorkspace(folder);
+      this.pendingWorkspaceTrust.set(null);
+      await this.openWorkspace(folder);
+    } catch (error) {
+      this.workspaceTrustError.set(String(error));
+    } finally {
+      this.trustingWorkspace.set(false);
     }
   }
 
@@ -207,7 +233,7 @@ export class AgentStore {
   // ---------------------------------------------------------------- models
 
   async refreshModels(params: Record<string, unknown> = {}): Promise<void> {
-    const reply = await this.request('_poorai/models', { cwd: this.workspace(), ...params });
+    const reply = await this.request('_pwr/models', { cwd: this.workspace(), ...params });
     this.models.set(reply.installed ?? []);
     this.visionModels.set(reply.vision ?? []);
     this.model.set(reply.model ?? null);
@@ -227,7 +253,7 @@ export class AgentStore {
   // ----------------------------------------------------------- permissions
 
   async refreshPermissions(params: Record<string, unknown> = {}): Promise<void> {
-    const reply = await this.request('_poorai/approvals', { cwd: this.workspace(), ...params });
+    const reply = await this.request('_pwr/approvals', { cwd: this.workspace(), ...params });
     this.permissionMode.set(reply.mode === 'auto' ? 'auto' : 'ask');
     this.asking.set(reply.asking ?? []);
     this.sandboxed.set(reply.sandboxed !== false);
@@ -259,12 +285,12 @@ export class AgentStore {
     this.calibrationError.set('');
     this.calibrationProgress.set(null);
     this.calibrating.set(true);
-    const stop = this.on('_poorai/calibration_progress', (params) => {
+    const stop = this.on('_pwr/calibration_progress', (params) => {
       if (params.calibrationId === calibrationId)
         this.calibrationProgress.set({ step: params.step, total: params.total, name: params.name });
     });
     try {
-      const reply = await this.request('_poorai/quick_calibration', {
+      const reply = await this.request('_pwr/quick_calibration', {
         cwd: this.workspace(),
         calibrationId,
       });
@@ -283,7 +309,7 @@ export class AgentStore {
 
   cancelQuickCalibration(): void {
     if (this.calibrationId)
-      this.notify('_poorai/quick_calibration_cancel', { calibrationId: this.calibrationId });
+      this.notify('_pwr/quick_calibration_cancel', { calibrationId: this.calibrationId });
   }
 
   stepContext(direction: 1 | -1): Promise<void> {
@@ -317,7 +343,7 @@ export class AgentStore {
       this.contextInfo.set(null);
       return;
     }
-    this.contextInfo.set(await this.request('_poorai/context', { sessionId, ...params }));
+    this.contextInfo.set(await this.request('_pwr/context', { sessionId, ...params }));
   }
 
   /** Sets the share of the window at which the conversation compacts itself. */
@@ -334,7 +360,7 @@ export class AgentStore {
     if (!sessionId || this.turnActive() || this.compacting()) return;
     this.compacting.set(true);
     try {
-      const reply = await this.request('_poorai/compact', { sessionId });
+      const reply = await this.request('_pwr/compact', { sessionId });
       if (!reply.compacted) this.notice('Nothing to compact', reply.reason ?? 'The conversation is already small.', 'info');
       else this.usage.set(null);
       await this.refreshContext();
@@ -358,7 +384,7 @@ export class AgentStore {
 
   // ------------------------------------------------------------ extensions
 
-  /** A `_poorai/*` request for the other stores (the Model Manager). */
+  /** A `_pwr/*` request for the other stores (the Model Manager). */
   call(method: string, params: unknown): Promise<any> {
     return this.request(method, params);
   }
@@ -390,7 +416,7 @@ export class AgentStore {
       if (this.sessionId() === sessionId) this.newConversation();
       return;
     }
-    await this.request('_poorai/session_delete', { cwd: this.workspace(), sessionId });
+    await this.request('_pwr/session_delete', { cwd: this.workspace(), sessionId });
     if (this.sessionId() === sessionId) this.newConversation();
     await this.refreshSessions();
   }
@@ -493,7 +519,7 @@ export class AgentStore {
     this.push({ key: `user-${Date.now()}`, kind: 'user', title: 'You', text, status: 'sent', at: Date.now() });
     this.segment += 1;
     try {
-      await this.request('_poorai/steer', { sessionId, text });
+      await this.request('_pwr/steer', { sessionId, text });
     } catch (error) {
       this.notice('The message could not be delivered', String(error), 'error');
     }
@@ -514,7 +540,7 @@ export class AgentStore {
     }
     this.commandOutput.set({ name, text: 'Running…' });
     try {
-      const reply = await this.request(`_poorai/${name}`, { sessionId });
+      const reply = await this.request(`_pwr/${name}`, { sessionId });
       this.commandOutput.set({ name, text: reply.text ?? JSON.stringify(reply, null, 2) });
     } catch (error) {
       this.commandOutput.set({ name, text: String(error) });
@@ -590,14 +616,14 @@ export class AgentStore {
       this.serverRequest(message);
       return;
     }
-    if (message.method === '_poorai/usage') {
+    if (message.method === '_pwr/usage') {
       const { used, window } = message.params ?? {};
       if (typeof used === 'number' && typeof window === 'number' && window > 0) {
         this.usage.set({ used, window });
       }
       return;
     }
-    if (message.method === '_poorai/compacted') {
+    if (message.method === '_pwr/compacted') {
       this.onCompacted(message.params ?? {});
       return;
     }
@@ -622,7 +648,7 @@ export class AgentStore {
       this.permission.set({
         id: message.id,
         title: message.params?.toolCall?.title ?? 'An action needs your permission',
-        approval: message.params?._meta?.poorai?.approval ?? '',
+        approval: message.params?._meta?.pwr?.approval ?? '',
         options: message.params?.options ?? [],
       });
       return;
@@ -637,7 +663,7 @@ export class AgentStore {
   private apply(update: any): void {
     const kind: string = update.sessionUpdate ?? '';
     const text: string = update.content?.text ?? '';
-    const live = update._meta?.poorai?.live === true;
+    const live = update._meta?.pwr?.live === true;
     switch (kind) {
       case 'agent_thought_chunk':
         this.stream(`thought-${this.segment}`, 'thought', 'Thinking', text);
@@ -668,7 +694,7 @@ export class AgentStore {
 
   private upsertTool(update: any, status: string): void {
     const key: string = update.toolCallId ?? `tool-${Date.now()}`;
-    const detail: string | undefined = update._meta?.poorai?.detail;
+    const detail: string | undefined = update._meta?.pwr?.detail;
     const diffBlock = (update.content ?? []).find?.((block: any) => block.type === 'diff');
     const failure = (update.content ?? []).find?.((block: any) => block.type === 'content')?.content?.text;
     const diff: FileDiff | undefined = diffBlock
@@ -741,7 +767,7 @@ export class AgentStore {
   }
 
   private finish(reply: any): void {
-    const meta = reply?._meta?.poorai ?? {};
+    const meta = reply?._meta?.pwr ?? {};
     const goal = meta.goal;
     const actions = meta.totalActions ?? meta.actions ?? 0;
     const lines: string[] = [];

@@ -36,8 +36,8 @@ fn workspace() -> tempfile::TempDir {
     git(path, &["add", "-A"]);
     git(path, &["commit", "-qm", "base"]);
 
-    std::fs::create_dir_all(path.join(".poorai")).unwrap();
-    let store = pwr_store::Store::open(path.join(".poorai/state.sqlite")).unwrap();
+    std::fs::create_dir_all(path.join(".pwr")).unwrap();
+    let store = pwr_store::Store::open(path.join(".pwr/state.sqlite")).unwrap();
     let run = RUN_ID.with(|id| *id);
     store
         .append(
@@ -126,8 +126,8 @@ fn an_unknown_session_is_refused_rather_than_answered_empty() {
 #[test]
 fn a_workspace_outside_version_control_reports_no_branch() {
     let root = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(root.path().join(".poorai")).unwrap();
-    let store = pwr_store::Store::open(root.path().join(".poorai/state.sqlite")).unwrap();
+    std::fs::create_dir_all(root.path().join(".pwr")).unwrap();
+    let store = pwr_store::Store::open(root.path().join(".pwr/state.sqlite")).unwrap();
     let run = pwr_domain::new_id();
     store
         .append(
@@ -250,7 +250,7 @@ mod declared_values_reach_the_request {
 fn a_run_report_names_the_action_and_the_state_it_moved_to() {
     let root = workspace();
     let run = RUN_ID.with(|id| id.to_string());
-    let store = pwr_store::Store::open(root.path().join(".poorai/state.sqlite")).unwrap();
+    let store = pwr_store::Store::open(root.path().join(".pwr/state.sqlite")).unwrap();
     store
         .append(
             Some(run.parse().unwrap()),

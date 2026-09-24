@@ -8,9 +8,9 @@
 //!
 //! Covered: initialize; new, loaded, resumed, listed and closed sessions; prompt
 //! turns with tool calls and diffs; permission requests; cancellation; the
-//! console's commands, offered as ACP commands and as `_poorai/*` extension
-//! requests; steering a running turn with `_poorai/steer`; and the workspace's
-//! models and approval settings with `_poorai/models` and `_poorai/approvals`.
+//! console's commands, offered as ACP commands and as `_pwr/*` extension
+//! requests; steering a running turn with `_pwr/steer`; and the workspace's
+//! models and approval settings with `_pwr/models` and `_pwr/approvals`.
 
 use pwr_domain::ChatMessage;
 use pwr_orchestrator::conversation::{Listed, Resumed};
@@ -72,7 +72,7 @@ pub struct GoalVerification {
 
 /// What a goal is told about checks that failed before it started.
 ///
-/// Seen 2026-09-23 (web_poorai, Qwen3.6, goal mode): asked why a page showed
+/// Seen 2026-09-23 (web_pwr, Qwen3.6, goal mode): asked why a page showed
 /// no text, the model fixed it, then found `npm test` failing -- it had been
 /// failing since before the request, with no test target configured -- and
 /// spent the next fifty actions and three check-ins rebuilding the test setup
@@ -115,6 +115,7 @@ pub enum DownloadRequest {
 pub struct CatalogRequest {
     pub query: String,
     pub format: Option<pwr_models::catalog::Format>,
+    pub cursor: Option<String>,
     pub filters: pwr_models::Filters,
 }
 
@@ -434,7 +435,7 @@ pub fn acceptance_contract_hash(root: &Path) -> Option<String> {
     if checks.is_empty() {
         return None;
     }
-    std::fs::read(root.join(".poorai/checks.json"))
+    std::fs::read(root.join(".pwr/checks.json"))
         .ok()
         .map(pwr_domain::hash_bytes)
 }
@@ -560,12 +561,12 @@ impl<R: TurnRunner + 'static> Server<R> {
                 }
             }
             cancel_questions(&self.pending, session_id);
-        } else if method == "_poorai/download_cancel"
+        } else if method == "_pwr/download_cancel"
             && let Some(download) = params.get("downloadId").and_then(Value::as_str)
             && let Some(handle) = self.downloads.borrow().get(download)
         {
             handle.stop.store(true, Ordering::Relaxed);
-        } else if method == "_poorai/quick_calibration_cancel"
+        } else if method == "_pwr/quick_calibration_cancel"
             && let Some(handle) = params.get("calibrationId").and_then(Value::as_str)
             && let Some(stop) = self.calibrations.borrow().get(handle)
         {
@@ -596,10 +597,10 @@ impl<R: TurnRunner + 'static> Server<R> {
             "session/resume" => self.load_session(id, &params, false).await,
             "session/list" => self.list_sessions(id, &params).await,
             "session/close" => self.close_session(id, &params),
-            "_poorai/session_delete" => self.delete_session(id, &params).await,
+            "_pwr/session_delete" => self.delete_session(id, &params).await,
             "session/prompt" => self.prompt(id, &params),
-            "_poorai/steer" => self.steer(id, &params),
-            "_poorai/models" => {
+            "_pwr/steer" => self.steer(id, &params),
+            "_pwr/models" => {
                 let selected = match params.get("model") {
                     None | Some(Value::Null) => None,
                     Some(Value::String(model)) if !model.trim().is_empty() => Some(model.clone()),
@@ -658,8 +659,8 @@ impl<R: TurnRunner + 'static> Server<R> {
                     },
                 );
             }
-            "_poorai/download" => self.download(id, &params),
-            "_poorai/hardware" => {
+            "_pwr/download" => self.download(id, &params),
+            "_pwr/hardware" => {
                 let server = Rc::clone(self);
                 tokio::task::spawn_local(async move {
                     server.send(match server.runner.hardware().await {
@@ -668,12 +669,12 @@ impl<R: TurnRunner + 'static> Server<R> {
                     });
                 });
             }
-            "_poorai/catalog" => self.catalog(id, &params),
-            "_poorai/local_models" | "_poorai/model_delete" => self.local(id, method, &params),
-            "_poorai/quick_calibration" => self.quick_calibration(id, &params),
-            "_poorai/context" => self.context(id, &params).await,
-            "_poorai/compact" => self.compact(id, &params).await,
-            "_poorai/approvals" => {
+            "_pwr/catalog" => self.catalog(id, &params),
+            "_pwr/local_models" | "_pwr/model_delete" => self.local(id, method, &params),
+            "_pwr/quick_calibration" => self.quick_calibration(id, &params),
+            "_pwr/context" => self.context(id, &params).await,
+            "_pwr/compact" => self.compact(id, &params).await,
+            "_pwr/approvals" => {
                 let change = match params.get("askBefore") {
                     None | Some(Value::Null) => None,
                     Some(kinds) => match serde_json::from_value(kinds.clone()) {
@@ -709,7 +710,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     },
                 );
             }
-            _ => match method.strip_prefix("_poorai/").and_then(Command::named) {
+            _ => match method.strip_prefix("_pwr/").and_then(Command::named) {
                 Some(command) => self.extension_command(id, command, &params),
                 None => self.send(error_response(
                     id,
@@ -932,7 +933,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         let reply = match sessions.get(session_param(params)) {
             None => error_response(id, -32602, "no such session"),
             Some(_) if text.trim().is_empty() => {
-                error_response(id, -32602, "_poorai/steer needs text")
+                error_response(id, -32602, "_pwr/steer needs text")
             }
             // Between turns there is nothing to steer, and the message is a
             // prompt: the console makes the same distinction.
@@ -986,7 +987,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 return self.send(error_response(
                     id,
                     -32602,
-                    "_poorai/download needs artifact, or repository with revision, variant and format",
+                    "_pwr/download needs artifact, or repository with revision, variant and format",
                 ));
             }
         };
@@ -996,7 +997,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 return self.send(error_response(
                     id,
                     -32602,
-                    "_poorai/download needs downloadId",
+                    "_pwr/download needs downloadId",
                 ));
             }
         };
@@ -1024,7 +1025,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     return self.send(error_response(
                         id,
                         -32602,
-                        "_poorai/download needs cwd or a sessionId",
+                        "_pwr/download needs cwd or a sessionId",
                     ));
                 }
             },
@@ -1087,9 +1088,9 @@ impl<R: TurnRunner + 'static> Server<R> {
         });
     }
 
-    /// `_poorai/quick_calibration`: runs Quick Calibration on the workspace's
-    /// model, reporting `_poorai/calibration_progress`; cancelled by
-    /// `_poorai/quick_calibration_cancel` with the same `calibrationId`.
+    /// `_pwr/quick_calibration`: runs Quick Calibration on the workspace's
+    /// model, reporting `_pwr/calibration_progress`; cancelled by
+    /// `_pwr/quick_calibration_cancel` with the same `calibrationId`.
     fn quick_calibration(self: &Rc<Self>, id: Value, params: &Value) {
         let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
             return self.send(error_response(id, -32602, "quick calibration needs a cwd"));
@@ -1124,7 +1125,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             let progress: CalibrationProgress = Box::new(move |step, total, name| {
                 progress_server.send(json!({
                     "jsonrpc": "2.0",
-                    "method": "_poorai/calibration_progress",
+                    "method": "_pwr/calibration_progress",
                     "params": {"calibrationId": progress_id, "step": step, "total": total, "name": name},
                 }));
             });
@@ -1137,13 +1138,13 @@ impl<R: TurnRunner + 'static> Server<R> {
         });
     }
 
-    /// `_poorai/local_models` and `_poorai/model_delete`: the models on this
+    /// `_pwr/local_models` and `_pwr/model_delete`: the models on this
     /// machine, and removing one of them.
     fn local(self: &Rc<Self>, id: Value, method: &str, params: &Value) {
         let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
             return self.send(error_response(id, -32602, "name the workspace with cwd"));
         };
-        let delete = if method == "_poorai/model_delete" {
+        let delete = if method == "_pwr/model_delete" {
             let model_ref = params
                 .get("modelRef")
                 .and_then(Value::as_str)
@@ -1157,7 +1158,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     return self.send(error_response(
                         id,
                         -32602,
-                        "_poorai/model_delete needs modelRef and format (mlx or gguf)",
+                        "_pwr/model_delete needs modelRef and format (mlx or gguf)",
                     ));
                 }
                 (model_ref, Some(format)) => Some((format, model_ref.to_owned())),
@@ -1180,7 +1181,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         });
     }
 
-    /// `_poorai/catalog`: a Model Manager search, filtered in the core.
+    /// `_pwr/catalog`: a Model Manager search, filtered in the core.
     fn catalog(self: &Rc<Self>, id: Value, params: &Value) {
         let root = match params.get("cwd").and_then(Value::as_str) {
             Some(cwd) => PathBuf::from(cwd),
@@ -1225,6 +1226,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 .unwrap_or_default()
                 .to_owned(),
             format,
+            cursor: params.get("cursor").and_then(Value::as_str).map(str::to_owned),
             filters,
         };
         let server = Rc::clone(self);
@@ -1236,7 +1238,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         });
     }
 
-    /// `_poorai/context`: how full the session's window is and of what, the
+    /// `_pwr/context`: how full the session's window is and of what, the
     /// auto-compaction threshold (settable with `autoCompactPercent`) and the
     /// last compaction. Composition is estimated from the messages; `used` is
     /// the engine's own count after the last reply, when there has been one.
@@ -1321,7 +1323,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         ));
     }
 
-    /// `_poorai/compact`: the person's "Compact now", through the same
+    /// `_pwr/compact`: the person's "Compact now", through the same
     /// compaction the conversation performs by itself, recorded the same way.
     async fn compact(&self, id: Value, params: &Value) {
         let session_id = session_param(params).to_owned();
@@ -1406,7 +1408,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         // reply, the estimate is the better number.
         self.usage.borrow_mut().remove(&session_id);
         self.send(notification(
-            "_poorai/compacted",
+            "_pwr/compacted",
             json!({"sessionId": session_id, "trigger": "manual", "note": done.note()}),
         ));
         self.send(result(
@@ -1427,7 +1429,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         ));
     }
 
-    /// `_poorai/<command>`: the command's prose as `text`, outside any turn.
+    /// `_pwr/<command>`: the command's prose as `text`, outside any turn.
     fn extension_command(self: &Rc<Self>, id: Value, command: Command, params: &Value) {
         let Some(context) = self
             .sessions
@@ -1862,7 +1864,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     }
                     if let TurnStep::Compacted(note) = &step {
                         server.send(notification(
-                            "_poorai/compacted",
+                            "_pwr/compacted",
                             json!({"sessionId": session_id, "trigger": "automatic", "note": note}),
                         ));
                         return;
@@ -1873,7 +1875,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                             .borrow_mut()
                             .insert(session_id.clone(), (*used, *window));
                         server.send(notification(
-                            "_poorai/usage",
+                            "_pwr/usage",
                             json!({"sessionId": session_id, "used": used, "window": window}),
                         ));
                         return;
@@ -1941,7 +1943,7 @@ impl<R: TurnRunner + 'static> Server<R> {
     }
 }
 
-/// A download's state, as `_poorai/download_progress` carries it.
+/// A download's state, as `_pwr/download_progress` carries it.
 fn download_notification(
     download_id: &str,
     state: &pwr_models::download::DownloadState,
@@ -1957,7 +1959,7 @@ fn download_notification(
         params["totalExpectedBytes"] = json!(progress.total);
         params["status"] = json!("running");
     }
-    notification("_poorai/download_progress", params)
+    notification("_pwr/download_progress", params)
 }
 
 fn session_param(params: &Value) -> &str {
@@ -2652,7 +2654,7 @@ mod tests {
                 }
                 // PWR's own notifications: `_`-prefixed, as ACP reserves
                 // for implementations, and with no ACP schema to check.
-                "_poorai/usage" | "_poorai/compacted" | "_poorai/download_progress" => {
+                "_pwr/usage" | "_pwr/compacted" | "_pwr/download_progress" => {
                     assert!(
                         message.get("id").is_none(),
                         "an extension notification with an id"
@@ -2799,7 +2801,7 @@ mod tests {
             client.prompt(2, &session, "hello").await;
             client.until_response(2).await;
             client
-                .request(3, "_poorai/context", json!({"sessionId": session}))
+                .request(3, "_pwr/context", json!({"sessionId": session}))
                 .await;
             let context = client.until_response(3).await.pop().unwrap();
             let context = &context["result"];
@@ -2821,7 +2823,7 @@ mod tests {
             client
                 .request(
                     4,
-                    "_poorai/context",
+                    "_pwr/context",
                     json!({"sessionId": session, "autoCompactPercent": 60}),
                 )
                 .await;
@@ -2831,7 +2833,7 @@ mod tests {
                 client
                     .request(
                         id,
-                        "_poorai/context",
+                        "_pwr/context",
                         json!({"sessionId": session, "autoCompactPercent": bad}),
                     )
                     .await;
@@ -2839,7 +2841,7 @@ mod tests {
                 assert_eq!(refused["error"]["code"], -32602, "{bad}");
             }
             client
-                .request(8, "_poorai/context", json!({"sessionId": "gone"}))
+                .request(8, "_pwr/context", json!({"sessionId": "gone"}))
                 .await;
             assert_eq!(
                 client.until_response(8).await.pop().unwrap()["error"]["code"],
@@ -2855,7 +2857,7 @@ mod tests {
             let session = client.new_session(1).await;
             // A fresh conversation has nothing older to fold.
             client
-                .request(2, "_poorai/compact", json!({"sessionId": session}))
+                .request(2, "_pwr/compact", json!({"sessionId": session}))
                 .await;
             let nothing = client.until_response(2).await.pop().unwrap();
             assert_eq!(nothing["result"]["compacted"], false);
@@ -2872,16 +2874,16 @@ mod tests {
                 client.until_response(id).await;
             }
             client
-                .request(10, "_poorai/context", json!({"sessionId": session}))
+                .request(10, "_pwr/context", json!({"sessionId": session}))
                 .await;
             let before = client.until_response(10).await.pop().unwrap();
             client
-                .request(11, "_poorai/compact", json!({"sessionId": session}))
+                .request(11, "_pwr/compact", json!({"sessionId": session}))
                 .await;
             let messages = client.until_response(11).await;
             let notice = messages
                 .iter()
-                .find(|message| message["method"] == "_poorai/compacted")
+                .find(|message| message["method"] == "_pwr/compacted")
                 .expect("no compaction notice");
             assert_eq!(notice["params"]["trigger"], "manual");
             let done = &messages.last().unwrap()["result"];
@@ -2892,7 +2894,7 @@ mod tests {
             );
 
             client
-                .request(12, "_poorai/context", json!({"sessionId": session}))
+                .request(12, "_pwr/context", json!({"sessionId": session}))
                 .await;
             let after = client.until_response(12).await.pop().unwrap();
             assert!(
@@ -2929,7 +2931,7 @@ mod tests {
             let messages = client.until_response(2).await;
             let notice = messages
                 .iter()
-                .find(|message| message["method"] == "_poorai/compacted")
+                .find(|message| message["method"] == "_pwr/compacted")
                 .expect("the compaction was not forwarded");
             assert_eq!(notice["params"]["trigger"], "automatic");
             assert_eq!(notice["params"]["sessionId"], session.as_str());
@@ -2949,7 +2951,7 @@ mod tests {
             client
                 .request(
                     1,
-                    "_poorai/model_delete",
+                    "_pwr/model_delete",
                     json!({"cwd": "/workspace", "modelRef": "a/b"}),
                 )
                 .await;
@@ -2960,7 +2962,7 @@ mod tests {
             client
                 .request(
                     2,
-                    "_poorai/model_delete",
+                    "_pwr/model_delete",
                     json!({"modelRef": "a/b", "format": "mlx"}),
                 )
                 .await;
@@ -2971,7 +2973,7 @@ mod tests {
             client
                 .request(
                     3,
-                    "_poorai/model_delete",
+                    "_pwr/model_delete",
                     json!({"cwd": "/workspace", "modelRef": "a/b", "format": "mlx"}),
                 )
                 .await;
@@ -2993,7 +2995,7 @@ mod tests {
             client
                 .request(
                     1,
-                    "_poorai/download",
+                    "_pwr/download",
                     json!({"cwd": "/workspace", "downloadId": "d1", "repository": "a/b", "variant": "mlx"}),
                 )
                 .await;
@@ -3002,7 +3004,7 @@ mod tests {
             client
                 .request(
                     2,
-                    "_poorai/download",
+                    "_pwr/download",
                     json!({"cwd": "/workspace", "downloadId": "d2", "repository": "a/b",
                            "revision": "0123456789abcdef0123456789abcdef01234567",
                            "variant": "mlx", "format": "mlx"}),
@@ -3013,7 +3015,7 @@ mod tests {
             // the failure carries its kind.
             let last_state = messages
                 .iter()
-                .rfind(|message| message["method"] == "_poorai/download_progress")
+                .rfind(|message| message["method"] == "_pwr/download_progress")
                 .expect("no download state");
             assert_eq!(last_state["params"]["state"]["state"], "failed");
             assert_eq!(messages.last().unwrap()["error"]["data"]["kind"], "io");
@@ -3252,8 +3254,8 @@ mod tests {
     fn an_acceptance_contract_must_preexist_and_stay_unchanged() {
         let root = tempfile::tempdir().unwrap();
         assert!(acceptance_contract_hash(root.path()).is_none());
-        std::fs::create_dir(root.path().join(".poorai")).unwrap();
-        let checks = root.path().join(".poorai/checks.json");
+        std::fs::create_dir(root.path().join(".pwr")).unwrap();
+        let checks = root.path().join(".pwr/checks.json");
         std::fs::write(
             &checks,
             r#"{"checks":[{"executable":"npm","args":["run","test:e2e"],"kind":"acceptance"}]}"#,
@@ -3584,17 +3586,17 @@ mod tests {
         with_server(|mut client| async move {
             let session = client.new_session(1).await;
             client
-                .request(2, "_poorai/steer", json!({"sessionId": session, "text": "not that file"}))
+                .request(2, "_pwr/steer", json!({"sessionId": session, "text": "not that file"}))
                 .await;
             assert_eq!(client.receive().await["error"]["code"], -32000);
 
             client.prompt(3, &session, "wait").await;
             client
-                .request(4, "_poorai/steer", json!({"sessionId": session, "text": "not that file"}))
+                .request(4, "_pwr/steer", json!({"sessionId": session, "text": "not that file"}))
                 .await;
             assert_eq!(client.receive().await["result"], json!({}));
             client
-                .request(5, "_poorai/steer", json!({"sessionId": session, "text": " "}))
+                .request(5, "_pwr/steer", json!({"sessionId": session, "text": " "}))
                 .await;
             assert_eq!(client.receive().await["error"]["code"], -32602);
             client
@@ -3612,7 +3614,7 @@ mod tests {
         with_server(|mut client| async move {
             let session = client.new_session(1).await;
             client
-                .request(2, "_poorai/verify", json!({"sessionId": session}))
+                .request(2, "_pwr/verify", json!({"sessionId": session}))
                 .await;
             let verified = client.receive().await;
             assert!(
@@ -3622,18 +3624,18 @@ mod tests {
                     .starts_with("verify in /workspace")
             );
             client
-                .request(3, "_poorai/doctor", json!({"sessionId": session}))
+                .request(3, "_pwr/doctor", json!({"sessionId": session}))
                 .await;
             assert_eq!(
                 client.receive().await["error"]["message"],
                 "the backend is not answering"
             );
             client
-                .request(4, "_poorai/verify", json!({"sessionId": "gone"}))
+                .request(4, "_pwr/verify", json!({"sessionId": "gone"}))
                 .await;
             assert_eq!(client.receive().await["error"]["code"], -32602);
             client
-                .request(5, "_poorai/nothing", json!({"sessionId": session}))
+                .request(5, "_pwr/nothing", json!({"sessionId": session}))
                 .await;
             assert_eq!(client.receive().await["error"]["code"], -32601);
 
@@ -3722,18 +3724,18 @@ mod tests {
     async fn settings_are_read_and_changed_for_a_workspace_or_a_session_in_it() {
         with_server(|mut client| async move {
             client
-                .request(1, "_poorai/models", json!({"cwd": "/elsewhere"}))
+                .request(1, "_pwr/models", json!({"cwd": "/elsewhere"}))
                 .await;
             assert_eq!(client.receive().await["result"]["root"], "/elsewhere");
             let session = client.new_session(2).await;
             client
-                .request(3, "_poorai/models", json!({"sessionId": session}))
+                .request(3, "_pwr/models", json!({"sessionId": session}))
                 .await;
             assert_eq!(client.receive().await["result"]["root"], "/workspace");
             client
                 .request(
                     31,
-                    "_poorai/models",
+                    "_pwr/models",
                     json!({"cwd": "/elsewhere", "model": "fixture.gguf"}),
                 )
                 .await;
@@ -3741,22 +3743,22 @@ mod tests {
             client
                 .request(
                     32,
-                    "_poorai/models",
+                    "_pwr/models",
                     json!({"cwd": "/elsewhere", "model": ""}),
                 )
                 .await;
             assert_eq!(client.receive().await["error"]["code"], -32602);
-            client.request(4, "_poorai/models", json!({})).await;
+            client.request(4, "_pwr/models", json!({})).await;
             assert_eq!(client.receive().await["error"]["code"], -32602);
 
             client
-                .request(5, "_poorai/approvals", json!({"sessionId": session}))
+                .request(5, "_pwr/approvals", json!({"sessionId": session}))
                 .await;
             assert_eq!(client.receive().await["result"]["changed"], Value::Null);
             client
                 .request(
                     6,
-                    "_poorai/approvals",
+                    "_pwr/approvals",
                     json!({"sessionId": session, "askBefore": ["publish", "network_access"]}),
                 )
                 .await;
@@ -3767,7 +3769,7 @@ mod tests {
             client
                 .request(
                     7,
-                    "_poorai/approvals",
+                    "_pwr/approvals",
                     json!({"sessionId": session, "askBefore": ["everything"]}),
                 )
                 .await;
@@ -3915,7 +3917,7 @@ mod tests {
     /// A golden transcript: every line the server sent, in order, with the
     /// session id and the workspace path replaced by placeholders. Compared
     /// byte for byte, so any change to what a client sees is a visible diff in
-    /// review. `POORAI_UPDATE_GOLDEN=1` rewrites the fixture.
+    /// review. `PWR_UPDATE_GOLDEN=1` rewrites the fixture.
     #[tokio::test]
     async fn golden_an_edit_a_permission_granted_and_one_refused() {
         use crate::two_loops::{calls, says};
@@ -4018,12 +4020,12 @@ mod tests {
             .collect();
         let golden = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/acp/transcripts/edit-permission-granted-and-refused.jsonl");
-        if std::env::var_os("POORAI_UPDATE_GOLDEN").is_some() {
+        if std::env::var_os("PWR_UPDATE_GOLDEN").is_some() {
             std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
             std::fs::write(&golden, &actual).unwrap();
         }
         let expected = std::fs::read_to_string(&golden)
-            .expect("no golden transcript; run once with POORAI_UPDATE_GOLDEN=1 and review it");
+            .expect("no golden transcript; run once with PWR_UPDATE_GOLDEN=1 and review it");
         assert_eq!(actual, expected, "the transcript a client sees changed");
     }
 

@@ -227,7 +227,7 @@ def main() -> None:
     parser.add_argument("control", type=Path)
     parser.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
-    treatment = [o for o in trials(arguments.treatment) if o["_arm"] == "poor_ai"]
+    treatment = [o for o in trials(arguments.treatment) if o["_arm"] == "pwr"]
     if not treatment:
         raise SystemExit("the treatment campaign has no B1 trials yet")
     # The control campaign holds every arm and both deployments. The block that
@@ -236,7 +236,7 @@ def main() -> None:
     control = [
         o
         for o in trials(arguments.control)
-        if o["_arm"] == "poor_ai" and o["_digest"] in digests and o.get("seed") == 1
+        if o["_arm"] == "pwr" and o["_digest"] in digests and o.get("seed") == 1
     ]
     tasks = {o["task_id"] for o in treatment}
     control = [o for o in control if o["task_id"] in tasks]

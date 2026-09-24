@@ -272,7 +272,7 @@ mod tests {
 }
 
 /// Where an engine looks for models, and so where the Model Manager puts the
-/// ones it downloads: `POORAI_MLX_MODELS` / `POORAI_LLAMA_MODELS`, by default
+/// ones it downloads: `PWR_MLX_MODELS` / `PWR_LLAMA_MODELS`, by default
 /// `~/.lmstudio/models` for both (LM Studio's folder, used only as storage).
 pub fn models_root(kind: BackendKind) -> std::path::PathBuf {
     match kind {
@@ -316,7 +316,7 @@ pub async fn backend_status(active: BackendKind) -> Vec<BackendStatus> {
                 false,
                 format!(
                     "The MLX engine is not set up: {} cannot import mlx_lm. Run scripts/setup-mlx.sh, \
-                     or set POORAI_MLX_PYTHON to a Python with mlx-lm installed.",
+                     or set PWR_MLX_PYTHON to a Python with mlx-lm installed.",
                     mlx.python.display()
                 ),
             ),
@@ -336,7 +336,7 @@ pub async fn backend_status(active: BackendKind) -> Vec<BackendStatus> {
             false,
             format!(
                 "llama.cpp backend is not configured: {} was not found. Install llama.cpp and put \
-                 llama-server on PATH, or set POORAI_LLAMA_SERVER.",
+                 llama-server on PATH, or set PWR_LLAMA_SERVER.",
                 llama.server.display()
             ),
         ),

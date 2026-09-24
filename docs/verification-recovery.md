@@ -12,7 +12,7 @@ Recovery taxonomy: compilation/type error, test assertion, tool/environment fail
 
 Checks are resolved from three sources, ordered by how directly each speaks for the repository.
 
-**An explicit declaration** at `.poorai/checks.json` is the repository saying how it is verified, and wins.
+**An explicit declaration** at `.pwr/checks.json` is the repository saying how it is verified, and wins.
 
 **Continuous integration configuration** is the repository *doing* it: not a guess about the project but the commands its authors run to check it, and it exists for languages and frameworks nobody here has heard of. GitHub, GitLab, CircleCI, Azure, Jenkins, Travis, Bitbucket and Drone are read as text rather than parsed per vendor, since a parser per vendor would be the same closed list one level down.
 
@@ -100,7 +100,7 @@ completion-time broad checks and declared exceptions; broad regressions are
 compared against the original workspace. Checks adopted during the run have
 no initial baseline and must pass.
 
-An owner can declare a separately quarantined failure in `.poorai/checks.json`:
+An owner can declare a separately quarantined failure in `.pwr/checks.json`:
 
 ```json
 {

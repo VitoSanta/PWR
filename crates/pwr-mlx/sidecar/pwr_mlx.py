@@ -121,7 +121,7 @@ NO_REMOTE_CODE = {"trust_remote_code": False}
 # When set, every chat's last messages and the model's raw output are appended
 # here as JSON lines: the one place the model's own text exists before PWR
 # reads calls out of it, which is what a misread call has to be checked against.
-TRACE = os.environ.get("POORAI_MLX_TRACE")
+TRACE = os.environ.get("PWR_MLX_TRACE")
 
 
 def vlm_available() -> bool:

@@ -1,6 +1,6 @@
 """Tests for the sidecar's pure parts. Run with the engine's Python:
 
-    $POORAI_MLX_PYTHON -m unittest discover -s crates/pwr-mlx/sidecar
+    $PWR_MLX_PYTHON -m unittest discover -s crates/pwr-mlx/sidecar
 """
 import json
 import pathlib

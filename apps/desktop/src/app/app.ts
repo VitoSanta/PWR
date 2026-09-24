@@ -8,10 +8,11 @@ import { ModelManager } from './ui/model-manager';
 import { ModelPicker } from './ui/model-picker';
 import { Permission } from './ui/permission';
 import { Sidebar } from './ui/sidebar';
+import { WorkspaceTrust } from './ui/workspace-trust';
 
 @Component({
   selector: 'app-root',
-  imports: [Sidebar, Conversation, Composer, Inspector, Permission, ContextMeter, ModelPicker, ModelManager],
+  imports: [Sidebar, Conversation, Composer, Inspector, Permission, ContextMeter, ModelPicker, ModelManager, WorkspaceTrust],
   templateUrl: './app.html',
   styleUrl: './app.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -20,7 +20,7 @@ fn run_json(root: &std::path::Path, args: &[&str]) -> serde_json::Value {
     let output = pwr()
         .args(args)
         .current_dir(root)
-        .env("POORAI_MLX_MODELS", root)
+        .env("PWR_MLX_MODELS", root)
         .output()
         .expect("pwr");
     serde_json::from_slice(&output.stdout).expect("json on stdout")
@@ -72,7 +72,7 @@ fn llama_backend_inspects_a_gguf_without_generation() {
             "publisher/model/tiny.gguf",
         ])
         .current_dir(root.path())
-        .env("POORAI_LLAMA_MODELS", root.path())
+        .env("PWR_LLAMA_MODELS", root.path())
         .output()
         .expect("pwr");
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
@@ -423,8 +423,8 @@ fn a_huggingface_download_fetches_and_verifies_a_declared_file() {
             downloads.to_str().unwrap(),
         ])
         .current_dir(root.path())
-        .env("POORAI_MLX_MODELS", root.path())
-        .env("POORAI_HF_BASE_URL", base_url)
+        .env("PWR_MLX_MODELS", root.path())
+        .env("PWR_HF_BASE_URL", base_url)
         .output()
         .expect("pwr");
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
@@ -457,8 +457,8 @@ fn a_huggingface_download_skips_an_already_verified_file() {
             downloads.to_str().unwrap(),
         ])
         .current_dir(root.path())
-        .env("POORAI_MLX_MODELS", root.path())
-        .env("POORAI_HF_BASE_URL", "http://127.0.0.1:9")
+        .env("PWR_MLX_MODELS", root.path())
+        .env("PWR_HF_BASE_URL", "http://127.0.0.1:9")
         .output()
         .expect("pwr");
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
@@ -488,8 +488,8 @@ fn a_huggingface_download_resumes_a_part_file() {
             downloads.to_str().unwrap(),
         ])
         .current_dir(root.path())
-        .env("POORAI_MLX_MODELS", root.path())
-        .env("POORAI_HF_BASE_URL", base_url)
+        .env("PWR_MLX_MODELS", root.path())
+        .env("PWR_HF_BASE_URL", base_url)
         .output()
         .expect("pwr");
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
@@ -519,9 +519,9 @@ fn a_huggingface_download_refuses_when_disk_preflight_fails() {
             downloads.to_str().unwrap(),
         ])
         .current_dir(root.path())
-        .env("POORAI_MLX_MODELS", root.path())
-        .env("POORAI_HF_BASE_URL", "http://127.0.0.1:9")
-        .env("POORAI_DOWNLOAD_FREE_BYTES", "1")
+        .env("PWR_MLX_MODELS", root.path())
+        .env("PWR_HF_BASE_URL", "http://127.0.0.1:9")
+        .env("PWR_DOWNLOAD_FREE_BYTES", "1")
         .output()
         .expect("pwr");
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
@@ -559,9 +559,9 @@ fn a_huggingface_download_preflight_counts_existing_part_bytes() {
             downloads.to_str().unwrap(),
         ])
         .current_dir(root.path())
-        .env("POORAI_MLX_MODELS", root.path())
-        .env("POORAI_HF_BASE_URL", base_url)
-        .env("POORAI_DOWNLOAD_FREE_BYTES", free.to_string())
+        .env("PWR_MLX_MODELS", root.path())
+        .env("PWR_HF_BASE_URL", base_url)
+        .env("PWR_DOWNLOAD_FREE_BYTES", free.to_string())
         .output()
         .expect("pwr");
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
@@ -594,8 +594,8 @@ fn a_huggingface_download_verifies_a_complete_part_without_network() {
             downloads.to_str().unwrap(),
         ])
         .current_dir(root.path())
-        .env("POORAI_MLX_MODELS", root.path())
-        .env("POORAI_HF_BASE_URL", "http://127.0.0.1:9")
+        .env("PWR_MLX_MODELS", root.path())
+        .env("PWR_HF_BASE_URL", "http://127.0.0.1:9")
         .output()
         .expect("pwr");
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
@@ -662,8 +662,8 @@ fn a_huggingface_download_accepts_sha256_verification() {
             downloads.to_str().unwrap(),
         ])
         .current_dir(root.path())
-        .env("POORAI_MLX_MODELS", root.path())
-        .env("POORAI_HF_BASE_URL", base_url)
+        .env("PWR_MLX_MODELS", root.path())
+        .env("PWR_HF_BASE_URL", base_url)
         .output()
         .expect("pwr");
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");

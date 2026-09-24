@@ -101,7 +101,7 @@ export function modelLabel(ref: string): string {
     .trim();
 }
 
-/** What `_poorai/context` reports. Composition figures are estimates. */
+/** What `_pwr/context` reports. Composition figures are estimates. */
 export interface ContextInfo {
   window: number;
   used: number;
@@ -247,7 +247,7 @@ export interface DownloadView {
   nextStep?: string | null;
 }
 
-/** A model on this machine, as `_poorai/local_models` lists it. */
+/** A model on this machine, as `_pwr/local_models` lists it. */
 export interface LocalModel {
   modelRef: string;
   format: 'mlx' | 'gguf';

@@ -50,7 +50,7 @@ fn a_repository_may_declare_its_own_checks() {
     let root = project(&[
         ("Cargo.toml", "[package]"),
         (
-            ".poorai/checks.json",
+            ".pwr/checks.json",
             r#"{"checks":[{"executable":"just","args":["verify"]}]}"#,
         ),
     ]);
@@ -185,7 +185,7 @@ fn an_explicit_declaration_outranks_ci_which_outranks_the_registry() {
         ("Cargo.toml", "[package]"),
         (ci, ci_body),
         (
-            ".poorai/checks.json",
+            ".pwr/checks.json",
             r#"{"checks":[{"executable":"nextest","args":["run"]}]}"#,
         ),
     ]);
@@ -214,7 +214,7 @@ fn an_interpreter_is_not_denied_under_its_other_name() {
     // executable, so an expansion that runs before declarations are read
     // cannot pass this by reaching the marker registry instead.
     let root = project(&[(
-        ".poorai/checks.json",
+        ".pwr/checks.json",
         r#"{"checks":[{"executable":"python3","args":["check.py"]}]}"#,
     )]);
     let executables = required_executables(root.path());

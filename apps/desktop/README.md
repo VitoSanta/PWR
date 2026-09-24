@@ -3,7 +3,7 @@
 The product surface of PWR: a Tauri 2 shell with an Angular (zoneless,
 signals) interface. It is a client of the core and nothing else -- it starts
 `pwr serve --stdio` and speaks the Agent Client Protocol with PWR's
-`_poorai/*` extensions ([`docs/pwr-serve.md`](../../docs/pwr-serve.md)).
+`_pwr/*` extensions ([`docs/pwr-serve.md`](../../docs/pwr-serve.md)).
 Files, commands and diffs stay inside the core's policy, sandbox and audit;
 the app never writes to a workspace itself. It is the supported desktop client.
 
@@ -14,7 +14,7 @@ the app never writes to a workspace itself. It is the supported desktop client.
   rendering, attachment cards for files and folders (drag and drop), and
   folders attached as read-only references.
 - A **message queue**: what you write while a turn runs is queued and sent
-  when it ends, or delivered into it with "↳ now" (`_poorai/steer`).
+  when it ends, or delivered into it with "↳ now" (`_pwr/steer`).
 - **Changes**, **Evidence** and **Core log** panels: per-file diffs with +/-
   counts, the latest file open.
 - **Model and context in the top bar**: the model chip switches between the
@@ -24,7 +24,8 @@ the app never writes to a workspace itself. It is the supported desktop client.
   threshold, the last compaction and **Compact now**
   ([`docs/models-and-context.md`](../../docs/models-and-context.md)).
 - **Model Manager**: this machine's memory, GPU, disk and engines; a search of
-  Hugging Face for MLX or GGUF models, each variant rated for this machine
+  Hugging Face for MLX or GGUF models, with further pages available through
+  **Load more models**; each variant is rated for this machine
   with its explanation; verified, resumable downloads into the engine's
   models folder, with progress and cancel.
 - **Goal** mode (keep working across check-ins until verified) and the
@@ -50,9 +51,9 @@ src/app/ui/              conversation, composer, sidebar, inspector, diff, markd
 src/styles.css           the theme
 ```
 
-The shell looks for the core in `POORAI_CORE`, then the checkout's
+The shell looks for the core in `PWR_CORE`, then the checkout's
 `target/release/pwr`, then `pwr` on `PATH`; for the engine's Python it
-uses `POORAI_MLX_PYTHON`, then the checkout's `.venv-mlx`. An app opened from
+uses `PWR_MLX_PYTHON`, then the checkout's `.venv-mlx`. An app opened from
 the Finder gets the PATH of a login shell, so the checks a workspace declares
 (`npm`, `cargo`) are found.
 

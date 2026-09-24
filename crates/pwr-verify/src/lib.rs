@@ -266,7 +266,7 @@ pub fn required_executables(root: &std::path::Path) -> Vec<String> {
 }
 
 /// Paths outside the workspace the declared checks need to read, at
-/// `.poorai/checks.json`'s top-level `readable`, e.g. a browser a layout check
+/// `.pwr/checks.json`'s top-level `readable`, e.g. a browser a layout check
 /// drives. The sandbox denies reads outside the workspace, and a check that
 /// cannot load its own program fails in a way that looks like the product
 /// failing -- measured 2026-09-22: headless Chrome aborting in `dlopen` of its
@@ -278,7 +278,7 @@ pub fn declared_readable(root: &std::path::Path) -> Vec<std::path::PathBuf> {
         #[serde(default)]
         readable: Vec<std::path::PathBuf>,
     }
-    std::fs::read(root.join(".poorai/checks.json"))
+    std::fs::read(root.join(".pwr/checks.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Declared>(&bytes).ok())
         .map(|declared| declared.readable)
@@ -288,7 +288,7 @@ pub fn declared_readable(root: &std::path::Path) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
-/// Checks a repository declares for itself, at `.poorai/checks.json`.
+/// Checks a repository declares for itself, at `.pwr/checks.json`.
 ///
 /// The escape hatch that keeps the registry from being a closed world: a
 /// project PWR does not recognise says how it is verified, rather than
@@ -304,7 +304,7 @@ fn declared_checks(root: &std::path::Path) -> Option<Vec<(String, Vec<String>)>>
         #[serde(default)]
         args: Vec<String>,
     }
-    let bytes = std::fs::read(root.join(".poorai/checks.json")).ok()?;
+    let bytes = std::fs::read(root.join(".pwr/checks.json")).ok()?;
     let declared: Declared = serde_json::from_slice(&bytes).ok()?;
     Some(
         declared
@@ -340,7 +340,7 @@ pub fn declared_acceptance_checks(
         kind: Option<String>,
     }
 
-    let path = root.join(".poorai/checks.json");
+    let path = root.join(".pwr/checks.json");
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -379,7 +379,7 @@ pub fn known_failure_checks(root: &std::path::Path) -> Result<Vec<(String, Vec<S
         #[serde(default)]
         known_failures: Vec<Check>,
     }
-    let bytes = match std::fs::read(root.join(".poorai/checks.json")) {
+    let bytes = match std::fs::read(root.join(".pwr/checks.json")) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.to_string()),

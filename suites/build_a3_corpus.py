@@ -230,7 +230,7 @@ from settings import parse_line
 
 class ParseLine(unittest.TestCase):
     def test_simple(self):
-        self.assertEqual(parse_line("name = poorAI"), ("name", "poorAI"))
+        self.assertEqual(parse_line("name = PWR"), ("name", "PWR"))
 
     def test_comment(self):
         self.assertIsNone(parse_line("# note"))

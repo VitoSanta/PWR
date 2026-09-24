@@ -43,7 +43,7 @@ impl EmbeddingRanker {
                 }
             })
             .collect();
-        let path = root.join(".poorai/embeddings").join(format!("{slug}.json"));
+        let path = root.join(".pwr/embeddings").join(format!("{slug}.json"));
         let cache = std::fs::read_to_string(&path)
             .ok()
             .and_then(|text| serde_json::from_str::<HashMap<String, Vec<f32>>>(&text).ok())

@@ -6,10 +6,10 @@
 //! never queues behind a generation nor touches the engine's prompt cache.
 //!
 //! Environment:
-//! - `POORAI_EMBED_PYTHON`: the interpreter with `mlx-embeddings` (default:
-//!   `POORAI_MLX_PYTHON`, then `python3`);
-//! - `POORAI_EMBED_SIDECAR`: the script (default: the one in this crate);
-//! - `POORAI_EMBED_MODEL`, `POORAI_EMBED_POOLING`: passed through to it.
+//! - `PWR_EMBED_PYTHON`: the interpreter with `mlx-embeddings` (default:
+//!   `PWR_MLX_PYTHON`, then `python3`);
+//! - `PWR_EMBED_SIDECAR`: the script (default: the one in this crate);
+//! - `PWR_EMBED_MODEL`, `PWR_EMBED_POOLING`: passed through to it.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -47,10 +47,10 @@ impl Embedder {
     /// An error here means "no semantic ranking this time", never a failed
     /// turn: the caller falls back to the lexical ranking.
     pub fn start() -> Result<Self, String> {
-        let python = std::env::var_os("POORAI_EMBED_PYTHON")
-            .or_else(|| std::env::var_os("POORAI_MLX_PYTHON"))
+        let python = std::env::var_os("PWR_EMBED_PYTHON")
+            .or_else(|| std::env::var_os("PWR_MLX_PYTHON"))
             .map_or_else(|| PathBuf::from("python3"), PathBuf::from);
-        let script = std::env::var_os("POORAI_EMBED_SIDECAR").map_or_else(
+        let script = std::env::var_os("PWR_EMBED_SIDECAR").map_or_else(
             || Path::new(env!("CARGO_MANIFEST_DIR")).join("sidecar/pwr_embed.py"),
             PathBuf::from,
         );

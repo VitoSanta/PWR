@@ -38,7 +38,7 @@
 				"hidden_regression.py": "\"\"\"The regression test the upstream fix added, run after the agent finishes.\"\"\"\nimport unittest\n\nimport more_itertools as mi\n\n\nclass InterleaveEvenlyEmpty(unittest.TestCase):\n    def test_no_iterables(self):\n        self.assertEqual(list(mi.interleave_evenly([])), [])\n        self.assertEqual(list(mi.interleave_evenly([], lengths=[])), [])\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "more-itertools f51a53bf, committed 2026-06-29. The workspace is its parent commit, so the defect is present exactly as it was upstream. The hidden test is the regression test that commit added. The task was neither written nor adapted by poorAI; the fix date is recorded so a reader can judge it against a deployment's training cutoff."
+			"provenance": "more-itertools f51a53bf, committed 2026-06-29. The workspace is its parent commit, so the defect is present exactly as it was upstream. The hidden test is the regression test that commit added. The task was neither written nor adapted by PWR; the fix date is recorded so a reader can judge it against a deployment's training cutoff."
 		},
 		{
 			"id": "external-numeric-range-reversed",
@@ -77,7 +77,7 @@
 				"hidden_regression.py": "\"\"\"The regression test the upstream fix added, run after the agent finishes.\"\"\"\nimport unittest\n\nimport more_itertools as mi\n\n\nclass NumericRangeEmptyReversed(unittest.TestCase):\n    def test_empty_reversed(self):\n        self.assertEqual(list(reversed(mi.numeric_range(0))), [])\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "more-itertools edb3346f, committed 2026-04-10. Workspace is its parent commit; hidden test is the regression test that commit added. Not written or adapted by poorAI."
+			"provenance": "more-itertools edb3346f, committed 2026-04-10. Workspace is its parent commit; hidden test is the regression test that commit added. Not written or adapted by PWR."
 		},
 		{
 			"id": "external-exactly-n-negative",
@@ -116,7 +116,7 @@
 				"hidden_regression.py": "\"\"\"The regression test the upstream fix added, run after the agent finishes.\"\"\"\nimport unittest\nfrom itertools import repeat\nfrom operator import not_\n\nimport more_itertools as mi\n\n\nclass ExactlyNBoundaries(unittest.TestCase):\n    def test_true(self):\n        self.assertTrue(mi.exactly_n(repeat(True, 100), 100))\n        self.assertTrue(mi.exactly_n(repeat(False, 100), 100, predicate=not_))\n\n    def test_false(self):\n        self.assertFalse(mi.exactly_n([True], -10))\n        self.assertFalse(mi.exactly_n([], -1))\n        self.assertFalse(mi.exactly_n([], -10))\n        self.assertFalse(mi.exactly_n([True], 0))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "more-itertools adeda34b, committed 2025-10-28. Workspace is its parent commit; hidden test is the regression test that commit added, minus the assertions that already passed before it. Not written or adapted by poorAI."
+			"provenance": "more-itertools adeda34b, committed 2025-10-28. Workspace is its parent commit; hidden test is the regression test that commit added, minus the assertions that already passed before it. Not written or adapted by PWR."
 		},
 		{
 			"id": "external-slugify-acronyms",
@@ -161,7 +161,7 @@
 				"hidden_regression.mjs": "import assert from 'node:assert/strict';\nimport slugify from './index.js';\n\n// The regression assertions the upstream fix added.\nassert.equal(slugify('APISection'), 'api-section');\nassert.equal(slugify('HTMLEscape'), 'html-escape');\nassert.equal(slugify('XMLMsgBox'), 'xml-msg-box');\nassert.equal(slugify('IDValue'), 'id-value');\nassert.equal(slugify('ID2'), 'id-2');\nassert.equal(slugify('parseXMLDocument'), 'parse-xml-document');\nassert.equal(slugify('XMLHttpAPIResponse'), 'xml-http-api-response');\nassert.equal(slugify('HTML5Parser'), 'html-5-parser');\n\n// A plural acronym is not a word boundary. The task's original hidden file\n// asserted only what the upstream fix added, and a wrong implementation that\n// widened the guard passed it while turning `APIs` into `ap-is`. Three plurals\n// rather than one, because a fix that special-cases `APIs` alone still breaks\n// the others.\nassert.equal(slugify('APIs'), 'apis');\nassert.equal(slugify('PDFs'), 'pdfs');\nassert.equal(slugify('IDs'), 'ids');\nconsole.log('ok');\n"
 			},
 			"time_budget_secs": 3600,
-			"provenance": "sindresorhus/slugify a3b86ea9, committed 2026-08-29. Workspace is its parent commit; the hidden test carries the assertions that commit added to test.js, rewritten against node:assert so it needs no test runner. Not written or adapted by poorAI. Note that the project ships no lockfile, so `npm install` resolves its dependencies afresh: the repository tree is pinned, its dependency tree is not."
+			"provenance": "sindresorhus/slugify a3b86ea9, committed 2026-08-29. Workspace is its parent commit; the hidden test carries the assertions that commit added to test.js, rewritten against node:assert so it needs no test runner. Not written or adapted by PWR. Note that the project ships no lockfile, so `npm install` resolves its dependencies afresh: the repository tree is pinned, its dependency tree is not."
 		},
 		{
 			"id": "external-running-min-stability",
@@ -207,7 +207,7 @@
 				"WindowedMinimum"
 			],
 			"time_budget_secs": 900,
-			"provenance": "authored for poorAI 2026-09-06; capability area F (root cause analysis) at dependency distance in a real repository. The first two diagnosis tasks resolved six of six because their answer was in the prompt or in the tree listing. Here the symptom is running_min and the defect is in the private helper _windowed_running_min, whose name appears nowhere outside more_itertools/recipes.py -- a 1621-line file that does not arrive in one read. Retrieval over this statement was reproduced before the task was written and returns the tests, running_statistics and a stub file, none of which names the helper. The upstream fix is d992be0 of 2026-07-12, which changed a strict comparison to a non-strict one in both windowed helpers; its date is what a reader needs in order to judge memorisation. The hidden regression is not scored for a question and is declared so the corpus fairness check can establish that the defect is present at the pinned commit and absent at the fix."
+			"provenance": "authored for PWR 2026-09-06; capability area F (root cause analysis) at dependency distance in a real repository. The first two diagnosis tasks resolved six of six because their answer was in the prompt or in the tree listing. Here the symptom is running_min and the defect is in the private helper _windowed_running_min, whose name appears nowhere outside more_itertools/recipes.py -- a 1621-line file that does not arrive in one read. Retrieval over this statement was reproduced before the task was written and returns the tests, running_statistics and a stub file, none of which names the helper. The upstream fix is d992be0 of 2026-07-12, which changed a strict comparison to a non-strict one in both windowed helpers; its date is what a reader needs in order to judge memorisation. The hidden regression is not scored for a question and is declared so the corpus fairness check can establish that the defect is present at the pinned commit and absent at the fix."
 		}
 	]
 }

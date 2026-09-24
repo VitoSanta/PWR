@@ -28,7 +28,7 @@ def task(id, statement, allowed, files, hidden, fix, wrong, origin, suite):
         "visible_verifier": VISIBLE,
         "hidden_verifier": HIDDEN,
         "time_budget_secs": 600,
-        "provenance": f"authored 2026-09-19 for poorAI suite {suite}; modelled on {origin}; "
+        "provenance": f"authored 2026-09-19 for PWR suite {suite}; modelled on {origin}; "
         "not derived from any public benchmark",
         # Not part of the corpus: stripped before writing.
         "_fix": fix,

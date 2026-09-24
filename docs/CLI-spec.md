@@ -21,7 +21,7 @@ pwr report <RUN_OR_EVAL_ID> [--format json|md|jsonl]
 ```
 
 The interactive surface stores its model, calibration profile, context budget,
-timeout and planning preference in `.poorai/chat-config.json` in the current
+timeout and planning preference in `.pwr/chat-config.json` in the current
 workspace. The startup menu and `/settings` use arrow keys and Enter; the
 model selector reads Ollama's live model list, so newly installed local models
 appear without an application update. The task composer accepts normal typing
@@ -31,7 +31,7 @@ Use `/attach` to switch the composer into attachment-path mode, or `/attach
 PATH` to queue a file directly; Tab completes paths. Quoted paths and
 shell-escaped spaces are accepted. `/attachments` shows the queue and
 `/clear-attachments` clears it. Attachments are extracted where supported,
-snapshotted under `.poorai/chat-attachments/` by content hash, and appended to
+snapshotted under `.pwr/chat-attachments/` by content hash, and appended to
 the next task only. A normal submitted task grants all available approvals and
 provisioning permissions, while retaining the technical boundary that writes
 are confined to the current workspace and every action is audited.

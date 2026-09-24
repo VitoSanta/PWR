@@ -1067,7 +1067,7 @@ fn write_all(files: &BTreeMap<String, String>, root: &Path) -> Result<(), EvalEr
 /// changes, and are not scored.
 /// Directories that belong to the harness or a package manager, not the task.
 const UNSCORED_DIRECTORIES: [&str; 7] = [
-    ".poorai",
+    ".pwr",
     ".pwr-scratch",
     "node_modules",
     ".venv",
@@ -2014,7 +2014,7 @@ impl std::fmt::Display for Arm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Conventional => "b0_conventional",
-            Self::PWR => "b1_poorai",
+            Self::PWR => "b1_pwr",
             Self::Staged => "b2_staged",
         })
     }
@@ -2026,7 +2026,7 @@ impl std::str::FromStr for Arm {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
             "b0" | "b0_conventional" | "b0-conventional" | "conventional" => Ok(Self::Conventional),
-            "b1" | "b1_poorai" | "b1-PWR" | "pwr" => Ok(Self::PWR),
+            "b1" | "b1_pwr" | "b1-PWR" | "pwr" => Ok(Self::PWR),
             "b2" | "b2_staged" | "b2-staged" | "staged" => Ok(Self::Staged),
             other => Err(format!(
                 "`{other}` is not an arm. One of: b0 (conventional), b1 (PWR), b2 (staged)."

@@ -11,8 +11,8 @@ import {
 
 /**
  * The Model Manager's state. Everything it shows -- variants, fit, what is on
- * disk, a download's state -- is computed by the core (`_poorai/hardware`,
- * `_poorai/catalog`, `_poorai/download`); this only asks and draws.
+ * disk, a download's state -- is computed by the core (`_pwr/hardware`,
+ * `_pwr/catalog`, `_pwr/download`); this only asks and draws.
  */
 @Injectable({ providedIn: 'root' })
 export class ModelsStore {
@@ -29,6 +29,9 @@ export class ModelsStore {
 
   readonly status = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
   readonly results = signal<CatalogEntry[]>([]);
+  readonly nextCursor = signal<string | null>(null);
+  readonly loadingMore = signal(false);
+  readonly loadMoreError = signal('');
   /** The Hub could not be searched: offline, rate-limited, … */
   readonly error = signal<{ kind: string; message: string } | null>(null);
   readonly activeBackend = signal('');
@@ -84,7 +87,7 @@ export class ModelsStore {
     this.localStatus.set('loading');
     this.localError.set('');
     try {
-      const reply = await this.agent.call('_poorai/local_models', { cwd: this.agent.workspace() });
+      const reply = await this.agent.call('_pwr/local_models', { cwd: this.agent.workspace() });
       this.local.set(reply.models ?? []);
       this.localStatus.set('ready');
     } catch (error) {
@@ -115,7 +118,7 @@ export class ModelsStore {
     this.deleting.set(true);
     this.deleteError.set('');
     try {
-      await this.agent.call('_poorai/model_delete', {
+      await this.agent.call('_pwr/model_delete', {
         cwd: this.agent.workspace(),
         modelRef: target.modelRef,
         format: target.format,
@@ -151,7 +154,7 @@ export class ModelsStore {
   async loadHardware(): Promise<void> {
     this.hardwareError.set('');
     try {
-      this.hardware.set(await this.agent.call('_poorai/hardware', {}));
+      this.hardware.set(await this.agent.call('_pwr/hardware', {}));
     } catch (error) {
       this.hardwareError.set(String(error));
     }
@@ -188,6 +191,10 @@ export class ModelsStore {
 
   private searchSoon(): void {
     clearTimeout(this.typing);
+    ++this.searchSequence;
+    this.status.set('loading');
+    this.nextCursor.set(null);
+    this.loadingMore.set(false);
     this.typing = setTimeout(() => void this.search(), 400);
   }
 
@@ -196,8 +203,11 @@ export class ModelsStore {
     const sequence = ++this.searchSequence;
     this.status.set('loading');
     this.error.set(null);
+    this.nextCursor.set(null);
+    this.loadMoreError.set('');
+    this.loadingMore.set(false);
     try {
-      const reply = await this.agent.call('_poorai/catalog', {
+      const reply = await this.agent.call('_pwr/catalog', {
         cwd: this.agent.workspace(),
         query: this.query(),
         format: this.format() ?? undefined,
@@ -208,13 +218,46 @@ export class ModelsStore {
       this.activeBackend.set(reply.activeBackend ?? '');
       this.modelsRoot.set(reply.modelsRoot ?? '');
       this.results.set(reply.results ?? []);
+      this.nextCursor.set(reply.nextCursor ?? null);
       this.error.set(reply.error ?? null);
       this.status.set(reply.error ? 'error' : 'ready');
     } catch (error) {
       if (sequence !== this.searchSequence) return;
       this.results.set([]);
+      this.nextCursor.set(null);
       this.error.set({ kind: 'unexpected', message: String(error) });
       this.status.set('error');
+    }
+  }
+
+  /** Appends the next Hub page using the cursor returned for this search. */
+  async loadMore(): Promise<void> {
+    const cursor = this.nextCursor();
+    if (!cursor || this.status() !== 'ready' || this.loadingMore()) return;
+    const sequence = this.searchSequence;
+    this.loadingMore.set(true);
+    this.loadMoreError.set('');
+    try {
+      const reply = await this.agent.call('_pwr/catalog', {
+        cwd: this.agent.workspace(),
+        query: this.query(),
+        format: this.format() ?? undefined,
+        filters: clean(this.filters()),
+        cursor,
+      });
+      if (sequence !== this.searchSequence) return;
+      if (reply.error) {
+        this.loadMoreError.set(reply.error.message ?? 'The next page could not be loaded.');
+        return;
+      }
+      const seen = new Set(this.results().map((entry) => entry.repository));
+      const more = (reply.results ?? []).filter((entry: CatalogEntry) => !seen.has(entry.repository));
+      this.results.update((current) => [...current, ...more]);
+      this.nextCursor.set(reply.nextCursor ?? null);
+    } catch (error) {
+      if (sequence === this.searchSequence) this.loadMoreError.set(String(error));
+    } finally {
+      if (sequence === this.searchSequence) this.loadingMore.set(false);
     }
   }
 
@@ -230,7 +273,7 @@ export class ModelsStore {
     const downloadId = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.put(key, { downloadId, state: { state: 'preparing' } });
     try {
-      const reply = await this.agent.call('_poorai/download', {
+      const reply = await this.agent.call('_pwr/download', {
         cwd: this.agent.workspace(),
         downloadId,
         repository: entry.repository,
@@ -262,7 +305,7 @@ export class ModelsStore {
   cancel(entry: CatalogEntry, variant: CatalogVariant): void {
     const view = this.downloads()[this.key(entry, variant)];
     if (view && !isTerminal(view))
-      this.agent.notify('_poorai/download_cancel', { downloadId: view.downloadId });
+      this.agent.notify('_pwr/download_cancel', { downloadId: view.downloadId });
   }
 
   /** Chooses a downloaded model for this workspace and closes the manager. */
@@ -274,7 +317,7 @@ export class ModelsStore {
   private listen(): void {
     if (this.listening) return;
     this.listening = true;
-    this.agent.on('_poorai/download_progress', (params) => {
+    this.agent.on('_pwr/download_progress', (params) => {
       const entry = Object.entries(this.downloads()).find(
         ([, view]) => view.downloadId === params.downloadId,
       );

@@ -3,8 +3,8 @@
 //! downloaded model, and takes minutes. Run it by hand:
 //!
 //! ```text
-//! POORAI_MLX_PYTHON=$PWD/.venv-mlx/bin/python \
-//! POORAI_LIVE_MODEL=Qwen/Qwen3-14B-MLX-4bit \
+//! PWR_MLX_PYTHON=$PWD/.venv-mlx/bin/python \
+//! PWR_LIVE_MODEL=Qwen/Qwen3-14B-MLX-4bit \
 //! cargo test -p pwr-models --test live_model -- --ignored --nocapture
 //! ```
 //!
@@ -21,14 +21,14 @@ use pwr_provider::{Cancel, InferenceBackend, ModelProvider};
 use std::time::{Duration, Instant};
 
 fn model() -> Option<String> {
-    std::env::var("POORAI_LIVE_MODEL").ok()
+    std::env::var("PWR_LIVE_MODEL").ok()
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs a local MLX model; see the file's header"]
 async fn live_quick_calibration_and_reasoning_effort() {
     let Some(model) = model() else {
-        eprintln!("POORAI_LIVE_MODEL is not set; nothing to do");
+        eprintln!("PWR_LIVE_MODEL is not set; nothing to do");
         return;
     };
     let runtime = pwr_runtime::RuntimeFactory::local(pwr_runtime::BackendKind::Mlx);

@@ -1,4 +1,4 @@
-"""Prints a suite report (the JSON `poorai --json eval suite` writes) briefly."""
+"""Prints a suite report (the JSON `pwr --json eval suite` writes) briefly."""
 import json
 import sys
 

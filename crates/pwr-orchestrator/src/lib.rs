@@ -586,7 +586,7 @@ fn annotate(
             ));
             // A command that walked into PWR's own state directory and was
             // refused. The denial is deliberate -- the agent's workspace is the
-            // project, not the records kept about it -- but `find: ./.poorai:
+            // project, not the records kept about it -- but `find: ./.pwr:
             // Operation not permitted` reads like a broken machine, and a
             // measured run then spent three actions retrying `find` with
             // invented flags.
@@ -607,7 +607,7 @@ fn annotate(
                     object.insert(
                         "note".into(),
                         serde_json::json!(
-                            "`.poorai` is PWR's own state directory and is deliberately unreadable. It is not part of the project and nothing in it needs looking at; exclude it and the command will succeed."
+                            "`.pwr` is PWR's own state directory and is deliberately unreadable. It is not part of the project and nothing in it needs looking at; exclude it and the command will succeed."
                         ),
                     );
                 }
@@ -4502,7 +4502,7 @@ pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
 /// no other reading of it. Measured: five malformed calls in one run, three
 /// consecutive, ending it -- over a mistake the harness could see through.
 /// PWR's own state directory, as it appears in a command's error output.
-const POLICY_STATE_DIRECTORY: &str = ".poorai";
+const POLICY_STATE_DIRECTORY: &str = ".pwr";
 
 const STRING_LIST_FIELDS: [&str; 2] = ["args", "paths"];
 
@@ -7050,8 +7050,8 @@ mod tests {
             };
             // Failing before the run and still failing after it: not this run's
             // doing, and not this run's to fix.
-            std::fs::create_dir(root.path().join(".poorai")).unwrap();
-            let command = "n=$(cat .poorai/timing 2>/dev/null || echo 0); n=$((n+1)); echo $n > .poorai/timing; echo elapsed:$n; exit 1";
+            std::fs::create_dir(root.path().join(".pwr")).unwrap();
+            let command = "n=$(cat .pwr/timing 2>/dev/null || echo 0); n=$((n+1)); echo $n > .pwr/timing; echo elapsed:$n; exit 1";
             let checks = vec![(
                 "sh".to_string(),
                 vec!["-c".to_string(), command.to_string()],
@@ -7181,13 +7181,13 @@ mod tests {
     }
 
     /// The denial that hides the harness's records makes `find .` fail, and
-    /// `find: ./.poorai: Operation not permitted` reads like a broken machine.
+    /// `find: ./.pwr: Operation not permitted` reads like a broken machine.
     /// A measured run then spent three actions retrying `find` with invented
     /// flags. The refusal carries what it already knows.
     #[tokio::test]
     async fn a_command_refused_by_the_state_denial_is_told_why() {
         let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(root.path().join(".poorai")).unwrap();
+        std::fs::create_dir_all(root.path().join(".pwr")).unwrap();
         let policy = ToolPolicy {
             root: root.path().to_path_buf(),
             extra_readable: Vec::new(),
@@ -7199,7 +7199,7 @@ mod tests {
             approvals: Vec::new(),
         };
         let provider = SequenceProvider(std::sync::Mutex::new(std::collections::VecDeque::from([
-            r#"{"capability":"run_command","executable":"sh","args":["-c","echo 'find: ./.poorai: Operation not permitted' >&2; exit 1"]}"#.into(),
+            r#"{"capability":"run_command","executable":"sh","args":["-c","echo 'find: ./.pwr: Operation not permitted' >&2; exit 1"]}"#.into(),
             r#"{"capability":"complete","rationale":"done"}"#.into(),
         ])));
         let store = Store::open(":memory:").unwrap();

@@ -391,7 +391,7 @@ const POLICY_EXCLUSIONS: [&str; 6] = [
     "target",
     "node_modules",
     ".venv",
-    ".poorai",
+    ".pwr",
     ".pwr-scratch",
 ];
 /// Files above this size are inventory entries only; the index is not a mirror.
@@ -1177,7 +1177,7 @@ mod tests {
     #[test]
     fn persisted_indexes_are_content_addressed_and_never_overwritten() {
         let root = tempfile::tempdir().unwrap();
-        let state = root.path().join(".poorai");
+        let state = root.path().join(".pwr");
         fs::write(root.path().join("code.rs"), "fn one() {}").unwrap();
         let first = index(root.path()).unwrap();
         let first_path = persist(&first, &state).unwrap();

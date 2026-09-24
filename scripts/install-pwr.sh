@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-BIN_DIR=${POORAI_BIN_DIR:-"$HOME/.local/bin"}
+BIN_DIR=${PWR_BIN_DIR:-"$HOME/.local/bin"}
 
 cargo build --manifest-path "$ROOT/Cargo.toml" --release -p pwr-cli
 

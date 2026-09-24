@@ -19,10 +19,10 @@
 //! also land in the conversation as prose.
 //!
 //! Configuration, all optional:
-//! - `POORAI_MLX_PYTHON`: the interpreter with `mlx-lm` installed (default
+//! - `PWR_MLX_PYTHON`: the interpreter with `mlx-lm` installed (default
 //!   `python3`);
-//! - `POORAI_MLX_SIDECAR`: the sidecar script (default: the one in this crate);
-//! - `POORAI_MLX_MODELS`: where a model named by a relative reference is looked
+//! - `PWR_MLX_SIDECAR`: the sidecar script (default: the one in this crate);
+//! - `PWR_MLX_MODELS`: where a model named by a relative reference is looked
 //!   for (default `~/.lmstudio/models`, where the models already are).
 
 pub mod embed;
@@ -64,15 +64,15 @@ impl MlxConfig {
             .map(PathBuf::from)
             .unwrap_or_default();
         MlxConfig {
-            python: std::env::var_os("POORAI_MLX_PYTHON")
+            python: std::env::var_os("PWR_MLX_PYTHON")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("python3")),
-            sidecar: std::env::var_os("POORAI_MLX_SIDECAR")
+            sidecar: std::env::var_os("PWR_MLX_SIDECAR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| {
                     Path::new(env!("CARGO_MANIFEST_DIR")).join("sidecar/pwr_mlx.py")
                 }),
-            models_root: std::env::var_os("POORAI_MLX_MODELS")
+            models_root: std::env::var_os("PWR_MLX_MODELS")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join(".lmstudio/models")),
         }
@@ -354,7 +354,7 @@ impl MlxProvider {
                 .spawn()
                 .map_err(|error| {
                     unavailable(format!(
-                        "could not start the MLX sidecar with {}: {error}; set POORAI_MLX_PYTHON \
+                        "could not start the MLX sidecar with {}: {error}; set PWR_MLX_PYTHON \
                          to an interpreter with mlx-lm installed",
                         self.config.python.display()
                     ))
@@ -1368,12 +1368,12 @@ mod tests {
     #[test]
     fn an_attached_image_goes_before_the_text_and_a_plain_message_stays_a_string() {
         let mut message = ChatMessage::text("user", "what does this show?");
-        message.images = vec!["/w/.poorai/images/ab.png".into()];
+        message.images = vec!["/w/.pwr/images/ab.png".into()];
         let wire = template_message(&message);
         assert_eq!(
             wire["content"],
             serde_json::json!([
-                {"type": "image", "path": "/w/.poorai/images/ab.png"},
+                {"type": "image", "path": "/w/.pwr/images/ab.png"},
                 {"type": "text", "text": "what does this show?"}
             ])
         );

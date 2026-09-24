@@ -18,7 +18,7 @@ const SEATBELT: &str = "/usr/bin/sandbox-exec";
 pub const SCRATCH_DIRECTORY: &str = ".pwr-scratch";
 
 /// Where the harness keeps a workspace's state, artifacts and configuration.
-pub const STATE_DIRECTORY: &str = ".poorai";
+pub const STATE_DIRECTORY: &str = ".pwr";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
@@ -358,7 +358,7 @@ pub enum SandboxPolicy {
     /// Refuse to run a command at all when no sandbox is available.
     Required,
     /// Sandbox where the platform supports it. Where it does not, **refuse**,
-    /// unless the person opted out with `POORAI_ALLOW_UNCONFINED=1`, and then
+    /// unless the person opted out with `PWR_ALLOW_UNCONFINED=1`, and then
     /// record that the command ran unconfined.
     ///
     /// It ran unconfined silently until 2026-09-23: an external review found
@@ -656,9 +656,9 @@ impl PolicyProfile {
         }
     }
 }
-/// Whether the person opted out of the sandbox refusal (`POORAI_ALLOW_UNCONFINED=1`).
+/// Whether the person opted out of the sandbox refusal (`PWR_ALLOW_UNCONFINED=1`).
 fn unconfined_allowed() -> bool {
-    std::env::var("POORAI_ALLOW_UNCONFINED").ok().as_deref() == Some("1")
+    std::env::var("PWR_ALLOW_UNCONFINED").ok().as_deref() == Some("1")
 }
 
 impl ToolPolicy {
@@ -683,7 +683,7 @@ impl ToolPolicy {
                 stripped.display()
             )
         } else if let Some(reference) = self.reference_containing(relative) {
-            // Seen 2026-09-22 (Nemotron 3.5, web_poorai): the project folder
+            // Seen 2026-09-22 (Nemotron 3.5, web_pwr): the project folder
             // was attached as a reference, the model sent `ls -la` with it as
             // cwd, was told no reference folder contained it, and spent a
             // hundred actions looking for the files some other way.
@@ -857,7 +857,7 @@ impl ToolPolicy {
         let private = canonical.components().any(|component| match component {
             Component::Normal(name) => {
                 let name = name.to_string_lossy();
-                name == ".poorai" || name == ".git" || name.starts_with(".env")
+                name == ".pwr" || name == ".git" || name.starts_with(".env")
             }
             _ => false,
         });
@@ -1089,7 +1089,7 @@ impl ToolPolicy {
         // A repository's own tooling walks the whole workspace -- `xo` and
         // `ava` glob it through `globby`, which treats a directory it cannot
         // list as fatal -- and a state directory nothing could list made every
-        // such check crash with `EPERM: scandir '.poorai'`. Measured in the R2
+        // such check crash with `EPERM: scandir '.pwr'`. Measured in the R2
         // pilot of 2026-09-14: the visible verifier of all five filenamify and
         // slugify tasks failed in every arm before any deployment acted. The
         // names of the records are what that costs; their contents stay closed.
@@ -1102,9 +1102,9 @@ impl ToolPolicy {
             })
             .unwrap_or_default();
         // Writes too. The read denial hid the records and left them writable,
-        // because the workspace write allowance covers `.poorai` and nothing
-        // followed it: a sandboxed `echo x > .poorai/probe` or
-        // `rm .poorai/indexes/idx.json` succeeded, so a command could truncate
+        // because the workspace write allowance covers `.pwr` and nothing
+        // followed it: a sandboxed `echo x > .pwr/probe` or
+        // `rm .pwr/indexes/idx.json` succeeded, so a command could truncate
         // the event store mid-run, where edit capabilities are refused by
         // `refuse_if_protected`. `subpath` matches whole path components, so
         // `.pwr-scratch`, the child's HOME and TMPDIR, stays writable.
@@ -1180,7 +1180,7 @@ impl ToolPolicy {
             SandboxPolicy::Preferred => Err(ToolError::Denied(
                 "this platform has no sandbox PWR can apply, so the command was not run: it \
                  would have run with your full rights, outside the workspace boundary. Set \
-                 POORAI_ALLOW_UNCONFINED=1 to run commands unconfined anyway."
+                 PWR_ALLOW_UNCONFINED=1 to run commands unconfined anyway."
                     .into(),
             )),
         }
@@ -3079,7 +3079,7 @@ pub fn extract_document(
 /// characters are 48 bits of the new hash.
 ///
 /// And so is a claim that begins with the current hash's first sixteen
-/// characters, whatever follows. Seen 2026-09-23 (web_poorai, Qwen3.6): the
+/// characters, whatever follows. Seen 2026-09-23 (web_pwr, Qwen3.6): the
 /// model wrote `c635b6af191dbe933847f09c5029...` for `c635b6af191dbe933847fde1
 /// e6ed...` -- the right twenty characters, then the tail of another file's
 /// hash -- five times running, even with the right hash in each refusal, and

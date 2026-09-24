@@ -5,11 +5,11 @@ dist/
 
 # Runtime state: the event log, the workspace index, the lease. Machine-local,
 # rebuilt on demand, and never evidence of anything.
-/.poorai/*
+/.pwr/*
 
 # Research evidence stays off the public repository for now (decided
 # 2026-09-23 by the maintainer, docs/roadmap.md): the model inspections and
-# calibrations under .poorai/ are one machine's observations, and which of them
+# calibrations under .pwr/ are one machine's observations, and which of them
 # are worth publishing -- anonymised, as fixtures -- is still to be decided.
 # They stay on the maintainer's machine, where the roadmap's numbers can still
 # be checked against them.
@@ -22,7 +22,7 @@ dist/
 # artifacts in the repository that look like evidence and are not. The
 # exception is lifted, and this comment deleted, when the re-run produces
 # reports worth citing.
-/.poorai/evaluations/
+/.pwr/evaluations/
 
 # The campaign directories from those same runs, for the same reason.
 #
@@ -31,13 +31,13 @@ dist/
 # resolved. thresholds.md declares them void. Committing them would put
 # artifacts in the repository that look like evidence and are not; they stay on
 # the machine that made them until the corpus is re-run.
-/.poorai/evaluations-controls/
-/.poorai/evaluations-generation/
-/.poorai/evaluations-m6/
-/.poorai/evaluations-m6-final/
-/.poorai/evaluations-m6-post/
-/.poorai/evaluations-maxctx/
-/.poorai/evaluations-realistic/
+/.pwr/evaluations-controls/
+/.pwr/evaluations-generation/
+/.pwr/evaluations-m6/
+/.pwr/evaluations-m6-final/
+/.pwr/evaluations-m6-post/
+/.pwr/evaluations-maxctx/
+/.pwr/evaluations-realistic/
 
 # macOS Finder metadata.
 .DS_Store
@@ -78,7 +78,6 @@ __pycache__/
 /experiments/
 /.claude/
 /.pwr-scratch/
-/.poorai-scratch/
 /.venv-mlx/
 
 # Local configuration and credentials.

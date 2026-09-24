@@ -24,7 +24,7 @@ CI runs exactly these on macOS and nothing else; when a test fails there, CI
 names it in an annotation that needs no account to read. The desktop app is
 not in CI yet (backlog R.8): `npx ng build` in `apps/desktop` at least. The
 MLX sidecar's own tests run with the engine's interpreter:
-`$POORAI_MLX_PYTHON -m unittest discover -s crates/pwr-mlx/sidecar`.
+`$PWR_MLX_PYTHON -m unittest discover -s crates/pwr-mlx/sidecar`.
 Anything needing a model or specific hardware is run by hand and its results
 recorded in `docs/`.
 

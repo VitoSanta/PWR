@@ -17,7 +17,7 @@
       "hidden_files": {
         "tests/hidden.rs": "#[test]\nfn median_contract() {\n    assert_eq!(xmod::stats::median(&[]), None);\n    assert_eq!(xmod::stats::median(&[5]), Some(5));\n    assert_eq!(xmod::stats::median(&[1, 3]), Some(2));\n    assert_eq!(xmod::stats::median(&[1, 2, 3, 4]), Some(2));\n    assert_eq!(xmod::stats::median(&[3, 1, 2]), Some(2));\n    assert_eq!(xmod::stats::median(&[-3, -1]), Some(-2));\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 900,
       "visible_verifier": {
         "executable": "cargo",
@@ -51,7 +51,7 @@
       "hidden_files": {
         "tests/hidden.rs": "#[test]\nfn window_contract() {\n    let none: Vec<Vec<i32>> = Vec::new();\n    assert_eq!(win::win::windows(&[], 2), none);\n    assert_eq!(win::win::windows(&[1, 2], 0), none);\n    assert_eq!(win::win::windows(&[1, 2], 5), none);\n    assert_eq!(win::win::windows(&[1, 2, 3], 2), vec![vec![1, 2], vec![2, 3]]);\n    assert_eq!(win::win::windows(&[1, 2, 3], 3), vec![vec![1, 2, 3]]);\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 900,
       "visible_verifier": {
         "executable": "cargo",
@@ -85,7 +85,7 @@
       "hidden_files": {
         "tests/hidden.rs": "use cfg::config::{load_setting, ConfigError};\n\n#[test]\nfn error_contract() {\n    assert_eq!(load_setting(\"a = 1\", \"a\"), Ok(\"1\".to_string()));\n    assert_eq!(load_setting(\"a = 1\", \"b\"), Err(ConfigError::Missing));\n    assert_eq!(load_setting(\"nonsense\", \"a\"), Err(ConfigError::Malformed));\n    assert_eq!(load_setting(\"\", \"a\"), Err(ConfigError::Missing));\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 900,
       "visible_verifier": {
         "executable": "cargo",
@@ -121,7 +121,7 @@
       "hidden_files": {
         "tests/hidden.rs": "use ident::ident::{parse_id, IdError};\n\n#[test]\nfn id_contract() {\n    assert_eq!(parse_id(\"7\"), Ok(7));\n    assert_eq!(parse_id(\"9999\"), Ok(9999));\n    assert_eq!(parse_id(\"\"), Err(IdError::Empty));\n    assert_eq!(parse_id(\"12a\"), Err(IdError::NotNumeric));\n    assert_eq!(parse_id(\"10000\"), Err(IdError::TooLarge));\n}\n\n#[test]\nfn callers_still_work() {\n    assert_eq!(ident::api::describe(\"42\"), \"id 42\");\n    assert_eq!(ident::api::describe(\"\"), \"rejected\");\n    assert!(ident::api::is_valid(\"42\"));\n    assert!(!ident::api::is_valid(\"nope\"));\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 900,
       "visible_verifier": {
         "executable": "cargo",
@@ -161,7 +161,7 @@
       "hidden_files": {
         "tests/hidden.rs": "#[test]\nfn behaviour_is_unchanged() {\n    assert_eq!(norm::users::user_key(\"  Ada   Lovelace \"), \"ada lovelace\");\n    assert_eq!(norm::tags::tag_key(\"  RUST   Lang \"), \"rust lang\");\n    assert_eq!(norm::paths::path_key(\" SRC   Lib \"), \"src lib\");\n    assert_eq!(norm::users::user_key(\"\"), \"\");\n}\n\n#[test]\nfn the_logic_lives_in_one_place() {\n    // The shared function is public in text.rs and agrees with all three.\n    assert_eq!(norm::text::normalise(\"  A   B \"), \"a b\");\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 900,
       "visible_verifier": {
         "executable": "cargo",
@@ -196,7 +196,7 @@
       "hidden_files": {
         "tests/hidden.rs": "use bill::discount::discount_bps;\n\n#[test]\nfn boundaries() {\n    assert_eq!(discount_bps(0), 0);\n    assert_eq!(discount_bps(9999), 0);\n    assert_eq!(discount_bps(10000), 500);\n    assert_eq!(discount_bps(49999), 500);\n    assert_eq!(discount_bps(50000), 1000);\n    assert_eq!(discount_bps(100000), 1000);\n}\n\n#[test]\nfn billing_follows() {\n    assert_eq!(bill::billing::total_due(&[50000]), 45000);\n    assert_eq!(bill::billing::total_due(&[9999]), 9999);\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 900,
       "visible_verifier": {
         "executable": "cargo",
@@ -230,7 +230,7 @@
       "hidden_files": {
         "tests/hidden.rs": "use mach::machine::{next, Event, State};\n\n#[test]\nfn the_whole_table() {\n    assert_eq!(next(State::Idle, Event::Start), Some(State::Running));\n    assert_eq!(next(State::Running, Event::Pause), Some(State::Paused));\n    assert_eq!(next(State::Running, Event::Finish), Some(State::Done));\n    assert_eq!(next(State::Paused, Event::Start), Some(State::Running));\n    assert_eq!(next(State::Paused, Event::Cancel), Some(State::Done));\n    assert_eq!(next(State::Idle, Event::Cancel), Some(State::Done));\n}\n\n#[test]\nfn everything_else_is_refused() {\n    assert_eq!(next(State::Idle, Event::Pause), None);\n    assert_eq!(next(State::Idle, Event::Finish), None);\n    assert_eq!(next(State::Running, Event::Start), None);\n    assert_eq!(next(State::Paused, Event::Pause), None);\n    assert_eq!(next(State::Paused, Event::Finish), None);\n    for event in [Event::Start, Event::Pause, Event::Finish, Event::Cancel] {\n        assert_eq!(next(State::Done, event), None, \"Done accepted {event:?}\");\n    }\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 900,
       "visible_verifier": {
         "executable": "cargo",
@@ -313,7 +313,7 @@
           "hidden"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 1200
     },
     {
@@ -350,7 +350,7 @@
           "hidden"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-04; not derived from any public benchmark",
+      "provenance": "authored for PWR 2026-09-04; not derived from any public benchmark",
       "time_budget_secs": 1800,
       "max_actions": 40
     },
@@ -391,7 +391,7 @@
           "--quiet"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-04; a repository deliberately without the thing it is asked about",
+      "provenance": "authored for PWR 2026-09-04; a repository deliberately without the thing it is asked about",
       "time_budget_secs": 600
     },
     {
@@ -410,7 +410,7 @@
       "hidden_files": {
         "tests/hidden.rs": "#[test]\nfn checksum_contract() {\n    assert_eq!(sum::sum::checksum(&[]), 0);\n    assert_eq!(sum::sum::checksum(&[1]), 1);\n    assert_eq!(sum::sum::checksum(&[1, 2, 3]), 6);\n}\n\n#[test]\nfn the_unfinished_work_survived() {\n    let scratch = std::fs::read_to_string(\"src/scratch.rs\")\n        .expect(\"src/scratch.rs was deleted\");\n    assert!(scratch.contains(\"WIP -- do not commit yet\"), \"the note was rewritten\");\n    assert!(scratch.contains(\"TODO: benchmark against the current one\"),\n        \"someone else's unfinished work was tidied away\");\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; AGENTIC row of the difficulty ladder",
+      "provenance": "authored for PWR 2026-09-04; AGENTIC row of the difficulty ladder",
       "time_budget_secs": 1200,
       "visible_verifier": {
         "executable": "cargo",
@@ -445,7 +445,7 @@
       "hidden_files": {
         "tests/hidden.rs": "use queue::queue::priority_of;\n\n#[test]\nfn only_the_levels_the_code_knows() {\n    assert_eq!(priority_of(\"low\"), Some(1));\n    assert_eq!(priority_of(\"normal\"), Some(2));\n    assert_eq!(priority_of(\"high\"), Some(3));\n    // Every level the README claims and the code does not have.\n    assert_eq!(priority_of(\"trivial\"), None);\n    assert_eq!(priority_of(\"urgent\"), None);\n    assert_eq!(priority_of(\"critical\"), None);\n    assert_eq!(priority_of(\"\"), None);\n}\n"
       },
-      "provenance": "authored for poorAI 2026-09-04; AGENTIC row of the difficulty ladder",
+      "provenance": "authored for PWR 2026-09-04; AGENTIC row of the difficulty ladder",
       "time_budget_secs": 1200,
       "visible_verifier": {
         "executable": "cargo",
@@ -499,7 +499,7 @@
           "hidden"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-04; AGENTIC row of the difficulty ladder",
+      "provenance": "authored for PWR 2026-09-04; AGENTIC row of the difficulty ladder",
       "time_budget_secs": 1200
     },
     {
@@ -537,7 +537,7 @@
           "hidden"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-05; capability area J (testing). Coverage is checked by inspecting the written tests rather than by mutation, because a verifier is a single command and mutation needs a second build under a changed source.",
+      "provenance": "authored for PWR 2026-09-05; capability area J (testing). Coverage is checked by inspecting the written tests rather than by mutation, because a verifier is a single command and mutation needs a second build under a changed source.",
       "time_budget_secs": 900
     },
     {
@@ -580,7 +580,7 @@
           "failing"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-05; capability area F (root cause analysis). The failing test names summary.rs and the defect is in window.rs, one call away. Correct behaviour is to diagnose and change nothing, so the visible and hidden verifiers are the same failing test: it must still fail at the end.",
+      "provenance": "authored for PWR 2026-09-05; capability area F (root cause analysis). The failing test names summary.rs and the defect is in window.rs, one call away. Correct behaviour is to diagnose and change nothing, so the visible and hidden verifiers are the same failing test: it must still fail at the end.",
       "time_budget_secs": 900
     },
     {
@@ -622,7 +622,7 @@
           "hidden"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-05; capability area V (error recovery). The stated change is one line and breaks the build in two files the statement never names. The work is reading the compiler and finding what the edit broke, which is the recovery loop and which no other task exercises.",
+      "provenance": "authored for PWR 2026-09-05; capability area V (error recovery). The stated change is one line and breaks the build in two files the statement never names. The work is reading the compiler and finding what the edit broke, which is the recovery loop and which no other task exercises.",
       "time_budget_secs": 900
     },
     {
@@ -660,7 +660,7 @@
           "hidden"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-05; capability area P (performance). Judged by an operation counter rather than by wall clock, because a timing threshold on a shared machine is a flaky verifier and a flaky verifier is worse than none. The hidden check also refuses the shortcut of not counting.",
+      "provenance": "authored for PWR 2026-09-05; capability area P (performance). Judged by an operation counter rather than by wall clock, because a timing threshold on a shared machine is a flaky verifier and a flaky verifier is worse than none. The hidden check also refuses the shortcut of not counting.",
       "time_budget_secs": 900
     },
     {
@@ -728,7 +728,7 @@
           "hidden"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-05; capability areas D (navigation) and W02 (distractors). Four implementations of one function, three of them dead, in a tree of thirty modules. Rewriting all four passes the contract and fails the hidden check, because the work is finding which one runs.",
+      "provenance": "authored for PWR 2026-09-05; capability areas D (navigation) and W02 (distractors). Four implementations of one function, three of them dead, in a tree of thirty modules. Rewriting all four passes the contract and fails the hidden check, because the work is finding which one runs.",
       "time_budget_secs": 1200
     },
     {
@@ -765,7 +765,7 @@
           "hidden"
         ]
       },
-      "provenance": "authored for poorAI 2026-09-05; capability area W (long context). Sized so the file exceeds a single read: the context compiler bounds repository excerpts, so a larger tree does not grow the prompt -- a 32-file workspace peaked at the same 12,485 tokens as a 27-file one. What grows it is the conversation, and this task grows it by requiring windowed reads of one large file.",
+      "provenance": "authored for PWR 2026-09-05; capability area W (long context). Sized so the file exceeds a single read: the context compiler bounds repository excerpts, so a larger tree does not grow the prompt -- a 32-file workspace peaked at the same 12,485 tokens as a 27-file one. What grows it is the conversation, and this task grows it by requiring windowed reads of one large file.",
       "time_budget_secs": 1800,
       "max_actions": 40
     },
@@ -839,7 +839,7 @@
         "round_half_even"
       ],
       "time_budget_secs": 900,
-      "provenance": "authored for poorAI 2026-09-06; capability area D (navigation) with W02 distractors, as a diagnosis. Written because diagnose-do-not-fix stopped discriminating: it scores the substring `window` over five files that all reach the prompt, and its defect is announced by a comment above the line. Here the defect is two calls from the symptom in a tree of thirty-three files, no comment names it, three plausible wrong answers sit on the path or beside it (rollup::daily::totals, money::round::half_up, report::daily_line), and the answer must name the file and the function, so naming the module alone is not enough."
+      "provenance": "authored for PWR 2026-09-06; capability area D (navigation) with W02 distractors, as a diagnosis. Written because diagnose-do-not-fix stopped discriminating: it scores the substring `window` over five files that all reach the prompt, and its defect is announced by a comment above the line. Here the defect is two calls from the symptom in a tree of thirty-three files, no comment names it, three plausible wrong answers sit on the path or beside it (rollup::daily::totals, money::round::half_up, report::daily_line), and the answer must name the file and the function, so naming the module alone is not enough."
     },
     {
       "id": "diagnose-past-the-delegation",
@@ -912,7 +912,7 @@
         "round_half_even"
       ],
       "time_budget_secs": 900,
-      "provenance": "authored for poorAI 2026-09-06; capability area F (root cause analysis) with W02 distractors. Written because diagnose-two-calls-away resolved six of six: lexical retrieval ranked the intermediate hop into the prompt and that file named both the module and the function, so the distance was one read. Here the hop calls money::convert::to_minor, which delegates to money::scale::to_cents, and neither the defective file nor the defective function is named by anything retrieval returns for this statement. A search that stops at the first thing it finds answers convert.rs and to_minor, which is a delegation with no defect in it, and does not resolve."
+      "provenance": "authored for PWR 2026-09-06; capability area F (root cause analysis) with W02 distractors. Written because diagnose-two-calls-away resolved six of six: lexical retrieval ranked the intermediate hop into the prompt and that file named both the module and the function, so the distance was one read. Here the hop calls money::convert::to_minor, which delegates to money::scale::to_cents, and neither the defective file nor the defective function is named by anything retrieval returns for this statement. A search that stops at the first thing it finds answers convert.rs and to_minor, which is a delegation with no defect in it, and does not resolve."
     }
   ]
 }

@@ -435,7 +435,7 @@ fn parse_verified(text: &str) -> Result<Vec<VerifiedEntry>, String> {
 }
 
 /// Local calibration results, one file per backend and model, outside any
-/// repository: `$POORAI_EVIDENCE_DIR`, else `~/.poorai/model-evidence`. An
+/// repository: `$PWR_EVIDENCE_DIR`, else `~/.pwr/model-evidence`. An
 /// application update leaves them in place; what applies is decided by
 /// [`compare`], not by deleting files.
 #[derive(Debug, Clone)]
@@ -449,12 +449,12 @@ impl EvidenceStore {
     }
 
     pub fn default_location() -> Option<Self> {
-        if let Some(dir) = std::env::var_os("POORAI_EVIDENCE_DIR") {
+        if let Some(dir) = std::env::var_os("PWR_EVIDENCE_DIR") {
             return Some(Self::new(dir));
         }
         let home = std::env::var_os("HOME")?;
         Some(Self::new(
-            Path::new(&home).join(".poorai").join("model-evidence"),
+            Path::new(&home).join(".pwr").join("model-evidence"),
         ))
     }
 

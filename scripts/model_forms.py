@@ -3,7 +3,7 @@
 
     python3 scripts/model_forms.py [ROOT ...]        # default: the current directory
 
-Walks every `.poorai/state.sqlite` under the given roots and groups the refused
+Walks every `.pwr/state.sqlite` under the given roots and groups the refused
 calls (`action.malformed`) and the failed generations (`turn.failed`) by model
 and by kind, next to how many generations each model produced. Each kind is
 marked with what the harness does about it today:
@@ -17,7 +17,7 @@ marked with what the harness does about it today:
 
 The model comes from `run.started`'s `model_ref` (recorded since 2026-09-23);
 older runs carry only a digest, which is resolved through the inspection
-artifacts in `.poorai/models` found under the same roots, and shown as a
+artifacts in `.pwr/models` found under the same roots, and shown as a
 digest when none is.
 """
 import collections
@@ -60,7 +60,7 @@ def treatment(kind, problem, detail):
 def digest_names(roots):
     names = {}
     for root in roots:
-        for path in glob.glob(os.path.join(root, "**/.poorai/models/*.json"), recursive=True):
+        for path in glob.glob(os.path.join(root, "**/.pwr/models/*.json"), recursive=True):
             try:
                 artifact = json.load(open(path))
                 names[artifact["definition"]["digest"]] = artifact["deployment"]["model_ref"]
@@ -75,13 +75,13 @@ def main(roots):
     faults = collections.defaultdict(collections.Counter)
     example = {}
     for root in roots:
-        for db in glob.glob(os.path.join(root, "**/.poorai/state.sqlite"), recursive=True):
+        for db in glob.glob(os.path.join(root, "**/.pwr/state.sqlite"), recursive=True):
             if "node_modules" in db:
                 continue
             workspace = os.path.dirname(os.path.dirname(db))
             chat_model = None
             try:
-                chat_model = json.load(open(os.path.join(workspace, ".poorai/chat-config.json"))).get("model")
+                chat_model = json.load(open(os.path.join(workspace, ".pwr/chat-config.json"))).get("model")
             except (OSError, ValueError):
                 pass
             try:

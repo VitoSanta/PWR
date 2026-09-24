@@ -43,7 +43,7 @@ def main():
     runs.mkdir(exist_ok=False)
     inputs = OUT / "inputs"
     inputs.mkdir(exist_ok=False)
-    binary = ROOT / ".poorai/experiment-binaries/local-v5-20260906"
+    binary = ROOT / ".pwr/experiment-binaries/local-v5-20260906"
     binary.parent.mkdir(parents=True, exist_ok=True)
     if binary.exists():
         raise RuntimeError("refusing to replace frozen experiment binary")

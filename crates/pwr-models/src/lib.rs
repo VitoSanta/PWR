@@ -28,9 +28,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Repositories enriched per search: each costs a tree and a config request.
+/// Repositories enriched per page: each costs a tree and a config request.
 pub const SEARCH_LIMIT: usize = 20;
 const CONCURRENT_REQUESTS: usize = 6;
+
+pub struct SearchPage {
+    pub entries: Vec<CatalogEntry>,
+    pub next_cursor: Option<String>,
+}
 
 /// A variant as a card shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -402,19 +407,22 @@ pub async fn search(
     hub: &hub::HubClient,
     query: &str,
     format: Format,
+    filters: &Filters,
+    cursor: Option<&str>,
     capacity: &Capacity,
     models_root: &Path,
     installed: &[String],
-) -> Result<Vec<CatalogEntry>, hub::HubError> {
+) -> Result<SearchPage, hub::HubError> {
     use futures_util::StreamExt;
-    // Asked for more than are enriched: speech, embedding and image models
-    // share the formats and are dropped before any of their files are read.
-    let models: Vec<HubModel> = hub
-        .search(query, format, SEARCH_LIMIT * 2)
-        .await?
+    // Speech, embedding and image models share these formats. Keep the Hub's
+    // cursor so every subsequent page can still be reached after filtering.
+    let page = hub
+        .search_page(query, format, filters, cursor, SEARCH_LIMIT)
+        .await?;
+    let models: Vec<HubModel> = page
+        .models
         .into_iter()
         .filter(catalog::is_language_model)
-        .take(SEARCH_LIMIT)
         .collect();
     // GGUF repositories carry no config.json; their base model's describes
     // the same architecture, so it is read once per base model.
@@ -460,7 +468,7 @@ pub async fn search(
         .buffered(CONCURRENT_REQUESTS)
         .collect()
         .await;
-    Ok(enriched
+    let entries = enriched
         .into_iter()
         .map(|(model, files, config)| {
             let config = config.or_else(|| {
@@ -491,7 +499,11 @@ pub async fn search(
             }
             entry
         })
-        .collect())
+        .collect();
+    Ok(SearchPage {
+        entries,
+        next_cursor: page.next_cursor,
+    })
 }
 
 /// The plan for one variant, re-read from the Hub at the pinned revision: a

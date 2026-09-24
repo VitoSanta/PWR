@@ -25,7 +25,7 @@ def main():
         raise RuntimeError("phase one must finish before the follow-up")
     runs = OUT / "runs"
     runs.mkdir(exist_ok=False)
-    binary = ROOT / ".poorai/experiment-binaries/local-v5-readonly-fix-20260906"
+    binary = ROOT / ".pwr/experiment-binaries/local-v5-readonly-fix-20260906"
     if binary.exists():
         raise RuntimeError("frozen follow-up binary already exists")
     shutil.copy2(ROOT / "target/debug/PWR", binary)

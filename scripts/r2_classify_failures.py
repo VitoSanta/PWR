@@ -59,7 +59,7 @@ EDIT_CAPABILITIES = {
     "move_path",
 }
 
-ARM_LABELS = {"poor_ai": "b1", "conventional": "b0", "staged": "b2"}
+ARM_LABELS = {"pwr": "b1", "conventional": "b0", "staged": "b2"}
 
 
 def read_json(path: Path) -> Any:
@@ -246,7 +246,7 @@ def trace_facts(outcome: dict[str, Any], allowed: set[str], expected_file: str |
                 facts["thinking_only"] += 1
         elif kind in {"verification.baseline", "verification.result", "tool.action", "task.failed"}:
             text = json.dumps(payload)
-            if "scandir" in text and ".poorai" in text or "testFiles.length" in text:
+            if "scandir" in text and ".pwr" in text or "testFiles.length" in text:
                 facts["state_directory_denied"] = True
             served = re.search(r"available context size \((\d+) tokens\)", text)
             if served:

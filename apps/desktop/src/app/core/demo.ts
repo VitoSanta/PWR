@@ -56,7 +56,7 @@ function fit(level: string, label: string, weights: number, window: number | nul
 /** What the core would answer, for the demo's panels. */
 function demoAnswer(method: string, params: any): any {
   switch (method) {
-    case '_poorai/context':
+    case '_pwr/context':
       return {
         window: 262144, used: 58000, usedSource: 'engine', estimatedTokens: 61200,
         estimateBasis: 'characters divided by 4; not a tokenizer count',
@@ -64,9 +64,9 @@ function demoAnswer(method: string, params: any): any {
         autoCompact: { enabled: true, thresholdPercent: params?.autoCompactPercent ?? 75, thresholdTokens: 196608, bounds: [50, 90], custom: false },
         lastCompaction: { trigger: 'automatic', at: new Date(Date.now() - 600000).toISOString(), tokensBefore: 201000, tokensAfter: 41000 },
       };
-    case '_poorai/compact':
+    case '_pwr/compact':
       return { compacted: true, note: 'summarised 42 earlier message(s) covering 3 request(s): 61200 → 14800 tokens', tokensBefore: 61200, tokensAfter: 14800 };
-    case '_poorai/hardware':
+    case '_pwr/hardware':
       return {
         host: {
           platform: 'macos', osName: 'Darwin', osVersion: '26.0', architecture: 'arm64', cpu: 'Apple M2', appleChip: { name: 'Apple M2', generation: 2, tier: null },
@@ -79,7 +79,7 @@ function demoAnswer(method: string, params: any): any {
           { id: 'llama', label: 'llama.cpp', format: 'gguf', active: false, available: false, detail: 'llama.cpp backend is not configured: llama-server was not found.', modelsRoot: '~/.lmstudio/models' },
         ],
       };
-    case '_poorai/catalog': {
+    case '_pwr/catalog': {
       const variant = (id: string, q: string, size: number, f: any, extra: any = {}) => ({
         id, format: 'mlx', quantization: q, quantizationSource: 'config', files: [{ path: 'model.safetensors', bytes: size }], bytes: size,
         modelRef: id, fit: f, local: 'missing', localBytes: 0, installed: false, blocked: null, ...extra,
@@ -105,7 +105,7 @@ function demoAnswer(method: string, params: any): any {
         ],
       };
     }
-    case '_poorai/local_models':
+    case '_pwr/local_models':
       return {
         activeBackend: 'mlx',
         models: [
@@ -114,11 +114,11 @@ function demoAnswer(method: string, params: any): any {
           { modelRef: 'unsloth/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf', format: 'gguf', backend: 'llama', path: '~/.lmstudio/models/unsloth/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf', bytes: 4.7 * GIB, files: 1, partial: false, inUse: false, usable: false },
         ],
       };
-    case '_poorai/model_delete':
+    case '_pwr/model_delete':
       return { modelRef: params.modelRef, freedBytes: 2.3 * GIB, removed: [] };
-    case '_poorai/download':
+    case '_pwr/download':
       return { modelRef: params.repository, backend: 'mlx', ready: true, nextStep: null };
-    case '_poorai/models':
+    case '_pwr/models':
       return {
         installed: [
           'lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit',

@@ -92,4 +92,4 @@ Three words carried more than one meaning in the older documents and are disambi
 
 ## Names
 
-**PWR** is the project; `pwr` is the binary and the crate prefix. The name states the thesis: the interesting question is how much engineering capability a harness can extract from a model that a frontier lab would call inadequate, on hardware a developer already owns. It is not a claim that poor models equal rich ones.
+**PWR** is the project; `pwr` is the binary and the crate prefix. The name states the thesis: the interesting question is how much engineering capability a harness can extract from a model that a frontier lab would call inadequate, on hardware a developer already owns. It is not a claim that weak models equal frontier models.

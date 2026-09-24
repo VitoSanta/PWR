@@ -19,8 +19,8 @@ documentation requests (C.22): e5-small fused with the section BM25 was the
 best ranking of every arm tried, at 5 ms per request.
 
 Environment:
-- `POORAI_EMBED_MODEL`: a HuggingFace id or a local path (default e5-small).
-- `POORAI_EMBED_POOLING`: `mean` (e5's convention, default) or `cls` (bge-m3's).
+- `PWR_EMBED_MODEL`: a HuggingFace id or a local path (default e5-small).
+- `PWR_EMBED_POOLING`: `mean` (e5's convention, default) or `cls` (bge-m3's).
 """
 import json
 import os
@@ -79,8 +79,8 @@ class Encoder:
 
 
 def main():
-    name = os.environ.get("POORAI_EMBED_MODEL", DEFAULT_MODEL)
-    pooling = os.environ.get("POORAI_EMBED_POOLING", "mean")
+    name = os.environ.get("PWR_EMBED_MODEL", DEFAULT_MODEL)
+    pooling = os.environ.get("PWR_EMBED_POOLING", "mean")
     try:
         encoder = Encoder(name, pooling)
     except Exception as error:  # noqa: BLE001 -- reported, not raised

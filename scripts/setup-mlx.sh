@@ -2,7 +2,7 @@
 # Creates the Python environment PWR's MLX engine runs in, inside the
 # checkout at .venv-mlx, with the versions the engine was measured on.
 # The launcher (scripts/pwr) and the desktop app use it when
-# POORAI_MLX_PYTHON is unset.
+# PWR_MLX_PYTHON is unset.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -22,8 +22,8 @@ fi
 
 # The encoder the semantic section ranking uses (backlog C.22), fetched once
 # here so that nothing downloads at run time: the embedding sidecar runs with
-# the hub offline. About 0.5 GB, MIT licence. Skip with POORAI_SKIP_ENCODER=1.
-if [ -z "${POORAI_SKIP_ENCODER:-}" ]; then
+# the hub offline. About 0.5 GB, MIT licence. Skip with PWR_SKIP_ENCODER=1.
+if [ -z "${PWR_SKIP_ENCODER:-}" ]; then
     "$VENV/bin/python" -c "from huggingface_hub import snapshot_download; snapshot_download('intfloat/multilingual-e5-small')"
 fi
 

@@ -567,7 +567,7 @@ Ordered by what they protect, not by size.
       **Auto** grants every permission -- the question is lifted, the sandbox
       and the policy's limits are not. A config saved before the modes that
       still holds the old default nobody chose is migrated to Ask; a list
-      someone chose is kept. `_poorai/approvals` takes and returns `mode` (and
+      someone chose is kept. `_pwr/approvals` takes and returns `mode` (and
       `asking`, what is actually asked now); the app has an Ask/Auto switch
       beside Goal, amber in Auto. Tests:
       `chat_approvals_follow_settings_and_session_grants`,
@@ -585,10 +585,10 @@ Ordered by what they protect, not by size.
       **The maintainer's decision.**
 - [x] **R.3 Say when commands are not confined -- done 2026-09-23.**
       `SandboxPolicy::Preferred` now **refuses** a command it cannot confine,
-      unless the person sets `POORAI_ALLOW_UNCONFINED=1`; one decision shared
+      unless the person sets `PWR_ALLOW_UNCONFINED=1`; one decision shared
       by `will_sandbox` and `prepare_command` so they cannot disagree
       (`a_command_that_cannot_be_confined_is_refused_by_default`).
-      `_poorai/approvals` reports `sandboxed`, and the app shows "commands not
+      `_pwr/approvals` reports `sandboxed`, and the app shows "commands not
       sandboxed". SECURITY.md rewritten to the current policy; its section on
       an unconfined re-run described a fallback removed on 2026-09-13 and is
       now history. Left: a sandbox state in the terminal console's header, and
@@ -628,12 +628,12 @@ Ordered by what they protect, not by size.
       bugs of 2026-09-22 were.
 - [ ] **R.9 Decide what research evidence is public -- first step done
       2026-09-23, by the maintainer's decision: removed from the public
-      repository for now.** `.poorai/models` and `.poorai/calibrations` (108
+      repository for now.** `.pwr/models` and `.pwr/calibrations` (108
       files) are untracked and ignored; they stay on the maintainer's machine,
       where the roadmap's numbers can still be checked. Still open: which of
       them to publish again, anonymised, as fixtures. Was: **R.9 Decide what
-      research evidence is public.** `.poorai/models` and
-      `.poorai/calibrations` are tracked on purpose, so numbers in the roadmap
+      research evidence is public.** `.pwr/models` and
+      `.pwr/calibrations` are tracked on purpose, so numbers in the roadmap
       can be checked. The public branch carries no personal path; it does carry
       one machine's observations. Keep, anonymise into a fixtures folder, or
       drop from the public tree -- **the maintainer's decision.**
@@ -792,8 +792,8 @@ Ordered by what they protect, not by size.
       *Unblocked and smoked the same day:* Homebrew installed `llama.cpp`
       0.4.1 (`llama-server` build 10964), and the ignored real-smoke test
       passed against the local Qwen3 0.6B Q4_K_M GGUF under
-      `PersonalTrAIner/artifacts/gguf` using `POORAI_LLAMA_MODELS`,
-      `POORAI_LLAMA_SMOKE_MODEL` and `POORAI_LLAMA_SERVER`.
+      `PersonalTrAIner/artifacts/gguf` using `PWR_LLAMA_MODELS`,
+      `PWR_LLAMA_SMOKE_MODEL` and `PWR_LLAMA_SERVER`.
       *Follow-up found and fixed by the smoke:* `models inspect --json` could
       emit and persist megabytes of tokenizer metadata for GGUF files; routine
       inspection artifacts now summarize large GGUF arrays while the full
@@ -876,7 +876,7 @@ Ordered by what they protect, not by size.
       digest, weight files, quantization, tokenizer, chat template, revision,
       backend and engine version, suite version, hardware class) and is
       reused, reused with reduced confidence, or treated as stale by fixed
-      rules; local results live in `~/.poorai/model-evidence`, never in a
+      rules; local results live in `~/.pwr/model-evidence`, never in a
       repository. Reasoning Effort (Low/Medium/High, Medium default) is a
       thinking budget per generation, read from the chat template's own
       markers (native budget, explicit `<think>` stream, template level, or
@@ -1180,7 +1180,7 @@ Ordered by what they protect, not by size.
 - [x] **D.E2E-30 Protection that protected nothing, and a suite read wrongly (2026-09-23).**
       Three faults found while preparing the small-model experiment. (1) The
       scripted run (`pwr run`) built its policy with `protected` empty, so
-      `.poorai/protected.json` was honoured in the conversation and never in a
+      `.pwr/protected.json` was honoured in the conversation and never in a
       run: a run could rewrite the test it was measured by. (2) A protection
       file that failed to parse, or used any key but `protected`, protected
       nothing in silence -- the dependency-search runs wrote `{"paths": ...}`
@@ -1215,7 +1215,7 @@ Ordered by what they protect, not by size.
       now, why are you still changing things?". The engineer's own `ng serve`
       on port 4200 was **not** the cause: the model's `npm start` failed on the
       busy port once, early, and it moved on. Read from the audit
-      (`experiments/web_poorai/.poorai/state.sqlite`), five faults, all fixed:
+      (`experiments/web_pwr/.pwr/state.sqlite`), five faults, all fixed:
       (1) **goal mode had no notion of a check already failing** -- it now runs
       the checks once when a goal starts, tells the model which were already
       failing and that they are outside the goal (not to be repaired unless the
@@ -1337,8 +1337,8 @@ Ordered by what they protect, not by size.
       maintainer chose one **detached from any workspace**, to which only
       files, folders and images can be attached for reading. Built that way:
       the core keeps chat mode's conversations, settings and images in a folder
-      of its own (`~/.poorai/chat`, `POORAI_CHAT_HOME`), advertised in
-      `initialize` as `_meta.poorai.chatHome`; a session opened there gets a
+      of its own (`~/.pwr/chat`, `PWR_CHAT_HOME`), advertised in
+      `initialize` as `_meta.pwr.chatHome`; a session opened there gets a
       catalogue of `read_file` and `list_tree` only (a write or a command is
       refused as unavailable, `chat_only_tool_catalog`), a policy with no
       commands and no grants, its own short prompt, no checks, no repository
@@ -1375,7 +1375,7 @@ Ordered by what they protect, not by size.
       follow-up about the same image reused the 268-token prefix and answered
       identically to a fresh prefill; over the sidecar protocol a follow-up
       reused 257 of 294 tokens; the reasoning budget still forces the close.
-      *Wiring:* `ChatMessage.images` (stored files, `.poorai/images/<sha256>`);
+      *Wiring:* `ChatMessage.images` (stored files, `.pwr/images/<sha256>`);
       ACP `image` blocks accepted (`initialize` says `image: true`) and a
       `resource_link` to a PNG/JPEG/WebP/GIF treated as an image, which is
       how the app attaches one; refused before the turn when the chosen model
@@ -1389,7 +1389,7 @@ Ordered by what they protect, not by size.
       `experiments/unified-engine-20260923/`. *Earlier status: step 1
       built, step 2 shown feasible.* *Step 1:* `MlxConfig::has_vision_encoder` reads a model's
       own `config.json` (a `vision_config`, or a `*vl` model type);
-      `_poorai/models` returns `vision` beside `installed`; the app marks
+      `_pwr/models` returns `vision` beside `installed`; the app marks
       those models "sees images" in the picker and, when an image is attached
       to a model that cannot see, says so above the input instead of letting
       the image vanish. On this host: Qwen3.6-35B-A3B and Qwen3.8-27B.
@@ -1553,17 +1553,17 @@ decision. By volume this is plausibly more work than every other block together.
       a review-quality view. Files and diffs stay inside the core's sandbox and
       audit, and the app never writes them.
 - [ ] **D.6 Model choice, download and preparation.** **Status 2026-09-23 (later):** the Tauri app has a Model Manager -- Hub search, per-variant fit for this machine, verified and resumable downloads into the engine's models folder, selectable at once for the running engine ([`models-and-context.md`](models-and-context.md)). Open: a Windows run, switching engine from the app, and preparing a GGUF for a workspace on MLX. Earlier: selection and the computed window are in the Tauri app; the download controls exist only in the Slint lab and still have to move. Record: **Selection increment
-      implemented 2026-09-20:** `_poorai/models` reads the active catalog and
+      implemented 2026-09-20:** `_pwr/models` reads the active catalog and
       selects only a discovered artifact for its workspace; it also returns the
       computed window. **Status increment 2026-09-20:** it also returns declared
       HuggingFace artifacts and final/`.part` byte state without hashing or
       starting a network request; the Slint lab displays it. Still needs actual
       download/progress notifications, packaged registry resources,
       and resumption of a preparation interrupted by quitting the app (`serve`
-      open question 4). **Protocol increment 2026-09-21:** `_poorai/download`
+      open question 4). **Protocol increment 2026-09-21:** `_pwr/download`
       starts the existing verified/resumable downloader asynchronously with
-      `cwd` and no required session, `_poorai/download_progress` emits byte
-      progress, and `_poorai/download_cancel` leaves its `.part` for retry.
+      `cwd` and no required session, `_pwr/download_progress` emits byte
+      progress, and `_pwr/download_cancel` leaves its `.part` for retry.
       The Slint lab exposes a Download / resume control and uses a stable
       client operation id. Status after an app restart is recovered from disk;
       the pinned registry is now embedded in the core as an installation
@@ -1571,8 +1571,8 @@ decision. By volume this is plausibly more work than every other block together.
       multi-artifact queue management is now sequentially exposed by the Slint
       lab with per-artifact Download / resume and Download all controls. With
       B.8 it also becomes a download manager.
-- [x] **D.7 Window setting.** **Closed 2026-09-23 -- in the Tauri app:** smaller/larger window controls with the computed decision and its rationale, and a context meter (used / window / percent) fed by `_poorai/usage`. Record: **Core-backed setting increment 2026-09-21:**
-      `_poorai/models` accepts `contextTokens`, applies it through the selected
+- [x] **D.7 Window setting.** **Closed 2026-09-23 -- in the Tauri app:** smaller/larger window controls with the computed decision and its rationale, and a context meter (used / window / percent) fed by `_pwr/usage`. Record: **Core-backed setting increment 2026-09-21:**
+      `_pwr/models` accepts `contextTokens`, applies it through the selected
       backend and returns the granted value plus supported options, binding
       ceiling, memory budget and rationale. The Slint lab exposes
       smaller/larger controls and displays those details. A richer calibration
@@ -1583,7 +1583,7 @@ decision. By volume this is plausibly more work than every other block together.
       visible in the core response and need a dedicated view.
 - [ ] **D.9 Settings.** **Status 2026-09-23:** the Tauri app has the window and the Ask/Auto permission switch, and shows when commands are not sandboxed; the per-kind ask list is not exposed yet. Record: **Approval control increment 2026-09-21:** the Slint
       lab can replace the workspace's ask-before list with all supported action
-      kinds or an empty list through `_poorai/approvals`. Model and window are
+      kinds or an empty list through `_pwr/approvals`. Model and window are
       visible; window and sandbox controls remain.
 - [ ] **D.10 First run and onboarding.** A new user opens PWR with no model
       at all. This path has neither a design nor a line of code, and it is the
@@ -1634,7 +1634,7 @@ decision. By volume this is plausibly more work than every other block together.
       goal loop does not continue past. A new operator prompt resets only the
       window count (`Continuity::operator_spoke`).
 - [x] **D.E2E-3 The app could not change the context window (2026-09-22).**
-      `_poorai/models` saved the requested window and then `compute_context`
+      `_pwr/models` saved the requested window and then `compute_context`
       overwrote it on the same request (and on every refresh). The choice is
       now a persisted `context_setting`, passed to `window::decide` as the
       `Setting` ceiling, so memory still caps it; the app updates its label
@@ -1659,7 +1659,7 @@ decision. By volume this is plausibly more work than every other block together.
       judged by the site's checks rather than the whole Rust suite), sources
       given as attachments (README, `docs/architecture.md`,
       `docs/current-cli.md`, the CV). The acceptance contract was written
-      before the session and protected (`.poorai/protected.json`): a TestBed
+      before the session and protected (`.pwr/protected.json`): a TestBed
       spec driving the real router and navigation, and a check on the built
       `dist/` (title, meta description, `prefers-reduced-motion`, responsive
       rules). Qwen3.6-35B-A3B at 262,144 tokens repaired the corrupted pages,
@@ -1682,7 +1682,7 @@ decision. By volume this is plausibly more work than every other block together.
       read the workspace's Angular README instead and wrote the site from the
       CV -- which itself still says PWR is "for Ollama" -- and memory: 28
       Ollama mentions, headline "coding agent for Ollama", an invented
-      repository URL (`github.com/VitoSanta/poor-ai`) and an invented
+      repository URL (`github.com/VitoSanta/pwr`) and an invented
       `OLLAMA_MODEL` variable; its final message claimed "content sourced
       strictly from the CV and repository". Routing correct (10/11 contract
       tests). *With the parent declared as a reference folder:* correct URL
@@ -1703,7 +1703,7 @@ decision. By volume this is plausibly more work than every other block together.
 - [x] **D.E2E-9 Read-only reference folders (2026-09-22).** `chat-config.json`
       takes `reference_roots` (e.g. `[".."]`); they become the policy's
       `extra_readable`, `read_file` accepts `../` paths inside them (canonical,
-      `.poorai`, `.git`, `.env*` closed, never writable), and the system prompt
+      `.pwr`, `.git`, `.env*` closed, never writable), and the system prompt
       names them with their Markdown documents. The refusal for an outside
       path says such folders exist. Test:
       `a_declared_reference_folder_is_readable_and_nothing_more`. *Same day:*
@@ -1738,8 +1738,8 @@ decision. By volume this is plausibly more work than every other block together.
       had reached the model wrapped in ANSI escapes.
 - [x] **D.E2E-14 A path out through the parent and back in (2026-09-22).**
       With `..` declared as a reference folder the model read its own
-      attachment as `../pwr-website/.poorai/chat-attachments/...` and was
-      refused twice (`.poorai` is closed in reference folders). A path that
+      attachment as `../pwr-website/.pwr/chat-attachments/...` and was
+      refused twice (`.pwr` is closed in reference folders). A path that
       normalises back inside the workspace is now resolved as the workspace
       path it is.
 - [ ] **D.E2E-15 Whole documents cost minutes of prefill (measured, treatment built, 2026-09-22).**
@@ -1769,7 +1769,7 @@ decision. By volume this is plausibly more work than every other block together.
       whole reply before saying anything. Now: `collect_reply_with` observes
       each chunk; `TurnStep::Streaming` carries reasoning and text deltas;
       `serve` sends them as ACP `agent_thought_chunk` and live
-      `agent_message_chunk` (`_meta.poorai.live`); the app streams them into
+      `agent_message_chunk` (`_meta.pwr.live`); the app streams them into
       "Thinking" and reply bubbles, settles a streamed answer instead of
       repeating it, updates one card per tool call by id, follows the newest
       message, and shows a heartbeat ("the model is generating ... 4m 10s")
@@ -1803,7 +1803,7 @@ decision. By volume this is plausibly more work than every other block together.
       `/Applications` (three crash reports: 11:37, 11:51, 12:45). With the app
       readable it gets further and stops creating its profile socket in the
       system temp directory. The check is no longer declared; it is run by
-      hand after a session. Kept: `.poorai/checks.json` may declare top-level
+      hand after a session. Kept: `.pwr/checks.json` may declare top-level
       `readable` absolute paths (`pwr_verify::declared_readable`), added
       read-only to the turn's and the verifier's sandbox. Also: the app's
       heartbeat now names what the silence can be (baseline checks, prefill,
@@ -1812,7 +1812,7 @@ decision. By volume this is plausibly more work than every other block together.
       containing spaces (`.../Google Chrome.app/...`) is refused as "a command
       line".
 - [x] **D.E2E-19 The app crashed on Send (2026-09-22).** Reproduced without
-      driving the window: `POORAI_APP_SELFTEST=prompt:attachment:...` queues
+      driving the window: `PWR_APP_SELFTEST=prompt:attachment:...` queues
       the attachments and presses Send after start-up, and a panic hook now
       writes to `~/Library/Logs/PWR/app.log` (a Rust panic leaves no macOS
       crash report). The panic was Slint's "Recursion detected": the
@@ -1853,7 +1853,7 @@ decision. By volume this is plausibly more work than every other block together.
       Suspects: a rewrite of earlier history between steps (ledger,
       `already_read` rewrites, tool-body trimming) or the chat template
       rendering past assistant turns differently from how they were
-      generated. Next: rerun a short task with `POORAI_MLX_TRACE` and compare
+      generated. Next: rerun a short task with `PWR_MLX_TRACE` and compare
       each request's rendered prefix with the sidecar's `cached_tokens`.
       **Cause found without a model run.** The sidecar reuses its cache only
       when the previous prompt is an exact prefix of the next (Qwen 3.5/3.6's
@@ -1868,7 +1868,7 @@ decision. By volume this is plausibly more work than every other block together.
       `StableHistory` (sidecar, fails without the fix) and
       `each_request_of_a_turn_extends_the_one_before` (the harness does not
       rewrite history within a turn). **Confirmed on a real run the same
-      evening** (`web_poorai`, Qwen3.6-35B-A3B, 95 actions, 71 generations,
+      evening** (`web_pwr`, Qwen3.6-35B-A3B, 95 actions, 71 generations,
       11K -> 105K context in 22 minutes): prefill now tracks the tokens each
       step *adds*, about 230 tok/s -- a step adding 1-3K costs 5-11 s and 45
       of 71 steps cost under 5 s, where before a step adding 2-3K at 40K cost
@@ -1940,9 +1940,9 @@ decision. By volume this is plausibly more work than every other block together.
       (`a_command_passed_to_echo_or_a_bare_shell_is_refused`). Also in the app:
       Goal mode defaults off (a question is not a task), and messages written
       while a turn runs are queued and sent when it ends, or delivered into it
-      with "↳ now" through `_poorai/steer`.
+      with "↳ now" through `_pwr/steer`.
 - [x] **D.E2E-27 A reference folder the refusal said did not exist (2026-09-22).**
-      The Nemotron 3.5 website run (`web_poorai`, 146 actions, ended
+      The Nemotron 3.5 website run (`web_pwr`, 146 actions, ended
       Unparseable) had the project folder attached as a read-only reference and
       never read it: its first move was `ls -la` with the project as `cwd`, and
       the refusal said no reference folder contained that path -- false. It
@@ -1963,7 +1963,7 @@ decision. By volume this is plausibly more work than every other block together.
       `ngOnInit0 {`, `styleUrl: '...css0;`, `</section2>` and dropped `</ul>`
       tags -- present already in the tool-call payload, so not the write path.
       Unknown whether it is the model at 4-bit or GLM detokenisation in the
-      sidecar; reproduce with `POORAI_MLX_TRACE` before attributing it.
+      sidecar; reproduce with `PWR_MLX_TRACE` before attributing it.
 
 ## Block E — Platform and security
 

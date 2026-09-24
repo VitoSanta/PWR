@@ -38,7 +38,7 @@ def main():
     runs.mkdir(exist_ok=False)
     inputs = OUT / "inputs"
     inputs.mkdir(exist_ok=False)
-    binary = ROOT / ".poorai/experiment-binaries" / OUT.name
+    binary = ROOT / ".pwr/experiment-binaries" / OUT.name
     if binary.exists():
         raise RuntimeError("frozen binary already exists")
     shutil.copy2(ROOT / "target/debug/PWR", binary)

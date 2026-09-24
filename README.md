@@ -27,7 +27,7 @@ live runs below are single diagnostic runs, not a benchmark.
 | Status | What exists |
 |---|---|
 | **IMPLEMENTED, run live** | PWR's own **MLX engine** (a sidecar over mlx-lm that renders chat templates, controls reasoning, and keeps a prompt cache that holds across a turn); a **conversation loop** with goal mode, steering, approvals, stall detection and a record of every generation; **ACP over stdio** (`pwr serve --stdio`); a **desktop app** (Tauri 2 + Angular, `apps/desktop`) with streaming chat, diffs, a message queue and permissions, a context panel with manual and automatic compaction, and a **Model Manager** that rates Hugging Face models for this machine and downloads them verified ([details](docs/models-and-context.md)); untested models run **Provisional** with conservative defaults, and a bounded, mechanically scored **Quick Calibration** marks them locally calibrated or limited; **Reasoning Effort** (Low / Medium / High) sets a thinking budget where the engine can enforce one, clamped to the context ([details](docs/model-compatibility.md)); typed, audited tools for files, search (including the project's installed dependencies, read-only), edits, commands, services and Git; repository check discovery and verification against acceptance contracts; persisted events, reports and diagnosis. Live, unattended: a task from an empty crate verified by its own tests in five minutes; a website and a 37-test game built through the app, with steering. |
-| **IMPLEMENTED, OPT-IN** | A local **context filter**: document sections ranked by BM25 fused with a small embedding model (`multilingual-e5-small`) running offline on MLX (`POORAI_SEMANTIC_RETRIEVAL=1`). Measured on twelve labelled requests and one small-model run per arm; not yet a default. |
+| **IMPLEMENTED, OPT-IN** | A local **context filter**: document sections ranked by BM25 fused with a small embedding model (`multilingual-e5-small`) running offline on MLX (`PWR_SEMANTIC_RETRIEVAL=1`). Measured on twelve labelled requests and one small-model run per arm; not yet a default. |
 | **IMPLEMENTED, LIMITED** | **llama.cpp / GGUF** (`--backend llama`): metadata, a managed `llama-server`, streaming generation -- but the server is started per generation, so it reloads the model every turn; not yet a performance path. Evaluation runner with a strict paired-trial comparator; the terminal console. |
 | **PLANNED** | One runtime contract shared by the conversation and scripted runs (the two loops share tool execution and approvals, not planning, compaction or completion); Windows and Linux process sandboxes; a fixed tool-loop baseline for measuring harness uplift. |
 | **RESEARCH / IDEAS** | Harness uplift for 7–14B models; a per-model registry of fallbacks learned from the audit; images for models with a vision encoder; MCP, browser and computer control as extensions, one at a time. |
@@ -36,7 +36,7 @@ live runs below are single diagnostic runs, not a benchmark.
 
 Requires an Apple-silicon Mac, Rust 1.88+, and MLX model folders under
 `~/.lmstudio/models` (LM Studio's folder, used only as storage -- LM Studio
-itself is not needed) or `POORAI_MLX_MODELS`. PWR runs models itself and
+itself is not needed) or `PWR_MLX_MODELS`. PWR runs models itself and
 uses no cloud service.
 
 ```bash
@@ -49,14 +49,14 @@ The app starts the core itself. From a terminal, `target/release/pwr chat`
 opens a conversation in the current directory and `pwr run "<task>"` runs a
 task unattended; `--help` on any command lists its flags, and
 [`docs/current-cli.md`](docs/current-cli.md) has a manual path including GGUF.
-`POORAI_MLX_PYTHON` names another interpreter for the engine.
+`PWR_MLX_PYTHON` names another interpreter for the engine.
 
 **Permissions.** A conversation runs in one of two modes, chosen per workspace
 in the app: **Ask** (the default) asks before changing dependencies, reaching
 the network, installing toolchains, rewriting Git history or publishing;
 **Auto** grants all of those without asking. In both, commands the model runs
 are confined by macOS's sandbox to the workspace. **Only macOS has a sandbox
-adapter**: elsewhere a command is refused unless `POORAI_ALLOW_UNCONFINED=1`
+adapter**: elsewhere a command is refused unless `PWR_ALLOW_UNCONFINED=1`
 is set, and the app says when commands are not sandboxed. Read
 [SECURITY.md](SECURITY.md) first.
 

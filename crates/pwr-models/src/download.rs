@@ -239,14 +239,14 @@ fn conflict(destination: &Path) -> DownloadError {
     )
 }
 
-/// Free bytes where `path` will be written. `POORAI_DOWNLOAD_FREE_BYTES`
+/// Free bytes where `path` will be written. `PWR_DOWNLOAD_FREE_BYTES`
 /// overrides the reading, for tests.
 pub fn available_disk_bytes(path: &Path) -> Result<u64, DownloadError> {
-    if let Ok(value) = std::env::var("POORAI_DOWNLOAD_FREE_BYTES") {
+    if let Ok(value) = std::env::var("PWR_DOWNLOAD_FREE_BYTES") {
         return value.parse::<u64>().map_err(|error| {
             DownloadError::new(
                 FailureKind::Io,
-                format!("POORAI_DOWNLOAD_FREE_BYTES is not a byte count: {error}"),
+                format!("PWR_DOWNLOAD_FREE_BYTES is not a byte count: {error}"),
             )
         });
     }

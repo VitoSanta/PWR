@@ -16,11 +16,11 @@ ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 CORE="$ROOT/target/release/pwr"
 # The MLX engine's interpreter when none is named: the one scripts/setup-mlx.sh
 # creates, then the engine spike's environment on the maintainer's machine.
-if [ -z "${POORAI_MLX_PYTHON:-}" ]; then
+if [ -z "${PWR_MLX_PYTHON:-}" ]; then
     for candidate in "$ROOT/.venv-mlx/bin/python" \
         "$ROOT/experiments/engine-spike-mlx-20260917/.venv/bin/python"; do
         if [ -x "$candidate" ]; then
-            export POORAI_MLX_PYTHON="$candidate"
+            export PWR_MLX_PYTHON="$candidate"
             break
         fi
     done

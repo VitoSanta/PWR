@@ -116,7 +116,7 @@ fn policy_exclusions_apply_even_when_the_repository_does_not_ignore_them() {
     let root = tempfile::tempdir().unwrap();
     // No .gitignore at all: these are PWR policy, not repository preference.
     write(root.path(), ".git/config", "[core]");
-    write(root.path(), ".poorai/state.json", "{}");
+    write(root.path(), ".pwr/state.json", "{}");
     write(root.path(), "target/debug/build.log", "x");
     write(root.path(), "node_modules/pkg/index.js", "x");
     // The child's own HOME and TMPDIR: npm's logs land here when a check runs.

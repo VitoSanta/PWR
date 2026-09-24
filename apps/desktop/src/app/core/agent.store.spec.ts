@@ -13,7 +13,7 @@ describe('AgentStore context', () => {
   it('shows an automatic compaction in the conversation', () => {
     store.receive({
       jsonrpc: '2.0',
-      method: '_poorai/compacted',
+      method: '_pwr/compacted',
       params: {
         sessionId: 's1',
         trigger: 'automatic',
@@ -30,7 +30,7 @@ describe('AgentStore context', () => {
   it('ignores a compaction of another session', () => {
     store.receive({
       jsonrpc: '2.0',
-      method: '_poorai/compacted',
+      method: '_pwr/compacted',
       params: { sessionId: 'other', trigger: 'manual', note: 'x' },
     });
     expect(store.timeline().length).toBe(0);
@@ -39,27 +39,27 @@ describe('AgentStore context', () => {
   it('keeps the engine count for the context indicator', () => {
     store.receive({
       jsonrpc: '2.0',
-      method: '_poorai/usage',
+      method: '_pwr/usage',
       params: { used: 54_000, window: 128_000 },
     });
     expect(store.usage()).toEqual({ used: 54_000, window: 128_000 });
-    store.receive({ jsonrpc: '2.0', method: '_poorai/usage', params: { used: 1, window: 0 } });
+    store.receive({ jsonrpc: '2.0', method: '_pwr/usage', params: { used: 1, window: 0 } });
     expect(store.usage()).toEqual({ used: 54_000, window: 128_000 });
   });
 
   it('routes extension notifications to their listeners only', () => {
     const seen: any[] = [];
-    const stop = store.on('_poorai/download_progress', (params) => seen.push(params));
+    const stop = store.on('_pwr/download_progress', (params) => seen.push(params));
     store.receive({
       jsonrpc: '2.0',
-      method: '_poorai/download_progress',
+      method: '_pwr/download_progress',
       params: { downloadId: 'd', state: { state: 'preparing' } },
     });
-    store.receive({ jsonrpc: '2.0', method: '_poorai/other', params: {} });
+    store.receive({ jsonrpc: '2.0', method: '_pwr/other', params: {} });
     stop();
     store.receive({
       jsonrpc: '2.0',
-      method: '_poorai/download_progress',
+      method: '_pwr/download_progress',
       params: { downloadId: 'd2' },
     });
     expect(seen).toEqual([{ downloadId: 'd', state: { state: 'preparing' } }]);
@@ -69,7 +69,7 @@ describe('AgentStore context', () => {
     const asked: string[] = [];
     store.useDemo((method) => {
       asked.push(method);
-      if (method === '_poorai/compact')
+      if (method === '_pwr/compact')
         return {
           compacted: false,
           reason: 'Nothing older than the most recent exchanges to summarise yet.',
@@ -83,7 +83,7 @@ describe('AgentStore context', () => {
       };
     });
     await store.compactNow();
-    expect(asked).toEqual(['_poorai/compact', '_poorai/context']);
+    expect(asked).toEqual(['_pwr/compact', '_pwr/context']);
     expect(store.timeline().at(-1)!.title).toBe('Nothing to compact');
     expect(store.compacting()).toBe(false);
   });

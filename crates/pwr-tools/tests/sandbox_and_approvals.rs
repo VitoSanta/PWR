@@ -518,7 +518,7 @@ fn the_toolchain_still_runs_under_the_read_boundary() {
     assert!(result.stdout.contains("git version"));
 }
 
-/// Found by watching a real run spend a fifth of its budget on `ls .poorai`
+/// Found by watching a real run spend a fifth of its budget on `ls .pwr`
 /// and `cat` of an index artifact before it had installed anything.
 ///
 /// `list_tree` and `search` exclude the harness's state through the shared
@@ -528,7 +528,7 @@ fn the_toolchain_still_runs_under_the_read_boundary() {
 #[test]
 fn a_sandboxed_command_cannot_read_the_harness_state() {
     let root = tempfile::tempdir().unwrap();
-    let state = root.path().join(".poorai");
+    let state = root.path().join(".pwr");
     fs::create_dir_all(state.join("indexes")).unwrap();
     fs::write(state.join("indexes/idx.json"), "harness bookkeeping").unwrap();
     fs::write(root.path().join("real.rs"), "fn real() {}").unwrap();
@@ -536,7 +536,7 @@ fn a_sandboxed_command_cannot_read_the_harness_state() {
     let result = block_on(run_command(
         &policy(root.path()),
         "sh",
-        &["-c".to_string(), "cat .poorai/indexes/idx.json".to_string()],
+        &["-c".to_string(), "cat .pwr/indexes/idx.json".to_string()],
     ))
     .unwrap();
     assert!(result.sandboxed);
@@ -558,22 +558,22 @@ fn a_sandboxed_command_cannot_read_the_harness_state() {
 }
 
 /// The read denial left the state writable: the workspace write allowance
-/// covers `.poorai` and nothing followed it. Measured before the fix: `echo x >
-/// .poorai/probe` and `rm .poorai/indexes/idx.json` both succeeded under the
+/// covers `.pwr` and nothing followed it. Measured before the fix: `echo x >
+/// .pwr/probe` and `rm .pwr/indexes/idx.json` both succeeded under the
 /// sandbox. Edit capabilities are refused on protected paths; a command must
 /// not reach the event store by another route.
 #[cfg(target_os = "macos")]
 #[test]
 fn a_sandboxed_command_cannot_write_the_harness_state() {
     let root = tempfile::tempdir().unwrap();
-    let state = root.path().join(".poorai");
+    let state = root.path().join(".pwr");
     fs::create_dir_all(state.join("indexes")).unwrap();
     fs::write(state.join("indexes/idx.json"), "harness bookkeeping").unwrap();
 
     for command in [
-        "echo x > .poorai/probe",
-        "rm .poorai/indexes/idx.json",
-        "rm -rf .poorai/indexes",
+        "echo x > .pwr/probe",
+        "rm .pwr/indexes/idx.json",
+        "rm -rf .pwr/indexes",
     ] {
         let result = block_on(run_command(
             &policy(root.path()),
@@ -619,13 +619,13 @@ fn a_sandboxed_command_cannot_write_the_harness_state() {
 /// A repository's own checks walk the whole workspace, and a directory they
 /// cannot list stops them. Observed on 2026-09-14 in the R2 pilot: `npx --no
 /// ava` and `npm test` on filenamify and slugify crashed with `EPERM: operation
-/// not permitted, scandir '.poorai'` in every arm, so their visible verifier
+/// not permitted, scandir '.pwr'` in every arm, so their visible verifier
 /// could never pass. Listing is allowed; reading a record still is not.
 #[cfg(target_os = "macos")]
 #[test]
 fn a_command_that_walks_the_workspace_is_not_stopped_by_the_harness_state() {
     let root = tempfile::tempdir().unwrap();
-    let state = root.path().join(".poorai");
+    let state = root.path().join(".pwr");
     fs::create_dir_all(state.join("indexes")).unwrap();
     fs::write(state.join("indexes/idx.json"), "harness bookkeeping").unwrap();
     fs::write(root.path().join("real.rs"), "fn real() {}").unwrap();
@@ -643,7 +643,7 @@ fn a_command_that_walks_the_workspace_is_not_stopped_by_the_harness_state() {
     let read = block_on(run_command(
         &policy(root.path()),
         "sh",
-        &["-c".to_string(), "cat .poorai/indexes/idx.json".to_string()],
+        &["-c".to_string(), "cat .pwr/indexes/idx.json".to_string()],
     ))
     .unwrap();
     assert_ne!(read.exit_code, Some(0), "{read:?}");
@@ -843,10 +843,10 @@ fn cwd_cannot_leave_the_workspace() {
 fn a_declared_reference_folder_is_readable_and_nothing_more() {
     let project = tempfile::tempdir().unwrap();
     fs::create_dir_all(project.path().join("docs")).unwrap();
-    fs::create_dir_all(project.path().join(".poorai")).unwrap();
+    fs::create_dir_all(project.path().join(".pwr")).unwrap();
     fs::create_dir_all(project.path().join("site")).unwrap();
     fs::write(project.path().join("docs/guide.md"), "the guide").unwrap();
-    fs::write(project.path().join(".poorai/state"), "private").unwrap();
+    fs::write(project.path().join(".pwr/state"), "private").unwrap();
     fs::write(project.path().join(".env"), "SECRET=1").unwrap();
     let mut policy = policy(&project.path().join("site"));
 
@@ -855,7 +855,7 @@ fn a_declared_reference_folder_is_readable_and_nothing_more() {
     policy.extra_readable = vec![project.path().to_path_buf()];
     let read = read_file(&policy, Path::new("../docs/guide.md")).unwrap();
     assert!(read.content.contains("the guide"));
-    for private in ["../.poorai/state", "../.env"] {
+    for private in ["../.pwr/state", "../.env"] {
         assert!(read_file(&policy, Path::new(private)).is_err(), "{private}");
     }
     assert!(write_file(&policy, Path::new("../docs/new.md"), "x").is_err());
@@ -1151,7 +1151,7 @@ fn an_installed_dependency_cannot_be_edited_without_the_approval() {
 /// how the platforms without an adapter behave everywhere.
 #[test]
 fn a_command_that_cannot_be_confined_is_refused_by_default() {
-    if std::env::var("POORAI_ALLOW_UNCONFINED").ok().as_deref() == Some("1") {
+    if std::env::var("PWR_ALLOW_UNCONFINED").ok().as_deref() == Some("1") {
         return; // the person opted out on this machine; nothing to assert
     }
     let parent = tempfile::tempdir().unwrap();
@@ -1165,5 +1165,5 @@ fn a_command_that_cannot_be_confined_is_refused_by_default() {
     let Err(ToolError::Denied(why)) = refused else {
         panic!("an unconfined command ran: {refused:?}");
     };
-    assert!(why.contains("POORAI_ALLOW_UNCONFINED"), "{why}");
+    assert!(why.contains("PWR_ALLOW_UNCONFINED"), "{why}");
 }

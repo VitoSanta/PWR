@@ -84,8 +84,8 @@ fn read_only_status_comparison_does_not_waive_new_failures() {
 fn exceptions_are_explicit_and_invalid_configuration_is_an_error() {
     let root = tempfile::tempdir().unwrap();
     assert!(known_failure_checks(root.path()).unwrap().is_empty());
-    std::fs::create_dir(root.path().join(".poorai")).unwrap();
-    let path = root.path().join(".poorai/checks.json");
+    std::fs::create_dir(root.path().join(".pwr")).unwrap();
+    let path = root.path().join(".pwr/checks.json");
     std::fs::write(
         &path,
         r#"{"checks":[{"executable":"cargo","args":["test"]}]}"#,
@@ -105,8 +105,8 @@ fn exceptions_are_explicit_and_invalid_configuration_is_an_error() {
 #[test]
 fn acceptance_evidence_is_explicit_and_stack_agnostic() {
     let root = tempfile::tempdir().unwrap();
-    std::fs::create_dir(root.path().join(".poorai")).unwrap();
-    let path = root.path().join(".poorai/checks.json");
+    std::fs::create_dir(root.path().join(".pwr")).unwrap();
+    let path = root.path().join(".pwr/checks.json");
     std::fs::write(
         &path,
         r#"{"checks":[

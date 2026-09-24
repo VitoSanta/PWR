@@ -46,14 +46,14 @@ impl LlamaConfig {
             .map(PathBuf::from)
             .unwrap_or_default();
         LlamaConfig {
-            models_root: std::env::var_os("POORAI_LLAMA_MODELS")
+            models_root: std::env::var_os("PWR_LLAMA_MODELS")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join(".lmstudio/models")),
-            server: std::env::var_os("POORAI_LLAMA_SERVER")
+            server: std::env::var_os("PWR_LLAMA_SERVER")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("llama-server")),
-            host: std::env::var("POORAI_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
-            port: std::env::var("POORAI_LLAMA_PORT")
+            host: std::env::var("PWR_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
+            port: std::env::var("PWR_LLAMA_PORT")
                 .ok()
                 .and_then(|port| port.parse().ok())
                 .unwrap_or(0),

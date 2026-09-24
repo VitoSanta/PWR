@@ -65,7 +65,7 @@
       "id": "vague-shipping-undercharge",
       "kind": "bugfix",
       "max_actions": 20,
-      "provenance": "authored for poorAI 2026-09-02; the same defect as retrieval-unnamed-file phrased as a user would report it, to measure whether a precise specification was doing the work",
+      "provenance": "authored for PWR 2026-09-02; the same defect as retrieval-unnamed-file phrased as a user would report it, to measure whether a precise specification was doing the work",
       "statement": "Customers are being undercharged for shipping. A 250 gram parcel is billed as 2 units when it should be 3. Please fix it.",
       "time_budget_secs": 900,
       "visible_verifier": {
@@ -133,7 +133,7 @@
       "id": "vague-total-looks-wrong",
       "kind": "bugfix",
       "max_actions": 20,
-      "provenance": "authored for poorAI 2026-09-02; the symptom is in one file and the defect in another, reported as a user would",
+      "provenance": "authored for PWR 2026-09-02; the symptom is in one file and the defect in another, reported as a user would",
       "statement": "The cart total looks wrong. On a 100 euro order the customer should pay 120 but the app shows 102. Can you sort it out?",
       "time_budget_secs": 900,
       "visible_verifier": {

@@ -2,7 +2,7 @@
  "schema_version": 1,
  "id": "a1-tool-calls",
  "area": "A1",
- "description": "Area A1 by replay: raw replies Qwen3.6-35B-A3B wrote on poorAI's MLX engine on 2026-09-18 (Part E runs), read exactly as a run reads them. Valid calls are kept as golden decodings; malformed ones state whether the right answer is a refusal or a recovery. No model is needed; the suite runs in seconds.",
+ "description": "Area A1 by replay: raw replies Qwen3.6-35B-A3B wrote on PWR's MLX engine on 2026-09-18 (Part E runs), read exactly as a run reads them. Valid calls are kept as golden decodings; malformed ones state whether the right answer is a refusal or a recovery. No model is needed; the suite runs in seconds.",
  "cases": [
   {
    "type": "replay",

@@ -8,11 +8,11 @@ use pwr_provider::{ModelProvider, collect_reply};
 #[tokio::test]
 #[ignore = "requires a real llama-server binary and GGUF model"]
 async fn real_llama_server_streams_one_reply() {
-    let models_root = std::env::var_os("POORAI_LLAMA_MODELS")
+    let models_root = std::env::var_os("PWR_LLAMA_MODELS")
         .map(PathBuf::from)
-        .expect("POORAI_LLAMA_MODELS");
-    let model_ref = std::env::var("POORAI_LLAMA_SMOKE_MODEL").expect("POORAI_LLAMA_SMOKE_MODEL");
-    let server = std::env::var_os("POORAI_LLAMA_SERVER")
+        .expect("PWR_LLAMA_MODELS");
+    let model_ref = std::env::var("PWR_LLAMA_SMOKE_MODEL").expect("PWR_LLAMA_SMOKE_MODEL");
+    let server = std::env::var_os("PWR_LLAMA_SERVER")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("llama-server"));
     let provider = LlamaProvider::new(LlamaConfig {
@@ -51,11 +51,11 @@ async fn real_llama_server_streams_one_reply() {
 #[tokio::test]
 #[ignore = "requires a real llama-server binary and GGUF model"]
 async fn real_llama_server_constrains_required_tool_calls_to_the_offered_catalog() {
-    let models_root = std::env::var_os("POORAI_LLAMA_MODELS")
+    let models_root = std::env::var_os("PWR_LLAMA_MODELS")
         .map(PathBuf::from)
-        .expect("POORAI_LLAMA_MODELS");
-    let model_ref = std::env::var("POORAI_LLAMA_SMOKE_MODEL").expect("POORAI_LLAMA_SMOKE_MODEL");
-    let server = std::env::var_os("POORAI_LLAMA_SERVER")
+        .expect("PWR_LLAMA_MODELS");
+    let model_ref = std::env::var("PWR_LLAMA_SMOKE_MODEL").expect("PWR_LLAMA_SMOKE_MODEL");
+    let server = std::env::var_os("PWR_LLAMA_SERVER")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("llama-server"));
     let provider = LlamaProvider::new(LlamaConfig {

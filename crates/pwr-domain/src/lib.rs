@@ -432,7 +432,7 @@ pub enum ParameterSource {
     /// defaults, read by an engine that loads the weights itself.
     ModelGenerationConfig,
     /// Chosen by PWR deliberately, against a stated reason.
-    #[serde(rename = "poor_ai_override")]
+    #[serde(rename = "pwr_override")]
     PwrOverride,
     /// Derived from measurement on this machine.
     HardwareCalibration,
@@ -1573,7 +1573,7 @@ pub struct ChatMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
     /// Images the person attached to this message, as files PWR stored
-    /// (`.poorai/images/<sha256>.<ext>`), shown before its text. Only a
+    /// (`.pwr/images/<sha256>.<ext>`), shown before its text. Only a
     /// deployment that reads images is sent any (backlog C.25).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<std::path::PathBuf>,

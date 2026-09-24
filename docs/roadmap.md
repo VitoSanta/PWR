@@ -34,7 +34,7 @@ what is now true:
 |---|---|
 | Unattended end to end | `pwr run` on an empty crate: verified by the workspace's own tests in 5 minutes, no steering (D.E2E-28). Inside another repository the same task *declined* correctly: the sandbox denied the parent workspace. |
 | Documents by section | Retrieval ranks Markdown sections (BM25, heading weight): precision 0.03 -> 0.10 on twelve labelled documentation requests (C.22). |
-| Local context filter (C.22) | `multilingual-e5-small` on MLX in its own offline sidecar, fused with the section BM25; opt-in `POORAI_SEMANTIC_RETRIEVAL=1`. Sections-only P@3 0.19 -> 0.24, 11% fewer tokens. A 1.5B "System One" decider added nothing on top of an encoder. Qwen3-14B at its own 40K window, docs FAQ, n=1 per arm: both verified, the semantic arm with fewer tokens and actions and no whole-document reads. |
+| Local context filter (C.22) | `multilingual-e5-small` on MLX in its own offline sidecar, fused with the section BM25; opt-in `PWR_SEMANTIC_RETRIEVAL=1`. Sections-only P@3 0.19 -> 0.24, 11% fewer tokens. A 1.5B "System One" decider added nothing on top of an encoder. Qwen3-14B at its own 40K window, docs FAQ, n=1 per arm: both verified, the semantic arm with fewer tokens and actions and no whole-document reads. |
 | Installed dependencies | `search` with `in_dependencies` (node_modules, site-packages, the cargo registry by Cargo.lock): used unprompted at a run's fourth action (C.12). Dependencies are read-only without `DependencyChange` -- a run had passed its test by editing the library (D.E2E-29). |
 | Protection and verification | `pwr run` now honours `protected.json`, and an unreadable one stops the work (D.E2E-30). A suite is judged by exit codes; CI's four steps are run before a change is called green (R.1). |
 | External review | Checked claim by claim ([`external-review-2026-09-23.md`](external-review-2026-09-23.md)); its research thesis and paired-uplift metric adopted (R.10). |
@@ -70,7 +70,7 @@ state below:
 | Model configuration | **The largest finding:** model profiles never loaded outside the checkout (D.E2E-24), so every workspace ran greedy with reasoning on. Fixed; runs before it should be read as unconfigured. |
 | Measurement | Unchanged: no capability claim. These were product runs, n=1 each, several steered by a person. |
 | Repository | From this date `main` carries the product only: `experiments/` (campaign notes, test workspaces, the MLX engine venv) stays on the maintainer's machine and is no longer tracked; older links into it from these documents point at history. |
-| Context filter (C.22) | **Built, opt-in** (`POORAI_SEMANTIC_RETRIEVAL=1`): local `multilingual-e5-small` on MLX in its own sidecar, fused with the section BM25. Twelve labelled requests: sections-only P@3 0.19 -> 0.24, 11% fewer tokens. First small-model run (Qwen3-14B, 40K window, docs FAQ, n=1 per arm): both verified, the semantic arm with fewer tokens and actions and no whole-document reads. Jev (TypeSafe) identified as hosted, so a reference only: the maintainer's rule is **no external cloud services**. |
+| Context filter (C.22) | **Built, opt-in** (`PWR_SEMANTIC_RETRIEVAL=1`): local `multilingual-e5-small` on MLX in its own sidecar, fused with the section BM25. Twelve labelled requests: sections-only P@3 0.19 -> 0.24, 11% fewer tokens. First small-model run (Qwen3-14B, 40K window, docs FAQ, n=1 per arm): both verified, the semantic arm with fewer tokens and actions and no whole-document reads. Jev (TypeSafe) identified as hosted, so a reference only: the maintainer's rule is **no external cloud services**. |
 | External review (2026-09-23) | Checked claim by claim ([`external-review-2026-09-23.md`](external-review-2026-09-23.md)): confirmed that the conversation pre-grants dependency changes and network access, that commands run unconfined off macOS, that llama.cpp restarts its server every turn, that the README is stale and the app untested. Found while checking: public CI red since the 2026-09-23 push (fixed locally). Adopted: the small-model research thesis and a paired-uplift metric against a fixed tool-loop baseline. Actions in backlog Part R. |
 | Open, next | **First the review's safety and hygiene items** -- push the CI fix (R.1), conversation defaults that ask (R.2), visible sandbox state (R.3), README (R.5), `.gitignore` (R.7). Then the fixed tool-loop baseline (R.10) so the small-model work has its control; then a context-filter task the lexical arm fails at a small window, with repeats (C.22); a per-model registry with fallbacks for errors of form, measured on the A1 replay (C.24); images for the models that can see, starting with the rendered page (C.25, D.E2E-12); read `turn.failed` in the next stall (D.E2E-22); measure the outline-first read (D.E2E-15). |
 
@@ -257,9 +257,9 @@ it is taken under starvation. See the redesign, Part E.
    GGUF has been downloaded, SHA-256 verified, inspected and probed through
    `--backend llama`, and measured with `llama-server`: A4 3/3, A3 6/6, no
    false completions, 0.9-2.9 minutes per task
-   (`.poorai/suite-runs/a4-42cc39b-llama-ggml-org_NVIDIA-Nemotron-3.5-Lightning-30B-20260920-155604`,
-   `.poorai/suite-runs/a3-42cc39b-llama-ggml-org_NVIDIA-Nemotron-3.5-Lightning-30B-20260920-155936`).
-   `suites/run.sh` now accepts `POORAI_SUITE_BACKEND`, so that measurement
+   (`.pwr/suite-runs/a4-42cc39b-llama-ggml-org_NVIDIA-Nemotron-3.5-Lightning-30B-20260920-155604`,
+   `.pwr/suite-runs/a3-42cc39b-llama-ggml-org_NVIDIA-Nemotron-3.5-Lightning-30B-20260920-155936`).
+   `suites/run.sh` now accepts `PWR_SUITE_BACKEND`, so that measurement
    uses the same suite wrapper instead of a one-off command. The run found one
    harness gate bug: `llama-server` enforces a controlled context window but
    does not report prompt token counts, so `context_boundary` can be
@@ -289,14 +289,14 @@ it is taken under starvation. See the redesign, Part E.
 9. **R3 resumed**, split into R3-A5 and R3-A6. After B.9, start a narrow
    frontend lab before the polished product: one local app that can select an
    installed model, launch a run, show live actions/logs, stop it, and surface
-   artifacts. **B10 started 2026-09-20:** `_poorai/models` now safely selects a
+   artifacts. **B10 started 2026-09-20:** `_pwr/models` now safely selects a
    discovered model for the active workspace. **D.6 status increment:** it also
    exposes declared artifact final/partial byte state to the Slint lab without a
    network request or expensive hash. **2026-09-21:** the Slint bridge now starts
    the core in the selected workspace, keeping registry and workspace-local
    configuration resolution stable when the app is launched elsewhere.
-   **2026-09-21:** `_poorai/download` accepts only `cwd` plus a client operation
-   id, emits byte progress, and `_poorai/download_cancel` preserves the `.part`
+   **2026-09-21:** `_pwr/download` accepts only `cwd` plus a client operation
+   id, emits byte progress, and `_pwr/download_cancel` preserves the `.part`
    file; the Slint lab exposes Download / resume. A later app refresh recovers
    the state from disk. Slint now exposes per-artifact resume and a sequential
    Download all queue.
@@ -371,7 +371,7 @@ it is taken under starvation. See the redesign, Part E.
    task, not a substitute for the planned Angular usability, full-screen,
    resize and long-task acceptance pass.
    **Desktop observability finding 2026-09-21:** app conversations persist in
-   `<workspace>/.poorai/state.sqlite` and are correctly listed by the ACP
+   `<workspace>/.pwr/state.sqlite` and are correctly listed by the ACP
    `session/list` endpoint (the Angular workspace contained six recorded
    sessions). The legacy CLI `session list` does not yet expose those ACP
    conversation ids, and the desktop interface has no exportable diagnostic
@@ -387,7 +387,7 @@ it is taken under starvation. See the redesign, Part E.
    false acceptance: compilation and repository tests establish technical
    health, not that a requested user-facing, API, CLI, desktop or migration
    outcome exists. Goal mode now requires an executed, repository-declared
-   `.poorai/checks.json` check with `"kind": "acceptance"` before it may say
+   `.pwr/checks.json` check with `"kind": "acceptance"` before it may say
    **Goal verified**. The same contract applies across stacks; browser/e2e,
    API contract, workflow, smoke and invariant commands are all valid evidence.
    The contract is snapshotted at session start and must remain unchanged, so a
@@ -420,7 +420,7 @@ it is taken under starvation. See the redesign, Part E.
    dirty-tree provenance and browser acceptance work stays explicit; C.21 must
    evaluate the packet against a no-packet control rather than declare an uplift.
    **MLX launcher fix 2026-09-21:** the desktop launcher now exports the
-   repository's measured MLX Python when no `POORAI_MLX_PYTHON` was supplied.
+   repository's measured MLX Python when no `PWR_MLX_PYTHON` was supplied.
    The generic macOS `python3` lacks `mlx-lm` on this host; without this
    fallback the catalog could be discovered but every model turn failed at the
    sidecar boundary. An explicitly configured interpreter remains authoritative.
@@ -441,7 +441,7 @@ it is taken under starvation. See the redesign, Part E.
    real-workspace tasks preserve their session and can carry on deliberately
    rather than appearing to complete silently. The composer is compact like a
    chat input and uses native file/folder pickers. A selected folder becomes a
-   bounded read-only text snapshot (32 files, no `.git`, `.poorai`, dependency
+   bounded read-only text snapshot (32 files, no `.git`, `.pwr`, dependency
    or build directories), not a live external filesystem grant. This is ready
    for the consolidated manual pass; drag/drop, citation rendering, a full
    diff review and narrow-window navigation remain R5 work.
@@ -458,7 +458,7 @@ it is taken under starvation. See the redesign, Part E.
    the model adds and runs. It needs a real long-workspace manual measurement
    before becoming the normal default.
    **D.9 increment:** the Slint lab can now set the workspace approval policy
-   to all supported kinds or none through `_poorai/approvals`.
+   to all supported kinds or none through `_pwr/approvals`.
    **D.8 increment:** it also lists workspace sessions and resumes one through
    `session/list` and `session/resume`; branch drift and interrupted-run detail
    remain to be surfaced.
@@ -467,7 +467,7 @@ it is taken under starvation. See the redesign, Part E.
    **D.12 increment:** the header distinguishes core connection, backend
    unavailability, cancellation requests and request errors; empty and recovery
    states remain to be polished.
-   **D.7 increment:** `_poorai/models` now applies a requested context window
+   **D.7 increment:** `_pwr/models` now applies a requested context window
    through the selected backend and returns the granted value/options, binding
    ceiling, memory budget and rationale; Slint exposes controls and displays
    those details. A richer calibration history remains.
@@ -599,7 +599,7 @@ Question: are chat, scripted tasks and evaluation observing the same actions, ev
 
 First capture the current chat and scripted behaviors as explicit fixtures. Extract a shared session step/result boundary using the existing executor and scripted runtime. Preserve conversation and terminal UX. Replace the false “all checks passed” message with evidence-specific outcomes; do not secretly impose repair acceptance on diagnosis. Expose treatments through immutable configuration IDs, not forked loops.
 
-Progress, 2026-09-12. IMPLEMENTED: the conversation no longer claims checks passed when it observed only that none newly failed. `check_verdict` in `crates/pwr-cli/src/main.rs` separates every check green, baseline preserved with the still-failing commands named, and a new failure; five fixtures pin it, two of which fail on the behaviour replaced. This is one decision point of the two-loop divergence, not the shared runtime. Also IMPLEMENTED: `crates/pwr-cli/src/two_loops.rs` drives both loops from one script against one workspace and labels each difference DECLARED or DEFECT, which is the fixture capture this milestone opens with. `converse::take_turn` had no end-to-end fixture before it. Two defects were pinned — the conversation bypassed `context::compose` and so received no repository retrieval, and a tool result reaches the deployment in two shapes — and three equivalences are pinned as equivalences. The first is closed: `context::compose_turn` composes a conversation turn from the same sections, retrieval and eviction as a run's opening, against the room the history has left, and compaction now tells retrieved passages from things the operator asked for. The second is closed too: `action_outcome` and `tool_result_message` are the only place an action's outcome and its envelope are built, so a deployment answering either loop reads one protocol, and the conversation now receives the denial-versus-failure distinction and the failure category it never had. The conversation now receives all four sections a run receives: system instructions merged with the deployment's own suffix, a session ledger composed every turn from the files as they are on disk, repository passages ranked against the request, and the request. What remains of the divergence is declared rather than accidental — a conversation sends no `status` block because it has neither a plan nor an action budget — and the structural work is untouched: `converse::take_turn` and `run_action_loop_with_prompt_budget_and_context_tiers` are still two state machines with their own compaction, loop detection, recovery budgets and completion semantics. Eleven fixtures in `two_loops.rs` now watch the boundary from outside, which is what the extraction was missing. The extraction itself has begun where the conversation was poorer rather than merely different: `repetition::RefusalStreak` is the first piece of the scripted loop's decision half to become shared, and the conversation gained the repeated-refusal detection it never had — it could previously propose the same stale-hash edit until its turn ran out, emitting no `loop.detected`, which left `pwr diagnose` blind to a stuck conversation. No-progress detection followed it: `stall::record_effect`, the effect signature and the window rule are shared, and the conversation now names a circle of reads or an edit and its revert — while leaving investigation alone, since a window counts only when nothing in it was novel. The run's behaviour is unchanged in both cases: same thresholds, same events, same words. A conversation turn also has an action budget for the first time — MASTER_SPEC's eighth principle was unmet on the product path, where nothing counted between one action and the next. It is soft where the run's is hard, which is the declared difference: a run is unattended and its budget is a cap, a conversation has someone in front of it and the budget is a place to check in. The turn ends with a reason, the work intact, and the next message carries on. The threshold is anchored to `DEFAULT_MAX_ACTIONS` rather than measured, and is labelled as a choice until somebody measures how many actions a turn of chat takes. Backend faults are bounded separately from deployment faults on the same path, and a turn survives them instead of losing its history to an `Err` while its edits stay on disk. Measured-tier context recovery followed, closing the last recovery gap: the turn receives the calibration profile's admitted stable points and drops to a measured window when the backend refuses a prompt, keeping the conversation whole where compaction would have spent part of it. Plan state remains scripted-only, and that is now a decision rather than an omission: the conversation keeps no plan, because the research contract's fourth open question preregisters a comparison of no plan, a model-written plan and deterministic dependency state and states that there is no universal plan-first default. Adopting one in the product before running that comparison would be the default the contract refuses, and would grow the catalogue a small deployment chooses from — the cost H1 exists to measure. A plan substitutes for an absent person; a conversation has one, and the objective is restated every turn by the only party entitled to change it. Open question 4 on long multi-file tasks is what would change this.
+Progress, 2026-09-12. IMPLEMENTED: the conversation no longer claims checks passed when it observed only that none newly failed. `check_verdict` in `crates/pwr-cli/src/main.rs` separates every check green, baseline preserved with the still-failing commands named, and a new failure; five fixtures pin it, two of which fail on the behaviour replaced. This is one decision point of the two-loop divergence, not the shared runtime. Also IMPLEMENTED: `crates/pwr-cli/src/two_loops.rs` drives both loops from one script against one workspace and labels each difference DECLARED or DEFECT, which is the fixture capture this milestone opens with. `converse::take_turn` had no end-to-end fixture before it. Two defects were pinned — the conversation bypassed `context::compose` and so received no repository retrieval, and a tool result reaches the deployment in two shapes — and three equivalences are pinned as equivalences. The first is closed: `context::compose_turn` composes a conversation turn from the same sections, retrieval and eviction as a run's opening, against the room the history has left, and compaction now tells retrieved passages from things the operator asked for. The second is closed too: `action_outcome` and `tool_result_message` are the only place an action's outcome and its envelope are built, so a deployment answering either loop reads one protocol, and the conversation now receives the denial-versus-failure distinction and the failure category it never had. The conversation now receives all four sections a run receives: system instructions merged with the deployment's own suffix, a session ledger composed every turn from the files as they are on disk, repository passages ranked against the request, and the request. What remains of the divergence is declared rather than accidental — a conversation sends no `status` block because it has neither a plan nor an action budget — and the structural work is untouched: `converse::take_turn` and `run_action_loop_with_prompt_budget_and_context_tiers` are still two state machines with their own compaction, loop detection, recovery budgets and completion semantics. Eleven fixtures in `two_loops.rs` now watch the boundary from outside, which is what the extraction was missing. The extraction itself has begun where the conversation had less information rather than merely different: `repetition::RefusalStreak` is the first piece of the scripted loop's decision half to become shared, and the conversation gained the repeated-refusal detection it never had — it could previously propose the same stale-hash edit until its turn ran out, emitting no `loop.detected`, which left `pwr diagnose` blind to a stuck conversation. No-progress detection followed it: `stall::record_effect`, the effect signature and the window rule are shared, and the conversation now names a circle of reads or an edit and its revert — while leaving investigation alone, since a window counts only when nothing in it was novel. The run's behaviour is unchanged in both cases: same thresholds, same events, same words. A conversation turn also has an action budget for the first time — MASTER_SPEC's eighth principle was unmet on the product path, where nothing counted between one action and the next. It is soft where the run's is hard, which is the declared difference: a run is unattended and its budget is a cap, a conversation has someone in front of it and the budget is a place to check in. The turn ends with a reason, the work intact, and the next message carries on. The threshold is anchored to `DEFAULT_MAX_ACTIONS` rather than measured, and is labelled as a choice until somebody measures how many actions a turn of chat takes. Backend faults are bounded separately from deployment faults on the same path, and a turn survives them instead of losing its history to an `Err` while its edits stay on disk. Measured-tier context recovery followed, closing the last recovery gap: the turn receives the calibration profile's admitted stable points and drops to a measured window when the backend refuses a prompt, keeping the conversation whole where compaction would have spent part of it. Plan state remains scripted-only, and that is now a decision rather than an omission: the conversation keeps no plan, because the research contract's fourth open question preregisters a comparison of no plan, a model-written plan and deterministic dependency state and states that there is no universal plan-first default. Adopting one in the product before running that comparison would be the default the contract refuses, and would grow the catalogue a small deployment chooses from — the cost H1 exists to measure. A plan substitutes for an absent person; a conversation has one, and the objective is restated every turn by the only party entitled to change it. Open question 4 on long multi-file tasks is what would change this.
 
 Completed 2026-09-13 apart from the structural extraction. The third path exists: `pwr eval run --mode product-path` lets the workspace's checks be discovered as they are for a user, where `verifier-supplied` — still the default, and what every existing report is — hands the agent the check the corpus chose. The two measure different things, are not pooled, and a comparison across them is refused unless the mode is declared as the treatment. It is practicable only because a discovered check that cannot run is now classified at the baseline and exempted: that obstruction is exactly why the corpus verifier was adopted in the first place, recorded in `evaluate_task` as three runs on more-itertools that had correctly fixed their bug being recorded as failures. Cancellation and user redirection have fixtures too, so all six cases the exit names are covered.
 
@@ -709,7 +709,7 @@ measure. Design: [`pwr serve`](pwr-serve.md).
   turns with attachments, tool calls and diffs; permission requests from
   `session::gate`; cancellation; the console's commands; steering; models and
   approval settings -- over the console's own turn, resume and attachment
-  handling. **B10, 2026-09-20:** `_poorai/models` can also select a model from
+  handling. **B10, 2026-09-20:** `_pwr/models` can also select a model from
   the active backend's discovered catalog for that workspace and returns its
   computed window. ACP was chosen for its specification and schema, not for the editors
   that also speak it. File system and terminal stay inside PWR's sandbox and

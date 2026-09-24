@@ -50,9 +50,9 @@ fn repository() -> Option<PathBuf> {
     root.join("Cargo.toml").is_file().then(|| root.to_path_buf())
 }
 
-/// `POORAI_CORE`, the bundled core, the checkout build, then `pwr` on PATH.
+/// `PWR_CORE`, the bundled core, the checkout build, then `pwr` on PATH.
 fn core_path(app: &AppHandle) -> PathBuf {
-    if let Some(path) = std::env::var_os("POORAI_CORE") {
+    if let Some(path) = std::env::var_os("PWR_CORE") {
         return PathBuf::from(path);
     }
     if let Some(path) = app
@@ -120,9 +120,9 @@ fn last_workspace_file(app: &AppHandle) -> Option<PathBuf> {
 }
 
 fn chat_home() -> Result<PathBuf, String> {
-    let path = std::env::var_os("POORAI_CHAT_HOME")
+    let path = std::env::var_os("PWR_CHAT_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".poorai/chat")))
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/chat")))
         .ok_or("HOME is not set")?;
     std::fs::create_dir_all(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     path.canonicalize()
@@ -194,11 +194,11 @@ fn trust_workspace(app: AppHandle, workspace: String) -> Result<(), String> {
     std::fs::rename(&temporary, &file).map_err(|error| format!("{}: {error}", file.display()))
 }
 
-/// `POORAI_WORKSPACE`, else the workspace opened last (if it still exists),
+/// `PWR_WORKSPACE`, else the workspace opened last (if it still exists),
 /// else the checkout's site, else the home folder.
 #[tauri::command]
 fn default_workspace(app: AppHandle) -> String {
-    std::env::var("POORAI_WORKSPACE")
+    std::env::var("PWR_WORKSPACE")
         .ok()
         .or_else(|| {
             last_workspace_file(&app)
@@ -223,7 +223,7 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
         return Err(format!("Workspace has not been trusted: {}", workspace.display()));
     }
     let program = core_path(&app);
-    let backend = std::env::var("POORAI_BACKEND").unwrap_or_else(|_| {
+    let backend = std::env::var("PWR_BACKEND").unwrap_or_else(|_| {
         if cfg!(target_os = "macos") { "mlx" } else { "llama" }.into()
     });
     let mut command = Command::new(&program);
@@ -237,7 +237,7 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
     // As the launcher does: the checkout's MLX interpreter when the
     // environment names none -- the one `scripts/setup-mlx.sh` creates, then
     // the engine spike's on the maintainer's machine.
-    if std::env::var_os("POORAI_MLX_PYTHON").is_none() {
+    if std::env::var_os("PWR_MLX_PYTHON").is_none() {
         if let Some(python) = repository().and_then(|root| {
             [
                 ".venv-mlx/bin/python",
@@ -247,7 +247,7 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
             .map(|candidate| root.join(candidate))
             .find(|path| path.is_file())
         }) {
-            command.env("POORAI_MLX_PYTHON", python);
+            command.env("PWR_MLX_PYTHON", python);
         }
     }
     let mut child = command

@@ -30,7 +30,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on tomli-optional-seconds, Part E budget variant 2026-09-18 (a regex written with `\\\\.` for `\\.`); not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A3; modelled on tomli-optional-seconds, Part E budget variant 2026-09-18 (a regex written with `\\\\.` for `\\.`); not derived from any public benchmark"
   },
   {
    "id": "a3-one-method-long-file",
@@ -61,7 +61,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on pyparsing-iadd-non-results, Part E with both fixes 2026-09-18 (one method sent as the whole of a 940-line file); not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A3; modelled on pyparsing-iadd-non-results, Part E with both fixes 2026-09-18 (one method sent as the whole of a 940-line file); not derived from any public benchmark"
   },
   {
    "id": "a3-quotes-and-braces",
@@ -92,7 +92,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on the escaping failures of 2026-09-18, where quotes and braces reached the model escaped; not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A3; modelled on the escaping failures of 2026-09-18, where quotes and braces reached the model escaped; not derived from any public benchmark"
   },
   {
    "id": "a3-tab-indented",
@@ -103,7 +103,7 @@
    ],
    "files": {
     "settings.py": "def parse_line(line):\n\tline = line.strip()\n\tif not line or line.startswith(\"#\"):\n\t\treturn None\n\tkey, value = line.split(\"=\")\n\treturn key.strip(), value.strip()\n",
-    "test_settings.py": "import unittest\n\nfrom settings import parse_line\n\n\nclass ParseLine(unittest.TestCase):\n    def test_simple(self):\n        self.assertEqual(parse_line(\"name = poorAI\"), (\"name\", \"poorAI\"))\n\n    def test_comment(self):\n        self.assertIsNone(parse_line(\"# note\"))\n\n    def test_value_with_equals(self):\n        self.assertEqual(parse_line(\"url = a=b\"), (\"url\", \"a=b\"))\n"
+    "test_settings.py": "import unittest\n\nfrom settings import parse_line\n\n\nclass ParseLine(unittest.TestCase):\n    def test_simple(self):\n        self.assertEqual(parse_line(\"name = PWR\"), (\"name\", \"PWR\"))\n\n    def test_comment(self):\n        self.assertIsNone(parse_line(\"# note\"))\n\n    def test_value_with_equals(self):\n        self.assertEqual(parse_line(\"url = a=b\"), (\"url\", \"a=b\"))\n"
    },
    "hidden_files": {
     "hidden_check.py": "import pathlib\n\nfrom settings import parse_line\n\nassert parse_line(\"url = a=b=c\") == (\"url\", \"a=b=c\")\nassert parse_line(\"  k=v  \") == (\"k\", \"v\")\nassert parse_line(\"\") is None\nfor number, line in enumerate(pathlib.Path(\"settings.py\").read_text().splitlines(), 1):\n    body = line.lstrip(\"\\t\")\n    assert not body.startswith(\" \"), f\"line {number} is indented with spaces\"\nprint(\"ok\")\n"
@@ -123,7 +123,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on whitespace failures of replace_text, where the find text's indentation did not match the file; not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A3; modelled on whitespace failures of replace_text, where the find text's indentation did not match the file; not derived from any public benchmark"
   },
   {
    "id": "a3-two-files-and-a-lookalike",
@@ -157,7 +157,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on out-of-scope edits checked in A.1 (Bionic's idna run rewrote files outside the allowed set); not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A3; modelled on out-of-scope edits checked in A.1 (Bionic's idna run rewrote files outside the allowed set); not derived from any public benchmark"
   },
   {
    "id": "a3-crlf-line-endings",
@@ -188,7 +188,7 @@
     ]
    },
    "time_budget_secs": 600,
-   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on the product's Windows target: an edit must keep a file's line endings; not derived from any public benchmark"
+   "provenance": "authored 2026-09-19 for PWR suite A3; modelled on the product's Windows target: an edit must keep a file's line endings; not derived from any public benchmark"
   }
  ]
 }
