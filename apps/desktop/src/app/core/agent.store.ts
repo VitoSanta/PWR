@@ -76,6 +76,8 @@ export class AgentStore {
   readonly outcome = signal('');
   readonly changes = signal<FileDiff[]>([]);
   readonly commandOutput = signal<{ name: string; text: string } | null>(null);
+  /** The Evidence command that is running, if any. */
+  readonly commandRunning = signal<string | null>(null);
   readonly permission = signal<PermissionRequest | null>(null);
   /** Tokens the conversation occupies and the window, after the last reply. */
   readonly usage = signal<{ used: number; window: number } | null>(null);
@@ -558,11 +560,14 @@ export class AgentStore {
       return;
     }
     this.commandOutput.set({ name, text: 'Running…' });
+    this.commandRunning.set(name);
     try {
       const reply = await this.request(`_pwr/${name}`, { sessionId });
       this.commandOutput.set({ name, text: reply.text ?? JSON.stringify(reply, null, 2) });
     } catch (error) {
       this.commandOutput.set({ name, text: String(error) });
+    } finally {
+      if (this.commandRunning() === name) this.commandRunning.set(null);
     }
   }
 

@@ -1,0 +1,220 @@
+/*
+ * PWR design tokens. Components use only these semantic names; literal
+ * colours, radii and durations live here and nowhere else.
+ *
+ * The theme is chosen by `data-theme` on <html> ("dark" | "light"), which
+ * `index.html` sets before first paint and ThemeService keeps up to date.
+ */
+
+:root {
+  /* ---------------------------------------------------------- geometry */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Tiny marks (kbd, checkbox, swatch) · inline tokens (code, paths) ·
+     controls · cards and popovers · panels · modals · pills (badges,
+     status, chips only -- never ordinary buttons). */
+  --radius-xs: 4px;
+  --radius-inline: 6px;
+  --radius-control: 10px;
+  --radius-control-inner: 7px;
+  --radius-card: 14px;
+  --radius-panel: 16px;
+  --radius-modal: 18px;
+  --radius-pill: 999px;
+
+  --control-h-sm: 28px;
+  --control-h: 32px;
+  --control-h-lg: 36px;
+
+  --icon-sm: 16px;
+  --icon: 18px;
+  --icon-lg: 20px;
+
+  --titlebar-h: 52px;
+  --content-max: 820px;
+
+  /* -------------------------------------------------------- typography */
+  --font:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI',
+    system-ui, sans-serif;
+  --mono: 'SF Mono', ui-monospace, 'JetBrains Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+
+  --fs-display: 28px;
+  --fs-title: 18px;
+  --fs-heading: 15px;
+  --fs-body: 14px;
+  --fs-body-sm: 13px;
+  --fs-label: 12px;
+  --fs-caption: 11px;
+  --fs-code: 12.5px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  --lh-tight: 1.25;
+  --lh-body: 1.55;
+
+  /* ------------------------------------------------------------ motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur: 160ms;
+  --dur-slow: 220ms;
+
+  /* ---------------------------------------------------------- z-layers */
+  --z-panel-overlay: 30;
+  --z-popover: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+  --z-tooltip: 70;
+}
+
+/* ----------------------------------------------------------- dark theme */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg-app: #070a0f;
+  --bg-sidebar: #0b0f17;
+  --surface-primary: #101621;
+  --surface-secondary: #151c29;
+  --surface-elevated: #1a2230;
+  --surface-inset: #080b11;
+  --surface-hover: rgba(148, 163, 184, 0.08);
+  --surface-active: rgba(148, 163, 184, 0.13);
+  --scrim: rgba(3, 5, 9, 0.62);
+  --input-bg: #0c111a;
+  --tooltip-bg: #273041;
+  --tooltip-text: #f3f6fb;
+
+  --border-subtle: rgba(148, 163, 184, 0.14);
+  --border-strong: rgba(148, 163, 184, 0.24);
+
+  --text-primary: #f3f6fb;
+  --text-secondary: #a6b0c3;
+  --text-muted: #7f8ca2;
+  --text-on-accent: #ffffff;
+
+  --accent-primary: #8174ff;
+  --accent-text: #a49bff;
+  --accent-solid: #6e5ff0;
+  --accent-solid-hover: #7b6df5;
+  --accent-soft: rgba(129, 116, 255, 0.14);
+  --accent-border: rgba(129, 116, 255, 0.42);
+  --accent-secondary: #45d6d0;
+  --accent-secondary-soft: rgba(69, 214, 208, 0.12);
+  --accent-secondary-text: #45d6d0;
+  --brand-gradient: linear-gradient(135deg, #8174ff 0%, #7fa2f7 50%, #45d6d0 100%);
+  --focus-ring: rgba(145, 134, 255, 0.75);
+
+  --success: #3ddc97;
+  --success-text: #3ddc97;
+  --success-soft: rgba(61, 220, 151, 0.12);
+  --success-border: rgba(61, 220, 151, 0.34);
+  --warning: #f5b84b;
+  --warning-text: #f7c56b;
+  --warning-soft: rgba(245, 184, 75, 0.12);
+  --warning-border: rgba(245, 184, 75, 0.38);
+  --danger: #ff647c;
+  --danger-text: #ff8b9d;
+  --danger-soft: rgba(255, 100, 124, 0.12);
+  --danger-border: rgba(255, 100, 124, 0.38);
+  --danger-solid: #d13b53;
+  --danger-solid-hover: #dc4a61;
+
+  --diff-add-bg: rgba(61, 220, 151, 0.09);
+  --diff-add-text: #b5f2d5;
+  --diff-del-bg: rgba(255, 100, 124, 0.09);
+  --diff-del-text: #ffc6cf;
+
+  /* Muted categorical series for the context composition. */
+  --data-1: #8174ff;
+  --data-2: #45d6d0;
+  --data-3: #7fa2f7;
+  --data-4: #d9a557;
+  --data-5: #5cc59a;
+  --data-6: #8c96a9;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-overlay-panel: 0 0 40px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------------------------------------------------------- light theme */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg-app: #f5f7fa;
+  --bg-sidebar: #eef1f5;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f2f4f8;
+  --surface-elevated: #ffffff;
+  --surface-inset: #f4f6f9;
+  --surface-hover: rgba(30, 41, 59, 0.05);
+  --surface-active: rgba(30, 41, 59, 0.09);
+  --scrim: rgba(23, 32, 51, 0.32);
+  --input-bg: #ffffff;
+  --tooltip-bg: #1d2536;
+  --tooltip-text: #f3f6fb;
+
+  --border-subtle: rgba(30, 41, 59, 0.1);
+  --border-strong: rgba(30, 41, 59, 0.18);
+
+  --text-primary: #172033;
+  --text-secondary: #505c71;
+  --text-muted: #5f6a7e;
+  --text-on-accent: #ffffff;
+
+  --accent-primary: #6557f0;
+  --accent-text: #5647e6;
+  --accent-solid: #6252ee;
+  --accent-solid-hover: #5344e4;
+  --accent-soft: rgba(101, 87, 240, 0.1);
+  --accent-border: rgba(101, 87, 240, 0.38);
+  --accent-secondary: #16a8a3;
+  --accent-secondary-soft: rgba(22, 168, 163, 0.1);
+  --accent-secondary-text: #0a7773;
+  --brand-gradient: linear-gradient(135deg, #6f61f2 0%, #5f8ff0 50%, #1fb5ae 100%);
+  --focus-ring: rgba(98, 82, 238, 0.6);
+
+  --success: #17a36b;
+  --success-text: #0f7a50;
+  --success-soft: rgba(23, 163, 107, 0.1);
+  --success-border: rgba(23, 163, 107, 0.32);
+  --warning: #c98a12;
+  --warning-text: #95650a;
+  --warning-soft: rgba(201, 138, 18, 0.1);
+  --warning-border: rgba(201, 138, 18, 0.36);
+  --danger: #dc3d58;
+  --danger-text: #c42f49;
+  --danger-soft: rgba(220, 61, 88, 0.08);
+  --danger-border: rgba(220, 61, 88, 0.34);
+  --danger-solid: #d63652;
+  --danger-solid-hover: #c42f49;
+
+  --diff-add-bg: rgba(23, 163, 107, 0.1);
+  --diff-add-text: #0d6b46;
+  --diff-del-bg: rgba(220, 61, 88, 0.09);
+  --diff-del-text: #9c2138;
+
+  --data-1: #6557f0;
+  --data-2: #1fb5ae;
+  --data-3: #5f8ff0;
+  --data-4: #cf9437;
+  --data-5: #2fa877;
+  --data-6: #8a94a6;
+
+  --shadow-sm: 0 1px 2px rgba(23, 32, 51, 0.06);
+  --shadow-popover: 0 12px 32px rgba(23, 32, 51, 0.12), 0 2px 6px rgba(23, 32, 51, 0.06);
+  --shadow-modal: 0 24px 64px rgba(23, 32, 51, 0.18), 0 4px 12px rgba(23, 32, 51, 0.08);
+  --shadow-overlay-panel: 0 0 32px rgba(23, 32, 51, 0.14);
+}

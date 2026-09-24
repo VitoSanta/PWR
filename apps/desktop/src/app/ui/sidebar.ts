@@ -1,171 +1,305 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, inject, Input, Output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
+import { shortDate } from '../core/format';
+import { LEFT, LayoutService } from '../core/layout';
+import { ConfirmService, SHORTCUTS, ToastService, UiStore, roveFocus, shortcut } from '../core/ui';
+import { Icon } from './kit/icon';
+import { ResizeHandle } from './kit/resize-handle';
+import { Tooltip } from './kit/tooltip';
+
+/** Shared by the full sidebar and the rail. */
+abstract class Navigation {
+  protected readonly store = inject(AgentStore);
+  protected readonly layout = inject(LayoutService);
+  protected readonly ui = inject(UiStore);
+  protected readonly keys = SHORTCUTS;
+  protected readonly shortcut = shortcut;
+}
 
 @Component({
   selector: 'pa-sidebar',
+  imports: [Icon, Tooltip, ResizeHandle],
   template: `
-    <aside class="sidebar">
-      <div class="brand">
-        <img class="logo" src="/pwr-mark.png" alt="" />
-        <div class="brand-copy">
-          <strong>PWR</strong>
-          <small>local engineering agent</small>
+    <nav class="sidebar" aria-label="Navigation">
+      <header class="sidebar-head titlebar-row" data-tauri-drag-region="deep">
+        <img class="brand-mark" src="/pwr-mark-96.png" alt="" width="22" height="22" />
+        <span class="brand-name" data-tauri-drag-region="deep">PWR</span>
+        <span class="spacer" data-tauri-drag-region="deep"></span>
+        <button
+          class="icon-btn icon-btn-sm"
+          (click)="layout.toggleLeft()"
+          aria-label="Hide sidebar"
+          paTooltip="Hide sidebar"
+          [paTooltipKeys]="keys.toggleSidebar"
+        >
+          <pa-icon name="panel-left" [size]="16" />
+        </button>
+      </header>
+
+      <div class="sidebar-top">
+        <div
+          class="segmented segmented-block"
+          role="radiogroup"
+          aria-label="Conversation mode"
+          [attr.aria-busy]="switching()"
+          (keydown)="modeKeys($event)"
+        >
+          <button
+            role="radio"
+            [attr.aria-checked]="!store.chatMode()"
+            [attr.tabindex]="store.chatMode() ? -1 : 0"
+            (click)="useAgent()"
+            [disabled]="modeLocked()"
+            paTooltip="Work in a project folder: read, edit and run"
+          >
+            <pa-icon name="terminal" [size]="14" /> Agent
+          </button>
+          <button
+            role="radio"
+            [attr.aria-checked]="store.chatMode()"
+            [attr.tabindex]="store.chatMode() ? 0 : -1"
+            (click)="useChat()"
+            [disabled]="modeLocked() || (!store.chatMode() && !store.chatHome())"
+            paTooltip="Talk to the model without a workspace: it reads only what you attach"
+          >
+            <pa-icon name="message" [size]="14" /> Chat
+          </button>
         </div>
-        <button class="sidecar-toggle" (click)="toggleCollapsed()" [attr.aria-expanded]="!collapsed()" [attr.aria-label]="collapsed() ? 'Apri barra laterale sinistra' : 'Chiudi barra laterale sinistra'" title="Mostra o nascondi la barra laterale">
-          <span class="sidecar-icon sidecar-icon-left" aria-hidden="true"></span>
+        @if (switching()) {
+          <p class="sidebar-status" role="status"><span class="spinner spinner-sm" aria-hidden="true"></span>Opening workspace…</p>
+        }
+        <button class="btn btn-block new-conversation" (click)="store.newConversation()" [disabled]="store.turnActive()">
+          <pa-icon name="square-pen" [size]="16" />
+          New conversation
+          <span class="kbd" aria-hidden="true">{{ shortcut(keys.newConversation) }}</span>
         </button>
       </div>
 
-      <div class="mode-control">
-        <nav class="mode-toggle" aria-label="Conversation mode" [attr.aria-busy]="store.switchingMode() || store.switchingWorkspace()">
-          <button [class.active-mode]="!store.chatMode()" (click)="store.chatMode() ? store.leaveChat() : null" [disabled]="store.turnActive() || !store.chatMode() || store.switchingMode() || store.switchingWorkspace()">Agente</button>
-          <button [class.active-mode]="store.chatMode()" (click)="store.chatMode() ? null : store.openChat()" [disabled]="store.turnActive() || store.chatMode() || !store.chatHome() || store.switchingMode() || store.switchingWorkspace()">Solo Chat</button>
-        </nav>
-        @if (store.switchingMode() || store.switchingWorkspace()) {
-          <span class="mode-loading" role="status"><span class="spinner" aria-hidden="true"></span>Apertura workspace…</span>
-        }
-      </div>
-
-      <button class="new" (click)="store.newConversation()" [disabled]="store.turnActive()">＋ New conversation</button>
-
-      <section class="panel">
-        <h3>{{ store.chatMode() ? 'Global chats' : 'Workspace' }}</h3>
+      <section class="sidebar-section" aria-labelledby="workspace-label">
+        <h2 class="section-label" id="workspace-label">{{ store.chatMode() ? 'Chat' : 'Workspace' }}</h2>
         @if (store.chatMode()) {
-          <div class="chat-mode" [title]="store.chatHome() + ' · The model reads only attachments and cannot edit or run anything.'">
-            <span class="folder">💬</span>
-            <span class="path">Saved globally · no project workspace</span>
+          <div class="workspace-row" [paTooltip]="'Saved in ' + store.chatHome()">
+            <pa-icon name="lock" [size]="16" />
+            <span class="workspace-text">
+              <span class="workspace-name">No workspace</span>
+              <span class="workspace-path truncate">read-only · saved globally</span>
+            </span>
           </div>
         } @else {
-          <button class="workspace" (click)="store.chooseWorkspace()" [title]="store.workspace()" [disabled]="store.switchingMode() || store.switchingWorkspace()">
-            <span class="folder">🗂</span>
-            <span class="path">{{ short(store.workspace()) }}</span>
+          <button
+            class="workspace-row"
+            (click)="store.chooseWorkspace()"
+            [disabled]="switching()"
+            [paTooltip]="store.workspace() || 'Choose a folder'"
+            aria-label="Change workspace folder"
+          >
+            <pa-icon name="folder" [size]="16" />
+            <span class="workspace-text">
+              <span class="workspace-name truncate">{{ folderName() }}</span>
+              <span class="workspace-path truncate">{{ folderParent() }}</span>
+            </span>
+            <pa-icon class="workspace-change" name="chevron-right" [size]="16" />
           </button>
         }
       </section>
 
-      <section class="panel sessions">
-        <h3>Conversations</h3>
-        @for (session of store.sessions(); track session.sessionId) {
-          <div class="session-row" [class.current]="session.sessionId === store.sessionId()">
-            <button class="session" (click)="store.resume(session.sessionId)" [disabled]="store.turnActive()">
-              <span>{{ session.title || 'Untitled' }}</span>
-              <small>{{ when(session.updatedAt) }}</small>
-            </button>
-            <button class="session-delete" (click)="askDelete(session.sessionId, session.title)" [disabled]="store.turnActive()" [attr.aria-label]="'Elimina chat ' + (session.title || 'senza titolo')" title="Elimina chat">
-              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4.5 4.5 15.5 15.5M15.5 4.5 4.5 15.5" /></svg>
-            </button>
-          </div>
-        } @empty {
-          <p class="muted">No conversations yet.</p>
-        }
-        @if (deleteError()) { <p class="warn">{{ deleteError() }}</p> }
+      <section class="sidebar-section sessions" aria-labelledby="sessions-label">
+        <h2 class="section-label" id="sessions-label">Conversations</h2>
+        <ul class="session-list">
+          @for (session of store.sessions(); track session.sessionId) {
+            <li class="session-row" [class.is-current]="session.sessionId === store.sessionId()">
+              <button
+                class="session"
+                (click)="store.resume(session.sessionId)"
+                (keydown.delete)="askDelete(session.sessionId, session.title)"
+                (keydown.backspace)="$any($event).metaKey && askDelete(session.sessionId, session.title)"
+                [disabled]="store.turnActive()"
+                [attr.aria-current]="session.sessionId === store.sessionId() ? 'page' : null"
+                [attr.title]="session.title || 'Untitled'"
+              >
+                <span class="session-title truncate">{{ session.title || 'Untitled' }}</span>
+                <span class="session-meta">{{ date(session.updatedAt) }}</span>
+              </button>
+              <button
+                class="icon-btn icon-btn-sm icon-btn-danger session-delete"
+                (click)="askDelete(session.sessionId, session.title)"
+                [disabled]="store.turnActive()"
+                [attr.aria-label]="'Delete conversation ' + (session.title || 'Untitled')"
+                paTooltip="Delete conversation"
+              >
+                <pa-icon name="trash" [size]="14" />
+              </button>
+            </li>
+          } @empty {
+            <li class="sidebar-empty">No conversations yet.</li>
+          }
+        </ul>
       </section>
 
-    </aside>
-    <div class="resize-handle resize-handle-left" role="separator" aria-label="Ridimensiona barra laterale sinistra" aria-orientation="vertical" [attr.aria-valuenow]="width" aria-valuemin="230" aria-valuemax="500" tabindex="0" (pointerdown)="startResize($event)" (pointermove)="moveResize($event)" (pointerup)="endResize($event)" (pointercancel)="endResize($event)" (keydown)="resizeByKey($event)"></div>
-    @if (pendingDelete(); as session) {
-      <div class="scrim">
-        <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-chat-title" aria-describedby="delete-chat-description">
-          <span class="shield delete-shield" aria-hidden="true">×</span>
-          <h2 id="delete-chat-title">Eliminare questa chat?</h2>
-          <p class="asked">{{ session.title || 'Chat senza titolo' }}</p>
-          <p id="delete-chat-description" class="muted">La chat scomparirà dalla cronologia e non potrà essere riaperta. I file del workspace restano invariati; gli eventi rimangono nel registro di audit.</p>
-          @if (deleteError()) { <p class="warn">{{ deleteError() }}</p> }
-          <div class="choices">
-            <button class="ghost" (click)="cancelDelete()" [disabled]="deleting()">Annulla</button>
-            <button class="danger" (click)="confirmDelete()" [disabled]="deleting() || store.turnActive()">{{ deleting() ? 'Eliminazione…' : 'Elimina chat' }}</button>
-          </div>
-        </div>
-      </div>
+      <footer class="sidebar-foot">
+        <span class="core-status" [paTooltip]="coreDetail()">
+          <span class="dot" [class]="'dot ' + coreDot()" aria-hidden="true"></span>
+          <span class="truncate">{{ coreLabel() }}</span>
+        </span>
+        <span class="spacer"></span>
+        <button
+          class="icon-btn icon-btn-sm"
+          (click)="ui.paletteOpen.set(true)"
+          aria-label="Commands"
+          paTooltip="Commands"
+          [paTooltipKeys]="keys.palette"
+        >
+          <pa-icon name="command" [size]="16" />
+        </button>
+        <button
+          class="icon-btn icon-btn-sm"
+          (click)="ui.settingsOpen.set(true)"
+          aria-label="Settings"
+          paTooltip="Settings"
+          [paTooltipKeys]="keys.settings"
+        >
+          <pa-icon name="settings" [size]="16" />
+        </button>
+      </footer>
+    </nav>
+    @if (layout.left() === 'docked') {
+      <pa-resize-handle
+        edge="right"
+        label="Resize sidebar"
+        [width]="layout.leftWidth()"
+        [min]="bounds.min"
+        [max]="bounds.max"
+        [initial]="bounds.initial"
+        (resize)="layout.setLeftWidth($event)"
+      />
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[class.collapsed]': 'collapsed()' },
 })
-export class Sidebar {
-  protected readonly store = inject(AgentStore);
-  private autoCollapsed = typeof window !== 'undefined' && window.innerWidth <= 860;
-  protected readonly collapsed = signal(this.autoCollapsed);
-  protected readonly deleteError = signal('');
-  protected readonly pendingDelete = signal<{ sessionId: string; title: string } | null>(null);
-  protected readonly deleting = signal(false);
-  @Input() width = 272;
-  @Output() widthChange = new EventEmitter<number>();
-  private drag: { pointerId: number; x: number; width: number } | null = null;
+export class Sidebar extends Navigation {
+  private readonly confirm = inject(ConfirmService);
+  private readonly toast = inject(ToastService);
+  protected readonly bounds = LEFT;
+  protected readonly date = shortDate;
 
-  protected toggleCollapsed(): void { this.collapsed.update((value) => !value); }
+  protected readonly switching = computed(() => this.store.switchingMode() || this.store.switchingWorkspace());
+  protected readonly modeLocked = computed(() => this.store.turnActive() || this.switching());
 
-  @HostListener('window:resize')
-  protected syncWindowWidth(): void {
-    const compact = window.innerWidth <= 860;
-    if (compact !== this.autoCollapsed) {
-      this.autoCollapsed = compact;
-      this.collapsed.set(compact);
-    }
+  protected readonly folderName = computed(() => {
+    const parts = this.store.workspace().split(/[\\/]/).filter(Boolean);
+    return parts.pop() ?? 'Choose a folder';
+  });
+
+  protected readonly folderParent = computed(() => {
+    const path = this.store.workspace();
+    if (!path) return 'no folder open';
+    const parts = path.split(/[\\/]/).filter(Boolean);
+    parts.pop();
+    const parent = parts.length > 2 ? '…/' + parts.slice(-2).join('/') : '/' + parts.join('/');
+    return parent.replace(/^\/Users\/[^/]+/, '~');
+  });
+
+  protected readonly coreLabel = computed(
+    () =>
+      ({ starting: 'Starting core…', ready: 'Core ready', stopped: 'Core stopped', error: 'Core unavailable' })[
+        this.store.coreState()
+      ],
+  );
+  protected readonly coreDot = computed(
+    () =>
+      ({ starting: 'dot-warning dot-live', ready: 'dot-success', stopped: 'dot-danger', error: 'dot-danger' })[
+        this.store.coreState()
+      ],
+  );
+  protected readonly coreDetail = computed(() => this.store.corePath() || this.coreLabel());
+
+  protected useAgent(): void {
+    if (this.store.chatMode()) void this.store.leaveChat();
   }
 
-  protected askDelete(sessionId: string, title: string): void {
-    this.deleteError.set('');
-    this.pendingDelete.set({ sessionId, title });
+  protected useChat(): void {
+    if (!this.store.chatMode()) void this.store.openChat();
   }
 
-  protected cancelDelete(): void {
-    if (!this.deleting()) this.pendingDelete.set(null);
-  }
-
-  @HostListener('document:keydown.escape')
-  protected escapeDelete(): void { this.cancelDelete(); }
-
-  protected async confirmDelete(): Promise<void> {
-    const session = this.pendingDelete();
-    if (!session || this.deleting() || this.store.turnActive()) return;
-    this.deleting.set(true);
-    try {
-      await this.store.deleteConversation(session.sessionId);
-      this.deleteError.set('');
-      this.pendingDelete.set(null);
-    } catch (error) {
-      this.deleteError.set(String(error));
-    } finally {
-      this.deleting.set(false);
-    }
-  }
-
-  protected startResize(event: PointerEvent): void {
-    this.drag = { pointerId: event.pointerId, x: event.clientX, width: this.width };
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  /** Arrow keys switch mode, as in any radio group. */
+  protected modeKeys(event: KeyboardEvent): void {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
     event.preventDefault();
+    if (this.modeLocked()) return;
+    if (this.store.chatMode()) this.useAgent();
+    else this.useChat();
   }
 
-  protected moveResize(event: PointerEvent): void {
-    if (!this.drag || this.drag.pointerId !== event.pointerId) return;
-    this.widthChange.emit(this.clampWidth(this.drag.width + event.clientX - this.drag.x));
+  protected async askDelete(sessionId: string, title: string): Promise<void> {
+    if (this.store.turnActive()) return;
+    const deleted = await this.confirm.ask({
+      title: 'Delete this conversation?',
+      message:
+        'It disappears from the history and cannot be reopened. Workspace files are unchanged; its events stay in the audit log.',
+      subject: title || 'Untitled',
+      subjectIsText: true,
+      confirmLabel: 'Delete conversation',
+      tone: 'danger',
+      action: () => this.store.deleteConversation(sessionId),
+    });
+    if (deleted) this.toast.show('Conversation deleted', 'success');
   }
+}
 
-  protected endResize(event: PointerEvent): void {
-    if (this.drag?.pointerId !== event.pointerId) return;
-    this.drag = null;
-    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-  }
-
-  protected resizeByKey(event: KeyboardEvent): void {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    this.widthChange.emit(this.clampWidth(this.width + (event.key === 'ArrowRight' ? 16 : -16)));
-    event.preventDefault();
-  }
-
-  private clampWidth(width: number): number {
-    const right = document.querySelector('pa-inspector')?.getBoundingClientRect().width ?? 48;
-    return Math.max(230, Math.min(500, window.innerWidth - right - 540, width));
-  }
-
-  protected short(path: string): string {
-    const parts = path.split('/').filter(Boolean);
-    return parts.length > 2 ? '…/' + parts.slice(-2).join('/') : path || 'Choose a folder';
-  }
-
-  protected when(value: string): string {
-    const date = new Date(value);
-    return isNaN(date.getTime()) ? '' : date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+/** The collapsed navigation: icons only, with tooltips. */
+@Component({
+  selector: 'pa-rail',
+  imports: [Icon, Tooltip],
+  template: `
+    <nav class="rail" aria-label="Navigation" (keydown)="rove($event)">
+      <div class="rail-head titlebar-row" data-tauri-drag-region="deep">
+        <img class="brand-mark" src="/pwr-mark-96.png" alt="" width="22" height="22" />
+      </div>
+      <button
+        class="icon-btn"
+        (click)="layout.toggleLeft()"
+        [attr.aria-expanded]="layout.left() === 'overlay'"
+        aria-label="Show sidebar"
+        paTooltip="Show sidebar"
+        [paTooltipKeys]="keys.toggleSidebar"
+      >
+        <pa-icon name="panel-left" />
+      </button>
+      <button
+        class="icon-btn"
+        (click)="store.newConversation()"
+        [disabled]="store.turnActive()"
+        aria-label="New conversation"
+        paTooltip="New conversation"
+        [paTooltipKeys]="keys.newConversation"
+      >
+        <pa-icon name="square-pen" />
+      </button>
+      <span class="spacer"></span>
+      <button
+        class="icon-btn"
+        (click)="ui.paletteOpen.set(true)"
+        aria-label="Commands"
+        paTooltip="Commands"
+        [paTooltipKeys]="keys.palette"
+      >
+        <pa-icon name="command" />
+      </button>
+      <button
+        class="icon-btn"
+        (click)="ui.settingsOpen.set(true)"
+        aria-label="Settings"
+        paTooltip="Settings"
+        [paTooltipKeys]="keys.settings"
+      >
+        <pa-icon name="settings" />
+      </button>
+    </nav>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class Rail extends Navigation {
+  protected rove(event: KeyboardEvent): void {
+    roveFocus(event, event.currentTarget as HTMLElement, 'button');
   }
 }

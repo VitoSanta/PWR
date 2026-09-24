@@ -12,115 +12,179 @@ import {
 import { UnlistenFn } from '@tauri-apps/api/event';
 import { AgentStore } from '../core/agent.store';
 import { inTauri } from '../core/bridge';
+import { roveFocus } from '../core/ui';
 import { fileKind } from './conversation';
+import { Icon } from './kit/icon';
+import { Popover } from './kit/popover';
+import { Tooltip } from './kit/tooltip';
 
 const MIN_HEIGHT = 40;
 const MAX_HEIGHT = 260;
 
 @Component({
   selector: 'pa-composer',
+  imports: [Icon, Tooltip, Popover],
   template: `
     <form
       class="composer"
       [class.busy]="store.turnActive()"
       [class.dropping]="dropping()"
       (submit)="$event.preventDefault(); submit()"
+      aria-label="Message"
     >
       @if (dropping()) {
-        <div class="drop-hint">Drop files or folders to attach</div>
+        <div class="drop-hint" aria-hidden="true"><pa-icon name="paperclip" [size]="16" /> Drop files or folders to attach</div>
       }
       @if (store.queue().length) {
-        <div class="queue">
+        <ol class="queue" aria-label="Queued messages">
           @for (queued of store.queue(); track $index; let index = $index) {
-            <div class="queued">
-              <span class="queued-badge">{{ index + 1 }}</span>
+            <li class="queued" animate.enter="anim-pop-in">
+              <span class="queued-badge num">{{ index + 1 }}</span>
               <span class="queued-text">{{ queued }}</span>
               @if (store.turnActive()) {
-                <button type="button" class="queued-now" (click)="store.steerNow(index)" title="Deliver now, between the model's next two actions">↳ now</button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  (click)="store.steerNow(index)"
+                  paTooltip="Deliver now, between the model's next two actions"
+                >
+                  <pa-icon name="corner-down-right" [size]="14" /> Send now
+                </button>
               }
-              <button type="button" class="queued-remove" (click)="store.unqueue(index)" aria-label="Remove">×</button>
-            </div>
+              <button type="button" class="icon-btn icon-btn-sm" (click)="store.unqueue(index)" aria-label="Remove queued message" paTooltip="Remove">
+                <pa-icon name="x" [size]="14" />
+              </button>
+            </li>
           }
-        </div>
+        </ol>
       }
       @if (hasImage() && !store.modelSees()) {
-        <div class="notice-line">
+        <div class="composer-note" role="alert">
+          <pa-icon name="alert" [size]="14" />
           This model cannot see images, so a message with one is refused. Choose a model marked
-          "sees images", or describe the image in words.
+          “sees images”, or describe the image in words.
         </div>
       }
       @if (store.attachments().length) {
-        <div class="attachments">
+        <ul class="attachments" aria-label="Attachments">
           @for (path of store.attachments(); track path) {
-            <div class="attachment" [class]="'attachment ' + kind(path).tone" [title]="path">
-              <span class="attachment-icon">{{ kind(path).glyph }}</span>
+            <li class="attachment" [class]="'attachment tone-' + kind(path).tone" [attr.title]="path" animate.enter="anim-pop-in">
+              <span class="attachment-icon"><pa-icon [name]="kind(path).icon" [size]="16" /></span>
               <span class="attachment-text">
                 <strong>{{ name(path) }}</strong>
                 <small>{{ kind(path).label }}{{ kind(path).tone === 'folder' ? ' · read-only reference' : '' }}</small>
               </span>
-              <button type="button" (click)="store.detach(path)" aria-label="Remove">×</button>
-            </div>
+              <button type="button" class="icon-btn icon-btn-sm" (click)="store.detach(path)" [attr.aria-label]="'Remove ' + name(path)">
+                <pa-icon name="x" [size]="14" />
+              </button>
+            </li>
           }
-        </div>
+        </ul>
       }
       <textarea
         #box
+        class="composer-input"
         [value]="draft()"
         (input)="onInput(box)"
         (keydown.enter)="onEnter($event)"
-        [placeholder]="store.turnActive() ? 'Write the next message — it is queued until this turn ends…' : store.chatMode() ? 'Ask anything — attach files, folders or images for it to read…' : 'Ask PWR to build, fix or explain something…'"
+        [placeholder]="placeholder()"
+        aria-label="Message"
         rows="1"
       ></textarea>
       <div class="composer-bar">
-        <div class="attach-wrap">
-          <button type="button" class="icon-button" (click)="attachmentMenu.update((open) => !open)" [attr.aria-expanded]="attachmentMenu()" aria-label="Aggiungi allegato" title="Aggiungi immagini, file o cartelle">＋</button>
-          @if (attachmentMenu()) {
-            <div class="attach-menu" role="group" aria-label="Tipo di allegato">
-              <button type="button" (click)="attach('images')">Immagini</button>
-              <button type="button" (click)="attach('files')">File</button>
-              <button type="button" (click)="attach('folder')">Cartella</button>
-            </div>
-          }
-        </div>
-        @if (!store.chatMode()) {
         <button
+          #attachButton
           type="button"
-          class="toggle"
-          [class.on]="store.goalMode()"
-          (click)="store.goalMode.set(!store.goalMode())"
-          title="Keep working across check-ins until the goal is verified"
+          class="icon-btn"
+          (click)="attachmentMenu.update((open) => !open)"
+          [attr.aria-expanded]="attachmentMenu()"
+          aria-haspopup="menu"
+          aria-label="Attach"
+          paTooltip="Attach images, files or a folder"
         >
-          <span class="knob"></span> Goal
+          <pa-icon name="plus" />
         </button>
-        <button
-          type="button"
-          class="toggle permissions"
-          [class.on]="store.permissionMode() === 'auto'"
-          [class.auto]="store.permissionMode() === 'auto'"
-          (click)="store.setPermissionMode(store.permissionMode() === 'auto' ? 'ask' : 'auto')"
-          [attr.aria-pressed]="store.permissionMode() === 'auto'"
-          [title]="store.permissionMode() === 'auto'
-            ? 'On: every permission granted, nothing is asked. The sandbox still confines writes to the workspace.'
-            : 'Off: PWR asks before changing dependencies, reaching the network, installing toolchains, rewriting history or publishing.'"
-        >
-          <!-- One label whatever the state, as for Goal: the knob says whether
+        @if (attachmentMenu()) {
+          <pa-popover
+            [anchor]="attachButton"
+            side="top"
+            anchorAlign="start"
+            panelRole="menu"
+            ariaLabel="Attach"
+            [focusFirst]="true"
+            (closed)="attachmentMenu.set(false)"
+            (keydown)="menuKeys($event)"
+            class="menu"
+            animate.leave="anim-pop-out"
+          >
+            <button type="button" class="menu-item" role="menuitem" (click)="attach('images')">
+              <pa-icon name="image" [size]="16" /> Images
+            </button>
+            <button type="button" class="menu-item" role="menuitem" (click)="attach('files')">
+              <pa-icon name="file" [size]="16" /> Files
+            </button>
+            <button type="button" class="menu-item" role="menuitem" (click)="attach('folder')">
+              <pa-icon name="folder" [size]="16" /> Folder <span class="menu-hint">read-only</span>
+            </button>
+          </pa-popover>
+        }
+        @if (!store.chatMode()) {
+          <button
+            type="button"
+            class="toggle-chip"
+            [attr.aria-pressed]="store.goalMode()"
+            (click)="store.goalMode.set(!store.goalMode())"
+            paTooltip="Keep working across check-ins until the goal is verified"
+          >
+            <span class="switch" aria-hidden="true"></span> Goal
+          </button>
+          <!-- One label whatever the state, as for Goal: the switch says whether
                approval is automatic. A switch that read "Ask" with its knob off
                was read as "asking is off" (2026-09-23). -->
-          <span class="knob"></span> Auto-approve
-        </button>
+          <button
+            type="button"
+            class="toggle-chip tone-warning"
+            [attr.aria-pressed]="store.permissionMode() === 'auto'"
+            (click)="store.setPermissionMode(store.permissionMode() === 'auto' ? 'ask' : 'auto')"
+            [paTooltip]="store.permissionMode() === 'auto'
+              ? 'On: every permission granted, nothing is asked. The sandbox still confines writes to the workspace.'
+              : 'Off: PWR asks before changing dependencies, reaching the network, installing toolchains, rewriting history or publishing.'"
+          >
+            <span class="switch" aria-hidden="true"></span> Auto-approve
+          </button>
+          @if (!store.sandboxed()) {
+            <span
+              class="composer-warning"
+              paTooltip="This platform has no sandbox adapter: commands the model runs are not confined to the workspace."
+              tabindex="0"
+            >
+              <pa-icon name="alert" [size]="14" /> Not sandboxed
+            </span>
+          }
         } @else {
-          <span class="chat-note" title="Chat mode: the model reads what you attach and cannot edit files or run commands.">Chat · read-only</span>
-        }
-        @if (!store.chatMode() && !store.sandboxed()) {
-          <span class="unconfined" title="This platform has no sandbox adapter: commands the model runs are not confined to the workspace.">⚠ commands not sandboxed</span>
+          <span class="badge badge-outline" paTooltip="Chat mode: the model reads what you attach and cannot edit files or run commands.">
+            <pa-icon name="lock" [size]="12" /> Read-only chat
+          </span>
         }
         <span class="spacer"></span>
-        <span class="hint">↵ send · ⇧↵ new line</span>
+        <span class="composer-hint" aria-hidden="true"><span class="kbd">↵</span> send <span class="kbd">⇧↵</span> new line</span>
         @if (store.turnActive()) {
-          <button type="button" class="round stop" (click)="store.cancel()" title="Stop">■</button>
-          <button type="submit" class="round send" [disabled]="!draft().trim()" title="Queue for when this turn ends">⇥</button>
+          <button type="button" class="icon-btn icon-btn-outline composer-stop" (click)="store.cancel()" aria-label="Stop" paTooltip="Stop this turn">
+            <pa-icon name="stop" [size]="16" />
+          </button>
+          <button type="submit" class="composer-send" [disabled]="!draft().trim()" aria-label="Queue message" paTooltip="Queue for when this turn ends">
+            <pa-icon name="list-plus" [size]="16" />
+          </button>
         } @else {
-          <button type="submit" class="round send" [disabled]="!draft().trim() || !store.model()" title="Send">↑</button>
+          <button
+            type="submit"
+            class="composer-send"
+            [disabled]="!draft().trim() || !store.model()"
+            aria-label="Send"
+            [paTooltip]="store.model() ? 'Send' : 'Choose a model first'"
+          >
+            <pa-icon name="arrow-up" [size]="16" [stroke]="2" />
+          </button>
         }
       </div>
     </form>
@@ -138,13 +202,15 @@ export class Composer implements OnInit, OnDestroy {
     else void this.store.attachFolder();
   }
 
-  @HostListener('document:pointerdown', ['$event'])
-  protected closeAttachmentMenu(event: PointerEvent): void {
-    if (!(event.target as Element).closest('.attach-wrap')) this.attachmentMenu.set(false);
+  protected menuKeys(event: KeyboardEvent): void {
+    roveFocus(event, event.currentTarget as HTMLElement, '[role=menuitem]');
   }
 
-  @HostListener('document:keydown.escape')
-  protected escapeAttachmentMenu(): void { this.attachmentMenu.set(false); }
+  protected placeholder(): string {
+    if (this.store.turnActive()) return 'Write the next message — it is queued until this turn ends…';
+    if (this.store.chatMode()) return 'Ask anything — attach files, folders or images for it to read…';
+    return 'Ask PWR to build, fix or explain something…';
+  }
   protected readonly draft = signal('');
   protected readonly dropping = signal(false);
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
@@ -168,6 +234,11 @@ export class Composer implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.unlisten?.();
+  }
+
+  @HostListener('window:resize')
+  protected refit(): void {
+    this.grow(this.box().nativeElement);
   }
 
   protected onInput(box: HTMLTextAreaElement): void {
@@ -200,9 +271,12 @@ export class Composer implements OnInit, OnDestroy {
    */
   private grow(box: HTMLTextAreaElement): void {
     box.style.height = 'auto';
+    // In a short window the box stops growing sooner, so the conversation
+    // above it always keeps room.
+    const max = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(window.innerHeight * 0.3)));
     const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
-    box.style.height = `${Math.min(wanted, MAX_HEIGHT)}px`;
-    box.style.overflowY = wanted > MAX_HEIGHT ? 'auto' : 'hidden';
+    box.style.height = `${Math.min(wanted, max)}px`;
+    box.style.overflowY = wanted > max ? 'auto' : 'hidden';
   }
 
   /** Whether an attachment is an image, which only a vision model could use. */
