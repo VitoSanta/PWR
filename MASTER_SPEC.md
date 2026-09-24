@@ -55,9 +55,12 @@ Two different lists follow, and running them together is how a sequencing decisi
 
 **Not what PWR is:** a chat skin over someone else's model runtime, autocomplete, a model trainer, a claim that small weights equal frontier models, a benchmark leaderboard optimized for one toy corpus, or a general SaaS platform. These do not become goals later.
 
-**Not yet, and deliberately:** a mandatory vector database, a multi-agent swarm, model downloading, a cloud dependency, a plugin market, a distributed scheduler. Browser and computer control, network research tools and MCP adapters are on the intended path and are sequenced behind the first research milestone, because a capability admitted before the coding loop can be measured cannot be told from one that helped. The order is an evidence gate; it is not a statement about what the agent is allowed to touch. Local data and traces stay local by default; any external inference or network tool is an explicit disclosure and access decision, which is a matter of the user knowing and consenting rather than of the capability being withheld.
+**Not yet, and deliberately:** a mandatory vector database, a multi-agent swarm, a cloud dependency, a plugin market, a distributed scheduler. Browser and computer control, network research tools and MCP adapters are on the intended path and are sequenced behind the first research milestone, because a capability admitted before the coding loop can be measured cannot be told from one that helped. The order is an evidence gate; it is not a statement about what the agent is allowed to touch. Local data and traces stay local by default; any external inference or network tool is an explicit disclosure and access decision, which is a matter of the user knowing and consenting rather than of the capability being withheld.
 
 Full legitimate machine access is the destination stated above, not a concession. It requires explicit scopes for paths, commands, network, applications and credentials, with observable policy decisions and practical recovery. Existing macOS confinement remains until replacement is validated. No promise of universal rollback: network effects, package scripts and external application actions may be irreversible.
+
+
+> **Amended 2026-09-24.** Model downloading left the "not yet" list: the app's Model Manager and `pwr models download` fetch checksum-verified models from the Hugging Face Hub at the person's request (see [models-and-context.md](docs/models-and-context.md)). The first public release, 0.1.0, is for macOS on Apple silicon only; Windows remains the product's second platform and is not built yet (backlog E.1, E.2). On a Mac the app runs the MLX engine alone; llama.cpp is kept for Windows.
 
 ## Evidence vocabulary and authority
 
