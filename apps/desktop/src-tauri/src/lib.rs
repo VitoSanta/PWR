@@ -326,6 +326,35 @@ fn restore_workspace_file(workspace: String, path: String, content: String, remo
     Ok(())
 }
 
+/// Opens a web page in the person's browser. Only http(s): the interface
+/// links to the Hub and to what models write, never to local files or apps.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let parsed = url.trim();
+    let scheme = parsed.split_once("://").map(|(scheme, _)| scheme.to_ascii_lowercase());
+    if !matches!(scheme.as_deref(), Some("http" | "https")) || parsed.chars().any(char::is_control) {
+        return Err(format!("Not a web address: {parsed}"));
+    }
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = Command::new("xdg-open");
+    command
+        .arg(parsed)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("could not open the browser: {error}"))
+}
+
 #[tauri::command]
 fn core_stop(core: State<'_, Core>) {
     if let Ok(mut guard) = core.0.lock() {
@@ -360,6 +389,7 @@ pub fn run() {
             core_send,
             restore_workspace_file,
             core_stop,
+            open_external,
             engine::engine_status,
             engine::engine_install,
             engine::engine_cancel

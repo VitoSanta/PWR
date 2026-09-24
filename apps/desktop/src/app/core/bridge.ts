@@ -25,6 +25,7 @@ export const bridge = {
   restoreFile: (workspace: string, path: string, content: string, remove: boolean) =>
     invoke<void>('restore_workspace_file', { workspace, path, content, remove }),
   stop: () => invoke<void>('core_stop'),
+  openExternal: (url: string) => invoke<void>('open_external', { url }),
   engineStatus: () => invoke<EngineStatus>('engine_status'),
   engineInstall: () => invoke<void>('engine_install'),
   engineCancel: () => invoke<void>('engine_cancel'),

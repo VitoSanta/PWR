@@ -10041,7 +10041,7 @@ async fn download_from_hub(
             })?;
     let preflight = download_preflight(&plan)?;
     let outcomes =
-        pwr_models::download::download(hub.http(), &plan, hub.token(), progress, stop).await?;
+        pwr_models::download::download(hub.transfer(), &plan, hub.token(), progress, stop).await?;
     let model_ref = match format {
         Format::Mlx => repository.to_owned(),
         Format::Gguf => format!("{repository}/{variant}"),

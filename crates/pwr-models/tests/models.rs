@@ -599,6 +599,69 @@ fn a_part_file_is_resumed_and_a_wrong_file_is_never_overwritten() {
     assert!(download::preflight(&plan, u64::MAX).is_err());
 }
 
+/// Like `serve`, but the first response promises the whole payload and
+/// hangs up after `cut` bytes: a connection dropped in the middle of a file.
+fn serve_dropping_once(payload: Vec<u8>, cut: usize) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for (index, stream) in listener.incoming().take(2).enumerate() {
+            let mut stream = stream.unwrap();
+            let mut request = [0_u8; 4096];
+            let read = stream.read(&mut request).unwrap_or(0);
+            let text = String::from_utf8_lossy(&request[..read]).to_ascii_lowercase();
+            let start = text
+                .lines()
+                .find_map(|line| line.strip_prefix("range: bytes="))
+                .and_then(|range| range.trim().trim_end_matches('-').parse::<usize>().ok());
+            if index == 0 {
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    payload.len()
+                );
+                let _ = stream.write_all(&payload[..cut]);
+                continue;
+            }
+            let start = start.unwrap_or(0);
+            let _ = write!(
+                stream,
+                "HTTP/1.1 206 Partial Content\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                payload.len() - start
+            );
+            let _ = stream.write_all(&payload[start..]);
+        }
+    });
+    format!("http://{address}/file")
+}
+
+#[test]
+fn a_transfer_dropped_midway_resumes_by_itself_and_completes() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload: Vec<u8> = (0..200_000_u32).map(|i| (i % 251) as u8).collect();
+    let plan = plan_of(
+        dir.path(),
+        vec![(
+            "model.safetensors",
+            &payload,
+            serve_dropping_once(payload.clone(), 70_000),
+            true,
+        )],
+    );
+    let (result, state) = run(&plan);
+    assert_eq!(result.unwrap()[0].status, "downloaded");
+    assert_eq!(
+        state,
+        DownloadState::Completed {
+            total: plan.total_bytes()
+        }
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("model.safetensors")).unwrap(),
+        payload
+    );
+}
+
 #[test]
 fn corrupted_bytes_fail_verification_and_are_not_kept() {
     let dir = tempfile::tempdir().unwrap();

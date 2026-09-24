@@ -1053,13 +1053,31 @@ impl<R: TurnRunner + 'static> Server<R> {
             None,
         ));
         tokio::task::spawn_local(async move {
+            // The state advances on every chunk; the client hears of it a few
+            // times a second. One notification per chunk was thousands a
+            // second at full speed, which a window in the background (App
+            // Nap) could not drain.
+            let mut reported: Option<(std::time::Instant, String, String)> = None;
             let progress: DownloadProgress = Box::new(move |event| {
                 let next = progress_state
                     .borrow()
                     .clone()
                     .on(&DownloadEvent::Progress(event.clone()));
                 *progress_state.borrow_mut() = next.clone();
-                progress_server.send(download_notification(&progress_id, &next, Some(event)));
+                let phase = format!("{:?}", event.phase);
+                let due = match &reported {
+                    None => true,
+                    Some((at, last_phase, last_file)) => {
+                        at.elapsed() >= PROGRESS_INTERVAL
+                            || *last_phase != phase
+                            || *last_file != event.file
+                            || event.file_bytes >= event.file_total
+                    }
+                };
+                if due {
+                    reported = Some((std::time::Instant::now(), phase, event.file.clone()));
+                    progress_server.send(download_notification(&progress_id, &next, Some(event)));
+                }
             });
             let cancelled = Arc::clone(&stop);
             let outcome = tokio::select! {
@@ -1942,6 +1960,9 @@ impl<R: TurnRunner + 'static> Server<R> {
         self.send(reply);
     }
 }
+
+/// The most often a running download is reported to the client.
+const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// A download's state, as `_pwr/download_progress` carries it.
 fn download_notification(
