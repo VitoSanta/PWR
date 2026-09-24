@@ -1,0 +1,651 @@
+{
+	"name": "external-v2",
+	"tasks": [
+		{
+			"id": "pyparsing-iadd-non-results",
+			"kind": "bugfix",
+			"statement": "In pyparsing, `results + [1]` on a ParseResults raises a clean TypeError, but `results += [1]` or `results += 1` fails with an AttributeError about a private attribute instead. The in-place form should raise TypeError the same way the ordinary `+` does, and `+=` with another ParseResults must keep working.",
+			"allowed_files": [
+				"pyparsing/results.py"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/pyparsing/pyparsing.git",
+				"commit": "d3388aaf5c60d1069b7294a743ccd0e7c87a1d1d",
+				"fix_commit": "b0e277721f36ccc701ac0e4d3693f0ec00baf4c1",
+				"fix_committed_at": "2026-08-01T15:56:56-05:00",
+				"tree_hash": "346d1cfe27fed49070426d4020f197e27533903b",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-m",
+					"unittest",
+					"tests.test_unit",
+					"tests.test_simple_unit",
+					"-q"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The regression assertions pyparsing b0e2777 added to tests/test_unit.py, run standalone.\"\"\"\nimport unittest\n\nimport pyparsing as pp\n\n\nclass InPlaceAddGuard(unittest.TestCase):\n    def test_non_parse_results_operands_raise_type_error(self):\n        pr_iadd = pp.ParseResults([\"a\", \"b\"])\n        with self.assertRaises(TypeError):\n            pr_iadd += 1\n        with self.assertRaises(TypeError):\n            pr_iadd += [\"extra\"]\n        pr_iadd += pp.ParseResults([\"c\"])\n        self.assertEqual([\"a\", \"b\", \"c\"], list(pr_iadd))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "pyparsing b0e2777, committed 2026-08-01. Workspace is its parent; the hidden test is the assertions that commit added to tests/test_unit.py, run standalone. The statement gives no file. Not written or adapted by poorAI beyond extraction."
+		},
+		{
+			"id": "pyparsing-quotedstring-whitespace-delimiter",
+			"kind": "bugfix",
+			"statement": "pyparsing's QuotedString silently changes a multi-character delimiter that contains whitespace. With default whitespace characters cleared, `QuotedString(\"\\n;\", multiline=True)` behaves as if the delimiter were just `;`, so the newline is ignored and matches start and end in the wrong places. Whitespace that is part of a valid delimiter must be preserved. An empty or all-whitespace `quote_char` or `end_quote_char` must still be rejected with ValueError.",
+			"allowed_files": [
+				"pyparsing/core.py"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/pyparsing/pyparsing.git",
+				"commit": "d3388aaf5c60d1069b7294a743ccd0e7c87a1d1d",
+				"fix_commit": "59b167db1ba364422e1505e8e112f8447764cd22",
+				"fix_committed_at": "2026-07-25T17:56:54+05:30",
+				"tree_hash": "346d1cfe27fed49070426d4020f197e27533903b",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-m",
+					"unittest",
+					"tests.test_unit",
+					"tests.test_simple_unit",
+					"-q"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The regression test pyparsing 59b167d added (issue #492), run standalone.\"\"\"\nimport unittest\n\nimport pyparsing as pp\nfrom pyparsing import testing as ppt\n\n\nclass QuotedStringWhitespaceDelimiter(ppt.TestParseResultsAsserts, unittest.TestCase):\n    def test_whitespace_in_quote_chars(self):\n        with ppt.reset_pyparsing_context():\n            pp.ParserElement.set_default_whitespace_chars(\"\")\n            newline_quote = pp.QuotedString(\"\\n;\", multiline=True)\n            self.assertParseAndCheckList(newline_quote, \"\\n;Hi \\n mum!\\n;\", [\"Hi \\n mum!\"])\n            self.assertEqual(\n                [[\"Hi \\n mum!\"]],\n                newline_quote.search_string(\"lsjdf \\n;Hi \\n mum!\\n; sldjf\").as_list(),\n            )\n            self.assertEqual(\n                [[\"Hi \\n m;um!\"]],\n                newline_quote.search_string(\"lsjdf \\n;Hi \\n m;um!\\n; sldjf\").as_list(),\n            )\n        for bad_quote in (\"\", \"   \", \"\\n\"):\n            with self.assertRaises(ValueError):\n                pp.QuotedString(bad_quote)\n            with self.assertRaises(ValueError):\n                pp.QuotedString('\"', end_quote_char=bad_quote)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "pyparsing 59b167d, committed 2026-07-25, fixing issue #492. Workspace is its parent; the hidden test is the test that commit added, run standalone. Not written or adapted by poorAI beyond extraction."
+		},
+		{
+			"id": "pyparsing-dict-empty-as-dict",
+			"kind": "bugfix",
+			"statement": "A named pyparsing Dict that matches nothing serialises wrongly. With `parser = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))` and `named = parser.copy()('fubar')`, `named.parse_string('').as_dict()` returns `{'fubar': []}` where it should return `{'fubar': {}}`, because the empty result is still a dictionary. Results that are not dictionaries must keep serialising as lists: an empty named `Group(ZeroOrMore(...))` is still `[]`, and the parsed tokens themselves must not change: `named.parse_string('').as_list()` stays `[[]]`.",
+			"allowed_files": [
+				"pyparsing/core.py",
+				"pyparsing/results.py"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/pyparsing/pyparsing.git",
+				"commit": "6f2fbcbd359fcf0e66038fa7f57470a30d597c59",
+				"fix_commit": "a6ae98ba59b993d0b6d0475e7cb3b0a33c853f22",
+				"fix_committed_at": "2026-08-09T16:51:44-05:00",
+				"tree_hash": "750df3734e25012627fa81d5a9f31ad636be3ae8",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-m",
+					"unittest",
+					"tests.test_unit",
+					"tests.test_simple_unit",
+					"-q"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The regression test pyparsing a6ae98b added, plus two assertions that hold at that commit.\n\nThey pin that a non-dictionary empty result still serialises as a list, and that\nthe parsed tokens are unchanged, which distinguish the fix from turning every\nempty result into {} or from returning a Python dict as the token.\n\"\"\"\nimport unittest\n\nimport pyparsing as pp\n\n\nclass EmptyDictAsDict(unittest.TestCase):\n    def test_empty_dict_returns_dict(self):\n        parser1 = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))\n        parser2 = parser1.copy()(\"fubar\")\n        self.assertEqual({\"foo\": \"bar\"}, parser1.parse_string(\"foo bar\").as_dict())\n        self.assertEqual({\"fubar\": {\"foo\": \"bar\"}}, parser2.parse_string(\"foo bar\").as_dict())\n        self.assertEqual({}, parser1.parse_string(\"\").as_dict())\n        self.assertEqual({\"fubar\": {}}, parser2.parse_string(\"\").as_dict())\n        # The parsed tokens themselves are unchanged by the fix; only their dict form is.\n        self.assertEqual([[]], parser2.parse_string(\"\").as_list())\n\n    def test_an_empty_list_result_is_still_a_list(self):\n        named = pp.Group(pp.ZeroOrMore(pp.Word(pp.alphas)))(\"x\")\n        self.assertEqual({\"x\": []}, named.parse_string(\"\").as_dict())\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "pyparsing a6ae98b, committed 2026-08-09, incorporating PR #635. Workspace is its parent; the hidden test is the test that commit added plus two assertions, verified to hold at that commit: an empty non-dictionary result stays a list, and the empty named Dict's `as_list()` stays `[[]]`. The commit's other changes (removing _modal, a pickling test, a hashability guard) are not part of this task. Not otherwise adapted by poorAI."
+		},
+		{
+			"id": "filenamify-reserved-name-extension",
+			"kind": "bugfix",
+			"statement": "filenamify protects Windows reserved device names only when they have no extension: `filenamify('CON')` gives 'CON!', but `filenamify('CON.txt')` comes back unchanged, and Windows treats `CON.txt` as the device too. A reserved name followed by an extension should get the replacement inserted before the extension: 'CON.txt' becomes 'CON!.txt', 'con.txt' becomes 'con!.txt', 'NUL.tar.gz' becomes 'NUL!.tar.gz', 'COM1.log' becomes 'COM1!.log'. Names that are not reserved keep their current behaviour. The repository's own test currently asserts the old behaviour for names with extensions; that expectation has to change with it.",
+			"allowed_files": [
+				"filenamify.js",
+				"test.js"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/sindresorhus/filenamify.git",
+				"commit": "5f4f97ce51825aa00afb0887a376e8e74be2e9b6",
+				"fix_commit": "faae88038be3f2cde200e280f2f77d9ef333295c",
+				"fix_committed_at": "2026-06-16T22:35:20+02:00",
+				"tree_hash": "0723a644d4e4da58f901fafbc163e0eecbba7425",
+				"setup": [
+					{
+						"executable": "npm",
+						"args": [
+							"install",
+							"--silent",
+							"--no-audit",
+							"--no-fund"
+						]
+					},
+					{
+						"executable": "npm",
+						"args": [
+							"install",
+							"--silent",
+							"--no-audit",
+							"--no-fund",
+							"--no-save",
+							"filename-reserved-regex@4.0.0"
+						]
+					}
+				]
+			},
+			"visible_verifier": {
+				"executable": "npx",
+				"args": [
+					"--no",
+					"ava"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "node",
+				"args": [
+					"hidden_regression.mjs"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.mjs": "// The assertions sindresorhus/filenamify faae880 (#46) changed in test.js, rewritten against node:assert.\nimport assert from 'node:assert/strict';\nimport filenamify from './filenamify.js';\n\nassert.equal(filenamify('CON'), 'CON!');\nassert.equal(filenamify('con'), 'con!');\nassert.equal(filenamify('Com'), 'Com');\nassert.equal(filenamify('CON.txt'), 'CON!.txt');\nassert.equal(filenamify('con.txt'), 'con!.txt');\nassert.equal(filenamify('NUL.tar.gz'), 'NUL!.tar.gz');\nassert.equal(filenamify('COM1.log'), 'COM1!.log');\nassert.equal(filenamify('LPT9.csv'), 'LPT9!.csv');\nassert.equal(filenamify('COM1'), 'COM1!');\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "sindresorhus/filenamify faae880 (#46), committed 2026-06-16. Workspace is its parent; the hidden test carries the assertions that commit changed in test.js's 'Windows reserved names edge cases', rewritten against node:assert so it needs no test runner. Not written or adapted by poorAI beyond that. Setup pins filename-reserved-regex to 4.0.0: npm resolves the declared ^4.0.0 to 4.0.1 today, whose device-name matching fails the repository's own 'Windows reserved names edge cases' test at this commit (measured 2026-09-13); with 4.0.0 the suite passes."
+		},
+		{
+			"id": "filenamify-replacement-spaces-periods",
+			"kind": "bugfix",
+			"statement": "filenamify can return a filename that ends in a space or a period when the replacement string contains one, which Windows does not allow. `filenamify('foo/', {replacement: ' '})` returns 'foo ' and `filenamify('foo/', {replacement: '.'})` returns 'foo.'; both should be 'foo'. Likewise 'foo/' with '- ' should give 'foo-', not 'foo- '. When every character is replaced and only spaces and periods would remain, the result should fall back to '!' ('///' with ' ' or '.' gives '!'); when something else survives, it is kept ('///' with '- ' gives '-'). Spaces and periods inside the name are fine: 'foo/bar' with ' ' is still 'foo bar'. Replacements containing reserved characters such as '<' or '/' must still throw.",
+			"allowed_files": [
+				"filenamify.js"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/sindresorhus/filenamify.git",
+				"commit": "1dca567780ae28a3803acd29b00b7b2c2103bb0a",
+				"fix_commit": "0df0d46127f6a3413b246e67ead491dcf4038b00",
+				"fix_committed_at": "2025-11-05T22:51:28+07:00",
+				"tree_hash": "da61add773b44d050c65e88ee7825ef7bff52bcc",
+				"setup": [
+					{
+						"executable": "npm",
+						"args": [
+							"install",
+							"--silent",
+							"--no-audit",
+							"--no-fund"
+						]
+					},
+					{
+						"executable": "npm",
+						"args": [
+							"install",
+							"--silent",
+							"--no-audit",
+							"--no-fund",
+							"--no-save",
+							"filename-reserved-regex@4.0.0"
+						]
+					}
+				]
+			},
+			"visible_verifier": {
+				"executable": "npx",
+				"args": [
+					"--no",
+					"ava"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "node",
+				"args": [
+					"hidden_regression.mjs"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.mjs": "// The test sindresorhus/filenamify 0df0d46 added for issue #45, rewritten against node:assert.\nimport assert from 'node:assert/strict';\nimport filenamify from './filenamify.js';\n\nconst message = {message: 'Replacement string cannot contain reserved filename characters'};\nassert.throws(() => filenamify('test', {replacement: '<'}), message);\nassert.throws(() => filenamify('test', {replacement: 'a/b'}), message);\n\nassert.equal(filenamify('foo/bar', {replacement: ' '}), 'foo bar');\nassert.equal(filenamify('foo:bar', {replacement: ' '}), 'foo bar');\nassert.equal(filenamify('foo/', {replacement: ' '}), 'foo');\nassert.equal(filenamify('foo<', {replacement: ' '}), 'foo');\nassert.equal(filenamify('///', {replacement: ' '}), '!');\nassert.equal(filenamify('<<<', {replacement: ' '}), '!');\nassert.equal(filenamify('foo/bar', {replacement: '.'}), 'foo.bar');\nassert.equal(filenamify('foo/', {replacement: '.'}), 'foo');\nassert.equal(filenamify('///', {replacement: '.'}), '!');\nassert.equal(filenamify('foo/bar', {replacement: '- '}), 'foo- bar');\nassert.equal(filenamify('foo/', {replacement: '- '}), 'foo-');\nassert.equal(filenamify('///', {replacement: '- '}), '-');\nassert.equal(filenamify('foo/bar', {replacement: '-.'}), 'foo-.bar');\nassert.equal(filenamify('foo/', {replacement: '-.'}), 'foo-');\nassert.equal(filenamify('///', {replacement: '-.'}), '-');\nassert.equal(filenamify('foo/bar', {replacement: 'a b'}), 'fooa bbar');\nassert.equal(filenamify('///', {replacement: 'a b'}), 'a b');\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "sindresorhus/filenamify 0df0d46, committed 2025-11-05, for issue #45. Workspace is its parent; the hidden test carries the assertions of the test that commit added, rewritten against node:assert. The commit also moved truncation into a helper, which this task does not require. Not otherwise adapted by poorAI. Setup pins filename-reserved-regex to 4.0.0: npm resolves the declared ^4.0.0 to 4.0.1 today, whose device-name matching fails the repository's own 'Windows reserved names edge cases' test at this commit (measured 2026-09-13); with 4.0.0 the suite passes."
+		},
+		{
+			"id": "filenamify-replacement-tokens-literal",
+			"kind": "bugfix",
+			"statement": "A replacement string containing `$` is not inserted literally by filenamify. `filenamify('foo/bar', {replacement: '$&'})` should return 'foo$&bar', but the `$&` is interpreted as a special pattern and the matched character comes back instead. The same happens with '$$', '$`' and \"$'\", and with a relative path prefix: `filenamify('../foo', {replacement: '$&'})` should be '$&foo'. Every replacement must be inserted exactly as given.",
+			"allowed_files": [
+				"filenamify.js"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/sindresorhus/filenamify.git",
+				"commit": "d7d50491b3741a2e0f4d0e0b13ef2f4ae31d047a",
+				"fix_commit": "4eb7d0cda1dfd512193a903d22eccf0daa09463b",
+				"fix_committed_at": "2026-08-28T15:20:15+02:00",
+				"tree_hash": "e07f503f20b2773ba6e3592b8bd32a5f203d5425",
+				"setup": [
+					{
+						"executable": "npm",
+						"args": [
+							"install",
+							"--silent",
+							"--no-audit",
+							"--no-fund"
+						]
+					}
+				]
+			},
+			"visible_verifier": {
+				"executable": "npx",
+				"args": [
+					"--no",
+					"ava"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "node",
+				"args": [
+					"hidden_regression.mjs"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.mjs": "// The replacement-token assertions sindresorhus/filenamify 4eb7d0c added to test.js, rewritten against node:assert.\nimport assert from 'node:assert/strict';\nimport filenamify from './filenamify.js';\n\nassert.equal(filenamify('foo/bar', {replacement: '$&'}), 'foo$&bar');\nassert.equal(filenamify('foo/bar', {replacement: '$$'}), 'foo$$bar');\nassert.equal(filenamify('foo/bar', {replacement: '$`'}), 'foo$`bar');\nassert.equal(filenamify('foo/bar', {replacement: \"$'\"}), \"foo$'bar\");\nassert.equal(filenamify('../foo', {replacement: '$&'}), '$&foo');\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "sindresorhus/filenamify 4eb7d0c (#47), committed 2026-08-28. Workspace is its parent; the hidden test is only the 'JavaScript replacement tokens are treated literally' assertions that commit added, rewritten against node:assert. The commit's Windows device-name changes depend on a newer filename-reserved-regex and are not part of this task."
+		},
+		{
+			"id": "tomli-multiline-inline-table",
+			"kind": "feature",
+			"statement": "Add TOML 1.1 multiline inline tables to tomli. An inline table may now span several lines, may contain comments between its entries, and may end with a trailing comma: `a = {b = 1,\\n c = 2}` and `a = {b = 1, c = 2,}` must both parse to `{'a': {'b': 1, 'c': 2}}`, including nested inline tables and arrays inside them. Today both raise TOMLDecodeError. The repository's data-driven tests currently expect this input to be rejected; that expectation is part of what has to change.",
+			"allowed_files": [
+				"src/tomli/_parser.py",
+				"tests/test_data.py"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/hukkin/tomli.git",
+				"commit": "38297f82cd0ef067f1afd2ffb8dfa73b65c398da",
+				"fix_commit": "2a2aa62f1bc71b89b74d41dd2ab67b5dd24bc129",
+				"fix_committed_at": "2026-01-10T14:41:08+02:00",
+				"tree_hash": "4bea29b5c9eb38ec2e9c5993ff7f7900334754b1",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-c",
+					"import sys, unittest; sys.path.insert(0, 'src'); unittest.main(module=None, argv=['unittest', 'discover', '-s', 'tests', '-t', '.', '-q'])"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The data file hukkin/tomli 2a2aa62 (#200) added, checked standalone.\"\"\"\nimport sys\nsys.path.insert(0, 'src')\nimport tomli\n\nDOC = '''multiline = {\n  \"a\" = 1, \"b\" = 2,\n  c = [\n       1,\n       2,\n       3,\n      ],# comment\n  d = 3,\n  e = 4, f = {\n              # comment\n             },\n}\n'''\nassert tomli.loads(DOC) == {'multiline': {'a': 1, 'b': 2, 'c': [1, 2, 3], 'd': 3, 'e': 4, 'f': {}}}, tomli.loads(DOC)\nassert tomli.loads('a = {b = 1, c = 2,}') == {'a': {'b': 1, 'c': 2}}\nassert tomli.loads('a = {\\n}') == {'a': {}}\nfor bad in ('a = {,}', 'a = {b = 1,,}', 'a = {b = 1 c = 2}'):\n    try:\n        tomli.loads(bad)\n    except tomli.TOMLDecodeError:\n        continue\n    raise AssertionError(f'{bad!r} was accepted')\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "hukkin/tomli 2a2aa62 (#200), committed 2026-01-10. Workspace is its parent. The hidden check parses the multiline-inline-table data file that commit added, plus a trailing comma, an empty multiline table and three malformed tables that must still be rejected; every assertion holds at the commit. Feature task: TOML 1.1 behaviour tomli did not have."
+		},
+		{
+			"id": "tomli-hex-escape",
+			"kind": "feature",
+			"statement": "Add the TOML 1.1 `\\xHH` escape to tomli's basic strings. `\\x` followed by exactly two hexadecimal digits, upper or lower case, stands for that Unicode codepoint: `tab = \"\\x09\"` parses to a tab and `j = \"\\x4a\"` and `j = \"\\x4A\"` both to 'J'. Today such a string raises TOMLDecodeError. Malformed escapes such as `\\x4` or `\\xZZ` must still be rejected. The repository's data-driven tests currently expect this input to be rejected; that expectation is part of what has to change.",
+			"allowed_files": [
+				"src/tomli/_parser.py",
+				"tests/test_data.py"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/hukkin/tomli.git",
+				"commit": "2a2aa62f1bc71b89b74d41dd2ab67b5dd24bc129",
+				"fix_commit": "12314bde5b89a8bdc32de7403a2a4cf786187bbc",
+				"fix_committed_at": "2026-01-10T15:06:14+02:00",
+				"tree_hash": "73905d3d86ebbc66f6c33dc45492eddbbac80332",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-c",
+					"import sys, unittest; sys.path.insert(0, 'src'); unittest.main(module=None, argv=['unittest', 'discover', '-s', 'tests', '-t', '.', '-q'])"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The data hukkin/tomli 12314bd (#202) added, checked standalone.\"\"\"\nimport sys\nsys.path.insert(0, 'src')\nimport tomli\n\nDOC = 'escape = \"\\\\e\"\\ntab = \"\\\\x09\"\\nupper-j = \"\\\\x4a\"\\nupper-j-2 = \"\\\\x4A\"\\n'\nassert tomli.loads(DOC) == {'escape': '\\x1b', 'tab': '\\t', 'upper-j': 'J', 'upper-j-2': 'J'}, tomli.loads(DOC)\nassert tomli.loads('m = \"\"\"a\\\\x41b\"\"\"') == {'m': 'aAb'}\nfor bad in ('s = \"\\\\x4\"', 's = \"\\\\xZZ\"'):\n    try:\n        tomli.loads(bad)\n    except tomli.TOMLDecodeError:\n        continue\n    raise AssertionError(f'{bad!r} was accepted')\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "hukkin/tomli 12314bd (#202), committed 2026-01-10. Workspace is its parent. The hidden check is the replacements data that commit added, plus the escape in a multiline basic string and two malformed escapes; every assertion holds at the commit. Feature task."
+		},
+		{
+			"id": "tomli-optional-seconds",
+			"kind": "feature",
+			"statement": "TOML 1.1 makes the seconds optional in times and date-times; add that to tomli. `t = 00:00` must parse to `datetime.time(0, 0)` and `dt = 2025-04-18T20:05` to `datetime.datetime(2025, 4, 18, 20, 5)`, with seconds taken as zero; an offset after a seconds-less time (`2025-04-18T20:05Z`) must work too. Times that do give seconds, with or without fractions, keep their current meaning. Today a seconds-less value raises TOMLDecodeError. The repository's data-driven tests currently expect this input to be rejected; that expectation is part of what has to change.",
+			"allowed_files": [
+				"src/tomli/_re.py",
+				"tests/test_data.py"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/hukkin/tomli.git",
+				"commit": "12314bde5b89a8bdc32de7403a2a4cf786187bbc",
+				"fix_commit": "9eb2125ef49071e673d42e383b5221a268665193",
+				"fix_committed_at": "2026-01-10T21:15:34+02:00",
+				"tree_hash": "d2cfa124dbd8d15a7e77679172575c457cbc0c5a",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-c",
+					"import sys, unittest; sys.path.insert(0, 'src'); unittest.main(module=None, argv=['unittest', 'discover', '-s', 'tests', '-t', '.', '-q'])"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The data hukkin/tomli 9eb2125 (#203) added, checked standalone.\"\"\"\nimport sys\nfrom datetime import datetime, time, timezone\nsys.path.insert(0, 'src')\nimport tomli\n\nassert tomli.loads('t2=00:00') == {'t2': time(0, 0)}\nassert tomli.loads('local-dt-no-seconds=2025-04-18T20:05') == {'local-dt-no-seconds': datetime(2025, 4, 18, 20, 5)}\nassert tomli.loads('z=2025-04-18T20:05Z') == {'z': datetime(2025, 4, 18, 20, 5, tzinfo=timezone.utc)}\nassert tomli.loads('t=00:00:00.999999') == {'t': time(0, 0, 0, 999999)}\nassert tomli.loads('t=23:59:59') == {'t': time(23, 59, 59)}\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "hukkin/tomli 9eb2125 (#203), committed 2026-01-10. Workspace is its parent. The hidden check is the localtime and datetime data that commit added, plus a UTC offset after a seconds-less time and two times with seconds; every assertion holds at the commit. Feature task."
+		},
+		{
+			"id": "tomli-key-parts-limit",
+			"kind": "bugfix",
+			"statement": "tomli takes quadratic time on a TOML key with a pathological number of dotted parts, such as `'a.' * 100000 + 'a = 1'`. Limit the number of parts a key may have to `sys.getrecursionlimit()`: a key with more parts than that must raise RecursionError with a message of the form 'TOML key has more than the allowed N parts', while keys up to the limit keep parsing.",
+			"allowed_files": [
+				"src/tomli/_parser.py"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/hukkin/tomli.git",
+				"commit": "c20c49113890c226ffb27a67befe20d14fcf0c73",
+				"fix_commit": "e1fdb94bc998377f1c2545c7cd4f70ff2a3fb4e4",
+				"fix_committed_at": "2026-03-25T21:42:38+02:00",
+				"tree_hash": "4056e78b84ae31aa6208d9b925908a4716024339",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-c",
+					"import sys, unittest; sys.path.insert(0, 'src'); unittest.main(module=None, argv=['unittest', 'discover', '-s', 'tests', '-t', '.', '-q'])"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The test hukkin/tomli e1fdb94 (#286) added to tests/test_misc.py, run standalone.\"\"\"\nimport sys\nimport unittest\nsys.path.insert(0, 'src')\nimport tomli as tomllib\n\n\nclass KeyRecursionLimit(unittest.TestCase):\n    def test_key_recursion_limit(self):\n        tomllib.loads('a.' * 310 + 'a = 1')\n        tomllib.loads('a.' * (sys.getrecursionlimit() - 2) + 'a = 1')\n        with self.assertRaisesRegex(RecursionError, r'TOML key has more than the allowed [0-9]+ parts'):\n            tomllib.loads('a.' * (sys.getrecursionlimit() + 2) + 'a = 1')\n\n\nif __name__ == '__main__':\n    unittest.main()\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "hukkin/tomli e1fdb94 (#286), committed 2026-03-25. Workspace is its parent; the hidden test is the test that commit added, run standalone. The statement names the limit and the exception, because the test requires both. Not otherwise adapted by poorAI."
+		},
+		{
+			"id": "idna-incremental-domain-length",
+			"kind": "bugfix",
+			"statement": "idna's incremental `idna2008` codec does not enforce the whole-domain length limit that `idna.encode()` and `idna.decode()` do. `idna.encode('a.' * 126 + 'aa')` raises IDNAError because the result would be 254 octets without a trailing dot, but `b''.join(codecs.iterencode('a.' * 126 + 'aa', 'idna2008'))` returns all 254 octets; decoding has the same gap. Streaming a name through the incremental encoder or decoder must either give the same result as the one-shot call or raise IDNAError, including when the input arrives in pieces: 254 octets are acceptable only if the trailing dot has arrived by the time the input is final. The encoder's and decoder's `getstate()`/`setstate()` must carry whatever the length accounting needs, and a fresh encoder's state must still be 0 and a fresh decoder's `(b'', 0)`.",
+			"allowed_files": [
+				"idna/codec.py",
+				"idna/core.py"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/kjd/idna.git",
+				"commit": "2798a9afce01a98af425351bbac070a4f7410616",
+				"fix_commit": "bc8622a36c4dcdf38a7d1f178966506fd0e661a8",
+				"fix_committed_at": "2026-08-18T06:35:37-10:00",
+				"tree_hash": "0d8a23abf3fe1ae2dafe18fed21c2b557b7b3ac7",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-m",
+					"unittest",
+					"tests.test_idna",
+					"tests.test_idna_codec",
+					"tests.test_idna_compat",
+					"tests.test_idna_errors",
+					"tests.test_idna_uts46",
+					"tests.test_intranges",
+					"-q"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The three tests kjd/idna bc8622a added to tests/test_idna_codec.py, run standalone.\"\"\"\nimport codecs\nimport unittest\n\nimport idna\nimport idna.codec\n\nCODEC_NAME = 'idna2008'\n\n\nclass DomainLength(unittest.TestCase):\n    def testIncrementalEncoderDomainLength(self):\n        for domain in ('a.' * 126 + 'a', 'a.' * 127, '\\xe4.' * 30 + '\\xe4'):\n            self.assertEqual(b''.join(codecs.iterencode(domain, CODEC_NAME)), idna.encode(domain))\n        for domain in ('a.' * 126 + 'aa', 'a.' * 127 + 'a', '\\xe4.' * 32):\n            with self.assertRaises(idna.IDNAError):\n                idna.encode(domain)\n            with self.assertRaises(idna.IDNAError):\n                b''.join(codecs.iterencode(domain, CODEC_NAME))\n        encoder = codecs.getincrementalencoder(CODEC_NAME)()\n        self.assertEqual(encoder.encode('a.' * 126 + 'aa'), b'a.' * 126)\n        with self.assertRaises(idna.IDNAError):\n            encoder.encode('', True)\n        encoder.reset()\n        self.assertEqual(encoder.encode('a.' * 126 + 'a'), b'a.' * 126)\n        self.assertEqual(encoder.encode('.', True), b'a.')\n\n    def testIncrementalDecoderDomainLength(self):\n        for domain in (b'a.' * 126 + b'a', b'a.' * 127):\n            self.assertEqual(''.join(codecs.iterdecode((bytes([c]) for c in domain), CODEC_NAME)), idna.decode(domain))\n        for domain in (b'a.' * 127 + b'a', b'a.' * 200):\n            with self.assertRaises(idna.IDNAError):\n                idna.decode(domain)\n            with self.assertRaises(idna.IDNAError):\n                ''.join(codecs.iterdecode((bytes([c]) for c in domain), CODEC_NAME))\n        decoder = codecs.getincrementaldecoder(CODEC_NAME)()\n        with self.assertRaises(idna.IDNAError):\n            decoder.decode(b'a.' * 200)\n        decoder.reset()\n        self.assertEqual(decoder.decode(b'a.' * 127, True), 'a.' * 127)\n\n    def testIncrementalStateRoundTrip(self):\n        encoder = codecs.getincrementalencoder(CODEC_NAME)()\n        self.assertEqual(encoder.getstate(), 0)\n        encoder.encode('a.' * 126 + 'a')\n        state = encoder.getstate()\n        encoder.reset()\n        self.assertEqual(encoder.encode('', True), b'')\n        encoder.setstate(state)\n        with self.assertRaises(idna.IDNAError):\n            encoder.encode('a', True)\n        encoder.setstate(0)\n        self.assertEqual(encoder.encode('a', True), b'a')\n        decoder = codecs.getincrementaldecoder(CODEC_NAME)()\n        self.assertEqual(decoder.getstate(), (b'', 0))\n        decoder.decode(b'a.' * 126 + b'a')\n        state = decoder.getstate()\n        decoder.reset()\n        self.assertEqual(decoder.decode(b'', True), '')\n        decoder.setstate(state)\n        with self.assertRaises(idna.IDNAError):\n            decoder.decode(b'aa', True)\n\n\nif __name__ == '__main__':\n    unittest.main()\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "kjd/idna bc8622a (#271), committed 2026-08-18. Workspace is its parent; the hidden test is the three tests that commit added, run standalone. The statement describes the state contract because the tests pin it. Hard task: stateful incremental codec."
+		},
+		{
+			"id": "idna-error-attributes",
+			"kind": "feature",
+			"statement": "Make idna's IDNAError machine-readable. When a failure can be attributed to a particular character, the exception must carry `text` (the label being validated, or the whole domain for UTS 46 remapping), `codepoint` (the offending codepoint as an integer) and `position` (its 1-based index in `text`, matching the position the message already quotes). Each is None when it does not apply, for example for an empty label or a label that is too long. This covers invalid codepoints, contextual rules (joiners, middle dot), a leading combining mark, every bidi rule, and UTS 46 remapping including STD3 rules. Construction stays backwards compatible: `IDNAError('msg')` still has `args == ('msg',)`, the message remains the only positional argument, and the attributes survive pickling.",
+			"allowed_files": [
+				"idna/core.py",
+				"README.md",
+				"HISTORY.md"
+			],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/kjd/idna.git",
+				"commit": "6ac8a0ab21dffed6b651c0428e675b5e7bbbd1e4",
+				"fix_commit": "5e6e75291d71a2fdae04f4c1aba9fc679871cda9",
+				"fix_committed_at": "2026-08-16T09:25:03-10:00",
+				"tree_hash": "a480a5d49e61624559344a99ca90479e02e6c126",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-m",
+					"unittest",
+					"tests.test_idna",
+					"tests.test_idna_codec",
+					"tests.test_idna_compat",
+					"tests.test_idna_uts46",
+					"tests.test_intranges",
+					"-q"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"Tests for the machine-readable attributes carried by IDNAError.\"\"\"\n\nimport pickle\nimport re\nimport unittest\nfrom unittest import mock\n\nimport idna\n\n\nclass ErrorAttributeTests(unittest.TestCase):\n    def _cases(self):\n        \"\"\"(trigger, expected class, expected text, codepoint, position)\"\"\"\n        r = \"\\u05d0\"  # R\n        an = \"\\u0660\"  # AN\n        nsm = \"\\u0610\"  # NSM\n        return [\n            (lambda: idna.alabel(\"abc\\u0141\"), idna.InvalidCodepoint, \"abc\\u0141\", 0x141, 4),\n            (lambda: idna.alabel(\"a\\u200cb\"), idna.InvalidCodepointContext, \"a\\u200cb\", 0x200C, 2),\n            (lambda: idna.alabel(\"a\\xb7b\"), idna.InvalidCodepointContext, \"a\\xb7b\", 0xB7, 2),\n            (lambda: idna.alabel(\"\\u0301abc\"), idna.IDNAError, \"\\u0301abc\", 0x301, 1),\n            (lambda: idna.check_bidi(\"a\\u0378\"), idna.IDNABidiError, \"a\\u0378\", 0x378, 2),\n            (lambda: idna.check_bidi(an + r), idna.IDNABidiError, an + r, 0x660, 1),  # rule 1\n            (lambda: idna.check_bidi(r + \"a\"), idna.IDNABidiError, r + \"a\", 0x61, 2),  # rule 2\n            (lambda: idna.check_bidi(r + \"-\" + nsm), idna.IDNABidiError, r + \"-\" + nsm, 0x2D, 2),  # rule 3\n            (lambda: idna.check_bidi(r + an + \"0\"), idna.IDNABidiError, r + an + \"0\", 0x30, 3),  # rule 4\n            (lambda: idna.alabel(\"a\" + r), idna.IDNABidiError, \"a\" + r, 0x5D0, 2),  # rule 5\n            (lambda: idna.check_bidi(\"a-\", check_ltr=True), idna.IDNABidiError, \"a-\", 0x2D, 2),  # rule 6\n            (lambda: idna.uts46_remap(\"a\\x80\"), idna.InvalidCodepoint, \"a\\x80\", 0x80, 2),\n            (lambda: idna.uts46_remap(\"a_b\"), idna.InvalidCodepoint, \"a_b\", 0x5F, 2),\n            (lambda: idna.uts46_remap(\"a\\uff3fb\"), idna.InvalidCodepoint, \"a\\uff3fb\", 0xFF3F, 2),\n            (lambda: idna.encode(\"a_b\", uts46=True, std3_rules=True), idna.InvalidCodepoint, \"a_b\", 0x5F, 2),\n        ]\n\n    def test_attributes_are_populated(self):\n        for trigger, exc_class, text, codepoint, position in self._cases():\n            with self.subTest(text=text):\n                with self.assertRaises(exc_class) as ctx:\n                    trigger()\n                err = ctx.exception\n                self.assertEqual(err.text, text)\n                self.assertEqual(err.codepoint, codepoint)\n                self.assertEqual(err.position, position)\n                # position indexes text and names the codepoint ...\n                self.assertEqual(ord(err.text[err.position - 1]), err.codepoint)\n                # ... and agrees with the message where the message quotes one\n                match = re.search(r\"position (\\d+)\", str(err))\n                if match:\n                    self.assertEqual(int(match.group(1)), err.position)\n\n    def test_unknown_codepoint_adjacent_to_joiner(self):\n        unknown = mock.patch(\"idna.core._combining_class\", side_effect=ValueError)\n        with unknown, self.assertRaises(idna.IDNAError) as ctx:\n            idna.check_label(\"a\\u200cb\")\n        err = ctx.exception\n        self.assertNotIsInstance(err, idna.InvalidCodepointContext)\n        self.assertEqual((err.text, err.codepoint, err.position), (\"a\\u200cb\", 0x200C, 2))\n\n    def test_attributes_default_to_none(self):\n        for trigger in (\n            lambda: idna.encode(\"a..b\"),\n            lambda: idna.encode(\"\"),\n            lambda: idna.alabel(\"a\" * 64),\n            lambda: idna.alabel(\"ab--cd\"),\n            lambda: idna.alabel(\"-abc\"),\n            lambda: idna.ulabel(\"xn--\"),\n            lambda: idna.encode(b\"\\xff\"),\n        ):\n            with self.assertRaises(idna.IDNAError) as ctx:\n                trigger()\n            err = ctx.exception\n            self.assertIsNone(err.text)\n            self.assertIsNone(err.codepoint)\n            self.assertIsNone(err.position)\n\n    def test_construction_is_backwards_compatible(self):\n        err = idna.IDNAError(\"just a message\")\n        self.assertEqual(str(err), \"just a message\")\n        self.assertEqual(err.args, (\"just a message\",))\n        self.assertIsNone(err.text)\n        self.assertEqual(idna.IDNAError().args, ())\n        self.assertEqual(idna.InvalidCodepoint(\"a\", \"b\").args, (\"a\", \"b\"))\n\n    def test_message_remains_sole_positional_argument(self):\n        with self.assertRaises(idna.InvalidCodepoint) as ctx:\n            idna.alabel(\"abc\\u0141\")\n        self.assertEqual(ctx.exception.args, (\"Codepoint U+0141 at position 4 of 'abc\\u0141' not allowed\",))\n\n    def test_attributes_survive_pickle(self):\n        with self.assertRaises(idna.InvalidCodepoint) as ctx:\n            idna.alabel(\"abc\\u0141\")\n        err = pickle.loads(pickle.dumps(ctx.exception))\n        self.assertIsInstance(err, idna.InvalidCodepoint)\n        self.assertEqual(str(err), str(ctx.exception))\n        self.assertEqual((err.text, err.codepoint, err.position), (\"abc\\u0141\", 0x141, 4))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+			},
+			"time_budget_secs": 3600,
+			"provenance": "kjd/idna 5e6e752, committed 2026-08-16. Workspace is its parent; the hidden test is the test module that commit added, tests/test_idna_errors.py's new ErrorAttributeTests, run standalone. Long feature task: many raise sites in one module."
+		},
+		{
+			"id": "pyparsing-bounded-repetition-diagnosis",
+			"kind": "repository_question",
+			"statement": "Building a bounded repetition with a large upper bound in pyparsing crashes before any parsing happens: `pp.Literal('A')[..., 1000]` and `pp.Word(pp.nums) * (0, 1000)` raise RecursionError when the recursion limit is modest, although nothing about the grammar is recursive. Do NOT fix it and do not change any file. Find the root cause and call complete with a rationale that names the file and the function where the defect is, and says in one sentence what it does wrong.",
+			"allowed_files": [],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/pyparsing/pyparsing.git",
+				"commit": "b6dccc8f796f4879b8bdc62aac8fe94d73d90f60",
+				"fix_commit": "51560caba558d87349f4f497b82acef1de9ec8f8",
+				"fix_committed_at": "2026-08-12T00:31:05-05:00",
+				"tree_hash": "96977ef470c593ecf485c709ac251f2cee87962b",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-m",
+					"unittest",
+					"tests.test_unit",
+					"tests.test_simple_unit",
+					"-q"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"testBoundedRepetitionLargeUpperBound from pyparsing 51560ca (issue #332), run standalone.\"\"\"\nimport sys\nimport unittest\n\nimport pyparsing as pp\nfrom pyparsing import testing as ppt\n\n\nclass BoundedRepetition(ppt.TestParseResultsAsserts, unittest.TestCase):\n    def test_large_upper_bound(self):\n        saved = sys.getrecursionlimit()\n        sys.setrecursionlimit(300)\n        try:\n            expr_shorthand = pp.Literal('A')[..., 1000]\n            expr_tuple = pp.Word(pp.nums) * (0, 1000)\n        finally:\n            sys.setrecursionlimit(saved)\n        self.assertIsNotNone(expr_tuple)\n        self.assertParseAndCheckList(expr_shorthand, 'A A A A A', expected_list=['A'] * 5)\n        with self.assertRaisesParseException():\n            (pp.Word(pp.alphas)[..., 3] + pp.Word(pp.nums)).parse_string('a b c d 1')\n\n\nif __name__ == '__main__':\n    unittest.main()\n"
+			},
+			"time_budget_secs": 900,
+			"provenance": "pyparsing 51560ca, committed 2026-08-12, fixing issue #332. Workspace is its parent. The expected answer is the helper that commit removed, `makeOptionalList` in pyparsing/core.py, which built the optional tail as a nested chain of Opt expressions. The hidden check is the first test that commit added; it is not the scoring criterion for a question. Forbidden names are plausible inventions that do not exist in the repository.",
+			"expected_in_rationale": [
+				"core.py",
+				"makeOptionalList"
+			],
+			"forbidden_in_rationale": [
+				"_build_repetition",
+				"RepetitionBuilder",
+				"_nested_optional",
+				"BoundedRepeat"
+			]
+		},
+		{
+			"id": "pyparsing-match-previous-expr-diagnosis",
+			"kind": "repository_question",
+			"statement": "pyparsing's `match_previous_expr` works once and then stops working. With `first = pp.Word(pp.alphas)` and `expr = first + pp.Suppress(':') + pp.match_previous_expr(first)`, `pp.OneOrMore(expr).parse_string('a:a b:b')` fails on the second pair, and after one failed parse the same `expr` keeps rejecting valid input such as 'g:g'. Nested pairs like `{a}{b}xx{/b}{/a}` fail too. Do NOT fix it and do not change any file. Find the root cause and call complete with a rationale that names the file and the function where the defect is, and says in one sentence what it does wrong.",
+			"allowed_files": [],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/pyparsing/pyparsing.git",
+				"commit": "038ff39cbc29b77a74ac21674206d5bf170ca769",
+				"fix_commit": "efd56db4e59f36b1673ce0eb0823e3afaa9d1201",
+				"fix_committed_at": "2026-08-17T23:25:14-05:00",
+				"tree_hash": "d4607c2fcbf3da195a060be889d2d23e88484d15",
+				"setup": []
+			},
+			"visible_verifier": {
+				"executable": "python3",
+				"args": [
+					"-m",
+					"unittest",
+					"tests.test_unit",
+					"tests.test_simple_unit",
+					"-q"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "python3",
+				"args": [
+					"hidden_regression.py"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.py": "\"\"\"The two tests pyparsing efd56db (issue #560) added, run standalone.\"\"\"\nimport unittest\n\nimport pyparsing as pp\nfrom pyparsing import testing as ppt\n\n\nclass Repeater(ppt.TestParseResultsAsserts, unittest.TestCase):\n    def test_nested(self):\n        LBRACE, RBRACE, SLASH = map(pp.Suppress, '{}/')\n        tag_name = pp.Word(pp.alphanums + '_')\n        open_tag = LBRACE + tag_name + RBRACE\n        close_tag = LBRACE + SLASH + pp.match_previous_expr(tag_name) + RBRACE\n        content = pp.Forward()\n        content <<= (open_tag + pp.Group(content) + close_tag) | pp.Word(pp.alphas)\n        for tst, expected in [('{a}xx{/a}', True), ('{a}{b}xx{/b}{/a}', True), ('{a}{b}{c}xx{/c}{/b}{/a}', True), ('{a}{b}xx{/a}{/b}', False), ('{a}{b}xx{/b}{/c}', False), ('{a}xx{/b}', False)]:\n            if expected:\n                content.parse_string(tst, parse_all=True)\n            else:\n                with self.assertRaisesParseException():\n                    content.parse_string(tst, parse_all=True)\n\n    def test_reused(self):\n        first = pp.Word(pp.alphas)\n        expr = first + pp.Suppress(':') + pp.match_previous_expr(first)\n        self.assertParseAndCheckList(pp.OneOrMore(expr), 'a:a b:b c:c', ['a', 'a', 'b', 'b', 'c', 'c'])\n        for tst, expected in [('d:d', True), ('e:f', False), ('g:g', True)]:\n            if expected:\n                self.assertParseAndCheckList(expr, tst, tst.split(':'))\n            else:\n                with self.assertRaisesParseException():\n                    expr.parse_string(tst)\n\n\nif __name__ == '__main__':\n    unittest.main()\n"
+			},
+			"time_budget_secs": 900,
+			"provenance": "pyparsing efd56db (#653), committed 2026-08-17, fixing issue #560. Workspace is its parent. The expected answer is where that commit located the defect: `copy_token_to_repeater` in pyparsing/helpers.py added a new guard parse action on every match and never removed one. The hidden check is the commit's two tests, reduced to what runs without the test suite's memoization flags.",
+			"expected_in_rationale": [
+				"helpers.py",
+				"copy_token_to_repeater"
+			],
+			"forbidden_in_rationale": [
+				"_repeater_guard",
+				"MatchPreviousState",
+				"_pending_matches",
+				"RepeaterStack"
+			]
+		},
+		{
+			"id": "filenamify-normalization-diagnosis",
+			"kind": "repository_question",
+			"statement": "filenamify changes the Unicode representation of accented names it has no reason to touch: `filenamify('caf\\u00e9')`, a precomposed 'café', comes back as a five-code-unit string that is not equal to its input, so the same visible name can produce different results and different lengths depending on how it was typed. Do NOT fix it and do not change any file. Find the root cause and call complete with a rationale that names the file and the function where the defect is, and says in one sentence what it does wrong.",
+			"allowed_files": [],
+			"files": {},
+			"repository": {
+				"url": "https://github.com/sindresorhus/filenamify.git",
+				"commit": "cc3904120843e75b4bc11272a155fe8b6148998a",
+				"fix_commit": "ea8b96181bee3da98a9edff2465751714725c495",
+				"fix_committed_at": "2025-09-15T03:42:36+07:00",
+				"tree_hash": "5dfbe40582f509440a6e97ed572cb9362eccff37",
+				"setup": [
+					{
+						"executable": "npm",
+						"args": [
+							"install",
+							"--silent",
+							"--no-audit",
+							"--no-fund"
+						]
+					}
+				]
+			},
+			"visible_verifier": {
+				"executable": "npx",
+				"args": [
+					"--no",
+					"ava"
+				]
+			},
+			"hidden_verifier": {
+				"executable": "node",
+				"args": [
+					"hidden_regression.mjs"
+				]
+			},
+			"hidden_files": {
+				"hidden_regression.mjs": "// Written for poorAI against sindresorhus/filenamify ea8b961, which has no test of its own; holds at that commit.\nimport assert from 'node:assert/strict';\nimport filenamify from './filenamify.js';\n\nassert.equal(filenamify('caf\\u00e9'), 'caf\\u00e9');\nassert.equal(filenamify('cafe\\u0301'), 'caf\\u00e9');\nassert.equal(filenamify('caf\\u00e9').length, 4);\n"
+			},
+			"time_budget_secs": 900,
+			"provenance": "sindresorhus/filenamify ea8b961, committed 2025-09-15. Workspace is its parent. The expected answer is the line that commit replaced: filenamify.js normalised to NFD after the replacement checks. That commit carries no test, so the hidden check was written for poorAI and verified to hold at the commit; it is not the scoring criterion for a question.",
+			"expected_in_rationale": [
+				"filenamify.js",
+				"NFD"
+			],
+			"forbidden_in_rationale": [
+				"normalizeUnicode",
+				"unicodeFold",
+				"toNFKD"
+			]
+		}
+	]
+}

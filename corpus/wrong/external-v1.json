@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "tasks": {
+    "external-exactly-n-negative": [
+      {
+        "description": "handles zero but forgets that negative n must always be false",
+        "patch": [
+          "diff --git a/more_itertools/more.py b/more_itertools/more.py",
+          "--- a/more_itertools/more.py",
+          "+++ b/more_itertools/more.py",
+          "@@ -3080,7 +3080,10 @@ def exactly_n(iterable, n, predicate=bool):",
+          "     so avoid calling it on infinite iterables.",
+          " ",
+          "     \"\"\"",
+          "-    return ilen(islice(filter(predicate, iterable), n + 1)) == n",
+          "+    if n == 0:",
+          "+        return not any(filter(predicate, iterable))",
+          "+",
+          "+    return ilen(islice(filter(predicate, iterable), n + 1)) == n",
+          " ",
+          " ",
+          " def circular_shifts(iterable, steps=1):"
+        ]
+      }
+    ],
+    "external-interleave-evenly-empty": [
+      {
+        "description": "handles omitted lengths for no iterables but not an explicit empty lengths list",
+        "patch": [
+          "diff --git a/more_itertools/more.py b/more_itertools/more.py",
+          "--- a/more_itertools/more.py",
+          "+++ b/more_itertools/more.py",
+          "@@ -1326,6 +1326,9 @@ def interleave_evenly(iterables, lengths=None):",
+          "     Based on Bresenham's algorithm.",
+          "     \"\"\"",
+          "+    if lengths is None and not iterables:",
+          "+        return",
+          "+",
+          "     if lengths is None:",
+          "         try:",
+          "             lengths = [len(it) for it in iterables]"
+        ]
+      }
+    ],
+    "external-numeric-range-reversed": [
+      {
+        "description": "tries to guard empty reversed ranges but catches the wrong exception type",
+        "patch": [
+          "diff --git a/more_itertools/more.py b/more_itertools/more.py",
+          "--- a/more_itertools/more.py",
+          "+++ b/more_itertools/more.py",
+          "@@ -2404,9 +2404,14 @@ class numeric_range(Sequence):",
+          "     def __reversed__(self):",
+          "+        try:",
+          "+            start = self._get_by_index(-1)",
+          "+        except ValueError:",
+          "+            return iter([])",
+          "+",
+          "         return iter(",
+          "             numeric_range(",
+          "-                self._get_by_index(-1), self._start - self._step, -self._step",
+          "+                start, self._start - self._step, -self._step",
+          "             )",
+          "         )",
+          " "
+        ]
+      }
+    ],
+    "external-slugify-acronyms": [
+      {
+        "description": "special-cases APIs but still splits other plural acronyms",
+        "patch": [
+          "diff --git a/index.js b/index.js",
+          "--- a/index.js",
+          "+++ b/index.js",
+          "@@ -6,8 +6,6 @@ const decamelize = string => string",
+          " \t// Separate capitalized words.",
+          " \t.replaceAll(/([A-Z]{2,})(\\d+)/g, '$1 $2')",
+          " \t.replaceAll(/([a-z\\d]+)([A-Z]{2,})/g, '$1 $2')",
+          " ",
+          " \t.replaceAll(/([a-z\\d])([A-Z])/g, '$1 $2')",
+          "-\t// `[a-rt-z]` matches all lowercase characters except `s`.",
+          "-\t// This avoids matching plural acronyms like `APIs`.",
+          "-\t.replaceAll(/([A-Z]+)([A-Z][a-rt-z\\d]+)/g, '$1 $2');",
+          "+\t.replaceAll(/([A-Z]+)(?![A-Z]*Is\\b)([A-Z][a-z\\d]+)/g, '$1 $2');"
+        ]
+      }
+    ]
+  }
+}

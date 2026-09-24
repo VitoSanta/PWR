@@ -1,0 +1,1418 @@
+{
+ "schema_version": 1,
+ "id": "a1-tool-calls",
+ "area": "A1",
+ "description": "Area A1 by replay: raw replies Qwen3.6-35B-A3B wrote on poorAI's MLX engine on 2026-09-18 (Part E runs), read exactly as a run reads them. Valid calls are kept as golden decodings; malformed ones state whether the right answer is a refusal or a recovery. No model is needed; the suite runs in seconds.",
+ "cases": [
+  {
+   "type": "replay",
+   "id": "valid-search",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 1",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I need to investigate the issue with `ParseResults.__iadd__` raising AttributeError instead of TypeError. Let me start by examining the relevant code.\n\n<tool_call>\n<function=search>\n<parameter=path_glob>\npyparsing/core.py\n</parameter>\n<parameter=query>\n__iadd__\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": "pyparsing/core.py",
+       "query": "__iadd__",
+       "regex": false
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-read_file",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 2",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=read_file>\n<parameter=max_lines>\n60\n</parameter>\n<parameter=path>\npyparsing/core.py\n</parameter>\n<parameter=first_line>\n4640\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": 4640,
+       "max_lines": 60,
+       "path": "pyparsing/core.py"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-find_definition",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 3",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "That's the `ParserElement.__iadd__`, not `ParseResults.__iadd__`. Let me find the `ParseResults` class and its `__iadd__` method.\n\n<tool_call>\n<function=find_definition>\n<parameter=path_glob>\npyparsing/core.py\n</parameter>\n<parameter=name>\nParseResults\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "find_definition",
+      "fields": {
+       "max_matches": null,
+       "name": "ParseResults",
+       "path_glob": "pyparsing/core.py"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-replace_text",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 11",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now let me fix the `__iadd__` method. The fix is to add a type check that returns `NotImplemented` for non-`ParseResults` types:\n\n<tool_call>\n<function=replace_text>\n<parameter=path>\npyparsing/results.py\n</parameter>\n<parameter=expected_hash>\n1a509473f9d5600fd5b0b72efca300083b96972d3d26f3b464e9f887da6670e1\n</parameter>\n<parameter=find>\n    def __iadd__(self, other: ParseResults) -> ParseResults:\n        if not other:\n            return self\n\n        if other._tokdict:\n</parameter>\n<parameter=replace>\n    def __iadd__(self, other: ParseResults) -> ParseResults:\n        if not isinstance(other, ParseResults):\n            return NotImplemented\n        if not other:\n            return self\n\n        if other._tokdict:\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "replace_text",
+      "fields": {
+       "expected_hash": "1a509473f9d5600fd5b0b72efca300083b96972d3d26f3b464e9f887da6670e1",
+       "find": "    def __iadd__(self, other: ParseResults) -> ParseResults:\n        if not other:\n            return self\n\n        if other._tokdict:",
+       "path": "pyparsing/results.py",
+       "replace": "    def __iadd__(self, other: ParseResults) -> ParseResults:\n        if not isinstance(other, ParseResults):\n            return NotImplemented\n        if not other:\n            return self\n\n        if other._tokdict:"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-run_command",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 13",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=run_command>\n<parameter=executable>\npython3\n</parameter>\n<parameter=args>\n[\"-c\", \"\\nimport pyparsing as pp\\n\\npr = pp.ParseResults(['a', 'b'])\\n\\n# Test 1: pr + [1] should raise TypeError\\ntry:\\n    pr + [1]\\n    print('FAIL: pr + [1] did not raise')\\nexcept TypeError as e:\\n    print(f'OK: pr + [1] raises TypeError: {e}')\\nexcept Exception as e:\\n    print(f'FAIL: pr + [1] raises {type(e).__name__}: {e}')\\n\\n# Test 2: pr += [1] should raise TypeError\\ntry:\\n    pr += [1]\\n    print('FAIL: pr += [1] did not raise')\\nexcept TypeError as e:\\n    print(f'OK: pr += [1] raises TypeError: {e}')\\nexcept AttributeError as e:\\n    print(f'FAIL: pr += [1] raises AttributeError: {e}')\\nexcept Exception as e:\\n    print(f'FAIL: pr += [1] raises {type(e).__name__}: {e}')\\n\\n# Test 3: pr += 1 should raise TypeError\\npr2 = pp.ParseResults(['a', 'b'])\\ntry:\\n    pr2 += 1\\n    print('FAIL: pr += 1 did not raise')\\nexcept TypeError as e:\\n    print(f'OK: pr += 1 raises TypeError: {e}')\\nexcept AttributeError as e:\\n    print(f'FAIL: pr += 1 raises AttributeError: {e}')\\nexcept Exception as e:\\n    print(f'FAIL: pr += 1 raises {type(e).__name__}: {e}')\\n\\n# Test 4: pr += another ParseResults should work\\npr3 = pp.ParseResults(['a', 'b'])\\npr3 += pp.ParseResults(['c'])\\nprint(f'OK: pr += ParseResults works: {list(pr3)}')\\n\\n# Test 5: pr + another ParseResults should still work\\npr4 = pp.ParseResults(['a', 'b'])\\npr_sum = pr4 + pp.ParseResults(['c'])\\nprint(f'OK: pr + ParseResults works: {list(pr_sum)}')\\n\\n# Test 6: Verify pr unchanged after failed +=\\nprint(f'pr still: {list(pr)}')\\n\"]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "args": [
+        "-c",
+        "\nimport pyparsing as pp\n\npr = pp.ParseResults(['a', 'b'])\n\n# Test 1: pr + [1] should raise TypeError\ntry:\n    pr + [1]\n    print('FAIL: pr + [1] did not raise')\nexcept TypeError as e:\n    print(f'OK: pr + [1] raises TypeError: {e}')\nexcept Exception as e:\n    print(f'FAIL: pr + [1] raises {type(e).__name__}: {e}')\n\n# Test 2: pr += [1] should raise TypeError\ntry:\n    pr += [1]\n    print('FAIL: pr += [1] did not raise')\nexcept TypeError as e:\n    print(f'OK: pr += [1] raises TypeError: {e}')\nexcept AttributeError as e:\n    print(f'FAIL: pr += [1] raises AttributeError: {e}')\nexcept Exception as e:\n    print(f'FAIL: pr += [1] raises {type(e).__name__}: {e}')\n\n# Test 3: pr += 1 should raise TypeError\npr2 = pp.ParseResults(['a', 'b'])\ntry:\n    pr2 += 1\n    print('FAIL: pr += 1 did not raise')\nexcept TypeError as e:\n    print(f'OK: pr += 1 raises TypeError: {e}')\nexcept AttributeError as e:\n    print(f'FAIL: pr += 1 raises AttributeError: {e}')\nexcept Exception as e:\n    print(f'FAIL: pr += 1 raises {type(e).__name__}: {e}')\n\n# Test 4: pr += another ParseResults should work\npr3 = pp.ParseResults(['a', 'b'])\npr3 += pp.ParseResults(['c'])\nprint(f'OK: pr += ParseResults works: {list(pr3)}')\n\n# Test 5: pr + another ParseResults should still work\npr4 = pp.ParseResults(['a', 'b'])\npr_sum = pr4 + pp.ParseResults(['c'])\nprint(f'OK: pr + ParseResults works: {list(pr_sum)}')\n\n# Test 6: Verify pr unchanged after failed +=\nprint(f'pr still: {list(pr)}')\n"
+       ],
+       "executable": "python3",
+       "stdin": null
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-complete",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 63",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "The fix is in place. Here's a summary of what was changed:\n\n**Problem:** `ParseResults.__iadd__` in `pyparsing/results.py` did not check if the `other` argument was a `ParseResults` instance. When a non-`ParseResults` value (like `int` or `list`) was passed to `+=`, the code tried to access `other._tokdict`, which raised an `AttributeError` about a private attribute.\n\n**Fix:** Added a type check at the beginning of `__iadd__` that returns `NotImplemented` for non-`ParseResults` types. When `__iadd__` returns `NotImplemented`, Python correctly raises a `TypeError` (the same behavior as `__add__`), instead of the confusing `AttributeError`.\n\n**The change (pyparsing/results.py, line 522-523):**\n```python\ndef __iadd__(self, other: ParseResults) -> ParseResults:\n    if not isinstance(other, ParseResults):  # NEW: added this check\n        return NotImplemented                # NEW: return NotImplemented for non-ParseResults\n    if not other:\n        return self\n```\n\nThis ensures:\n- `results + [1]` raises `TypeError` ✓ (already worked via `__add__`)\n- `results += [1]` raises `TypeError` ✓ (was `AttributeError`, now fixed)\n- `results += 1` raises `TypeError` ✓ (was `AttributeError`, now fixed)\n- `results += another_ParseResults` keeps working ✓ (unchanged behavior)\n\n<tool_call>\n<function=complete>\n<parameter=rationale>\nFixed `ParseResults.__iadd__` in `pyparsing/results.py` to return `NotImplemented` for non-`ParseResults` types, matching the behavior of `__add__`. Previously, `results += [1]` or `results += 1` would fail with an `AttributeError` about a private attribute (`_tokdict`) because the method tried to access `other._tokdict` without first checking the type. Now it properly raises `TypeError` like the ordinary `+` operator. `ParseResults += ParseResults` continues to work correctly. All 307 existing tests pass.\n</parameter>\n<parameter=step>\n10\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "complete",
+      "fields": {
+       "rationale": "Fixed `ParseResults.__iadd__` in `pyparsing/results.py` to return `NotImplemented` for non-`ParseResults` types, matching the behavior of `__add__`. Previously, `results += [1]` or `results += 1` would fail with an `AttributeError` about a private attribute (`_tokdict`) because the method tried to access `other._tokdict` without first checking the type. Now it properly raises `TypeError` like the ordinary `+` operator. `ParseResults += ParseResults` continues to work correctly. All 307 existing tests pass."
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-list_tree+search+search",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 64",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I need to understand the issue: when a named `Dict` matches nothing (empty string), `as_dict()` returns `{'fubar': []}` (a list) instead of `{'fubar': {}}` (a dict). Let me explore the codebase to understand how `Dict` and `as_dict` work.\n\n<tool_call>\n<function=list_tree>\n<parameter=max_entries>\n50\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=search>\n<parameter=query>\nclass Dict\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=search>\n<parameter=query>\nas_dict\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "list_tree",
+      "fields": {
+       "max_entries": 50
+      }
+     },
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": null,
+       "query": "class Dict",
+       "regex": false
+      }
+     },
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": null,
+       "query": "as_dict",
+       "regex": false
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-read_file+read_file",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 65",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Let me read the Dict class and the relevant parts of the code.\n\n<tool_call>\n<function=read_file>\n<parameter=max_lines>\n120\n</parameter>\n<parameter=path>\npyparsing/core.py\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=read_file>\n<parameter=max_lines>\n80\n</parameter>\n<parameter=path>\npyparsing/results.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": 120,
+       "path": "pyparsing/core.py"
+      }
+     },
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": 80,
+       "path": "pyparsing/results.py"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-search+search",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 70",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Let me look at the `haskeys` method and the `items` method to understand the logic:\n\n<tool_call>\n<function=search>\n<parameter=path>\npyparsing/results.py\n</parameter>\n<parameter=query>\ndef haskeys\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=search>\n<parameter=path>\npyparsing/results.py\n</parameter>\n<parameter=query>\ndef items\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": null,
+       "query": "def haskeys",
+       "regex": false
+      }
+     },
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": null,
+       "query": "def items",
+       "regex": false
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-apply_replace",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 91",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Good. The `List` class ends at line 166 (the `return list.__new__(cls)` line), and the `ParseResults.__new__` starts at line 168. I need to insert a `Dict` class between them.\n\nNow let me implement all three changes:\n\n1. Add `Dict` class to `results.py` after `List` class (after line 166)\n2. Modify `to_item` in `as_dict` (line ~667) to check for `ParseResults.Dict`\n3. Modify `Dict.postParse` in `core.py` (line ~6650) to use `ParseResults.Dict`\n\n<tool_call>\n<function=apply_replace>\n<parameter=expected_hash>\n429380015a57f250ee62b917e2b6764434a0e8c6b618f2fddf3193a1430de490\n</parameter>\n<parameter=path>\npyparsing/results.py\n</parameter>\n<parameter=replacement>\n            return list.__new__(cls)\n\n    class Dict(dict):\n        \"\"\"\n        Simple wrapper class to distinguish parsed dict results that should be\n        preserved as actual Python dicts, instead of being converted to\n        :class:`ParseResults`:\n\n        .. testcode::\n\n           import pyparsing as pp\n\n           data_word = pp.Word(pp.alphas)\n           label = data_word + pp.FollowedBy(':')\n\n           attr_expr = (\n               label + pp.Suppress(':')\n               + pp.OneOrMore(data_word, stop_on=label).set_parse_action(' '.join)\n           )\n\n           text = \"shape: SQUARE posn: upper left color: light blue\"\n\n           result = pp.Dict(pp.Group(attr_expr)[1, ...]).parse_string(text)\n\n           print(result['shape'])\n           print(result.as_dict())\n\n        prints:\n\n        .. testoutput::\n\n           SQUARE\n           {'shape': 'SQUARE', 'posn': 'upper left', 'color': 'light blue'}\n\n        (Used internally by :class:`Dict` when the inner expression matches nothing.)\n        \"\"\"\n\n        def __new__(cls, contained=None):\n            if contained is None:\n                contained = {}\n\n            if not isinstance(contained, dict):\n                raise TypeError(\n                    f\"{cls.__name__} may only be constructed with a dict, not {type(contained).__name__}\"\n                )\n\n            return dict.__new__(cls)\n\n    def __new__(cls, toklist=None, name=None, **kwargs):\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "apply_replace",
+      "fields": {
+       "expected_hash": "429380015a57f250ee62b917e2b6764434a0e8c6b618f2fddf3193a1430de490",
+       "path": "pyparsing/results.py",
+       "replacement": "            return list.__new__(cls)\n\n    class Dict(dict):\n        \"\"\"\n        Simple wrapper class to distinguish parsed dict results that should be\n        preserved as actual Python dicts, instead of being converted to\n        :class:`ParseResults`:\n\n        .. testcode::\n\n           import pyparsing as pp\n\n           data_word = pp.Word(pp.alphas)\n           label = data_word + pp.FollowedBy(':')\n\n           attr_expr = (\n               label + pp.Suppress(':')\n               + pp.OneOrMore(data_word, stop_on=label).set_parse_action(' '.join)\n           )\n\n           text = \"shape: SQUARE posn: upper left color: light blue\"\n\n           result = pp.Dict(pp.Group(attr_expr)[1, ...]).parse_string(text)\n\n           print(result['shape'])\n           print(result.as_dict())\n\n        prints:\n\n        .. testoutput::\n\n           SQUARE\n           {'shape': 'SQUARE', 'posn': 'upper left', 'color': 'light blue'}\n\n        (Used internally by :class:`Dict` when the inner expression matches nothing.)\n        \"\"\"\n\n        def __new__(cls, contained=None):\n            if contained is None:\n                contained = {}\n\n            if not isinstance(contained, dict):\n                raise TypeError(\n                    f\"{cls.__name__} may only be constructed with a dict, not {type(contained).__name__}\"\n                )\n\n            return dict.__new__(cls)\n\n    def __new__(cls, toklist=None, name=None, **kwargs):"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-vcs_status",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 95",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I need to restore the file. Let me use `vcs_status` and `vcs_diff` to find the original content, or I can reconstruct it from the original hash. Let me check what's available:\n\n<tool_call>\n<function=vcs_status>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "vcs_status",
+      "fields": {}
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-write_file",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 96",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Not a git repo. I need to reconstruct the file from the original hash. The original hash was `429380015a57f250ee62b917e2b6764434a0e8c6b618f2fddf3193a1430de490`. I had read the full file earlier. Let me reconstruct it by writing the complete file with the Dict class added.\n\nI need to write the entire `results.py` file with the Dict class added. Let me reconstruct it from what I know. The file was 958 lines. I need to write it back with the Dict class inserted between the List class and the ParseResults.__new__ method.\n\nLet me write the complete file:\n\n<tool_call>\n<function=write_file>\n<parameter=content>\n# results.py\n\nfrom __future__ import annotations\n\nimport collections\nfrom collections.abc import (\n    MutableMapping,\n    Mapping,\n    MutableSequence,\n    Iterator,\n    Iterable,\n)\nimport pprint\nfrom typing import Any, NamedTuple\n\nfrom .util import deprecate_argument, _is_iterable, _flatten\n\n\nstr_type: tuple[type, ...] = (str, bytes)\n_generator_type = type((_ for _ in ()))\nNULL_SLICE: slice = slice(None)\n\n\nclass _ParseResultsWithOffset(NamedTuple):\n    result: Any\n    offset: int\n\n\nclass ParseResults:\n    \"\"\"Structured parse results, to provide multiple means of access to\n    the parsed data:\n\n    - as a list (``len(results)``)\n    - by list index (``results[0], results[1]``, etc.)\n    - by attribute (``results.<results_name>`` - see :class:`ParserElement.set_results_name`)\n\n    Example:\n\n    .. testcode::\n\n       integer = Word(nums)\n       date_str = (integer.set_results_name(\"year\") + '/'\n                   + integer.set_results_name(\"month\") + '/'\n                   + integer.set_results_name(\"day\"))\n       # equivalent form:\n       # date_str = (integer(\"year\") + '/'\n       #             + integer(\"month\") + '/'\n       #             + integer(\"day\"))\n\n       # parse_string returns a ParseResults object\n       result = date_str.parse_string(\"1999/12/31\")\n\n       def test(s, fn=repr):\n           print(f\"{s} -> {fn(eval(s))}\")\n\n       test(\"list(result)\")\n       test(\"result[0]\")\n       test(\"result['month']\")\n       test(\"result.day\")\n       test(\"'month' in result\")\n       test(\"'minutes' in result\")\n       test(\"result.dump()\", str)\n\n    prints:\n\n    .. testoutput::\n\n       list(result) -> ['1999', '/', '12', '/', '31']\n       result[0] -> '1999'\n       result['month'] -> '12'\n       result.day -> '31'\n       'month' in result -> True\n       'minutes' in result -> False\n       result.dump() -> ['1999', '/', '12', '/', '31']\n       - day: '31'\n       - month: '12'\n       - year: '1999'\n\n    \"\"\"\n\n    _defaultTokenName = \"tokens\"\n\n    __slots__ = (\n        \"_toklist\",\n        \"_tokdict\",\n        \"_name\",\n        \"_parent\",\n        \"_all_names\",\n        \"saveAsList\",\n        \"modalResults\",\n    )\n\n    class List(list):\n        \"\"\"\n        Simple wrapper class to distinguish parsed list results that should be preserved\n        as actual Python lists, instead of being converted to :class:`ParseResults`:\n\n        .. testcode::\n\n           import pyparsing as pp\n           ppc = pp.common\n\n           LBRACK, RBRACK, LPAR, RPAR = pp.Suppress.using_each(\"[]()\")\n           element = pp.Forward()\n           item = ppc.integer\n           item_list = pp.DelimitedList(element)\n           element_list = LBRACK + item_list + RBRACK | LPAR + item_list + RPAR\n           element <<= item | element_list\n\n           # add parse action to convert from ParseResults\n           # to actual Python collection types\n           @element_list.add_parse_action\n           def as_python_list(t):\n               return pp.ParseResults.List(t.as_list())\n\n           element.run_tests('''\n               100\n               [2,3,4]\n               [[2, 1],3,4]\n               [(2, 1),3,4]\n               (2,3,4)\n               ([2, 3], 4)\n               ''', post_parse=lambda s, r: (r[0], type(r[0]))\n           )\n\n        prints:\n\n        .. testoutput::\n           :options: +NORMALIZE_WHITESPACE\n\n\n           100\n           (100, <class 'int'>)\n\n           [2,3,4]\n           ([2, 3, 4], <class 'list'>)\n\n           [[2, 1],3,4]\n           ([[2, 1], 3, 4], <class 'list'>)\n\n           [(2, 1),3,4]\n           ([[2, 1], 3, 4], <class 'list'>)\n\n           (2,3,4)\n           ([2, 3, 4], <class 'list'>)\n\n           ([2, 3], 4)\n           ([[2, 3], 4], <class 'list'>)\n\n        (Used internally by :class:`Group` when `aslist=True`.)\n        \"\"\"\n\n        def __new__(cls, contained=None):\n            if contained is None:\n                contained = []\n\n            if not isinstance(contained, list):\n                raise TypeError(\n                    f\"{cls.__name__} may only be constructed with a list, not {type(contained).__name__}\"\n                )\n\n            return list.__new__(cls)\n\n    class Dict(dict):\n        \"\"\"\n        Simple wrapper class to distinguish parsed dict results that should be\n        preserved as actual Python dicts, instead of being converted to\n        :class:`ParseResults`:\n\n        .. testcode::\n\n           import pyparsing as pp\n\n           data_word = pp.Word(pp.alphas)\n           label = data_word + pp.FollowedBy(':')\n\n           attr_expr = (\n               label + pp.Suppress(':')\n               + pp.OneOrMore(data_word, stop_on=label).set_parse_action(' '.join)\n           )\n\n           text = \"shape: SQUARE posn: upper left color: light blue\"\n\n           result = pp.Dict(pp.Group(attr_expr)[1, ...]).parse_string(text)\n\n           print(result['shape'])\n           print(result.as_dict())\n\n        prints:\n\n        .. testoutput::\n\n           SQUARE\n           {'shape': 'SQUARE', 'posn': 'upper left', 'color': 'light blue'}\n\n        (Used internally by :class:`Dict` when the inner expression matches nothing.)\n        \"\"\"\n\n        def __new__(cls, contained=None):\n            if contained is None:\n                contained = {}\n\n            if not isinstance(contained, dict):\n                raise TypeError(\n                    f\"{cls.__name__} may only be constructed with a dict, not {type(contained).__name__}\"\n                )\n\n            return dict.__new__(cls)\n\n    def __new__(cls, toklist=None, name=None, **kwargs):\n        if isinstance(toklist, ParseResults):\n            return toklist\n        self = object.__new__(cls)\n        self._name = None\n        self._parent = None\n        self._all_names = set()\n\n        if toklist is None:\n            self._toklist = []\n        elif isinstance(toklist, (list, _generator_type)):\n            self._toklist = [\n                ParseResults(v) if isinstance(v, (list, _generator_type)) else v\n                for v in toklist\n            ]\n        else:\n            self._toklist = [toklist]\n\n        self._tokdict = {}\n        self._name = None\n        self._parent = None\n        self._all_names = set()\n        self.saveAsList = False\n        self.modalResults = False\n\n        if name is not None:\n            self._name = name\n            if kwargs.get(\"aslist\", False):\n                self.saveAsList = True\n\n        return self\n\n    def __init__(\n        self,\n        toklist=None,\n        name=None,\n        asList=None,\n        aslist=None,\n        modal=None,\n        **kwargs,\n    ):\n        if asList is not None:\n            deprecate_argument(\"asList\", \"aslist\")\n            aslist = asList\n        if modal is not None:\n            deprecate_argument(\"modal\", \"modalResults\")\n            self.modalResults = modal\n\n    def __repr__(self):\n        return self.__class__.__name__ + \"(\" + repr(self._toklist) + \", \" + repr(self.as_dict()) + \")\"\n\n    def __str__(self):\n        return \"[\" + \", \".join(str(item) for item in self._toklist) + \"]\"\n\n    def __repr__(self):\n        s = self.__class__.__name__ + \"(\" + repr(self._toklist)\n        if self._tokdict:\n            s += \", \" + repr(self.as_dict())\n        s += \")\"\n        return s\n\n    def __eq__(self, other):\n        if isinstance(other, ParseResults):\n            return self._toklist == other._toklist and self._tokdict == other._tokdict\n        elif isinstance(other, str_type):\n            return self._toklist == [other]\n        elif isinstance(other, list):\n            return self._toklist == other\n        return False\n\n    def __hash__(self):\n        return hash(tuple(self._toklist))\n\n    def __len__(self):\n        return len(self._toklist)\n\n    def __getitem__(self, key):\n        if isinstance(key, slice):\n            return ParseResults(self._toklist[key])\n        elif isinstance(key, int):\n            return self._toklist[key]\n        elif isinstance(key, str_type):\n            if key in self._tokdict:\n                result = self._tokdict[key]\n                if isinstance(result, _ParseResultsWithOffset):\n                    return result.result\n                return result\n            else:\n                for i, tok in enumerate(self._toklist):\n                    if isinstance(tok, ParseResults) and key in tok:\n                        return tok[key]\n                raise KeyError(key)\n        else:\n            raise TypeError(f\"Key must be int or string, not {type(key).__name__}\")\n\n    def __setitem__(self, key, value, *args):\n        if isinstance(key, int):\n            self._toklist[key] = value\n        elif isinstance(key, str_type):\n            if key in self._tokdict:\n                result = self._tokdict[key]\n                if isinstance(result, _ParseResultsWithOffset):\n                    self._tokdict[key] = _ParseResultsWithOffset(value, result.offset)\n                else:\n                    self._tokdict[key] = value\n            else:\n                self._tokdict[key] = value\n        elif isinstance(key, slice):\n            self._toklist[key] = value\n        else:\n            raise TypeError(f\"Key must be int or string, not {type(key).__name__}\")\n\n    def __delitem__(self, key):\n        if isinstance(key, int):\n            del self._toklist[key]\n        elif isinstance(key, str_type):\n            if key in self._tokdict:\n                result = self._tokdict[key]\n                if isinstance(result, _ParseResultsWithOffset):\n                    del self._tokdict[key]\n                else:\n                    del self._tokdict[key]\n            else:\n                for i, tok in enumerate(self._toklist):\n                    if isinstance(tok, ParseResults) and key in tok:\n                        del tok[key]\n                        break\n        elif isinstance(key, slice):\n            del self._toklist[key]\n        else:\n            raise TypeError(f\"Key must be int or string, not {type(key).__name__}\")\n\n    def __contains__(self, key):\n        if isinstance(key, int):\n            return 0 <= key < len(self._toklist)\n        elif isinstance(key, str_type):\n            return key in self._tokdict or any(\n                isinstance(tok, ParseResults) and key in tok\n                for tok in self._toklist\n                if isinstance(tok, ParseResults)\n            )\n        return False\n\n    def __iter__(self) -> Iterator:\n        return iter(self._toklist)\n\n    def __reversed__(self) -> Iterator:\n        return iter(self._toklist[::-1])\n\n    def keys(self):\n        return iter(self._tokdict)\n\n    def values(self):\n        return (self[k] for k in self.keys())\n\n    def items(self):\n        return ((k, self[k]) for k in self.keys())\n\n    def haskeys(self) -> bool:\n        \"\"\"\n        Since ``keys()`` returns an iterator, this method is helpful in bypassing\n        code that looks for the existence of any defined results names.\"\"\"\n        return not not self._tokdict\n\n    def pop(self, *args, **kwargs):\n        \"\"\"\n        Removes and returns item at specified index (default= ``last``).\n        Supports both ``list`` and ``dict`` semantics for ``pop()``. If\n        passed no argument or an integer argument, it will use ``list``\n        semantics and pop tokens from the list of parsed tokens. If passed\n        a non-integer argument (most likely a string), it will use ``dict``\n        semantics and pop the corresponding value from any defined results\n        names. A second default return value argument is supported, just as in\n        ``dict.pop()``.\n\n        Example:\n\n        .. testcode::\n\n           >>> numlist = Word(nums)[...]\n           >>> print(numlist.parse_string(\"0 123 321\"))\n           ['0', '123', '321']\n\n           >>> def remove_first(tokens):\n           ...     tokens.pop(0)\n           ...\n           >>> numlist.add_parse_action(remove_first)\n           [W:(0-9)]...\n           >>> print(numlist.parse_string(\"0 123 321\"))\n           ['123', '321']\n\n        \"\"\"\n        if args:\n            key = args[0]\n        else:\n            key = -1\n\n        if isinstance(key, int):\n            return self._toklist.pop(key)\n        elif isinstance(key, str_type):\n            if key in self._tokdict:\n                result = self._tokdict[key]\n                if isinstance(result, _ParseResultsWithOffset):\n                    del self._tokdict[key]\n                    return result.result\n                else:\n                    del self._tokdict[key]\n                    return result\n            else:\n                if kwargs:\n                    return kwargs.get(\"default\", args[1] if len(args) > 1 else None)\n                raise KeyError(key)\n        else:\n            raise TypeError(f\"Key must be int or string, not {type(key).__name__}\")\n\n    def get(self, key, default=None):\n        \"\"\"\n        Returns the value for key if key is in the results, else default.\n\n        Example:\n\n        .. testcode::\n\n           >>> numlist = Word(nums)[...]\n           >>> result = numlist.parse_string(\"0 123 321\")\n           >>> print(result.get(\"nonexistent\", \"default\"))\n           default\n\n        \"\"\"\n        try:\n            return self[key]\n        except (KeyError, IndexError):\n            return default\n\n    def popitem(self):\n        \"\"\"\n        Removes and returns a (key, value) pair from the results.\n        The pair is the last field added, or the last added to the last item\n        added to the result.\n\n        Example:\n\n        .. testcode::\n\n           >>> numlist = Word(nums)[...]\n           >>> result = numlist.parse_string(\"0 123 321\")\n           >>> print(result.popitem())\n           ('321', '321')\n\n        \"\"\"\n        key = self.keys().__iter__().__next__()\n        return (key, self.pop(key))\n\n    def update(self, other=None, **kwargs):\n        \"\"\"\n        Updates the parse results with key/value pairs from other, an\n        iterable of (key, value) pairs, or keyword arguments.\n\n        Example:\n\n        .. testcode::\n\n           >>> result = ParseResults()\n           >>> result.update(a=1, b=2)\n           >>> print(result.as_dict())\n           {'a': 1, 'b': 2}\n\n        \"\"\"\n        if other is not None:\n            if isinstance(other, dict):\n                for key, value in other.items():\n                    self[key] = value\n            elif hasattr(other, \"items\"):\n                for key, value in other.items():\n                    self[key] = value\n            else:\n                for key, value in other:\n                    self[key] = value\n        for key, value in kwargs.items():\n            self[key] = value\n\n    def setdefault(self, key, default=None):\n        \"\"\"\n        If key is in the results, return its value. If not, insert key with\n        a value of default and return default.\n\n        Example:\n\n        .. testcode::\n\n           >>> result = ParseResults()\n           >>> print(result.setdefault(\"a\", 1))\n           1\n           >>> print(result.as_dict())\n           {'a': 1}\n\n        \"\"\"\n        if key in self:\n            return self[key]\n        else:\n            self[key] = default\n            return default\n\n    def as_list(self) -> list:\n        \"\"\"\n        Returns the parse results as a plain list. This can be useful when\n        working with results that have nested structures.\n\n        Example:\n\n        .. testcode::\n\n           >>> integer = Word(nums)\n           >>> date_str = integer(\"year\") + '/' + integer(\"month\") + '/' + integer(\"day\")\n           >>> result = date_str.parse_string('1999/12/31')\n           >>> print(result.as_list())\n           ['1999', '/', '12', '/', '31']\n\n        \"\"\"\n        if flatten:\n            return [*_flatten(self)]\n        else:\n            return [\n                res.as_list() if isinstance(res, ParseResults) else res\n                for res in self._toklist\n            ]\n\n    def as_dict(self) -> dict:\n        \"\"\"\n        Returns the named parse results as a nested dictionary.\n\n        Example:\n\n        .. testcode::\n\n           >>> integer = pp.Word(pp.nums)\n           >>> date_str = integer(\"year\") + '/' + integer(\"month\") + '/' + integer(\"day\")\n\n           >>> result = date_str.parse_string('1999/12/31')\n           >>> type(result)\n           <class 'pyparsing.results.ParseResults'>\n           >>> result\n           ParseResults(['1999', '/', '12', '/', '31'], {'year': '1999', 'month': '12', 'day': '31'})\n\n           >>> result_dict = result.as_dict()\n           >>> type(result_dict)\n           <class 'dict'>\n           >>> result_dict\n           {'year': '1999', 'month': '12', 'day': '31'}\n\n           >>> # even though a ParseResults supports dict-like access,\n           >>> # sometime you just need to have a dict\n           >>> import json\n           >>> print(json.dumps(result))\n           Traceback (most recent call last):\n           TypeError: Object of type ParseResults is not JSON serializable\n           >>> print(json.dumps(result.as_dict()))\n           {\"year\": \"1999\", \"month\": \"12\", \"day\": \"31\"}\n        \"\"\"\n\n        def to_item(obj):\n            if isinstance(obj, ParseResults):\n                if isinstance(obj, ParseResults.Dict):\n                    return {}\n                return obj.as_dict() if obj.haskeys() else [to_item(v) for v in obj]\n            else:\n                return obj\n\n        return dict((k, to_item(v)) for k, v in self.items())\n\n    def copy(self) -> ParseResults:\n        \"\"\"\n        Returns a new shallow copy of a :class:`ParseResults` object.\n        :class:`ParseResults` items contained within the source are\n        shared with the copy. Use :meth:`ParseResults.deepcopy` to\n        create a copy with its own separate content values.\n        \"\"\"\n        ret: ParseResults = object.__new__(ParseResults)\n        ret._toklist = self._toklist[:]\n        # the occurrence lists are shared with the original; the only methods\n        # that renumber them (__delitem__, insert) copy before writing, so a\n        # copy can never renumber the original's offsets\n        ret._tokdict = {**self._tokdict}\n        ret._parent = self._parent\n        ret._all_names = {*self._all_names}\n        ret._name = self._name\n        ret._modal = self._modal\n        return ret\n\n    def deepcopy(self) -> ParseResults:\n        \"\"\"\n        Returns a new deep copy of a :class:`ParseResults` object.\n\n        .. versionadded:: 3.1.0\n        \"\"\"\n        ret = self.copy()\n        # map id() of each copied token to its copy, so that results names\n        # referencing items in the token list stay linked to the copies (and\n        # decoupled from the original)\n        memo: dict[int, Any] = {}\n        # replace values with copies if they are of known mutable types\n        for i, obj in enumerate(self._toklist):\n            if isinstance(obj, ParseResults):\n                ret._toklist[i] = obj.deepcopy()\n            elif isinstance(obj, (str, bytes)):\n                continue\n            elif isinstance(obj, MutableMapping):\n                ret._toklist[i] = dest = type(obj)()\n                for k, v in obj.items():\n                    dest[k] = v.deepcopy() if isinstance(v, ParseResults) else v\n            elif isinstance(obj, Iterable):\n                ret._toklist[i] = type(obj)(\n                    v.deepcopy() if isinstance(v, ParseResults) else v\n                    for v in obj\n                )\n        return ret\n\n    def dump(self, indent=\"\", asString=True) -> str | None:\n        \"\"\"\n        Returns a debug dump of the parse results, with additional details\n        of nested results.\n\n        - indent - string used to indent the output.\n        - asString - controls whether a string is returned (True) or\n          the dump is printed (False).\n\n        Returns a formatted dump of the results, or None if asString is False.\n        \"\"\"\n        out = []\n        self._dump(\"\", lambda s: out.append(s))\n\n        if asString:\n            return \"\\n\".join(out)\n        else:\n            print(\"\\n\".join(out))\n            return None\n\n    def _dump(self, indent, output):\n        output(f\"{indent}<{self.__class__.__name__}, {self._toklist!r}, {self.as_dict()}>\")\n\n        for name, val in self.as_dict().items():\n            if isinstance(val, ParseResults):\n                output(f\"{indent}  - {name}:\")\n                val._dump(indent + \"    \", output)\n            else:\n                output(f\"{indent}  - {name}: {val!r}\")\n\n        for i, tok in enumerate(self._toklist):\n            if isinstance(tok, ParseResults):\n                output(f\"{indent}  [{i}]:\")\n                tok._dump(indent + \"    \", output)\n\n    def pretty(self, **kwargs) -> str:\n        \"\"\"\n        Returns a pretty string of the parse results.\n\n        See :meth:`ParseResults.dump` for differences.\n        \"\"\"\n        return self.dump(asString=True).replace(\"\\n\", \"\\n\").replace(\" \", \"  \")\n\n    def to_dict(self) -> dict:\n        \"\"\"\n        Returns the parse results as a dictionary. This is an alias for\n        :meth:`ParseResults.as_dict`.\n\n        .. versionadded:: 3.0.0\n        \"\"\"\n        return self.as_dict()\n\n    def get_name(self, default=None):\n        \"\"\"\n        Returns the results name.\n\n        Example:\n\n        .. testcode::\n\n           >>> integer = Word(nums)(\"myint\")\n           >>> result = integer.parse_string(\"123\")\n           >>> print(result.get_name())\n           myint\n\n        \"\"\"\n        return self._name if self._name is not None else default\n\n    def __getattr__(self, name):\n        if name.startswith(\"__\"):\n            raise AttributeError(name)\n        if name in self._tokdict:\n            result = self._tokdict[name]\n            if isinstance(result, _ParseResultsWithOffset):\n                return result.result\n            return result\n        else:\n            for tok in self._toklist:\n                if isinstance(tok, ParseResults) and name in tok:\n                    return tok[name]\n            raise AttributeError(f\"{type(self).__name__!r} object has no attribute {name!r}\")\n\n    def __setattr__(self, key, value):\n        if key in self._slots:\n                super().__setattr__(key, value)\n            else:\n                self[key] = value\n\n    def __delattr__(self, name):\n        if name in self._tokdict:\n            del self._tokdict[name]\n        else:\n            for tok in self._toklist:\n                if isinstance(tok, ParseResults) and name in tok:\n                    del tok[name]\n                    break\n\n    def __dir__(self):\n        return dir(self.__class__) + list(self.keys())\n\n    # dict-like interface\n\n    def asDict(self) -> dict:\n        \"\"\"\n        Returns the named parse results as a nested dictionary.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`as_dict`\n        \"\"\"\n        return self.as_dict()\n\n    asdict = as_dict\n\n    def asList(self) -> list:\n        \"\"\"\n        Returns the parse results as a plain list.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`as_list`\n        \"\"\"\n        return self.as_list()\n\n    aslist = as_list\n\n    def getName(self, default=None):\n        \"\"\"\n        Returns the results name.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`get_name`\n        \"\"\"\n        return self.get_name(default)\n\n    def dump(self, indent=\"\", asString=True) -> str | None:\n        \"\"\"\n        Returns a debug dump of the parse results, with additional details\n        of nested results.\n\n        - indent - string used to indent the output.\n        - asString - controls whether a string is returned (True) or\n          the dump is printed (False).\n\n        Returns a formatted dump of the results, or None if asString is False.\n        \"\"\"\n        out = []\n        self._dump(\"\", lambda s: out.append(s))\n\n        if asString:\n            return \"\\n\".join(out)\n        else:\n            print(\"\\n\".join(out))\n            return None\n\n    def _dump(self, indent, output):\n        output(f\"{indent}<{self.__class__.__name__}, {self._toklist!r}, {self.as_dict()}>\")\n\n        for name, val in self.as_dict().items():\n            if isinstance(val, ParseResults):\n                output(f\"{indent}  - {name}:\")\n                val._dump(indent + \"    \", output)\n            else:\n                output(f\"{indent}  - {name}: {val!r}\")\n\n        for i, tok in enumerate(self._toklist):\n            if isinstance(tok, ParseResults):\n                output(f\"{indent}  [{i}]:\")\n                tok._dump(indent + \"    \", output)\n\n    def pretty(self, **kwargs) -> str:\n        \"\"\"\n        Returns a pretty string of the parse results.\n\n        See :meth:`ParseResults.dump` for differences.\n        \"\"\"\n        return self.dump(asString=True).replace(\"\\n\", \"\\n\").replace(\" \", \"  \")\n\n    def to_dict(self) -> dict:\n        \"\"\"\n        Returns the parse results as a dictionary. This is an alias for\n        :meth:`ParseResults.as_dict`.\n\n        .. versionadded:: 3.0.0\n        \"\"\"\n        return self.as_dict()\n\n    def get_name(self, default=None):\n        \"\"\"\n        Returns the results name.\n\n        Example:\n\n        .. testcode::\n\n           >>> integer = Word(nums)(\"myint\")\n           >>> result = integer.parse_string(\"123\")\n           >>> print(result.get_name())\n           myint\n\n        \"\"\"\n        return self._name if self._name is not None else default\n\n    def __getattr__(self, name):\n        if name.startswith(\"__\"):\n            raise AttributeError(name)\n        if name in self._tokdict:\n            result = self._tokdict[name]\n            if isinstance(result, _ParseResultsWithOffset):\n                return result.result\n            return result\n        else:\n            for tok in self._toklist:\n                if isinstance(tok, ParseResults) and name in tok:\n                    return tok[name]\n            raise AttributeError(f\"{type(self).__name__!r} object has no attribute {name!r}\")\n\n    def __setattr__(self, key, value):\n        if key in self._slots:\n                super().__setattr__(key, value)\n            else:\n                self[key] = value\n\n    def __delattr__(self, name):\n        if name in self._tokdict:\n            del self._tokdict[name]\n        else:\n            for tok in self._toklist:\n                if isinstance(tok, ParseResults) and name in tok:\n                    del tok[name]\n                    break\n\n    def __dir__(self):\n        return dir(self.__class__) + list(self.keys())\n\n    # dict-like interface\n\n    def asDict(self) -> dict:\n        \"\"\"\n        Returns the named parse results as a nested dictionary.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`as_dict`\n        \"\"\"\n        return self.as_dict()\n\n    asdict = as_dict\n\n    def asList(self) -> list:\n        \"\"\"\n        Returns the parse results as a plain list.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`as_list`\n        \"\"\"\n        return self.as_list()\n\n    aslist = as_list\n\n    def getName(self, default=None):\n        \"\"\"\n        Returns the results name.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`get_name`\n        \"\"\"\n        return self.get_name(default)\n\n</parameter>\n<parameter=path>\npyparsing/results.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "write_file",
+      "fields": {
+       "content": "# results.py\n\nfrom __future__ import annotations\n\nimport collections\nfrom collections.abc import (\n    MutableMapping,\n    Mapping,\n    MutableSequence,\n    Iterator,\n    Iterable,\n)\nimport pprint\nfrom typing import Any, NamedTuple\n\nfrom .util import deprecate_argument, _is_iterable, _flatten\n\n\nstr_type: tuple[type, ...] = (str, bytes)\n_generator_type = type((_ for _ in ()))\nNULL_SLICE: slice = slice(None)\n\n\nclass _ParseResultsWithOffset(NamedTuple):\n    result: Any\n    offset: int\n\n\nclass ParseResults:\n    \"\"\"Structured parse results, to provide multiple means of access to\n    the parsed data:\n\n    - as a list (``len(results)``)\n    - by list index (``results[0], results[1]``, etc.)\n    - by attribute (``results.<results_name>`` - see :class:`ParserElement.set_results_name`)\n\n    Example:\n\n    .. testcode::\n\n       integer = Word(nums)\n       date_str = (integer.set_results_name(\"year\") + '/'\n                   + integer.set_results_name(\"month\") + '/'\n                   + integer.set_results_name(\"day\"))\n       # equivalent form:\n       # date_str = (integer(\"year\") + '/'\n       #             + integer(\"month\") + '/'\n       #             + integer(\"day\"))\n\n       # parse_string returns a ParseResults object\n       result = date_str.parse_string(\"1999/12/31\")\n\n       def test(s, fn=repr):\n           print(f\"{s} -> {fn(eval(s))}\")\n\n       test(\"list(result)\")\n       test(\"result[0]\")\n       test(\"result['month']\")\n       test(\"result.day\")\n       test(\"'month' in result\")\n       test(\"'minutes' in result\")\n       test(\"result.dump()\", str)\n\n    prints:\n\n    .. testoutput::\n\n       list(result) -> ['1999', '/', '12', '/', '31']\n       result[0] -> '1999'\n       result['month'] -> '12'\n       result.day -> '31'\n       'month' in result -> True\n       'minutes' in result -> False\n       result.dump() -> ['1999', '/', '12', '/', '31']\n       - day: '31'\n       - month: '12'\n       - year: '1999'\n\n    \"\"\"\n\n    _defaultTokenName = \"tokens\"\n\n    __slots__ = (\n        \"_toklist\",\n        \"_tokdict\",\n        \"_name\",\n        \"_parent\",\n        \"_all_names\",\n        \"saveAsList\",\n        \"modalResults\",\n    )\n\n    class List(list):\n        \"\"\"\n        Simple wrapper class to distinguish parsed list results that should be preserved\n        as actual Python lists, instead of being converted to :class:`ParseResults`:\n\n        .. testcode::\n\n           import pyparsing as pp\n           ppc = pp.common\n\n           LBRACK, RBRACK, LPAR, RPAR = pp.Suppress.using_each(\"[]()\")\n           element = pp.Forward()\n           item = ppc.integer\n           item_list = pp.DelimitedList(element)\n           element_list = LBRACK + item_list + RBRACK | LPAR + item_list + RPAR\n           element <<= item | element_list\n\n           # add parse action to convert from ParseResults\n           # to actual Python collection types\n           @element_list.add_parse_action\n           def as_python_list(t):\n               return pp.ParseResults.List(t.as_list())\n\n           element.run_tests('''\n               100\n               [2,3,4]\n               [[2, 1],3,4]\n               [(2, 1),3,4]\n               (2,3,4)\n               ([2, 3], 4)\n               ''', post_parse=lambda s, r: (r[0], type(r[0]))\n           )\n\n        prints:\n\n        .. testoutput::\n           :options: +NORMALIZE_WHITESPACE\n\n\n           100\n           (100, <class 'int'>)\n\n           [2,3,4]\n           ([2, 3, 4], <class 'list'>)\n\n           [[2, 1],3,4]\n           ([[2, 1], 3, 4], <class 'list'>)\n\n           [(2, 1),3,4]\n           ([[2, 1], 3, 4], <class 'list'>)\n\n           (2,3,4)\n           ([2, 3, 4], <class 'list'>)\n\n           ([2, 3], 4)\n           ([[2, 3], 4], <class 'list'>)\n\n        (Used internally by :class:`Group` when `aslist=True`.)\n        \"\"\"\n\n        def __new__(cls, contained=None):\n            if contained is None:\n                contained = []\n\n            if not isinstance(contained, list):\n                raise TypeError(\n                    f\"{cls.__name__} may only be constructed with a list, not {type(contained).__name__}\"\n                )\n\n            return list.__new__(cls)\n\n    class Dict(dict):\n        \"\"\"\n        Simple wrapper class to distinguish parsed dict results that should be\n        preserved as actual Python dicts, instead of being converted to\n        :class:`ParseResults`:\n\n        .. testcode::\n\n           import pyparsing as pp\n\n           data_word = pp.Word(pp.alphas)\n           label = data_word + pp.FollowedBy(':')\n\n           attr_expr = (\n               label + pp.Suppress(':')\n               + pp.OneOrMore(data_word, stop_on=label).set_parse_action(' '.join)\n           )\n\n           text = \"shape: SQUARE posn: upper left color: light blue\"\n\n           result = pp.Dict(pp.Group(attr_expr)[1, ...]).parse_string(text)\n\n           print(result['shape'])\n           print(result.as_dict())\n\n        prints:\n\n        .. testoutput::\n\n           SQUARE\n           {'shape': 'SQUARE', 'posn': 'upper left', 'color': 'light blue'}\n\n        (Used internally by :class:`Dict` when the inner expression matches nothing.)\n        \"\"\"\n\n        def __new__(cls, contained=None):\n            if contained is None:\n                contained = {}\n\n            if not isinstance(contained, dict):\n                raise TypeError(\n                    f\"{cls.__name__} may only be constructed with a dict, not {type(contained).__name__}\"\n                )\n\n            return dict.__new__(cls)\n\n    def __new__(cls, toklist=None, name=None, **kwargs):\n        if isinstance(toklist, ParseResults):\n            return toklist\n        self = object.__new__(cls)\n        self._name = None\n        self._parent = None\n        self._all_names = set()\n\n        if toklist is None:\n            self._toklist = []\n        elif isinstance(toklist, (list, _generator_type)):\n            self._toklist = [\n                ParseResults(v) if isinstance(v, (list, _generator_type)) else v\n                for v in toklist\n            ]\n        else:\n            self._toklist = [toklist]\n\n        self._tokdict = {}\n        self._name = None\n        self._parent = None\n        self._all_names = set()\n        self.saveAsList = False\n        self.modalResults = False\n\n        if name is not None:\n            self._name = name\n            if kwargs.get(\"aslist\", False):\n                self.saveAsList = True\n\n        return self\n\n    def __init__(\n        self,\n        toklist=None,\n        name=None,\n        asList=None,\n        aslist=None,\n        modal=None,\n        **kwargs,\n    ):\n        if asList is not None:\n            deprecate_argument(\"asList\", \"aslist\")\n            aslist = asList\n        if modal is not None:\n            deprecate_argument(\"modal\", \"modalResults\")\n            self.modalResults = modal\n\n    def __repr__(self):\n        return self.__class__.__name__ + \"(\" + repr(self._toklist) + \", \" + repr(self.as_dict()) + \")\"\n\n    def __str__(self):\n        return \"[\" + \", \".join(str(item) for item in self._toklist) + \"]\"\n\n    def __repr__(self):\n        s = self.__class__.__name__ + \"(\" + repr(self._toklist)\n        if self._tokdict:\n            s += \", \" + repr(self.as_dict())\n        s += \")\"\n        return s\n\n    def __eq__(self, other):\n        if isinstance(other, ParseResults):\n            return self._toklist == other._toklist and self._tokdict == other._tokdict\n        elif isinstance(other, str_type):\n            return self._toklist == [other]\n        elif isinstance(other, list):\n            return self._toklist == other\n        return False\n\n    def __hash__(self):\n        return hash(tuple(self._toklist))\n\n    def __len__(self):\n        return len(self._toklist)\n\n    def __getitem__(self, key):\n        if isinstance(key, slice):\n            return ParseResults(self._toklist[key])\n        elif isinstance(key, int):\n            return self._toklist[key]\n        elif isinstance(key, str_type):\n            if key in self._tokdict:\n                result = self._tokdict[key]\n                if isinstance(result, _ParseResultsWithOffset):\n                    return result.result\n                return result\n            else:\n                for i, tok in enumerate(self._toklist):\n                    if isinstance(tok, ParseResults) and key in tok:\n                        return tok[key]\n                raise KeyError(key)\n        else:\n            raise TypeError(f\"Key must be int or string, not {type(key).__name__}\")\n\n    def __setitem__(self, key, value, *args):\n        if isinstance(key, int):\n            self._toklist[key] = value\n        elif isinstance(key, str_type):\n            if key in self._tokdict:\n                result = self._tokdict[key]\n                if isinstance(result, _ParseResultsWithOffset):\n                    self._tokdict[key] = _ParseResultsWithOffset(value, result.offset)\n                else:\n                    self._tokdict[key] = value\n            else:\n                self._tokdict[key] = value\n        elif isinstance(key, slice):\n            self._toklist[key] = value\n        else:\n            raise TypeError(f\"Key must be int or string, not {type(key).__name__}\")\n\n    def __delitem__(self, key):\n        if isinstance(key, int):\n            del self._toklist[key]\n        elif isinstance(key, str_type):\n            if key in self._tokdict:\n                result = self._tokdict[key]\n                if isinstance(result, _ParseResultsWithOffset):\n                    del self._tokdict[key]\n                else:\n                    del self._tokdict[key]\n            else:\n                for i, tok in enumerate(self._toklist):\n                    if isinstance(tok, ParseResults) and key in tok:\n                        del tok[key]\n                        break\n        elif isinstance(key, slice):\n            del self._toklist[key]\n        else:\n            raise TypeError(f\"Key must be int or string, not {type(key).__name__}\")\n\n    def __contains__(self, key):\n        if isinstance(key, int):\n            return 0 <= key < len(self._toklist)\n        elif isinstance(key, str_type):\n            return key in self._tokdict or any(\n                isinstance(tok, ParseResults) and key in tok\n                for tok in self._toklist\n                if isinstance(tok, ParseResults)\n            )\n        return False\n\n    def __iter__(self) -> Iterator:\n        return iter(self._toklist)\n\n    def __reversed__(self) -> Iterator:\n        return iter(self._toklist[::-1])\n\n    def keys(self):\n        return iter(self._tokdict)\n\n    def values(self):\n        return (self[k] for k in self.keys())\n\n    def items(self):\n        return ((k, self[k]) for k in self.keys())\n\n    def haskeys(self) -> bool:\n        \"\"\"\n        Since ``keys()`` returns an iterator, this method is helpful in bypassing\n        code that looks for the existence of any defined results names.\"\"\"\n        return not not self._tokdict\n\n    def pop(self, *args, **kwargs):\n        \"\"\"\n        Removes and returns item at specified index (default= ``last``).\n        Supports both ``list`` and ``dict`` semantics for ``pop()``. If\n        passed no argument or an integer argument, it will use ``list``\n        semantics and pop tokens from the list of parsed tokens. If passed\n        a non-integer argument (most likely a string), it will use ``dict``\n        semantics and pop the corresponding value from any defined results\n        names. A second default return value argument is supported, just as in\n        ``dict.pop()``.\n\n        Example:\n\n        .. testcode::\n\n           >>> numlist = Word(nums)[...]\n           >>> print(numlist.parse_string(\"0 123 321\"))\n           ['0', '123', '321']\n\n           >>> def remove_first(tokens):\n           ...     tokens.pop(0)\n           ...\n           >>> numlist.add_parse_action(remove_first)\n           [W:(0-9)]...\n           >>> print(numlist.parse_string(\"0 123 321\"))\n           ['123', '321']\n\n        \"\"\"\n        if args:\n            key = args[0]\n        else:\n            key = -1\n\n        if isinstance(key, int):\n            return self._toklist.pop(key)\n        elif isinstance(key, str_type):\n            if key in self._tokdict:\n                result = self._tokdict[key]\n                if isinstance(result, _ParseResultsWithOffset):\n                    del self._tokdict[key]\n                    return result.result\n                else:\n                    del self._tokdict[key]\n                    return result\n            else:\n                if kwargs:\n                    return kwargs.get(\"default\", args[1] if len(args) > 1 else None)\n                raise KeyError(key)\n        else:\n            raise TypeError(f\"Key must be int or string, not {type(key).__name__}\")\n\n    def get(self, key, default=None):\n        \"\"\"\n        Returns the value for key if key is in the results, else default.\n\n        Example:\n\n        .. testcode::\n\n           >>> numlist = Word(nums)[...]\n           >>> result = numlist.parse_string(\"0 123 321\")\n           >>> print(result.get(\"nonexistent\", \"default\"))\n           default\n\n        \"\"\"\n        try:\n            return self[key]\n        except (KeyError, IndexError):\n            return default\n\n    def popitem(self):\n        \"\"\"\n        Removes and returns a (key, value) pair from the results.\n        The pair is the last field added, or the last added to the last item\n        added to the result.\n\n        Example:\n\n        .. testcode::\n\n           >>> numlist = Word(nums)[...]\n           >>> result = numlist.parse_string(\"0 123 321\")\n           >>> print(result.popitem())\n           ('321', '321')\n\n        \"\"\"\n        key = self.keys().__iter__().__next__()\n        return (key, self.pop(key))\n\n    def update(self, other=None, **kwargs):\n        \"\"\"\n        Updates the parse results with key/value pairs from other, an\n        iterable of (key, value) pairs, or keyword arguments.\n\n        Example:\n\n        .. testcode::\n\n           >>> result = ParseResults()\n           >>> result.update(a=1, b=2)\n           >>> print(result.as_dict())\n           {'a': 1, 'b': 2}\n\n        \"\"\"\n        if other is not None:\n            if isinstance(other, dict):\n                for key, value in other.items():\n                    self[key] = value\n            elif hasattr(other, \"items\"):\n                for key, value in other.items():\n                    self[key] = value\n            else:\n                for key, value in other:\n                    self[key] = value\n        for key, value in kwargs.items():\n            self[key] = value\n\n    def setdefault(self, key, default=None):\n        \"\"\"\n        If key is in the results, return its value. If not, insert key with\n        a value of default and return default.\n\n        Example:\n\n        .. testcode::\n\n           >>> result = ParseResults()\n           >>> print(result.setdefault(\"a\", 1))\n           1\n           >>> print(result.as_dict())\n           {'a': 1}\n\n        \"\"\"\n        if key in self:\n            return self[key]\n        else:\n            self[key] = default\n            return default\n\n    def as_list(self) -> list:\n        \"\"\"\n        Returns the parse results as a plain list. This can be useful when\n        working with results that have nested structures.\n\n        Example:\n\n        .. testcode::\n\n           >>> integer = Word(nums)\n           >>> date_str = integer(\"year\") + '/' + integer(\"month\") + '/' + integer(\"day\")\n           >>> result = date_str.parse_string('1999/12/31')\n           >>> print(result.as_list())\n           ['1999', '/', '12', '/', '31']\n\n        \"\"\"\n        if flatten:\n            return [*_flatten(self)]\n        else:\n            return [\n                res.as_list() if isinstance(res, ParseResults) else res\n                for res in self._toklist\n            ]\n\n    def as_dict(self) -> dict:\n        \"\"\"\n        Returns the named parse results as a nested dictionary.\n\n        Example:\n\n        .. testcode::\n\n           >>> integer = pp.Word(pp.nums)\n           >>> date_str = integer(\"year\") + '/' + integer(\"month\") + '/' + integer(\"day\")\n\n           >>> result = date_str.parse_string('1999/12/31')\n           >>> type(result)\n           <class 'pyparsing.results.ParseResults'>\n           >>> result\n           ParseResults(['1999', '/', '12', '/', '31'], {'year': '1999', 'month': '12', 'day': '31'})\n\n           >>> result_dict = result.as_dict()\n           >>> type(result_dict)\n           <class 'dict'>\n           >>> result_dict\n           {'year': '1999', 'month': '12', 'day': '31'}\n\n           >>> # even though a ParseResults supports dict-like access,\n           >>> # sometime you just need to have a dict\n           >>> import json\n           >>> print(json.dumps(result))\n           Traceback (most recent call last):\n           TypeError: Object of type ParseResults is not JSON serializable\n           >>> print(json.dumps(result.as_dict()))\n           {\"year\": \"1999\", \"month\": \"12\", \"day\": \"31\"}\n        \"\"\"\n\n        def to_item(obj):\n            if isinstance(obj, ParseResults):\n                if isinstance(obj, ParseResults.Dict):\n                    return {}\n                return obj.as_dict() if obj.haskeys() else [to_item(v) for v in obj]\n            else:\n                return obj\n\n        return dict((k, to_item(v)) for k, v in self.items())\n\n    def copy(self) -> ParseResults:\n        \"\"\"\n        Returns a new shallow copy of a :class:`ParseResults` object.\n        :class:`ParseResults` items contained within the source are\n        shared with the copy. Use :meth:`ParseResults.deepcopy` to\n        create a copy with its own separate content values.\n        \"\"\"\n        ret: ParseResults = object.__new__(ParseResults)\n        ret._toklist = self._toklist[:]\n        # the occurrence lists are shared with the original; the only methods\n        # that renumber them (__delitem__, insert) copy before writing, so a\n        # copy can never renumber the original's offsets\n        ret._tokdict = {**self._tokdict}\n        ret._parent = self._parent\n        ret._all_names = {*self._all_names}\n        ret._name = self._name\n        ret._modal = self._modal\n        return ret\n\n    def deepcopy(self) -> ParseResults:\n        \"\"\"\n        Returns a new deep copy of a :class:`ParseResults` object.\n\n        .. versionadded:: 3.1.0\n        \"\"\"\n        ret = self.copy()\n        # map id() of each copied token to its copy, so that results names\n        # referencing items in the token list stay linked to the copies (and\n        # decoupled from the original)\n        memo: dict[int, Any] = {}\n        # replace values with copies if they are of known mutable types\n        for i, obj in enumerate(self._toklist):\n            if isinstance(obj, ParseResults):\n                ret._toklist[i] = obj.deepcopy()\n            elif isinstance(obj, (str, bytes)):\n                continue\n            elif isinstance(obj, MutableMapping):\n                ret._toklist[i] = dest = type(obj)()\n                for k, v in obj.items():\n                    dest[k] = v.deepcopy() if isinstance(v, ParseResults) else v\n            elif isinstance(obj, Iterable):\n                ret._toklist[i] = type(obj)(\n                    v.deepcopy() if isinstance(v, ParseResults) else v\n                    for v in obj\n                )\n        return ret\n\n    def dump(self, indent=\"\", asString=True) -> str | None:\n        \"\"\"\n        Returns a debug dump of the parse results, with additional details\n        of nested results.\n\n        - indent - string used to indent the output.\n        - asString - controls whether a string is returned (True) or\n          the dump is printed (False).\n\n        Returns a formatted dump of the results, or None if asString is False.\n        \"\"\"\n        out = []\n        self._dump(\"\", lambda s: out.append(s))\n\n        if asString:\n            return \"\\n\".join(out)\n        else:\n            print(\"\\n\".join(out))\n            return None\n\n    def _dump(self, indent, output):\n        output(f\"{indent}<{self.__class__.__name__}, {self._toklist!r}, {self.as_dict()}>\")\n\n        for name, val in self.as_dict().items():\n            if isinstance(val, ParseResults):\n                output(f\"{indent}  - {name}:\")\n                val._dump(indent + \"    \", output)\n            else:\n                output(f\"{indent}  - {name}: {val!r}\")\n\n        for i, tok in enumerate(self._toklist):\n            if isinstance(tok, ParseResults):\n                output(f\"{indent}  [{i}]:\")\n                tok._dump(indent + \"    \", output)\n\n    def pretty(self, **kwargs) -> str:\n        \"\"\"\n        Returns a pretty string of the parse results.\n\n        See :meth:`ParseResults.dump` for differences.\n        \"\"\"\n        return self.dump(asString=True).replace(\"\\n\", \"\\n\").replace(\" \", \"  \")\n\n    def to_dict(self) -> dict:\n        \"\"\"\n        Returns the parse results as a dictionary. This is an alias for\n        :meth:`ParseResults.as_dict`.\n\n        .. versionadded:: 3.0.0\n        \"\"\"\n        return self.as_dict()\n\n    def get_name(self, default=None):\n        \"\"\"\n        Returns the results name.\n\n        Example:\n\n        .. testcode::\n\n           >>> integer = Word(nums)(\"myint\")\n           >>> result = integer.parse_string(\"123\")\n           >>> print(result.get_name())\n           myint\n\n        \"\"\"\n        return self._name if self._name is not None else default\n\n    def __getattr__(self, name):\n        if name.startswith(\"__\"):\n            raise AttributeError(name)\n        if name in self._tokdict:\n            result = self._tokdict[name]\n            if isinstance(result, _ParseResultsWithOffset):\n                return result.result\n            return result\n        else:\n            for tok in self._toklist:\n                if isinstance(tok, ParseResults) and name in tok:\n                    return tok[name]\n            raise AttributeError(f\"{type(self).__name__!r} object has no attribute {name!r}\")\n\n    def __setattr__(self, key, value):\n        if key in self._slots:\n                super().__setattr__(key, value)\n            else:\n                self[key] = value\n\n    def __delattr__(self, name):\n        if name in self._tokdict:\n            del self._tokdict[name]\n        else:\n            for tok in self._toklist:\n                if isinstance(tok, ParseResults) and name in tok:\n                    del tok[name]\n                    break\n\n    def __dir__(self):\n        return dir(self.__class__) + list(self.keys())\n\n    # dict-like interface\n\n    def asDict(self) -> dict:\n        \"\"\"\n        Returns the named parse results as a nested dictionary.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`as_dict`\n        \"\"\"\n        return self.as_dict()\n\n    asdict = as_dict\n\n    def asList(self) -> list:\n        \"\"\"\n        Returns the parse results as a plain list.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`as_list`\n        \"\"\"\n        return self.as_list()\n\n    aslist = as_list\n\n    def getName(self, default=None):\n        \"\"\"\n        Returns the results name.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`get_name`\n        \"\"\"\n        return self.get_name(default)\n\n    def dump(self, indent=\"\", asString=True) -> str | None:\n        \"\"\"\n        Returns a debug dump of the parse results, with additional details\n        of nested results.\n\n        - indent - string used to indent the output.\n        - asString - controls whether a string is returned (True) or\n          the dump is printed (False).\n\n        Returns a formatted dump of the results, or None if asString is False.\n        \"\"\"\n        out = []\n        self._dump(\"\", lambda s: out.append(s))\n\n        if asString:\n            return \"\\n\".join(out)\n        else:\n            print(\"\\n\".join(out))\n            return None\n\n    def _dump(self, indent, output):\n        output(f\"{indent}<{self.__class__.__name__}, {self._toklist!r}, {self.as_dict()}>\")\n\n        for name, val in self.as_dict().items():\n            if isinstance(val, ParseResults):\n                output(f\"{indent}  - {name}:\")\n                val._dump(indent + \"    \", output)\n            else:\n                output(f\"{indent}  - {name}: {val!r}\")\n\n        for i, tok in enumerate(self._toklist):\n            if isinstance(tok, ParseResults):\n                output(f\"{indent}  [{i}]:\")\n                tok._dump(indent + \"    \", output)\n\n    def pretty(self, **kwargs) -> str:\n        \"\"\"\n        Returns a pretty string of the parse results.\n\n        See :meth:`ParseResults.dump` for differences.\n        \"\"\"\n        return self.dump(asString=True).replace(\"\\n\", \"\\n\").replace(\" \", \"  \")\n\n    def to_dict(self) -> dict:\n        \"\"\"\n        Returns the parse results as a dictionary. This is an alias for\n        :meth:`ParseResults.as_dict`.\n\n        .. versionadded:: 3.0.0\n        \"\"\"\n        return self.as_dict()\n\n    def get_name(self, default=None):\n        \"\"\"\n        Returns the results name.\n\n        Example:\n\n        .. testcode::\n\n           >>> integer = Word(nums)(\"myint\")\n           >>> result = integer.parse_string(\"123\")\n           >>> print(result.get_name())\n           myint\n\n        \"\"\"\n        return self._name if self._name is not None else default\n\n    def __getattr__(self, name):\n        if name.startswith(\"__\"):\n            raise AttributeError(name)\n        if name in self._tokdict:\n            result = self._tokdict[name]\n            if isinstance(result, _ParseResultsWithOffset):\n                return result.result\n            return result\n        else:\n            for tok in self._toklist:\n                if isinstance(tok, ParseResults) and name in tok:\n                    return tok[name]\n            raise AttributeError(f\"{type(self).__name__!r} object has no attribute {name!r}\")\n\n    def __setattr__(self, key, value):\n        if key in self._slots:\n                super().__setattr__(key, value)\n            else:\n                self[key] = value\n\n    def __delattr__(self, name):\n        if name in self._tokdict:\n            del self._tokdict[name]\n        else:\n            for tok in self._toklist:\n                if isinstance(tok, ParseResults) and name in tok:\n                    del tok[name]\n                    break\n\n    def __dir__(self):\n        return dir(self.__class__) + list(self.keys())\n\n    # dict-like interface\n\n    def asDict(self) -> dict:\n        \"\"\"\n        Returns the named parse results as a nested dictionary.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`as_dict`\n        \"\"\"\n        return self.as_dict()\n\n    asdict = as_dict\n\n    def asList(self) -> list:\n        \"\"\"\n        Returns the parse results as a plain list.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`as_list`\n        \"\"\"\n        return self.as_list()\n\n    aslist = as_list\n\n    def getName(self, default=None):\n        \"\"\"\n        Returns the results name.\n\n        .. deprecated:: 3.0.0\n           Use :meth:`get_name`\n        \"\"\"\n        return self.get_name(default)\n",
+       "path": "pyparsing/results.py"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-vcs_diff",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 116",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "All checks pass. Let me verify the changes are correct by reviewing what was modified:\n\n<tool_call>\n<function=vcs_diff>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "vcs_diff",
+      "fields": {
+       "paths": []
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-list_tree+read_file",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 119",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I'll start by exploring the repository structure and understanding the current implementation of time/datetime parsing.\n\n<tool_call>\n<function=list_tree>\n<parameter=max_entries>\n50\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=read_file>\n<parameter=path>\nsrc/tomli/_re.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "list_tree",
+      "fields": {
+       "max_entries": 50
+      }
+     },
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": null,
+       "path": "src/tomli/_re.py"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-list_tree",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 120",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now let me look at the tests directory to understand the test structure:\n\n<tool_call>\n<function=list_tree>\n<parameter=max_entries>\n100\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "list_tree",
+      "fields": {
+       "max_entries": 100
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-read_file+read_file+read_file",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 124",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Let me look at the local-time test files and the burntsushi test file:\n\n<tool_call>\n<function=read_file>\n<parameter=path>\ntests/data/valid/_external/toml-test/valid/datetime/local-time.toml\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=read_file>\n<parameter=path>\ntests/data/valid/_external/toml-test/valid/datetime/local-time.json\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=read_file>\n<parameter=path>\ntests/burntsushi.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": null,
+       "path": "tests/data/valid/_external/toml-test/valid/datetime/local-time.toml"
+      }
+     },
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": null,
+       "path": "tests/data/valid/_external/toml-test/valid/datetime/local-time.json"
+      }
+     },
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": null,
+       "path": "tests/burntsushi.py"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-read_file+read_file+list_tree",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 128",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now let me look at the tests for dates-and-times more carefully, and also check the current regex pattern:\n\n<tool_call>\n<function=read_file>\n<parameter=path>\ntests/data/valid/dates-and-times/localtime.toml\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=read_file>\n<parameter=path>\ntests/data/valid/dates-and-times/localtime.json\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=list_tree>\n<parameter=max_entries>\n20\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": null,
+       "path": "tests/data/valid/dates-and-times/localtime.toml"
+      }
+     },
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": null,
+       "path": "tests/data/valid/dates-and-times/localtime.json"
+      }
+     },
+     {
+      "capability": "list_tree",
+      "fields": {
+       "max_entries": 20
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-delete_path",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 162",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I can see the problem in the file: line 18 has `\\\\\\\\.` (double-escaped backslash-dot) and line 37 has `\\\\\\\\.` (also double-escaped). The `apply_replace` tool doubled the backslashes again. I need to use `delete_path` and `write_file` to get the correct content. Let me delete the file and recreate it:\n\n<tool_call>\n<function=delete_path>\n<parameter=expected_hash>\ndcbffd203ba993c80705c9eb412e304d673d042d96029633bff710e9a2821640\n</parameter>\n<parameter=path>\nsrc/tomli/_re.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "delete_path",
+      "fields": {
+       "expected_hash": "dcbffd203ba993c80705c9eb412e304d673d042d96029633bff710e9a2821640",
+       "path": "src/tomli/_re.py",
+       "recursive": false
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-apply_patch",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 173",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=apply_patch>\n<parameter=expected_hash>\nc469639091010ae9960c5d3db7b044688e28a33d062b8ce2f8aaf37edcf8d24e\n</parameter>\n<parameter=hunks>\n[{\"find\": \"    \\\"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\\\\\\\\.([0-9]{1,6})[0-9]*)?)?\\\")\\n\", \"replace\": \"    r\\\"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\\\\.([0-9]{1,6})[0-9]*)?)?\\\"\\n)\\n\"}]\n</parameter>\n<parameter=path>\nsrc/tomli/_re.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "apply_patch",
+      "fields": {
+       "expected_hash": "c469639091010ae9960c5d3db7b044688e28a33d062b8ce2f8aaf37edcf8d24e",
+       "hunks": [
+        {
+         "find": "    \"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\\\\.([0-9]{1,6})[0-9]*)?)?\")\n",
+         "replace": "    r\"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\\.([0-9]{1,6})[0-9]*)?)?\"\n)\n"
+        }
+       ],
+       "path": "src/tomli/_re.py"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-backslash-1",
+   "origin": "part-e-fixed-mlx-20260918, engine trace line 14",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now I'll apply the fix. The `__iadd__` method needs to check `isinstance(other, ParseResults)` and return `NotImplemented` if it's not, just like `__add__` does:\n\n<tool_call>\n<function=apply_replace>\n<parameter=expected_hash>\n1a509473f9d5600fd5b0b72efca300083b96972d3d26f3b464e9f887da6670e1\n</parameter>\n<parameter=path>\npyparsing/results.py\n</parameter>\n<parameter=replacement>\n    def __iadd__(self, other: ParseResults) -> ParseResults:\n        if not isinstance(other, ParseResults):\n            return NotImplemented\n        if not other:\n            return self\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "apply_replace",
+      "fields": {
+       "expected_hash": "1a509473f9d5600fd5b0b72efca300083b96972d3d26f3b464e9f887da6670e1",
+       "path": "pyparsing/results.py",
+       "replacement": "    def __iadd__(self, other: ParseResults) -> ParseResults:\n        if not isinstance(other, ParseResults):\n            return NotImplemented\n        if not other:\n            return self"
+      }
+     }
+    ]
+   },
+   "why": "An edit whose text carries backslashes, written after files reached the model verbatim; its parameters must reach the tool exactly as written, one backslash per backslash."
+  },
+  {
+   "type": "replay",
+   "id": "valid-backslash-2",
+   "origin": "part-e-fixed-mlx-20260918, engine trace line 48",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=apply_patch>\n<parameter=expected_hash>\n429380015a57f250ee62b917e2b6764434a0e8c6b618f2fddf3193a1430de490\n</parameter>\n<parameter=hunks>\n[{\"find\": \"    __slots__ = (\\n        \\\"_name\\\",\\n        \\\"_parent\\\",\\n        \\\"_all_names\\\",\\n        \\\"_modal\\\",\\n        \\\"_toklist\\\",\\n        \\\"_tokdict\\\",\\n    )\", \"replace\": \"    __slots__ = (\\n        \\\"_name\\\",\\n        \\\"_parent\\\",\\n        \\\"_all_names\\\",\\n        \\\"_modal\\\",\\n        \\\"_toklist\\\",\\n        \\\"_tokdict\\\",\\n        \\\"_dict\\\",\\n    )\"}, {\"find\": \"        ret._tokdict = {**self._tokdict}\\n        ret._parent = self._parent\\n        ret._all_names = {*self._all_names}\\n        ret._name = self._name\\n        ret._modal = self._modal\\n        return ret\", \"replace\": \"        ret._tokdict = {**self._tokdict}\\n        ret._parent = self._parent\\n        ret._all_names = {*self._all_names}\\n        ret._name = self._name\\n        ret._modal = self._modal\\n        ret._dict = self._dict\\n        return ret\"}, {\"find\": \"        def to_item(obj):\\n            if isinstance(obj, ParseResults):\\n                return obj.as_dict() if obj.haskeys() else [to_item(v) for v in obj]\\n            else:\\n                return obj\", \"replace\": \"        def to_item(obj):\\n            if isinstance(obj, ParseResults):\\n                if obj._dict:\\n                    return obj.as_dict()\\n                return obj.as_dict() if obj.haskeys() else [to_item(v) for v in obj]\\n            else:\\n                return obj\"}]\n</parameter>\n<parameter=path>\npyparsing/results.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "apply_patch",
+      "fields": {
+       "expected_hash": "429380015a57f250ee62b917e2b6764434a0e8c6b618f2fddf3193a1430de490",
+       "hunks": [
+        {
+         "find": "    __slots__ = (\n        \"_name\",\n        \"_parent\",\n        \"_all_names\",\n        \"_modal\",\n        \"_toklist\",\n        \"_tokdict\",\n    )",
+         "replace": "    __slots__ = (\n        \"_name\",\n        \"_parent\",\n        \"_all_names\",\n        \"_modal\",\n        \"_toklist\",\n        \"_tokdict\",\n        \"_dict\",\n    )"
+        },
+        {
+         "find": "        ret._tokdict = {**self._tokdict}\n        ret._parent = self._parent\n        ret._all_names = {*self._all_names}\n        ret._name = self._name\n        ret._modal = self._modal\n        return ret",
+         "replace": "        ret._tokdict = {**self._tokdict}\n        ret._parent = self._parent\n        ret._all_names = {*self._all_names}\n        ret._name = self._name\n        ret._modal = self._modal\n        ret._dict = self._dict\n        return ret"
+        },
+        {
+         "find": "        def to_item(obj):\n            if isinstance(obj, ParseResults):\n                return obj.as_dict() if obj.haskeys() else [to_item(v) for v in obj]\n            else:\n                return obj",
+         "replace": "        def to_item(obj):\n            if isinstance(obj, ParseResults):\n                if obj._dict:\n                    return obj.as_dict()\n                return obj.as_dict() if obj.haskeys() else [to_item(v) for v in obj]\n            else:\n                return obj"
+        }
+       ],
+       "path": "pyparsing/results.py"
+      }
+     }
+    ]
+   },
+   "why": "An edit whose text carries backslashes, written after files reached the model verbatim; its parameters must reach the tool exactly as written, one backslash per backslash."
+  },
+  {
+   "type": "replay",
+   "id": "valid-backslash-3",
+   "origin": "part-e-fixed-mlx-20260918, engine trace line 65",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now let me make the changes. First, I'll add `\\xHH` support in `parse_basic_str_escape`. The `\\x` escape is always 2 hex digits, and it should work in both basic and multiline basic strings.\n\n<tool_call>\n<function=replace_text>\n<parameter=path>\nsrc/tomli/_parser.py\n</parameter>\n<parameter=expected_hash>\ne99b979776729dbc0b6da5cabaf6cab03c51cd81b2b7186bb47155bd89de5a48\n</parameter>\n<parameter=find>\n    if escape_id == \"\\\\u\":\n        return parse_hex_char(src, pos, 4)\n    if escape_id == \"\\\\U\":\n        return parse_hex_char(src, pos, 8)\n    try:\n        return pos, BASIC_STR_ESCAPE_REPLACEMENTS[escape_id]\n    except KeyError:\n        raise TOMLDecodeError(\"Unescaped '\\\\' in a string\", src, pos) from None\n</parameter>\n<parameter=replace>\n    if escape_id == \"\\\\u\":\n        return parse_hex_char(src, pos, 4)\n    if escape_id == \"\\\\U\":\n        return parse_hex_char(src, pos, 8)\n    if escape_id == \"\\\\x\":\n        return parse_hex_char(src, pos, 2)\n    try:\n        return pos, BASIC_STR_ESCAPE_REPLACEMENTS[escape_id]\n    except KeyError:\n        raise TOMLDecodeError(\"Unescaped '\\\\' in a string\", src, pos) from None\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "replace_text",
+      "fields": {
+       "expected_hash": "e99b979776729dbc0b6da5cabaf6cab03c51cd81b2b7186bb47155bd89de5a48",
+       "find": "    if escape_id == \"\\\\u\":\n        return parse_hex_char(src, pos, 4)\n    if escape_id == \"\\\\U\":\n        return parse_hex_char(src, pos, 8)\n    try:\n        return pos, BASIC_STR_ESCAPE_REPLACEMENTS[escape_id]\n    except KeyError:\n        raise TOMLDecodeError(\"Unescaped '\\\\' in a string\", src, pos) from None",
+       "path": "src/tomli/_parser.py",
+       "replace": "    if escape_id == \"\\\\u\":\n        return parse_hex_char(src, pos, 4)\n    if escape_id == \"\\\\U\":\n        return parse_hex_char(src, pos, 8)\n    if escape_id == \"\\\\x\":\n        return parse_hex_char(src, pos, 2)\n    try:\n        return pos, BASIC_STR_ESCAPE_REPLACEMENTS[escape_id]\n    except KeyError:\n        raise TOMLDecodeError(\"Unescaped '\\\\' in a string\", src, pos) from None"
+      }
+     }
+    ]
+   },
+   "why": "An edit whose text carries backslashes, written after files reached the model verbatim; its parameters must reach the tool exactly as written, one backslash per backslash."
+  },
+  {
+   "type": "replay",
+   "id": "valid-restore_file",
+   "origin": "part-e-orient-mlx-20260918, engine trace line 38",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Both cases have the same structure: `_parent` is the result, `_name` is the name. There's no way to distinguish them at the ParseResults level.\n\nLet me reconsider the problem. The task says:\n> A named pyparsing Dict that matches nothing serialises wrongly.\n\nMaybe the fix should be in the Dict class, not in `as_dict()`. Specifically, when Dict matches nothing (postParse receives an empty tokenlist), it should create an entry that signals \"this is a dictionary, use `{}` for as_dict\".\n\nLooking at how Dict stores values:\n```python\ndef postParse(self, instring, loc, tokenlist):\n    for i, tok in enumerate(tokenlist):\n        ...\n```\n\nWhen tokenlist is empty, nothing happens. But we could add an else clause:\n```python\nelse:\n    # Dict matched nothing, store an empty dict entry\n    tokenlist[:] = [ParseResults.from_dict({}, name=self.resultsName)]\n```\n\nWait, but `self.resultsName` is on the outer named expression, not on Dict itself. The Dict doesn't have a resultsName; the outer `copy()('fubar')` does.\n\nActually, looking at the flow again:\n1. Dict is created with `saveAsList = True`\n2. Dict is copied and named 'fubar' via `copy()('fubar')`\n3. When parsing '', Dict.postParse is called with empty tokenlist\n4. The result is `ParseResults([], {})` (no named entries from Dict)\n5. This result is wrapped with `resultsName='fubar'` in `_parseNoCache`\n\nSo the Dict's result is `ParseResults([], {})`. When this is stored in the outer result's `_tokdict` (because `resultsName='fubar'`), it becomes `_ParseResultsWithOffset(ParseResults([], {}), 0)`.\n\nThe fix should be: when Dict.postParse receives an empty tokenlist, it should store a special marker that `as_dict()` can recognize.\n\nOne approach: store an empty string `\"\"` as the value (like it does for single-token entries):\n```python\nif len(tokenlist) == 0:\n    # Dict matched nothing, store empty dict marker\n    tokenlist[:] = [ParseResults.from_dict({})]\n```\n\nBut this would add an entry to the result, which changes the list representation.\n\nActually, looking at the Dict code again:\n```python\nif len(tok) == 1:\n    tokenlist[ikey] = _ParseResultsWithOffset(\"\", i)\n```\n\nFor a single-token entry, it stores `\"\"` as the value. This is a special marker.\n\nFor the empty case, we could store something similar. But what?\n\nActually, let me think about this differently. The issue is that `as_dict()` doesn't know that a value came from a Dict. What if we add a flag to ParseResults to indicate it was created by a Dict?\n\nLooking at ParseResults.__init__:\n```python\ndef __init__(self, toklist=None, name=None, aslist=True, modal=True, **kwargs):\n```\n\nWe could add a `asdict` parameter:\n```python\ndef __init__(self, toklist=None, name=None, aslist=True, modal=True, asdict=False, **kwargs):\n```\n\nAnd Dict could set `asdict=True` when creating its result.\n\nBut this would require changing the ParseResults constructor, which might break other things.\n\nActually, wait. Let me look at the Dict class more carefully:\n\n```python\nclass Dict(TokenConverter):\n    def __init__(self, expr: ParserElement, asdict: bool = False) -> None:\n        super().__init__(expr)\n        self.saveAsList = True\n        self._asPythonDict = asdict\n```\n\nThere's already an `asdict` parameter! When `asdict=True`, the Dict returns Python dicts instead of ParseResults. But the default is `False`.\n\nThe issue is: when Dict matches nothing, it doesn't create any entries. The result is just `ParseResults([], {})`. When this is stored in the outer result's `_tokdict`, `as_dict()` doesn't know it came from a Dict.\n\nOne approach: modify Dict to always create at least one entry, even when matching nothing. For example:\n```python\ndef postParse(self, instring, loc, tokenlist):\n    if len(tokenlist) == 0:\n        # Dict matched nothing, return empty dict\n        return ParseResults.from_dict({})\n    ...\n```\n\nBut this changes the result structure. The current result is `ParseResults([], {})` (empty list, no keys). If we return `ParseResults.from_dict({})`, it's also `ParseResults([], {})`. So it's the same.\n\nHmm, but the difference is: when Dict matches nothing, the result has `resultsName` set (from the outer `copy()('fubar')`). When we return from postParse, the result is wrapped with this name.\n\nActually, I think the real issue is that the Dict should handle the empty case by returning a result that `as_dict()` can recognize.\n\nLet me look at what happens when Dict matches something:\n```python\n>>> parser = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))\n>>> result = parser.parse_string('a b c d')\n>>> print(result.as_dict())\n{'a': 'b', 'c': 'd'}\n```\n\nWhen Dict matches something, it stores entries in `_tokdict`. When Dict matches nothing, it stores nothing.\n\nThe fix: when Dict matches nothing, it should still store an entry, but as an empty dict. Something like:\n\n```python\ndef postParse(self, instring, loc, tokenlist):\n    if len(tokenlist) == 0:\n        # Create an empty dict entry to signal \"this is a Dict\"\n        return ParseResults.from_dict({})\n    ...\n```\n\nBut `ParseResults.from_dict({})` returns `ParseResults([])` which is the same as `ParseResults([], {})`.\n\nOK, I think the cleanest fix is to modify the Dict class to handle the empty case by storing a special marker that `as_dict()` can recognize.\n\nLet me look at how Dict handles single-token entries:\n```python\nif len(tok) == 1:\n    tokenlist[ikey] = _ParseResultsWithOffset(\"\", i)\n```\n\nIt stores `\"\"` as the value. This is a special marker that means \"no value, just a key\".\n\nFor the empty case, we could store a special marker. But what marker?\n\nActually, I think the simplest fix is to modify Dict's postParse to handle the empty case by creating a ParseResults with a special flag. Let me look at how Dict stores values when it matches something:\n\n```python\nelse:\n    try:\n        dictvalue = tok.copy()  # ParseResults(i)\n    except Exception:\n        exc = TypeError(...)\n        raise exc from None\n\n    del dictvalue[0]\n\n    if len(dictvalue) != 1 or (\n        isinstance(dictvalue, ParseResults) and dictvalue.haskeys()\n    ):\n        tokenlist[ikey] = _ParseResultsWithOffset(dictvalue, i)\n    else:\n        tokenlist[ikey] = _ParseResultsWithOffset(dictvalue[0], i)\n```\n\nWhen the Dict matches something with multiple values, it stores `dictvalue` (a ParseResults) in `_tokdict`. When it matches something with a single value, it stores just that value.\n\nThe key insight: when Dict stores a ParseResults in `_tokdict`, the value is a ParseResults that may have keys (from nested named expressions). When Dict matches nothing, there are no entries in `_tokdict`.\n\nThe fix: when Dict matches nothing, it should store a special marker in `_tokdict` that signals \"this is a Dict, use `{}` for as_dict\".\n\nBut how to store it? The Dict's result is `ParseResults([], {})`. When this is stored in the outer result's `_tokdict` (because `resultsName='fubar'`), it becomes `_ParseResultsWithOffset(ParseResults([], {}), 0)`.\n\nThe issue is that `as_dict()` doesn't know this came from a Dict. It just sees an empty ParseResults.\n\nI think the fix needs to be in `as_dict()`. When it encounters an empty ParseResults, it should check if it was stored in a `_tokdict` context (i.e., it has a `_name` attribute set). If so, return `{}`. Otherwise, return `[]`.\n\nWait, but the regular ZeroOrMore case also has `_name` set ('values'). So this doesn't distinguish.\n\nOK, let me step back and think about what the task is really asking for.\n\nThe task says:\n> A named pyparsing Dict that matches nothing serialises wrongly.\n\nThe fix should make `as_dict()` return `{'fubar': {}}` for a named Dict that matches nothing.\n\nThe task also says:\n> Results that are not dictionaries must keep serialising as lists: an empty named Group(ZeroOrMore(...)) is still []\n\nSo non-Dict results should stay `[]`.\n\nThe question is: how to distinguish Dict from non-Dict?\n\nOne approach: add a flag to ParseResults to indicate it was created by a Dict. This requires modifying the ParseResults constructor and the Dict class.\n\nLet me try this approach:\n\n1. Add an `_asdict` flag to ParseResults (default False)\n2. When Dict creates its result, set `_asdict = True`\n3. In `as_dict()`, when encountering an empty ParseResults with `_asdict = True`, return `{}`\n\nBut ParseResults doesn't have an `_asdict` attribute. And the Dict's result is created by the parser, not by the Dict class directly.\n\nActually, looking at how Dict works: when Dict matches something, its postParse stores entries in the tokenlist. When Dict matches nothing, its postParse does nothing. The result is `ParseResults([], {})`.\n\nThe issue is that this result is then wrapped by the outer parser (with `resultsName='fubar'`) and stored in the outer result's `_tokdict`.\n\nOne approach: modify Dict's `__init__` to set a flag that indicates \"this is a Dict\". Then, when the result is stored in the outer result's `_tokdict`, the flag is preserved.\n\nBut ParseResults doesn't have a flag for this. And the Dict's result is created by the parser, not by the Dict class.\n\nActually, wait. Let me look at how the Dict's result is created:\n\nIn `_parseNoCache`:\n```python\nret_tokens = ParseResults(\n    tokens, self.resultsName, aslist=self.saveAsList, modal=self.modalResults\n)\n```\n\nHere, `tokens` is the result of `postParse`. For Dict, `self.saveAsList = True`. But there's no `asdict` parameter.\n\nWhat if we add an `asdict` parameter to ParseResults?\n\nActually, let me look at this from a completely different angle. The task says:\n> because the empty result is still a dictionary\n\nThis is saying that the Dict's result is a \"dictionary\" type, and when it's empty, it should serialize as `{}`.\n\nThe key insight: the Dict class is a \"dictionary\" type converter. Its result is meant to be accessed as a dictionary. When it's empty, the dictionary is empty (`{}`), not a list (`[]`).\n\nSimilarly, Group is a \"list\" type converter. Its result is meant to be accessed as a list. When it's empty, the list is empty (`[]`).\n\nSo the fix should distinguish between dictionary-type converters (Dict) and list-type converters (Group, regular expressions).\n\nOne way: add a flag to ParseResults to indicate it was created by a dictionary-type converter. Dict sets this flag, Group doesn't.\n\nLet me implement this:\n\n1. Add `_asdict` attribute to ParseResults (default False)\n2. In Dict's `__init__`, set a flag that will be passed to the result\n3. In `as_dict()`, when encountering an empty ParseResults with `_asdict = True`, return `{}`\n\nBut the Dict's result is created by `_parseNoCache`, not by the Dict class. So we need to pass the flag through.\n\nLooking at `_parseNoCache`:\n```python\nret_tokens = ParseResults(\n    tokens, self.resultsName, aslist=self.saveAsList, modal=self.modalResults\n)\n```\n\nWe could add an `asdict` parameter:\n```python\nret_tokens = ParseResults(\n    tokens, self.resultsName, aslist=self.saveAsList, modal=self.modalResults,\n    asdict=getattr(self, '_asdict', False)\n)\n```\n\nAnd Dict could set `self._asdict = True` in its `__init__`.\n\nAnd ParseResults could accept `asdict` and store it as `_asdict`.\n\nLet me implement this:\n\n<tool_call>\n<function=restore_file>\n<parameter=path>\npyparsing/results.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "restore_file",
+      "fields": {
+       "path": "pyparsing/results.py"
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-read_file+search",
+   "origin": "part-e-orient-mlx-20260918, engine trace line 77",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Let me look at the no-seconds.toml file - it seems relevant:\n\n<tool_call>\n<function=read_file>\n<parameter=path>\ntests/data/valid/_external/toml-test/valid/datetime/no-seconds.toml\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=search>\n<parameter=path_glob>\ntests/data/valid/**/local-time*.toml\n</parameter>\n<parameter=query>\nlocal-time\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "read_file",
+      "fields": {
+       "first_line": null,
+       "max_lines": null,
+       "path": "tests/data/valid/_external/toml-test/valid/datetime/no-seconds.toml"
+      }
+     },
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": "tests/data/valid/**/local-time*.toml",
+       "query": "local-time",
+       "regex": false
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-list_tree+search",
+   "origin": "part-e-orient-mlx-20260918, engine trace line 79",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Let me look at the test files to understand how tests are structured, and check if there's a no-seconds expected output:\n\n<tool_call>\n<function=list_tree>\n<parameter=max_entries>\n50\n</parameter>\n<parameter=path>\ntests/data/valid/_external/toml-test/valid/datetime\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=search>\n<parameter=path_glob>\ntests/*.py\n</parameter>\n<parameter=query>\nno.seconds\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "list_tree",
+      "fields": {
+       "max_entries": 50
+      }
+     },
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": "tests/*.py",
+       "query": "no.seconds",
+       "regex": false
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-search+search+search",
+   "origin": "part-e-orient-mlx-20260918, engine trace line 90",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Excellent progress! The `_re.py` changes are working - no more `TypeError`. Now the failures are in `test_data.py` where `no-seconds`, `common-34`, `common-29`, and `common-31` are in the xfail list but no longer raise `TOMLDecodeError`. I need to remove them from the xfail list and let them be parsed as valid tests.\n\nLet me also check what `common-29`, `common-31`, and `common-34` are:\n\n<tool_call>\n<function=search>\n<parameter=path_glob>\ntests/data/valid/**/*.toml\n</parameter>\n<parameter=query>\ncommon-29\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=search>\n<parameter=path_glob>\ntests/data/valid/**/*.toml\n</parameter>\n<parameter=query>\ncommon-31\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=search>\n<parameter=path_glob>\ntests/data/valid/**/*.toml\n</parameter>\n<parameter=query>\ncommon-34\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": "tests/data/valid/**/*.toml",
+       "query": "common-29",
+       "regex": false
+      }
+     },
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": "tests/data/valid/**/*.toml",
+       "query": "common-31",
+       "regex": false
+      }
+     },
+     {
+      "capability": "search",
+      "fields": {
+       "max_matches": 30,
+       "path_glob": "tests/data/valid/**/*.toml",
+       "query": "common-34",
+       "regex": false
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "valid-record_progress",
+   "origin": "part-e-orient64-mlx-20260918, engine trace line 138",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "All the examples from the task work correctly:\n- `t = 00:00` parses to `datetime.time(0, 0)` ✓\n- `dt = 2025-04-18T20:05` parses to `datetime.datetime(2025, 4, 18, 20, 5)` ✓\n- `dt = 2025-04-18T20:05Z` (zulu offset on seconds-less datetime) works ✓\n\nLet me summarize the changes made:\n\n<tool_call>\n<function=record_progress>\n<parameter=note>\nMade 3 changes across 2 files:\n\n1. **src/tomli/_re.py** - Three changes:\n   - Changed `_TIME_RE_STR` regex: made seconds optional (`:?([0-5][0-9])?` instead of `:([0-5][0-9])`) and fixed the fractional part delimiter from `\\\\.` (which matched literal backslash + any char) to `[.]` (which matches literal dot)\n   - Updated `match_to_datetime()`: added `sec = int(sec_str) if sec_str else 0` to handle missing seconds\n   - Updated `match_to_localtime()`: added `sec = int(sec_str) if sec_str else 0` to handle missing seconds\n\n2. **tests/test_data.py** - Removed the xfail block for `no-seconds`, `common-34`, `common-31`, and `common-29` tests since they now parse successfully\n</parameter>\n<parameter=step>\n48\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "record_progress",
+      "fields": {
+       "note": "Made 3 changes across 2 files:\n\n1. **src/tomli/_re.py** - Three changes:\n   - Changed `_TIME_RE_STR` regex: made seconds optional (`:?([0-5][0-9])?` instead of `:([0-5][0-9])`) and fixed the fractional part delimiter from `\\\\.` (which matched literal backslash + any char) to `[.]` (which matches literal dot)\n   - Updated `match_to_datetime()`: added `sec = int(sec_str) if sec_str else 0` to handle missing seconds\n   - Updated `match_to_localtime()`: added `sec = int(sec_str) if sec_str else 0` to handle missing seconds\n\n2. **tests/test_data.py** - Removed the xfail block for `no-seconds`, `common-34`, `common-31`, and `common-29` tests since they now parse successfully",
+       "step": 48
+      }
+     }
+    ]
+   },
+   "why": "Recorded valid call; it must keep decoding to exactly these actions and fields."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-budget-145",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 146",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now I understand the structure. Let me make the changes:\n\n1. The `_TIME_RE_STR` currently requires `HH:MM:SS` with optional fractional seconds. I need to make the `:SS` (and thus the fractional seconds) optional.\n2. The `match_to_localtime` function needs to handle `sec_str` being `None`.\n3. The `match_to_datetime` function needs to handle `sec_str` being `None` (for both datetime and local-datetime cases).\n\nLet me update the regex first. The new pattern should be:\n- `HH:MM` (no seconds) - TOML 1.1\n- `HH:MM:SS` (with seconds) - existing behavior\n- `HH:MM:SS.frac` (with seconds and fractional) - existing behavior\n\nThe tricky part is that the regex groups need to work for both cases. When seconds are absent, `sec_str` and `micros_str` will be `None`.\n\n<tool_call>\n<function=replace_text>\n<parameter=path>\nsrc/tomli/_re.py\n</parameter>\n<parameter=replace>\n# E.g.\n# - 00:32:00.999999\n# - 00:32:00\n# - 00:32\n_TIME_RE_STR: Final = (\n    r\"([01][0-9]|2[0-3]):([0-5][0-9])\"\n    r\"(?::([0-5][0-9])(?:\\\\.([0-9]{1,6})[0-9]*)?)?\"\n)\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "schema_mismatch"
+   },
+   "why": "replace_text without expected_hash or find: nothing can be edited safely, the harness cannot invent the hash."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-budget-203",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 204",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I need to fix the `__init__` methods to accept an `errors` parameter (which `codecs.iterencode` and `codecs.iterdecode` pass). Let me use `replace_text`:\n\n<tool_call>\n<function=replace_text>\n<parameter=find>\n    def __init__(self) -> None:\n        self._output_length = 0\n        self._input_length = 0\n\n    def encode(self, data: str, final: bool = False, errors: str = \"strict\") -> bytes:  # ty: ignore[invalid-method-override]\n</parameter>\n<parameter=path>\nidna/codec.py\n</parameter>\n<parameter=replace>\n    def __init__(self, errors: str = \"strict\") -> None:\n        if errors != \"strict\":\n            raise IDNAError(f'Unsupported error handling \"{errors}\"', code=\"unsupported_errors\")\n        self._output_length = 0\n        self._input_length = 0\n\n    def encode(self, data: str, final: bool = False, errors: str = \"strict\") -> bytes:  # ty: ignore[invalid-method-override]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "schema_mismatch"
+   },
+   "why": "replace_text without expected_hash: the edit guard needs the hash the model read."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-orient64-153",
+   "origin": "part-e-orient64-mlx-20260918, engine trace line 154",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "So the base class returns `0` for encoder state and `(b'', 0)` for decoder state. The `0` and `(b'', 0)` are the default values for an empty buffer and no accumulated length. \n\nNow I need to modify the codec to:\n\n1. Track the **output length** (encoded bytes for encoder, decoded string for decoder) in the state\n2. Enforce the 253/254 octet limit during incremental encoding/decoding\n3. Make `getstate()` return a tuple with buffer + output length\n4. Make `setstate()` accept that tuple\n\nLet me now implement the fix:\n\n<tool_call>\n<function=replace_text>\n<parameter=path>\nidna/codec.py\n</parameter>\n<parameter=replace>\nfrom __future__ import annotations\n\nimport codecs\nfrom typing import Any\n\nfrom .core import IDNAError, _unicode_dots_re, alabel, decode, encode, ulabel, valid_string_length\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "schema_mismatch"
+   },
+   "why": "replace_text without expected_hash or find."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-rerun-56",
+   "origin": "part-e-rerun-mlx-20260918, engine trace line 57",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now I have all the information I need. Let me make the changes:\n\n1. First, modify `parse_basic_str_escape` to handle `\\xHH` escapes\n2. Update the test data files\n3. Remove `\"hex-escape\"` from the xfail set\n\nLet me start with the parser change. I need to add a case for `\\\\x` that reads exactly 2 hex digits:\n\n<tool_call>\n<function=replace_text>\n<parameter=path>\nsrc/tomli/_parser.py\n</parameter>\n<parameter=find>\n    if escape_id == \"\\\\u\":\n        return parse_hex_char(src, pos, 4)\n    if escape_id == \"\\\\U\":\n        return parse_hex_char(src, pos, 8)\n    try:\n        return pos, BASIC_STR_ESCAPE_REPLACEMENTS[escape_id]\n    except KeyError:\n        raise TOMLDecodeError(\"Unescaped '\\\\' in a string\", src, pos) from None\n</parameter>\n<parameter=replace>\n    if escape_id == \"\\\\u\":\n        return parse_hex_char(src, pos, 4)\n    if escape_id == \"\\\\U\":\n        return parse_hex_char(src, pos, 8)\n    if escape_id == \"\\\\x\":\n        return parse_hex_char(src, pos, 2)\n    try:\n        return pos, BASIC_STR_ESCAPE_REPLACEMENTS[escape_id]\n    except KeyError:\n        raise TOMLDecodeError(\"Unescaped '\\\\' in a string\", src, pos) from None\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "schema_mismatch"
+   },
+   "why": "replace_text without expected_hash."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-budget-108",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 109",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now I understand the structure. The `parse_basic_str_escape` function reads 2 characters (`escape_id`) starting at `pos`. For `\\xHH`, the escape_id would be `\\x` (2 chars), then I need to read exactly 2 hex digits. Let me also check `is_unicode_scalar_value`:\n\n<tool_call>\n<function=search>\n<parameter=name>\nis_unicode_scalar_value\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "schema_mismatch"
+   },
+   "why": "search sent `name` (find_definition's parameter) and no query; guessing which tool was meant is not the harness's call."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-budget-171",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 172",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I can see the problem clearly now:\n1. Line 21: The `_TIME_RE_STR` line is missing the `r` prefix (raw string) and uses `\\\\.` (double-escaped backslash-dot) instead of `.`\n2. Line 37: The RE_NUMBER has `\\\\.` (double-escaped) instead of `.`\n3. The `FINAL = (` on line 21 is on the same line as the string, missing the closing `)`\n\nThe issue is that my Python script didn't properly construct the raw string prefix. Let me fix the file using `apply_replace` with the correct hash. The key fixes needed:\n\n1. `_TIME_RE_STR` needs `r` prefix and `\\\\.` (escaped dot, not double-escaped)\n2. `RE_NUMBER` needs `\\\\.` (escaped dot)\n3. The `_TIME_RE_STR` assignment needs `)` on a separate line\n\nLet me use `apply_replace` to fix these issues:\n\n<tool_call>\n<function=apply_replace>\n<parameter=expected_hash>\nc469639091010ae9960c5d3db7b044688e28a33d062b8ce2f8aaf37edcf8d24e\n</parameter>\n<parameter=hunks>\n[{\"find\": \"    \\\"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\\\\\\\\.([0-9]{1,6})[0-9]*)?)?\\\")\\n\", \"replace\": \"    r\\\"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\\\\.([0-9]{1,6})[0-9]*)?)?\\\"\\n)\\n\"}, {\"find\": \"    (?:\\\\.[0-9](?:_?[0-9])*)?         # optional fractional part\\n\", \"replace\": \"    (?:\\\\.[0-9](?:_?[0-9])*)?         # optional fractional part\\n\"}]\n</parameter>\n<parameter=path>\nsrc/tomli/_re.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "schema_mismatch"
+   },
+   "why": "apply_replace sent hunks (apply_patch's parameter) and no replacement; refused with the schema, not rerouted."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-fixed-46",
+   "origin": "part-e-fixed-mlx-20260918, engine trace line 47",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now let me make the changes. First, update `results.py` to add the `_dict` flag:\n\n<tool_call>\n<function=apply_patch>\n<parameter=expected_hash>\n429380015a57f250ee62b917e2b6764434a0e8c6b618f2fddf3193a1430de490\n</parameter>\n<parameter=hunks>\n[{\"find\": \"    __slots__ = (\\n        \\\"_name\\\",\\n        \\\"_parent\\\",\\n        \\\"_all_names\\\",\\n        \\\"_modal\\\",\\n        \\\"_toklist\\\",\\n        \\\"_tokdict\\\",\\n    )\", \"replace\": \"    __slots__ = (\\n        \\\"_name\\\",\\n        \\\"_parent\\\",\\n        \\\"_all_names\\\",\\n        \\\"_modal\\\",\\n        \\\"_toklist\\\",\\n        \\\"_tokdict\\\",\\n        \\\"_dict\\\",\\n    )\"}, {\"find\": \"        ret._tokdict = {**self._tokdict}\\n        ret._parent = self._parent\\n        ret._all_names = {*self._all_names}\\n        ret._name = self._name\\n        ret._modal = self._modal\\n        return ret\", \"replace\": \"        ret._tokdict = {**self._tokdict}\\n        ret._parent = self._parent\\n        ret._all_names = {*self._all_names}\\n        ret._name = self._name\\n        ret._modal = self._modal\\n        ret._dict = self._dict\\n        return ret\"}, {\"find\": \"        def to_item(obj):\\n            if isinstance(obj, ParseResults):\\n                return obj.as_dict() if obj.haskeys() else [to_item(v) for v in obj]\\n            else:\\n                return obj\", \"replace\": \"        def to_item(obj):\\n            if isinstance(obj, ParseResults):\\n                if obj._dict:\\n                    return obj.as_dict()\\n                return obj.as_dict() if obj.haskeys() else [to_item(v) for v in obj]\\n            else:\\n                return obj\"}]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "schema_mismatch"
+   },
+   "why": "apply_patch without path."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-budget-194",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 195",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now I need to carefully design the fix. The key insight is:\n\n1. **IncrementalEncoder** needs to track the length of the **encoded output** (bytes) as it produces them, and raise `IDNAError(\"Domain too long\", code=\"domain_too_long\")` when it would exceed 253 octets (or 254 with a trailing dot).\n\n2. **IncrementalDecoder** needs to track the length of the **decoded output** (characters/string) as it produces them, and raise `IDNAError(\"Domain too long\", code=\"domain_too_long\")` when it would exceed 253 characters (or 254 with a trailing dot).\n\n3. Both need `getstate()` and `setstate()` that serialize/deserialize the accumulated length.\n\n4. A fresh encoder's state must be `0` and a fresh decoder's state must be `(b'', 0)`.\n\nLet me look at what methods the base class provides and what needs overriding:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"import codecs; help(codecs.BufferedIncrementalEncoder)\")\"]\n</parameter>\n<parameter=executable>\npython3\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "argument_shape"
+   },
+   "why": "args is a broken array (a stray `)\"`): no reading of it is certain."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-rerun-12",
+   "origin": "part-e-rerun-mlx-20260918, engine trace line 13",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "The fix looks correct. Now let me verify it works by running a quick test:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"import pyparsing as pp; pr = pp.ParseResults(['a', 'b']); pr += [1]\"], executable=python3\n</parameter>\n<parameter=stdin>\n\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "argument_shape"
+   },
+   "why": "args carries trailing text (`, executable=python3`) outside the array: refused rather than guessed."
+  },
+  {
+   "type": "replay",
+   "id": "refuse-orient64-11",
+   "origin": "part-e-orient64-mlx-20260918, engine trace line 12",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "The fix is in place. Let me verify it works correctly by running a quick test:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"\nimport pyparsing as pp\n\npr = pp.ParseResults(['a', 'b'])\n\n# Test 1: += with another ParseResults should still work\npr2 = pp.ParseResults(['c'])\npr += pr2\nprint('ParseResults += ParseResults:', list(pr))\n\n# Test 2: += with a list should raise TypeError (not AttributeError)\npr3 = pp.ParseResults(['x', 'y'])\ntry:\n    pr3 += [1]\n    print('ERROR: no exception raised for += [1]')\nexcept TypeError as e:\n    print('+= [1] raises TypeError:', e)\nexcept AttributeError as e:\n    print('ERROR: += [1] raises AttributeError:', e)\n\n# Test 3: += with an int should raise TypeError (not AttributeError)\npr4 = pp.ParseResults(['x', 'y'])\ntry:\n    pr4 += 1\n    print('ERROR: no exception raised for += 1')\nexcept TypeError as e:\n    print('+= 1 raises TypeError:', e)\nexcept AttributeError as e:\n    print('ERROR: += 1 raises AttributeError:', e)\n\n# Test 4: += with a string should raise TypeError\npr5 = pp.ParseResults(['x', 'y'])\ntry:\n    pr5 += 'extra'\n    print('ERROR: no exception raised for += str')\nexcept TypeError as e:\n    print('+= str raises TypeError:', e)\nexcept AttributeError as e:\n    print('ERROR: += str raises AttributeError:', e)\n\n# Test 5: += with empty ParseResults should still work\npr6 = pp.ParseResults(['a', 'b'])\npr6 += pp.ParseResults([])\nprint('+= empty ParseResults:', list(pr6))\n\"\n</parameter>\n<parameter=executable>\npython3\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "argument_shape"
+   },
+   "why": "args is a multi-line array that never closes (no `]`): no reading of it is certain."
+  },
+  {
+   "type": "replay",
+   "id": "recover-run-without-executable-budget-11",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 12",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now let me verify the fix works by running a quick test:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"\\nimport pyparsing as pp\\n\\npr = pp.ParseResults(['a', 'b'])\\n\\n# Test 1: pr + [1] should raise TypeError\\ntry:\\n    pr + [1]\\n    print('FAIL: pr + [1] did not raise')\\nexcept TypeError as e:\\n    print(f'OK: pr + [1] raises TypeError: {e}')\\nexcept Exception as e:\\n    print(f'FAIL: pr + [1] raises {type(e).__name__}: {e}')\\n\\n# Test 2: pr += [1] should raise TypeError\\ntry:\\n    pr += [1]\\n    print('FAIL: pr += [1] did not raise')\\nexcept TypeError as e:\\n    print(f'OK: pr += [1] raises TypeError: {e}')\\nexcept AttributeError as e:\\n    print(f'FAIL: pr += [1] raises AttributeError: {e}')\\nexcept Exception as e:\\n    print(f'FAIL: pr += [1] raises {type(e).__name__}: {e}')\\n\\n# Test 3: pr += 1 should raise TypeError\\npr2 = pp.ParseResults(['a', 'b'])\\ntry:\\n    pr2 += 1\\n    print('FAIL: pr += 1 did not raise')\\nexcept TypeError as e:\\n    print(f'OK: pr += 1 raises TypeError: {e}')\\nexcept AttributeError as e:\\n    print(f'FAIL: pr += 1 raises AttributeError: {e}')\\nexcept Exception as e:\\n    print(f'FAIL: pr += 1 raises {type(e).__name__}: {e}')\\n\\n# Test 4: pr += another ParseResults should work\\npr3 = pp.ParseResults(['a', 'b'])\\npr3 += pp.ParseResults(['c'])\\nprint(f'OK: pr += ParseResults works: {list(pr3)}')\\n\\n# Test 5: pr + another ParseResults should still work\\npr4 = pp.ParseResults(['a', 'b'])\\npr_sum = pr4 + pp.ParseResults(['c'])\\nprint(f'OK: pr + ParseResults works: {list(pr_sum)}')\\n\\n# Test 6: Verify pr unchanged after failed +=\\nprint(f'pr still: {list(pr)}')\\n\", \"executable\"]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "python3",
+       "args": [
+        "-c",
+        "\nimport pyparsing as pp\n\npr = pp.ParseResults(['a', 'b'])\n\n# Test 1: pr + [1] should raise TypeError\ntry:\n    pr + [1]\n    print('FAIL: pr + [1] did not raise')\nexcept TypeError as e:\n    print(f'OK: pr + [1] raises TypeError: {e}')\nexcept Exception as e:\n    print(f'FAIL: pr + [1] raises {type(e).__name__}: {e}')\n\n# Test 2: pr += [1] should raise TypeError\ntry:\n    pr += [1]\n    print('FAIL: pr += [1] did not raise')\nexcept TypeError as e:\n    print(f'OK: pr += [1] raises TypeError: {e}')\nexcept AttributeError as e:\n    print(f'FAIL: pr += [1] raises AttributeError: {e}')\nexcept Exception as e:\n    print(f'FAIL: pr += [1] raises {type(e).__name__}: {e}')\n\n# Test 3: pr += 1 should raise TypeError\npr2 = pp.ParseResults(['a', 'b'])\ntry:\n    pr2 += 1\n    print('FAIL: pr += 1 did not raise')\nexcept TypeError as e:\n    print(f'OK: pr += 1 raises TypeError: {e}')\nexcept AttributeError as e:\n    print(f'FAIL: pr += 1 raises AttributeError: {e}')\nexcept Exception as e:\n    print(f'FAIL: pr += 1 raises {type(e).__name__}: {e}')\n\n# Test 4: pr += another ParseResults should work\npr3 = pp.ParseResults(['a', 'b'])\npr3 += pp.ParseResults(['c'])\nprint(f'OK: pr += ParseResults works: {list(pr3)}')\n\n# Test 5: pr + another ParseResults should still work\npr4 = pp.ParseResults(['a', 'b'])\npr_sum = pr4 + pp.ParseResults(['c'])\nprint(f'OK: pr + ParseResults works: {list(pr_sum)}')\n\n# Test 6: Verify pr unchanged after failed +=\nprint(f'pr still: {list(pr)}')\n",
+        "executable"
+       ]
+      }
+     }
+    ]
+   },
+   "why": "run_command with no executable and the program as args[0]: there is exactly one reading, and the tool already refuses args that repeat the program, so it is unambiguous. (Was a known gap until closed 2026-09-19: refused as schema_mismatch (missing `executable`); one action lost each time, five times on 2026-09-18.)"
+  },
+  {
+   "type": "replay",
+   "id": "recover-run-without-executable-fixed-80",
+   "origin": "part-e-fixed-mlx-20260918, engine trace line 81",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Let me run the tests to confirm the current state:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python\", \"-m\", \"pytest\", \"tests/test_data.py\", \"-v\", \"-k\", \"no-seconds\"]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "python",
+       "args": [
+        "-m",
+        "pytest",
+        "tests/test_data.py",
+        "-v",
+        "-k",
+        "no-seconds"
+       ]
+      }
+     }
+    ]
+   },
+   "why": "run_command with no executable and the program as args[0]: there is exactly one reading, and the tool already refuses args that repeat the program, so it is unambiguous. (Was a known gap until closed 2026-09-19: refused as schema_mismatch (missing `executable`); one action lost each time, five times on 2026-09-18.)"
+  },
+  {
+   "type": "replay",
+   "id": "recover-run-without-executable-orient-95",
+   "origin": "part-e-orient-mlx-20260918, engine trace line 96",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now I have a clear picture. Let me verify the current behavior first by running a quick test:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"import idna; import codecs; print(idna.encode('a.' * 126 + 'aa'))\"]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "python3",
+       "args": [
+        "-c",
+        "import idna; import codecs; print(idna.encode('a.' * 126 + 'aa'))"
+       ]
+      }
+     }
+    ]
+   },
+   "why": "run_command with no executable and the program as args[0]: there is exactly one reading, and the tool already refuses args that repeat the program, so it is unambiguous. (Was a known gap until closed 2026-09-19: refused as schema_mismatch (missing `executable`); one action lost each time, five times on 2026-09-18.)"
+  },
+  {
+   "type": "replay",
+   "id": "recover-run-without-executable-orient64-26",
+   "origin": "part-e-orient64-mlx-20260918, engine trace line 27",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"import pyparsing as pp\\nparser = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))\\nnamed = parser.copy()('fubar')\\nresult = named.parse_string('')\\nprint('result:', result)\\nprint('as_dict:', result.as_dict())\\nprint('as_list:', result.as_list())\\nprint('haskeys:', result.haskeys())\\nprint('_toklist:', result._toklist)\\nprint('_tokdict:', result._tokdict)\\nprint('resultsName:', result.get_name())\\nprint('len:', len(result))\\nprint('bool:', bool(result))\\n\"]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "python3",
+       "args": [
+        "-c",
+        "import pyparsing as pp\nparser = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))\nnamed = parser.copy()('fubar')\nresult = named.parse_string('')\nprint('result:', result)\nprint('as_dict:', result.as_dict())\nprint('as_list:', result.as_list())\nprint('haskeys:', result.haskeys())\nprint('_toklist:', result._toklist)\nprint('_tokdict:', result._tokdict)\nprint('resultsName:', result.get_name())\nprint('len:', len(result))\nprint('bool:', bool(result))\n"
+       ]
+      }
+     }
+    ]
+   },
+   "why": "run_command with no executable and the program as args[0]: there is exactly one reading, and the tool already refuses args that repeat the program, so it is unambiguous. (Was a known gap until closed 2026-09-19: refused as schema_mismatch (missing `executable`); one action lost each time, five times on 2026-09-18.)"
+  },
+  {
+   "type": "replay",
+   "id": "recover-run-without-executable-orient64-143",
+   "origin": "part-e-orient64-mlx-20260918, engine trace line 144",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now I have a clear picture. Let me verify the current behavior first by running a quick test:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"import idna; import codecs; print(idna.encode('a.' * 126 + 'aa'))\"]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "python3",
+       "args": [
+        "-c",
+        "import idna; import codecs; print(idna.encode('a.' * 126 + 'aa'))"
+       ]
+      }
+     }
+    ]
+   },
+   "why": "run_command with no executable and the program as args[0]: there is exactly one reading, and the tool already refuses args that repeat the program, so it is unambiguous. (Was a known gap until closed 2026-09-19: refused as schema_mismatch (missing `executable`); one action lost each time, five times on 2026-09-18.)"
+  },
+  {
+   "type": "replay",
+   "id": "recover-multiline-args-budget-206",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 207",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I see. The test `testIncrementalEncoder` does:\n```python\nfor decoded, encoded in INCREMENTAL_TESTS:\n    self.assertEqual(b\"\".join(codecs.iterencode(decoded, CODEC_NAME)), encoded)\n```\n\nWhere `INCREMENTAL_TESTS` includes entries like `(\"python.org\", b\"python.org\")`. The `codecs.iterencode` feeds the string character by character. When encoding `\"python.org\"` character by character, the `.` gets fed as a separate character. The original code handled this correctly because it split on dots and handled partial labels.\n\nThe problem is that when we feed `\"python.org\"` character by character, the `.` character by itself, when not `final`, gets treated as a label separator, and the empty string between `n` and `o` creates an empty label.\n\nWait, let me re-read the original `_buffer_encode`. The issue is that the original code also splits on dots, but it handles the case where labels are empty by tracking `trailing_dot`. Let me look more carefully at the original:\n\nThe original code does:\n```python\nlabels = _unicode_dots_re.split(data)\ntrailing_dot = b\"\"\nif labels:\n    if not labels[-1]:\n        trailing_dot = b\".\"\n        del labels[-1]\n    elif not final:\n        # Keep potentially unfinished label until the next call\n        del labels[-1]\n        if labels:\n            trailing_dot = b\".\"\n```\n\nSo when encoding `\"python.org\"` character by character:\n- First call: `data = \"p\"`, `labels = [\"p\"]`, `final=False`, so `labels[-1]` (\"p\") is not empty and `final=False`, so `del labels[-1]` removes \"p\", `labels` is empty, so `trailing_dot` stays `b\"\"`. Returns `b\"\"`.\n- Second call: `data = \"y\"`, same thing, returns `b\"\"`.\n- ...\n- When `data = \".\"`, `labels = [\"\", \"\"]`, `final=False`, `labels[-1]` is `\"\"` (empty), so `trailing_dot = b\".\"`, `del labels[-1]`, `labels = [\"\"]`. But then `alabel(\"\")` is called on the empty string...\n\nWait, that's the problem! When the data is just `\".\"`, splitting gives `[\"\", \"\"]`. After removing the empty last element, we get `[\"\"]`. Then `alabel(\"\")` is called, which raises \"Empty Label\".\n\nBut the original code also did this! Let me check... Actually, looking at the original code:\n\n```python\nresult = []\nsize = 0\nfor label in labels:\n    result.append(alabel(label))\n    if size:\n        size += 1\n    size += len(label)\n```\n\nThe original code also called `alabel(label)` for every label. If `labels` contains `[\"\"]`, it would call `alabel(\"\")` which raises \"Empty Label\".\n\nWait, but the original tests passed! Let me look at the original code more carefully:\n\n```python\nif labels:\n    if not labels[-1]:\n        trailing_dot = b\".\"\n        del labels[-1]\n    elif not final:\n        # Keep potentially unfinished label until the next call\n        del labels[-1]\n        if labels:\n            trailing_dot = b\".\"\n```\n\nWhen `data = \".\"` and `final=False`:\n- `labels = [\"\", \"\"]` (split \".\" on dots gives two empty strings)\n- `labels[-1]` is `\"\"` (empty), so `trailing_dot = b\".\"`, `del labels[-1]`\n- Now `labels = [\"\"]`\n- Then `alabel(\"\")` is called, which raises \"Empty Label\"\n\nBut this is exactly what the original code did too! So the original code must have had the same issue... unless the test was never actually running this scenario.\n\nWait, let me re-read the test:\n\n```python\nINCREMENTAL_TESTS = (\n    (\"python.org\", b\"python.org\"),\n    (\"python.org.\", b\"python.org.\"),\n    (\"pyth\\xf6n.org\", b\"xn--pythn-mua.org\"),\n    (\"pyth\\xf6n.org.\", b\"xn--pythn-mua.org.\"),\n)\n```\n\nAnd the test does:\n```python\n\"\".join(codecs.iterencode(decoded, CODEC_NAME))\n```\n\n`codecs.iterencode` feeds the string character by character. For `\"python.org\"`:\n- Characters: 'p', 'y', 't', 'h', 'o', 'n', '.', 'o', 'r', 'g'\n\nWhen `.` is fed as a single character, the split on dots gives `[\"\", \"\"]`. After removing the trailing empty, we get `[\"\"]`. Then `alabel(\"\")` is called...\n\nBut wait, the original code also did this! Let me check if the original tests actually passed. Let me check the original code behavior:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"\nimport re\n_unicode_dots_re = re.compile('[\\\\u002e\\\\u3002\\\\uff0e\\\\uff61]')\ndata = '.'\nlabels = _unicode_dots_re.split(data)\nprint('labels:', labels)\nif labels:\n    if not labels[-1]:\n        print('trailing dot detected')\n        trailing_dot = b'.'\n        del labels[-1]\n        print('remaining labels:', labels)\n    elif not True:  # final=False\n        del labels[-1]\n        if labels:\n            trailing_dot = b'.'\nprint('final labels:', labels)\n\"]\n</parameter>\n<parameter=executable>\npython3\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "python3",
+       "args": [
+        "python3",
+        "-c",
+        "\nimport re\n_unicode_dots_re = re.compile('[\\u002e\\u3002\\uff0e\\uff61]')\ndata = '.'\nlabels = _unicode_dots_re.split(data)\nprint('labels:', labels)\nif labels:\n    if not labels[-1]:\n        print('trailing dot detected')\n        trailing_dot = b'.'\n        del labels[-1]\n        print('remaining labels:', labels)\n    elif not True:  # final=False\n        del labels[-1]\n        if labels:\n            trailing_dot = b'.'\nprint('final labels:', labels)\n"
+       ]
+      }
+     }
+    ]
+   },
+   "why": "args is a JSON array whose strings hold raw newlines -- a multi-line script. Read with control characters allowed it has one meaning; strict JSON refuses it. The program also leads args here; run_command drops a repeated program when it runs, so the decoding keeps args as sent. (Was a known gap until closed 2026-09-19: refused as argument_shape; the model's script is lost.)"
+  },
+  {
+   "type": "replay",
+   "id": "recover-multiline-args-orient64-25",
+   "origin": "part-e-orient64-mlx-20260918, engine trace line 26",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "Now I understand the issue. Let me write a test to reproduce it and then fix it.\n\nThe problem is in `as_dict()` in `results.py`. The `to_item` function calls `obj.as_dict()` when `obj.haskeys()` is True, but for an empty `Dict` that matched nothing, `haskeys()` returns False (no keys in `_tokdict`), so it falls through to the list path `[to_item(v) for v in obj]`. \n\nBut the key issue is more subtle. Let me trace through what happens:\n\n1. `parser = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))`\n2. `named = parser.copy()('fubar')` - this gives the Dict a results name of 'fubar'\n3. `named.parse_string('')` - with empty input, ZeroOrMore matches zero times, so we get an empty result\n4. The Dict's `postParse` is called with an empty tokenlist\n5. `named.parse_string('').as_dict()` returns `{'fubar': []}` instead of `{'fubar': {}}`\n\nLet me trace through the code more carefully:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"\nimport pyparsing as pp\n\nparser = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))\nnamed = parser.copy()('fubar')\n\nresult = named.parse_string('')\nprint('result:', result)\nprint('type:', type(result))\nprint('as_dict:', result.as_dict())\nprint('as_list:', result.as_list())\nprint('haskeys:', result.haskeys())\nprint('_toklist:', result._toklist)\nprint('_tokdict:', result._tokdict)\nprint('resultsName:', result.get_name())\nprint('len:', len(result))\nprint('bool:', bool(result))\n\"]\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "python3",
+       "args": [
+        "-c",
+        "\nimport pyparsing as pp\n\nparser = pp.Dict(pp.ZeroOrMore(pp.Group(pp.Word(pp.alphas) + pp.Word(pp.alphas))))\nnamed = parser.copy()('fubar')\n\nresult = named.parse_string('')\nprint('result:', result)\nprint('type:', type(result))\nprint('as_dict:', result.as_dict())\nprint('as_list:', result.as_list())\nprint('haskeys:', result.haskeys())\nprint('_toklist:', result._toklist)\nprint('_tokdict:', result._tokdict)\nprint('resultsName:', result.get_name())\nprint('len:', len(result))\nprint('bool:', bool(result))\n"
+       ]
+      }
+     }
+    ]
+   },
+   "why": "args is a JSON array whose strings hold raw newlines -- a multi-line script. Read with control characters allowed it has one meaning; strict JSON refuses it. (Was a known gap until closed 2026-09-19: refused as argument_shape; the model's script is lost.)"
+  },
+  {
+   "type": "replay",
+   "id": "name-unreadable-call-budget-17",
+   "origin": "part-e-budget-mlx-20260918, engine trace line 18",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=read_file>\n<parameter=first_line>\n3750\n</\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "unreadable_call"
+   },
+   "why": "read_file whose parameter closes with a bare `</` and no path: a tool call is there but cannot be read. Refusing is right; calling it `no_tool_call` and asking for 'one valid typed-action JSON object' tells a model writing XML calls the wrong thing. (Was a known gap until closed 2026-09-19: refused as no_tool_call with a JSON-oriented message.)"
+  },
+  {
+   "type": "replay",
+   "id": "name-unreadable-call-orient-71",
+   "origin": "part-e-orient-mlx-20260918, engine trace line 72",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "`\\xZZ` (invalid hex digits) also correctly raises `TOMLDecodeError`.\n\nSummary of changes made:\n\n1. **`src/tomli/_parser.py`**: Added handling for `\\xHH` escape sequences in `parse_basic_str_escape` by adding `if escape_id == \"\\\\x\": return parse_hex_char(src, pos, 2)` before the existing `\\u` and `\\U` cases. This reuses the existing `parse_hex_char` function which validates that exactly 2 hex digits are present and that the result is a valid Unicode scalar value.\n\n2. **`tests/test_data.py`**: Removed `\"hex-escape\"` and `\"common-12\"` from the xfail set (the list of test names that are expected to raise `TOMLDecodeError`), since these tests now pass with the new `\\x` escape support.\n\n<tool_call>\n<function=complete>\n<parameter=rationale\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "unreadable_call"
+   },
+   "why": "complete whose `<parameter=rationale` never closes its tag: a tool call is there but cannot be read. Refusing is right; calling it `no_tool_call` and asking for 'one valid typed-action JSON object' tells a model writing XML calls the wrong thing. (Was a known gap until closed 2026-09-19: refused as no_tool_call with a JSON-oriented message.)"
+  },
+  {
+   "type": "replay",
+   "id": "recover-number-for-a-text-field",
+   "origin": "suite A2 first run 2026-09-19, pyparsing-bounded-repetition-diagnosis, step 10 (reconstructed from the trace's malformed-call record: search with query 1000 and a path_glob; the raw reply itself was not traced)",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "The bound in the report is 1000. Let me find where it is used.\n\n<tool_call>\n<function=search>\n<parameter=query>\n1000\n</parameter>\n<parameter=path_glob>\ntests/test_unit.py\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "search",
+      "fields": {
+       "query": "1000",
+       "path_glob": "tests/test_unit.py"
+      }
+     }
+    ]
+   },
+   "why": "Markup carries no types: `1000` in an XML parameter is text the model typed, and `query` takes text. There is one reading. (Refused four times as schema_mismatch in the run, three in a row ending it, until 2026-09-19.)"
+  },
+  {
+   "type": "replay",
+   "id": "harmony-spaced-1",
+   "origin": "catalogue second pass 2026-09-19, gpt-oss-20b on the engine, a4-b332c0e-mlx-community_gpt-oss-20b-MXFP4-Q8-20260919-152456 trace line 2",
+   "family": "gpt_oss",
+   "model_ref": "mlx-community/gpt-oss-20b-MXFP4-Q8",
+   "content": "<|channel|>analysis<|message|>We need to call apply_patch with correct args.<|end|><|start|>assistant<|channel|>commentary to=functions.apply_patch <|constrain|>json<|message|>{\"path\":\"duration.py\",\"expected_hash\":\"ba238c3974935db4269418714950db59159a1cc08a8597f22584d3fafdd5b294\",\"hunks\":[{\"find\":\"UNITS = {\\\"h\\\": 3600, \\\"m\\\": 60}\",\"replace\":\"UNITS = {\\\"h\\\": 3600, \\\"m\\\": 60, \\\"s\\\": 1}\",\"commentary\":\"Add seconds unit\"}]}",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "apply_patch",
+      "fields": {
+       "path": "duration.py",
+       "expected_hash": "ba238c3974935db4269418714950db59159a1cc08a8597f22584d3fafdd5b294",
+       "hunks": [
+        {
+         "find": "UNITS = {\"h\": 3600, \"m\": 60}",
+         "replace": "UNITS = {\"h\": 3600, \"m\": 60, \"s\": 1}"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "why": "A harmony call as its format defines it: `commentary to=functions.NAME <|constrain|>json<|message|>{args}`. Keys a hunk does not have (gpt-oss adds `commentary`) are dropped."
+  },
+  {
+   "type": "replay",
+   "id": "harmony-spaced-2",
+   "origin": "catalogue second pass 2026-09-19, gpt-oss-20b on the engine, a4-b332c0e-mlx-community_gpt-oss-20b-MXFP4-Q8-20260919-152456 trace line 3",
+   "family": "gpt_oss",
+   "model_ref": "mlx-community/gpt-oss-20b-MXFP4-Q8",
+   "content": "<|channel|>analysis<|message|>We need modify duration.py to support 's'. Also test file missing test_seconds. Let's open it.<|end|><|start|>assistant<|channel|>commentary to=functions.read_file <|constrain|>json<|message|>{\"path\":\"test_duration.py\",\"first_line\":1,\"max_lines\":200}",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "read_file",
+      "fields": {
+       "path": "test_duration.py",
+       "first_line": 1,
+       "max_lines": 200
+      }
+     }
+    ]
+   },
+   "why": "A harmony call as its format defines it: `commentary to=functions.NAME <|constrain|>json<|message|>{args}`."
+  },
+  {
+   "type": "replay",
+   "id": "harmony-glued-1",
+   "origin": "catalogue second pass 2026-09-19, gpt-oss-20b on the engine, a4-b332c0e-mlx-community_gpt-oss-20b-MXFP4-Q8-20260919-152456 trace line 5",
+   "family": "gpt_oss",
+   "model_ref": "mlx-community/gpt-oss-20b-MXFP4-Q8",
+   "content": "<|channel|>analysis<|message|>We need to call apply_patch correctly. Provide object.<|end|><|start|>assistant<|channel|>commentary to=functions.apply_patch<|constrain|>json<|message|>{\"path\":\"duration.py\",\"expected_hash\":\"ba238c3974935db4269418714950db59159a1cc08a8597f22584d3fafdd5b294\",\"hunks\":[{\"find\":\"UNITS = {\\\"h\\\": 3600, \\\"m\\\": 60}\",\"replace\":\"UNITS = {\\\"h\\\": 3600, \\\"m\\\": 60, \\\"s\\\": 1}\",\"commentary\":\"Add seconds unit\"}]}",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "apply_patch",
+      "fields": {
+       "path": "duration.py",
+       "expected_hash": "ba238c3974935db4269418714950db59159a1cc08a8597f22584d3fafdd5b294",
+       "hunks": [
+        {
+         "find": "UNITS = {\"h\": 3600, \"m\": 60}",
+         "replace": "UNITS = {\"h\": 3600, \"m\": 60, \"s\": 1}"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "why": "gpt-oss often writes `to=functions.NAME<|constrain|>json` with no space: the name ends at `<|`, and the call is NAME. Read as `NAME<|constrain|>json` it was refused as an unknown capability three times in a row, ending runs that had resolved their task. Keys a hunk does not have (gpt-oss adds `commentary`) are dropped. (Misread by harmony-v1 until 2026-09-19.)"
+  },
+  {
+   "type": "replay",
+   "id": "harmony-glued-2",
+   "origin": "catalogue second pass 2026-09-19, gpt-oss-20b on the engine, a4-b332c0e-mlx-community_gpt-oss-20b-MXFP4-Q8-20260919-152456 trace line 6",
+   "family": "gpt_oss",
+   "model_ref": "mlx-community/gpt-oss-20b-MXFP4-Q8",
+   "content": "<|channel|>analysis<|message|>We need to call apply_patch correctly. Provide object.<|end|><|start|>assistant<|channel|>commentary to=functions.apply_patch<|constrain|>json<|message|>{\"expected_hash\":\"ba238c3974935db4269418714950db59159a1cc08a8597f22584d3fafdd5b294\",\"path\":\"duration.py\",\"hunks\":[{\"find\":\"UNITS = {\\\"h\\\": 3600, \\\"m\\\": 60}\",\"replace\":\"UNITS = {\\\"h\\\": 3600, \\\"m\\\": 60, \\\"s\\\": 1}\",\"commentary\":\"Add seconds unit\"}] }",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "apply_patch",
+      "fields": {
+       "expected_hash": "ba238c3974935db4269418714950db59159a1cc08a8597f22584d3fafdd5b294",
+       "path": "duration.py",
+       "hunks": [
+        {
+         "find": "UNITS = {\"h\": 3600, \"m\": 60}",
+         "replace": "UNITS = {\"h\": 3600, \"m\": 60, \"s\": 1}"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "why": "gpt-oss often writes `to=functions.NAME<|constrain|>json` with no space: the name ends at `<|`, and the call is NAME. Read as `NAME<|constrain|>json` it was refused as an unknown capability three times in a row, ending runs that had resolved their task. Keys a hunk does not have (gpt-oss adds `commentary`) are dropped. (Misread by harmony-v1 until 2026-09-19.)"
+  },
+  {
+   "type": "replay",
+   "id": "harmony-glued-3",
+   "origin": "catalogue second pass 2026-09-19, gpt-oss-20b on the engine, a4-b332c0e-mlx-community_gpt-oss-20b-MXFP4-Q8-20260919-152456 trace line 22",
+   "family": "gpt_oss",
+   "model_ref": "mlx-community/gpt-oss-20b-MXFP4-Q8",
+   "content": "<|channel|>analysis<|message|>We fixed but lacked import re. Need to add import.<|end|><|start|>assistant<|channel|>commentary to=functions.replace_text<|constrain|>json<|message|>{\"expected_hash\":\"8d3f1ad81b68a8870def4cce8e0733a4c8e762f8b5ace7796c7983ac9135d441\",\"find\":\"def slugify\",\"replace\":\"import re\\n\\ndef slugify\",\"path\":\"slugify.py\"}",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "replace_text",
+      "fields": {
+       "expected_hash": "8d3f1ad81b68a8870def4cce8e0733a4c8e762f8b5ace7796c7983ac9135d441",
+       "find": "def slugify",
+       "replace": "import re\n\ndef slugify",
+       "path": "slugify.py"
+      }
+     }
+    ]
+   },
+   "why": "gpt-oss often writes `to=functions.NAME<|constrain|>json` with no space: the name ends at `<|`, and the call is NAME. Read as `NAME<|constrain|>json` it was refused as an unknown capability three times in a row, ending runs that had resolved their task. (Misread by harmony-v1 until 2026-09-19.)"
+  },
+  {
+   "type": "replay",
+   "id": "harmony-split-1",
+   "origin": "catalogue second pass 2026-09-19, gpt-oss-20b on the engine, a4-b332c0e-mlx-community_gpt-oss-20b-MXFP4-Q8-20260919-152456 trace line 43",
+   "family": "gpt_oss",
+   "model_ref": "mlx-community/gpt-oss-20b-MXFP4-Q8",
+   "content": "<|channel|>analysis<|message|>We need to call complete with rationale.<|end|><|start|>assistant<|channel|>commentary to=functions.complete<|constrain|>json<|channel|>analysis code<|message|>{\"rationale\":\"All required changes applied and tests pass.\"}",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "complete",
+      "fields": {
+       "rationale": "All required changes applied and tests pass."
+      }
+     }
+    ]
+   },
+   "why": "The recipient's header ends, a second `<|channel|>` opens (`analysis code`), and only then the message with the arguments: the call is the recipient's, with that body. Read segment by segment, the recipient was lost and the arguments taken as reasoning. (Misread by harmony-v1 until 2026-09-19.)"
+  },
+  {
+   "type": "replay",
+   "id": "refuse-nemotron-broken-hunks",
+   "origin": "catalogue 2026-09-19, Nemotron 3.5 Lightning on suite A3 (a3-regex-backslash), a3-47cf174-mlx-community_NVIDIA-Nemotron-3.5-Lightn-20260919-184319 engine trace line 30",
+   "family": "nemotron_h",
+   "model_ref": "mlx-community/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-4bit",
+   "content": "\n<tool_call>\n<function=apply_patch>\n<parameter=expected_hash>\n8085dc5cbb2beae4f611a053a31b411a6de47cc59c623b097094a5bc8796800d\n</parameter>\n<parameter=hunks>\n[{\"find\": \"def parse_time(text):\\n    match = TIME_RE.fullmatch(text)\\n    if match is None:\\n        raise ValueError(f\\\"not a time: {text!r}\\\")\\n    hour, minute, second, fraction = match.groups()\\n    return (int(hour), int(minute), int(second), int((fraction or \\\"0\\\").ljust(6, \\\"0\\\"))\", \"replace\": \"def parse_time(text):\\n    match = TIME_RE.fullmatch(text)\\n    if match is None:\\n        raise ValueError(f\\\"not a time: {text!r}\\\")\\n    hour, minute, second, fraction = match.groups()\\n    return (int(hour), int(minute), int(second or \\\"0\\\"), int((fraction or \\\"0\\\").ljust(6, \\\"0\\\"))\")]\n</parameter>\n<parameter=path>\n/workspace/timeparse.py\n</parameter>\n</function>\n</tool_call>\n",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "argument_shape"
+   },
+   "why": "`hunks` is written as a JSON list that is not valid JSON (a comma missing at column 593): there is no certain reading, so it is refused -- as a JSON error with its position, where it used to be refused as 'invalid type: string', four times in a row."
+  },
+  {
+   "type": "replay",
+   "id": "recover-boolean-as-text",
+   "origin": "catalogue 2026-09-19, Nemotron 3.5 Lightning on suite A3 (a3-two-files-and-a-lookalike), a3-dc279f2-mlx-community_NVIDIA-Nemotron-3.5-Lightn-20260919-193112 engine trace line 32",
+   "family": "nemotron_h",
+   "model_ref": "mlx-community/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-4bit",
+   "content": "\n<tool_call>\n<function=search>\n<parameter=path_glob>\n**/*\n</parameter>\n<parameter=query>\n.\n</parameter>\n<parameter=regex>\nTrue\n</parameter>\n</function>\n</tool_call>\n",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "search",
+      "fields": {
+       "query": ".",
+       "regex": true
+      }
+     }
+    ]
+   },
+   "why": "`regex` is a boolean and markup carries no types: `True`, in Python's spelling, has one reading. Refused as schema_mismatch three times in a row until 2026-09-19, ending the run."
+  },
+  {
+   "type": "replay",
+   "id": "repair-apply_replace-with-replace_text-fields",
+   "origin": "audits of 2026-09-22 (dep-test2-*, Qwen3.6-35B-A3B), backlog C.24",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "I'll implement it.\n\n<tool_call>\n<function=apply_replace>\n<parameter=path>\nsrc/orders.js\n</parameter>\n<parameter=expected_hash>\n7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9\n</parameter>\n<parameter=find>\nthrow new Error(\"not implemented\");\n</parameter>\n<parameter=replace>\nreturn mint({ ledger: \"ORD\", sequence }).id;\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "replace_text",
+      "fields": {
+       "path": "src/orders.js",
+       "expected_hash": "7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9",
+       "find": "throw new Error(\"not implemented\");",
+       "replace": "return mint({ ledger: \"ORD\", sequence }).id;"
+      }
+     }
+    ]
+   },
+   "why": "apply_replace sent with replace_text's own fields and no `replacement` has one reading: replace_text. Refused on 2026-09-22."
+  },
+  {
+   "type": "replay",
+   "id": "repair-replace_text-replacement-for-replace",
+   "origin": "audits of 2026-09-22 (dep-test2-*, Qwen3.6-35B-A3B), backlog C.24",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=replace_text>\n<parameter=path>\nsrc/orders.js\n</parameter>\n<parameter=expected_hash>\n7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9\n</parameter>\n<parameter=find>\na\n</parameter>\n<parameter=replacement>\nb\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "replace_text",
+      "fields": {
+       "path": "src/orders.js",
+       "expected_hash": "7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9",
+       "find": "a",
+       "replace": "b"
+      }
+     }
+    ]
+   },
+   "why": "`replacement` for `replace` on replace_text has one reading. Refused on 2026-09-22."
+  },
+  {
+   "type": "replay",
+   "id": "repair-move_path-path-for-to",
+   "origin": "audits of 2026-09-22 (dep-test2-*, Qwen3.6-35B-A3B), backlog C.24",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=move_path>\n<parameter=from>\nsrc/old.js\n</parameter>\n<parameter=path>\nsrc/new.js\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "move_path",
+      "fields": {
+       "from": "src/old.js",
+       "to": "src/new.js"
+      }
+     }
+    ]
+   },
+   "why": "move_path with `from` and `path` means `path` is the destination. Refused on 2026-09-22."
+  },
+  {
+   "type": "replay",
+   "id": "repair-run_command-without-args",
+   "origin": "audits of 2026-09-22 (dep-test2-*, Qwen3.6-35B-A3B), backlog C.24",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=run_command>\n<parameter=executable>\npwd\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "pwd",
+       "args": []
+      }
+     }
+    ]
+   },
+   "why": "A program and no `args` means no arguments. Refused on 2026-09-22."
+  },
+  {
+   "type": "replay",
+   "id": "merge-replace_text-same-file-same-hash",
+   "origin": "audits of 2026-09-23 (semantic-14b-lexical, Qwen3-14B), backlog C.24",
+   "family": "qwen3_5_moe",
+   "model_ref": "Qwen/Qwen3-14B-MLX-4bit",
+   "content": "<tool_call>\n<function=replace_text>\n<parameter=path>\nFAQ.md\n</parameter>\n<parameter=expected_hash>\n7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9\n</parameter>\n<parameter=find>\n## Q1\n</parameter>\n<parameter=replace>\n## Q1 Engine\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=replace_text>\n<parameter=path>\nFAQ.md\n</parameter>\n<parameter=expected_hash>\n7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9\n</parameter>\n<parameter=find>\n## Q2\n</parameter>\n<parameter=replace>\n## Q2 Protocol\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=replace_text>\n<parameter=path>\nFAQ.md\n</parameter>\n<parameter=expected_hash>\n7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9\n</parameter>\n<parameter=find>\n## Q3\n</parameter>\n<parameter=replace>\n## Q3 Command\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "apply_patch",
+      "fields": {
+       "path": "FAQ.md",
+       "expected_hash": "7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9",
+       "hunks": [
+        {
+         "find": "## Q1",
+         "replace": "## Q1 Engine"
+        },
+        {
+         "find": "## Q2",
+         "replace": "## Q2 Protocol"
+        },
+        {
+         "find": "## Q3",
+         "replace": "## Q3 Command"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "why": "Three replace_text on one file against one hash are one atomic patch: all hunks checked before any applies. Refused whole twice on 2026-09-23."
+  },
+  {
+   "type": "replay",
+   "id": "no-merge-replace_text-different-files",
+   "origin": "constructed beside merge-replace_text-same-file-same-hash, backlog C.24",
+   "family": "qwen3_5_moe",
+   "model_ref": "Qwen/Qwen3-14B-MLX-4bit",
+   "content": "<tool_call>\n<function=replace_text>\n<parameter=path>\na.md\n</parameter>\n<parameter=expected_hash>\n7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9\n</parameter>\n<parameter=find>\nx\n</parameter>\n<parameter=replace>\ny\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=replace_text>\n<parameter=path>\nb.md\n</parameter>\n<parameter=expected_hash>\n0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0\n</parameter>\n<parameter=find>\nx\n</parameter>\n<parameter=replace>\ny\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "multiple_calls"
+   },
+   "why": "Edits to two files are two actions, not one patch; the one-action rule still refuses them."
+  },
+  {
+   "type": "replay",
+   "id": "no-merge-replace_text-different-hashes",
+   "origin": "constructed beside merge-replace_text-same-file-same-hash, backlog C.24",
+   "family": "qwen3_5_moe",
+   "model_ref": "Qwen/Qwen3-14B-MLX-4bit",
+   "content": "<tool_call>\n<function=replace_text>\n<parameter=path>\na.md\n</parameter>\n<parameter=expected_hash>\n7faf36a9efdef934f4c2e1d0b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9\n</parameter>\n<parameter=find>\nx\n</parameter>\n<parameter=replace>\ny\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=replace_text>\n<parameter=path>\na.md\n</parameter>\n<parameter=expected_hash>\n0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0\n</parameter>\n<parameter=find>\nz\n</parameter>\n<parameter=replace>\nw\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "malformed",
+    "malformed": "multiple_calls"
+   },
+   "why": "Two hashes for one file means the second edit was written against a different file state; merging would apply it to text it never saw."
+  },
+  {
+   "type": "replay",
+   "id": "repair-list_tree-path-without-max_entries",
+   "origin": "audits of 2026-09-22 (Qwen3.6-35B-A3B), backlog C.24",
+   "family": "qwen3_5_moe",
+   "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "content": "<tool_call>\n<function=list_tree>\n<parameter=path>\nsrc/app\n</parameter>\n</function>\n</tool_call>",
+   "expect": {
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "list_tree",
+      "fields": {
+       "path": "src/app",
+       "max_entries": 200
+      }
+     }
+    ]
+   },
+   "why": "A subtree asked for with `path` and no bound: list_tree takes an optional path and defaults its bound. Refused on 2026-09-22 for the missing number."
+  }
+ ]
+}

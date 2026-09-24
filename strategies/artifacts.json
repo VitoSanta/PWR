@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "schema_version": 1,
+      "id": "lmstudio-qwen3-4b-4bit-mlx",
+      "family": "qwen3",
+      "variant": "4b-4bit",
+      "source": {
+        "kind": "backend_managed",
+        "backend": "lmstudio",
+        "model_ref": "qwen/qwen3-4b@4bit"
+      },
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "LM Studio /api/v1/models local inventory",
+        "observed_at": "2026-09-08T08:00:00Z",
+        "content_hash": "observed-live-not-a-download-manifest"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "lmstudio-qwen3-14b-4bit-mlx",
+      "family": "qwen3",
+      "variant": "14b-4bit",
+      "source": {
+        "kind": "backend_managed",
+        "backend": "lmstudio",
+        "model_ref": "qwen/qwen3-14b@4bit"
+      },
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "LM Studio /api/v1/models local inventory",
+        "observed_at": "2026-09-08T08:00:00Z",
+        "content_hash": "observed-live-not-a-download-manifest"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "lmstudio-qwen35-9b-4bit-mlx",
+      "family": "qwen3_5",
+      "variant": "9b-4bit",
+      "source": {
+        "kind": "backend_managed",
+        "backend": "lmstudio",
+        "model_ref": "qwen/qwen3.5-9b@4bit"
+      },
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "LM Studio /api/v1/models local inventory",
+        "observed_at": "2026-09-08T08:00:00Z",
+        "content_hash": "observed-live-not-a-download-manifest"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "lmstudio-qwen36-35b-a3b-4bit-mlx",
+      "family": "qwen3_5_moe",
+      "variant": "35b-a3b-4bit",
+      "source": {
+        "kind": "backend_managed",
+        "backend": "lmstudio",
+        "model_ref": "qwen/qwen3.6-35b-a3b@4bit"
+      },
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "LM Studio /api/v1/models local inventory",
+        "observed_at": "2026-09-08T08:00:00Z",
+        "content_hash": "observed-live-not-a-download-manifest"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "lmstudio-qwen38-27b-4bit-mlx",
+      "family": "qwen3_5",
+      "variant": "27b-4bit",
+      "source": {
+        "kind": "backend_managed",
+        "backend": "lmstudio",
+        "model_ref": "qwen/qwen3.8-27b@4bit"
+      },
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "LM Studio /api/v1/models local inventory",
+        "observed_at": "2026-09-08T08:00:00Z",
+        "content_hash": "observed-live-not-a-download-manifest"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-qwen36-35b-a3b-q4-k-m-gguf",
+      "family": "qwen3_5_moe",
+      "variant": "35b-a3b-q4-k-m-gguf",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "unsloth/Qwen3.6-35B-A3B-GGUF",
+        "revision": "a483e9e6cbd595906af30beda3187c2663a1118c",
+        "files": [
+          {
+            "path": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+            "bytes": 22134528992,
+            "sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61"
+          }
+        ]
+      },
+      "format": "gguf",
+      "quantization": "q4_k_m",
+      "platform": "any",
+      "provenance": {
+        "source": "HuggingFace model info and resolve headers, checked 2026-09-20",
+        "observed_at": "2026-09-20T00:00:00Z",
+        "content_hash": "hf:unsloth/Qwen3.6-35B-A3B-GGUF@a483e9e6cbd595906af30beda3187c2663a1118c"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-nemotron35-lightning-30b-a3b-q4-0-gguf",
+      "family": "nemotron3_5_moe",
+      "variant": "30b-a3b-q4-0-gguf",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+        "revision": "8a08a1c81dadcc75d35dbb96016cfd344b632e67",
+        "files": [
+          {
+            "path": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf",
+            "bytes": 18898091584,
+            "sha256": "61f87e75974e4b535dcdf9aad056541a9514f1dfa4538b463b081d19b7a00e3c"
+          }
+        ]
+      },
+      "format": "gguf",
+      "quantization": "q4_0",
+      "platform": "any",
+      "provenance": {
+        "source": "HuggingFace model info and resolve headers, checked 2026-09-20",
+        "observed_at": "2026-09-20T00:00:00Z",
+        "content_hash": "hf:ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF@8a08a1c81dadcc75d35dbb96016cfd344b632e67"
+      }
+    }
+  ]
+}

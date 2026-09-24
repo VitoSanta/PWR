@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+# Resolve the repository even when this launcher is reached through ~/.local/bin.
+SOURCE=$0
+while [ -L "$SOURCE" ]; do
+    SOURCE_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+    SOURCE=$(readlink "$SOURCE")
+    case "$SOURCE" in
+        /*) ;;
+        *) SOURCE="$SOURCE_DIR/$SOURCE" ;;
+    esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+CORE="$ROOT/target/release/pwr"
+# The MLX engine's interpreter when none is named: the one scripts/setup-mlx.sh
+# creates, then the engine spike's environment on the maintainer's machine.
+if [ -z "${POORAI_MLX_PYTHON:-}" ]; then
+    for candidate in "$ROOT/.venv-mlx/bin/python" \
+        "$ROOT/experiments/engine-spike-mlx-20260917/.venv/bin/python"; do
+        if [ -x "$candidate" ]; then
+            export POORAI_MLX_PYTHON="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ "${1:-}" = "--cli" ]; then
+    shift
+    exec "$CORE" "$@"
+fi
+
+CORE_STALE=0
+if [ ! -x "$CORE" ]; then
+    CORE_STALE=1
+elif [ -n "$(find "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" "$ROOT/crates" \
+    -type f -newer "$CORE" -print -quit 2>/dev/null)" ]; then
+    CORE_STALE=1
+fi
+
+if [ "$CORE_STALE" -eq 1 ]; then
+    cargo build --manifest-path "$ROOT/Cargo.toml" --release -p pwr-cli
+fi
+
+exec "$CORE" "$@"

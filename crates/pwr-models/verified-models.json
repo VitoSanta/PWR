@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "note": "Controlled PWR evaluations of exact model artifacts, each with its full provenance (artifact digest, weight files, quantization, tokenizer, chat template, backend and backend version). An entry applies only to the artifact its digest names, and only as far as docs/model-compatibility.md's reuse rules allow. Empty for v0.1.0-alpha: the evaluations on record (docs/roadmap.md) were run on earlier engine builds and without the artifact provenance this file requires, so none of them is claimed here. Models are Provisional until calibrated on the person's own machine.",
+  "entries": []
+}

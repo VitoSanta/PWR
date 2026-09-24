@@ -1,0 +1,194 @@
+{
+ "name": "a3-editing",
+ "tasks": [
+  {
+   "id": "a3-regex-backslash",
+   "kind": "bugfix",
+   "statement": "Seconds become optional in timeparse.py: parse_time('07:32') must return (7, 32, 0, 0). A fraction is still allowed only after seconds, as in '07:32:05.25'. The visible test fails. Change only timeparse.py.",
+   "allowed_files": [
+    "timeparse.py"
+   ],
+   "files": {
+    "timeparse.py": "import re\n\n# Times look like 07:32:00 or 07:32:00.999999.\nTIME_RE = re.compile(r\"([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(?:\\.([0-9]{1,6}))?\")\n\n\ndef parse_time(text):\n    match = TIME_RE.fullmatch(text)\n    if match is None:\n        raise ValueError(f\"not a time: {text!r}\")\n    hour, minute, second, fraction = match.groups()\n    return (int(hour), int(minute), int(second), int((fraction or \"0\").ljust(6, \"0\")))\n",
+    "test_timeparse.py": "import unittest\n\nfrom timeparse import parse_time\n\n\nclass ParseTime(unittest.TestCase):\n    def test_full(self):\n        self.assertEqual(parse_time(\"07:32:00\"), (7, 32, 0, 0))\n\n    def test_fraction(self):\n        self.assertEqual(parse_time(\"07:32:05.25\"), (7, 32, 5, 250000))\n\n    def test_without_seconds(self):\n        self.assertEqual(parse_time(\"07:32\"), (7, 32, 0, 0))\n"
+   },
+   "hidden_files": {
+    "hidden_check.py": "from timeparse import parse_time\n\nassert parse_time(\"07:32\") == (7, 32, 0, 0)\nassert parse_time(\"23:59:59\") == (23, 59, 59, 0)\nassert parse_time(\"07:32:05.25\") == (7, 32, 5, 250000)\nfor bad in [\"07:32:05x5\", \"07:32.5\", \"7:32\", \"24:00\", \"07:32:\"]:\n    try:\n        parse_time(bad)\n    except ValueError:\n        continue\n    raise AssertionError(f\"{bad!r} was accepted\")\nprint(\"ok\")\n"
+   },
+   "visible_verifier": {
+    "executable": "python3",
+    "args": [
+     "-m",
+     "unittest",
+     "-q"
+    ]
+   },
+   "hidden_verifier": {
+    "executable": "python3",
+    "args": [
+     "hidden_check.py"
+    ]
+   },
+   "time_budget_secs": 600,
+   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on tomli-optional-seconds, Part E budget variant 2026-09-18 (a regex written with `\\\\.` for `\\.`); not derived from any public benchmark"
+  },
+  {
+   "id": "a3-one-method-long-file",
+   "kind": "bugfix",
+   "statement": "In bag.py, `bag + [1]` raises a clean TypeError but `bag += [1]` fails with an AttributeError about `_items`. `+=` with a non-Bag must raise TypeError the way `+` does, and `+=` with another Bag must keep working. The visible test fails. Change only the `__iadd__` method of bag.py.",
+   "allowed_files": [
+    "bag.py"
+   ],
+   "files": {
+    "bag.py": "class Bag:\n    \"\"\"A multiset of numbers.\"\"\"\n\n    def __init__(self, items=()):\n        self._items = list(items)\n\n    def __len__(self):\n        return len(self._items)\n\n    def __iter__(self):\n        return iter(self._items)\n\n    def __add__(self, other):\n        if not isinstance(other, Bag):\n            return NotImplemented\n        return Bag(self._items + other._items)\n\n    def __iadd__(self, other):\n        self._items.extend(other._items)\n        return self\n\n    def metric_001(self):\n        return sum(self._items) * 1\n\n    def metric_002(self):\n        return sum(self._items) * 2\n\n    def metric_003(self):\n        return sum(self._items) * 3\n\n    def metric_004(self):\n        return sum(self._items) * 4\n\n    def metric_005(self):\n        return sum(self._items) * 5\n\n    def metric_006(self):\n        return sum(self._items) * 6\n\n    def metric_007(self):\n        return sum(self._items) * 7\n\n    def metric_008(self):\n        return sum(self._items) * 8\n\n    def metric_009(self):\n        return sum(self._items) * 9\n\n    def metric_010(self):\n        return sum(self._items) * 10\n\n    def metric_011(self):\n        return sum(self._items) * 11\n\n    def metric_012(self):\n        return sum(self._items) * 12\n\n    def metric_013(self):\n        return sum(self._items) * 13\n\n    def metric_014(self):\n        return sum(self._items) * 14\n\n    def metric_015(self):\n        return sum(self._items) * 15\n\n    def metric_016(self):\n        return sum(self._items) * 16\n\n    def metric_017(self):\n        return sum(self._items) * 17\n\n    def metric_018(self):\n        return sum(self._items) * 18\n\n    def metric_019(self):\n        return sum(self._items) * 19\n\n    def metric_020(self):\n        return sum(self._items) * 20\n\n    def metric_021(self):\n        return sum(self._items) * 21\n\n    def metric_022(self):\n        return sum(self._items) * 22\n\n    def metric_023(self):\n        return sum(self._items) * 23\n\n    def metric_024(self):\n        return sum(self._items) * 24\n\n    def metric_025(self):\n        return sum(self._items) * 25\n\n    def metric_026(self):\n        return sum(self._items) * 26\n\n    def metric_027(self):\n        return sum(self._items) * 27\n\n    def metric_028(self):\n        return sum(self._items) * 28\n\n    def metric_029(self):\n        return sum(self._items) * 29\n\n    def metric_030(self):\n        return sum(self._items) * 30\n\n    def metric_031(self):\n        return sum(self._items) * 31\n\n    def metric_032(self):\n        return sum(self._items) * 32\n\n    def metric_033(self):\n        return sum(self._items) * 33\n\n    def metric_034(self):\n        return sum(self._items) * 34\n\n    def metric_035(self):\n        return sum(self._items) * 35\n\n    def metric_036(self):\n        return sum(self._items) * 36\n\n    def metric_037(self):\n        return sum(self._items) * 37\n\n    def metric_038(self):\n        return sum(self._items) * 38\n\n    def metric_039(self):\n        return sum(self._items) * 39\n\n    def metric_040(self):\n        return sum(self._items) * 40\n\n    def metric_041(self):\n        return sum(self._items) * 41\n\n    def metric_042(self):\n        return sum(self._items) * 42\n\n    def metric_043(self):\n        return sum(self._items) * 43\n\n    def metric_044(self):\n        return sum(self._items) * 44\n\n    def metric_045(self):\n        return sum(self._items) * 45\n\n    def metric_046(self):\n        return sum(self._items) * 46\n\n    def metric_047(self):\n        return sum(self._items) * 47\n\n    def metric_048(self):\n        return sum(self._items) * 48\n\n    def metric_049(self):\n        return sum(self._items) * 49\n\n    def metric_050(self):\n        return sum(self._items) * 50\n\n    def metric_051(self):\n        return sum(self._items) * 51\n\n    def metric_052(self):\n        return sum(self._items) * 52\n\n    def metric_053(self):\n        return sum(self._items) * 53\n\n    def metric_054(self):\n        return sum(self._items) * 54\n\n    def metric_055(self):\n        return sum(self._items) * 55\n\n    def metric_056(self):\n        return sum(self._items) * 56\n\n    def metric_057(self):\n        return sum(self._items) * 57\n\n    def metric_058(self):\n        return sum(self._items) * 58\n\n    def metric_059(self):\n        return sum(self._items) * 59\n\n    def metric_060(self):\n        return sum(self._items) * 60\n\n    def metric_061(self):\n        return sum(self._items) * 61\n\n    def metric_062(self):\n        return sum(self._items) * 62\n\n    def metric_063(self):\n        return sum(self._items) * 63\n\n    def metric_064(self):\n        return sum(self._items) * 64\n\n    def metric_065(self):\n        return sum(self._items) * 65\n\n    def metric_066(self):\n        return sum(self._items) * 66\n\n    def metric_067(self):\n        return sum(self._items) * 67\n\n    def metric_068(self):\n        return sum(self._items) * 68\n\n    def metric_069(self):\n        return sum(self._items) * 69\n\n    def metric_070(self):\n        return sum(self._items) * 70\n\n    def metric_071(self):\n        return sum(self._items) * 71\n\n    def metric_072(self):\n        return sum(self._items) * 72\n\n    def metric_073(self):\n        return sum(self._items) * 73\n\n    def metric_074(self):\n        return sum(self._items) * 74\n\n    def metric_075(self):\n        return sum(self._items) * 75\n\n    def metric_076(self):\n        return sum(self._items) * 76\n\n    def metric_077(self):\n        return sum(self._items) * 77\n\n    def metric_078(self):\n        return sum(self._items) * 78\n\n    def metric_079(self):\n        return sum(self._items) * 79\n\n    def metric_080(self):\n        return sum(self._items) * 80\n\n    def metric_081(self):\n        return sum(self._items) * 81\n\n    def metric_082(self):\n        return sum(self._items) * 82\n\n    def metric_083(self):\n        return sum(self._items) * 83\n\n    def metric_084(self):\n        return sum(self._items) * 84\n\n    def metric_085(self):\n        return sum(self._items) * 85\n\n    def metric_086(self):\n        return sum(self._items) * 86\n\n    def metric_087(self):\n        return sum(self._items) * 87\n\n    def metric_088(self):\n        return sum(self._items) * 88\n\n    def metric_089(self):\n        return sum(self._items) * 89\n\n    def metric_090(self):\n        return sum(self._items) * 90\n\n    def metric_091(self):\n        return sum(self._items) * 91\n\n    def metric_092(self):\n        return sum(self._items) * 92\n\n    def metric_093(self):\n        return sum(self._items) * 93\n\n    def metric_094(self):\n        return sum(self._items) * 94\n\n    def metric_095(self):\n        return sum(self._items) * 95\n\n    def metric_096(self):\n        return sum(self._items) * 96\n\n    def metric_097(self):\n        return sum(self._items) * 97\n\n    def metric_098(self):\n        return sum(self._items) * 98\n\n    def metric_099(self):\n        return sum(self._items) * 99\n\n    def metric_100(self):\n        return sum(self._items) * 100\n\n    def metric_101(self):\n        return sum(self._items) * 101\n\n    def metric_102(self):\n        return sum(self._items) * 102\n\n    def metric_103(self):\n        return sum(self._items) * 103\n\n    def metric_104(self):\n        return sum(self._items) * 104\n\n    def metric_105(self):\n        return sum(self._items) * 105\n\n    def metric_106(self):\n        return sum(self._items) * 106\n\n    def metric_107(self):\n        return sum(self._items) * 107\n\n    def metric_108(self):\n        return sum(self._items) * 108\n\n    def metric_109(self):\n        return sum(self._items) * 109\n\n    def metric_110(self):\n        return sum(self._items) * 110\n\n    def metric_111(self):\n        return sum(self._items) * 111\n\n    def metric_112(self):\n        return sum(self._items) * 112\n\n    def metric_113(self):\n        return sum(self._items) * 113\n\n    def metric_114(self):\n        return sum(self._items) * 114\n\n    def metric_115(self):\n        return sum(self._items) * 115\n\n    def metric_116(self):\n        return sum(self._items) * 116\n\n    def metric_117(self):\n        return sum(self._items) * 117\n\n    def metric_118(self):\n        return sum(self._items) * 118\n\n    def metric_119(self):\n        return sum(self._items) * 119\n\n    def metric_120(self):\n        return sum(self._items) * 120\n\n    def metric_121(self):\n        return sum(self._items) * 121\n\n    def metric_122(self):\n        return sum(self._items) * 122\n\n    def metric_123(self):\n        return sum(self._items) * 123\n\n    def metric_124(self):\n        return sum(self._items) * 124\n\n    def metric_125(self):\n        return sum(self._items) * 125\n\n    def metric_126(self):\n        return sum(self._items) * 126\n\n    def metric_127(self):\n        return sum(self._items) * 127\n\n    def metric_128(self):\n        return sum(self._items) * 128\n\n    def metric_129(self):\n        return sum(self._items) * 129\n\n    def metric_130(self):\n        return sum(self._items) * 130\n\n    def metric_131(self):\n        return sum(self._items) * 131\n\n    def metric_132(self):\n        return sum(self._items) * 132\n\n    def metric_133(self):\n        return sum(self._items) * 133\n\n    def metric_134(self):\n        return sum(self._items) * 134\n\n    def metric_135(self):\n        return sum(self._items) * 135\n\n    def metric_136(self):\n        return sum(self._items) * 136\n\n    def metric_137(self):\n        return sum(self._items) * 137\n\n    def metric_138(self):\n        return sum(self._items) * 138\n\n    def metric_139(self):\n        return sum(self._items) * 139\n\n    def metric_140(self):\n        return sum(self._items) * 140\n\n    def metric_141(self):\n        return sum(self._items) * 141\n\n    def metric_142(self):\n        return sum(self._items) * 142\n\n    def metric_143(self):\n        return sum(self._items) * 143\n\n    def metric_144(self):\n        return sum(self._items) * 144\n\n    def metric_145(self):\n        return sum(self._items) * 145\n\n    def metric_146(self):\n        return sum(self._items) * 146\n\n    def metric_147(self):\n        return sum(self._items) * 147\n\n    def metric_148(self):\n        return sum(self._items) * 148\n\n    def metric_149(self):\n        return sum(self._items) * 149\n\n    def metric_150(self):\n        return sum(self._items) * 150\n\n    def metric_151(self):\n        return sum(self._items) * 151\n\n    def metric_152(self):\n        return sum(self._items) * 152\n\n    def metric_153(self):\n        return sum(self._items) * 153\n\n    def metric_154(self):\n        return sum(self._items) * 154\n\n    def metric_155(self):\n        return sum(self._items) * 155\n\n    def metric_156(self):\n        return sum(self._items) * 156\n\n    def metric_157(self):\n        return sum(self._items) * 157\n\n    def metric_158(self):\n        return sum(self._items) * 158\n\n    def metric_159(self):\n        return sum(self._items) * 159\n\n    def metric_160(self):\n        return sum(self._items) * 160\n\n    def metric_161(self):\n        return sum(self._items) * 161\n\n    def metric_162(self):\n        return sum(self._items) * 162\n\n    def metric_163(self):\n        return sum(self._items) * 163\n\n    def metric_164(self):\n        return sum(self._items) * 164\n\n    def metric_165(self):\n        return sum(self._items) * 165\n\n    def metric_166(self):\n        return sum(self._items) * 166\n\n    def metric_167(self):\n        return sum(self._items) * 167\n\n    def metric_168(self):\n        return sum(self._items) * 168\n\n    def metric_169(self):\n        return sum(self._items) * 169\n\n    def metric_170(self):\n        return sum(self._items) * 170\n\n    def metric_171(self):\n        return sum(self._items) * 171\n\n    def metric_172(self):\n        return sum(self._items) * 172\n\n    def metric_173(self):\n        return sum(self._items) * 173\n\n    def metric_174(self):\n        return sum(self._items) * 174\n\n    def metric_175(self):\n        return sum(self._items) * 175\n\n    def metric_176(self):\n        return sum(self._items) * 176\n\n    def metric_177(self):\n        return sum(self._items) * 177\n\n    def metric_178(self):\n        return sum(self._items) * 178\n\n    def metric_179(self):\n        return sum(self._items) * 179\n\n    def metric_180(self):\n        return sum(self._items) * 180\n",
+    "test_bag.py": "import unittest\n\nfrom bag import Bag\n\n\nclass InPlaceAdd(unittest.TestCase):\n    def test_bag(self):\n        bag = Bag([1])\n        bag += Bag([2])\n        self.assertEqual(list(bag), [1, 2])\n\n    def test_list_raises_type_error(self):\n        bag = Bag([1])\n        with self.assertRaises(TypeError):\n            bag += [1]\n"
+   },
+   "hidden_files": {
+    "hidden_check.py": "from bag import Bag\n\nbag = Bag([1])\nbag += Bag([2, 3])\nassert list(bag) == [1, 2, 3]\nfor other in ([1], 1, \"x\"):\n    try:\n        b = Bag([1])\n        b += other\n    except TypeError:\n        continue\n    raise AssertionError(f\"+= {other!r} did not raise TypeError\")\nmissing = [i for i in range(1, 181) if not hasattr(Bag, f\"metric_{i:03d}\")]\nassert not missing, f\"methods lost: {missing[:5]}\"\nassert Bag([1, 2]).metric_180() == 540\nprint(\"ok\")\n"
+   },
+   "visible_verifier": {
+    "executable": "python3",
+    "args": [
+     "-m",
+     "unittest",
+     "-q"
+    ]
+   },
+   "hidden_verifier": {
+    "executable": "python3",
+    "args": [
+     "hidden_check.py"
+    ]
+   },
+   "time_budget_secs": 600,
+   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on pyparsing-iadd-non-results, Part E with both fixes 2026-09-18 (one method sent as the whole of a 940-line file); not derived from any public benchmark"
+  },
+  {
+   "id": "a3-quotes-and-braces",
+   "kind": "bugfix",
+   "statement": "In greet.py, inbox_line('Ada', 0) must read \"Hello, Ada! You have no new messages.\" instead of \"0 new messages\". Other counts are unchanged. The visible test fails. Change only greet.py.",
+   "allowed_files": [
+    "greet.py"
+   ],
+   "files": {
+    "greet.py": "def inbox_line(name, count):\n    return f\"Hello, {name}! You have {count} new message{'s' if count != 1 else ''}.\"\n",
+    "test_greet.py": "import unittest\n\nfrom greet import inbox_line\n\n\nclass InboxLine(unittest.TestCase):\n    def test_none(self):\n        self.assertEqual(inbox_line(\"Ada\", 0), \"Hello, Ada! You have no new messages.\")\n\n    def test_one(self):\n        self.assertEqual(inbox_line(\"Ada\", 1), \"Hello, Ada! You have 1 new message.\")\n\n    def test_many(self):\n        self.assertEqual(inbox_line(\"Ada\", 3), \"Hello, Ada! You have 3 new messages.\")\n"
+   },
+   "hidden_files": {
+    "hidden_check.py": "from greet import inbox_line\n\nassert inbox_line(\"Ada\", 0) == \"Hello, Ada! You have no new messages.\"\nassert inbox_line(\"Ada\", 1) == \"Hello, Ada! You have 1 new message.\"\nassert inbox_line(\"Ada\", 2) == \"Hello, Ada! You have 2 new messages.\"\nassert inbox_line('O\"Brien {x}', 0) == 'Hello, O\"Brien {x}! You have no new messages.'\nassert inbox_line(\"{name}\", 5) == \"Hello, {name}! You have 5 new messages.\"\nprint(\"ok\")\n"
+   },
+   "visible_verifier": {
+    "executable": "python3",
+    "args": [
+     "-m",
+     "unittest",
+     "-q"
+    ]
+   },
+   "hidden_verifier": {
+    "executable": "python3",
+    "args": [
+     "hidden_check.py"
+    ]
+   },
+   "time_budget_secs": 600,
+   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on the escaping failures of 2026-09-18, where quotes and braces reached the model escaped; not derived from any public benchmark"
+  },
+  {
+   "id": "a3-tab-indented",
+   "kind": "bugfix",
+   "statement": "In settings.py, a value may itself contain '=': parse_line('url = a=b') must return ('url', 'a=b'). Split only at the first '='. The visible test fails. Change only settings.py and keep its tab indentation.",
+   "allowed_files": [
+    "settings.py"
+   ],
+   "files": {
+    "settings.py": "def parse_line(line):\n\tline = line.strip()\n\tif not line or line.startswith(\"#\"):\n\t\treturn None\n\tkey, value = line.split(\"=\")\n\treturn key.strip(), value.strip()\n",
+    "test_settings.py": "import unittest\n\nfrom settings import parse_line\n\n\nclass ParseLine(unittest.TestCase):\n    def test_simple(self):\n        self.assertEqual(parse_line(\"name = poorAI\"), (\"name\", \"poorAI\"))\n\n    def test_comment(self):\n        self.assertIsNone(parse_line(\"# note\"))\n\n    def test_value_with_equals(self):\n        self.assertEqual(parse_line(\"url = a=b\"), (\"url\", \"a=b\"))\n"
+   },
+   "hidden_files": {
+    "hidden_check.py": "import pathlib\n\nfrom settings import parse_line\n\nassert parse_line(\"url = a=b=c\") == (\"url\", \"a=b=c\")\nassert parse_line(\"  k=v  \") == (\"k\", \"v\")\nassert parse_line(\"\") is None\nfor number, line in enumerate(pathlib.Path(\"settings.py\").read_text().splitlines(), 1):\n    body = line.lstrip(\"\\t\")\n    assert not body.startswith(\" \"), f\"line {number} is indented with spaces\"\nprint(\"ok\")\n"
+   },
+   "visible_verifier": {
+    "executable": "python3",
+    "args": [
+     "-m",
+     "unittest",
+     "-q"
+    ]
+   },
+   "hidden_verifier": {
+    "executable": "python3",
+    "args": [
+     "hidden_check.py"
+    ]
+   },
+   "time_budget_secs": 600,
+   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on whitespace failures of replace_text, where the find text's indentation did not match the file; not derived from any public benchmark"
+  },
+  {
+   "id": "a3-two-files-and-a-lookalike",
+   "kind": "bugfix",
+   "statement": "Amounts lose a cent: to_cents('0.29') returns 28, and tax_cents truncates. to_cents in money.py must be exact, and tax_cents in invoice.py must round half up (22% of 25 cents is 6). The visible test fails. Change only money.py and invoice.py; legacy_report.py is frozen.",
+   "allowed_files": [
+    "money.py",
+    "invoice.py"
+   ],
+   "files": {
+    "money.py": "def to_cents(amount):\n    \"\"\"'12.34' -> 1234.\"\"\"\n    return int(float(amount) * 100)\n",
+    "invoice.py": "from money import to_cents\n\n\ndef total_cents(lines):\n    return sum(to_cents(price) * quantity for price, quantity in lines)\n\n\ndef tax_cents(total, rate_percent):\n    return total * rate_percent // 100\n",
+    "legacy_report.py": "# Frozen: reproduces the 2019 reports byte for byte. Do not change.\ndef legacy_cents(amount):\n    return int(float(amount) * 100)\n",
+    "test_invoice.py": "import unittest\n\nfrom invoice import tax_cents, total_cents\nfrom money import to_cents\n\n\nclass Invoice(unittest.TestCase):\n    def test_exact_cents(self):\n        self.assertEqual(to_cents(\"0.29\"), 29)\n\n    def test_total(self):\n        self.assertEqual(total_cents([(\"0.29\", 3), (\"1.10\", 1)]), 197)\n\n    def test_tax_rounds_half_up(self):\n        self.assertEqual(tax_cents(25, 22), 6)\n"
+   },
+   "hidden_files": {
+    "hidden_check.py": "import pathlib\n\nfrom invoice import tax_cents, total_cents\nfrom money import to_cents\n\nassert to_cents(\"0.29\") == 29 and to_cents(\"19.99\") == 1999 and to_cents(\"0.07\") == 7\nassert total_cents([(\"0.29\", 3)]) == 87\nassert tax_cents(87, 22) == 19 and tax_cents(25, 22) == 6 and tax_cents(100, 22) == 22\nassert pathlib.Path(\"legacy_report.py\").read_text() == '# Frozen: reproduces the 2019 reports byte for byte. Do not change.\\ndef legacy_cents(amount):\\n    return int(float(amount) * 100)\\n'\nprint(\"ok\")\n"
+   },
+   "visible_verifier": {
+    "executable": "python3",
+    "args": [
+     "-m",
+     "unittest",
+     "-q"
+    ]
+   },
+   "hidden_verifier": {
+    "executable": "python3",
+    "args": [
+     "hidden_check.py"
+    ]
+   },
+   "time_budget_secs": 600,
+   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on out-of-scope edits checked in A.1 (Bionic's idna run rewrote files outside the allowed set); not derived from any public benchmark"
+  },
+  {
+   "id": "a3-crlf-line-endings",
+   "kind": "bugfix",
+   "statement": "units.py must also know millimetres ('mm' is 0.001 m), and an unknown unit must raise ValueError('unknown unit: <unit>') instead of KeyError. The visible test fails. Change only units.py and keep its Windows (CRLF) line endings.",
+   "allowed_files": [
+    "units.py"
+   ],
+   "files": {
+    "units.py": "FACTORS = {\r\n    \"km\": 1000,\r\n    \"m\": 1,\r\n    \"cm\": 0.01,\r\n}\r\n\r\n\r\ndef to_meters(value, unit):\r\n    return value * FACTORS[unit]\r\n",
+    "test_units.py": "import unittest\n\nfrom units import to_meters\n\n\nclass ToMeters(unittest.TestCase):\n    def test_km(self):\n        self.assertEqual(to_meters(2, \"km\"), 2000)\n\n    def test_mm(self):\n        self.assertAlmostEqual(to_meters(5, \"mm\"), 0.005)\n\n    def test_unknown(self):\n        with self.assertRaises(ValueError):\n            to_meters(1, \"parsec\")\n"
+   },
+   "hidden_files": {
+    "hidden_check.py": "import pathlib\n\nfrom units import to_meters\n\nassert abs(to_meters(1500, \"mm\") - 1.5) < 1e-9\ntry:\n    to_meters(1, \"ly\")\nexcept ValueError as error:\n    assert \"unknown unit: ly\" in str(error), error\nelse:\n    raise AssertionError(\"unknown unit accepted\")\ndata = pathlib.Path(\"units.py\").read_bytes()\nassert data.count(b\"\\n\") == data.count(b\"\\r\\n\"), \"line endings are no longer all CRLF\"\nprint(\"ok\")\n"
+   },
+   "visible_verifier": {
+    "executable": "python3",
+    "args": [
+     "-m",
+     "unittest",
+     "-q"
+    ]
+   },
+   "hidden_verifier": {
+    "executable": "python3",
+    "args": [
+     "hidden_check.py"
+    ]
+   },
+   "time_budget_secs": 600,
+   "provenance": "authored 2026-09-19 for poorAI suite A3; modelled on the product's Windows target: an edit must keep a file's line endings; not derived from any public benchmark"
+  }
+ ]
+}

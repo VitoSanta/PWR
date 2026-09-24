@@ -1,0 +1,118 @@
+{
+ "schema_version": 1,
+ "id": "a2-navigation",
+ "area": "A2",
+ "description": "Area A2, navigation: repository questions with known answers -- the existing corpora's nine, re-audited into this suite as the redesign asks, plus one built from a recorded navigation failure. A case holds when the answer names what it must, no invented symbol, and nothing changed. Measures from the traces: reads, searches, re-reads of unchanged files, prompt tokens. Run with suites/run.sh a2.",
+ "cases": [
+  {
+   "type": "task",
+   "id": "a2-pyparsing-test-class",
+   "corpus": "suites/a2-navigation.corpus.json",
+   "task": "a2-pyparsing-test-class",
+   "origin": "Part E budget variant 2026-09-18, pyparsing-iadd (forty actions to find a test's class)",
+   "expect": {
+    "answered": true
+   },
+   "why": "The class is findable in one search for `class ` against the known line; `within` on the search hit names it directly. An answer naming an invented class (`ParseResultsTest`, the run's first guess) fails."
+  },
+  {
+   "type": "task",
+   "id": "pyparsing-bounded-repetition-diagnosis",
+   "corpus": "corpus/external-v2.json",
+   "task": "pyparsing-bounded-repetition-diagnosis",
+   "origin": "corpus external-v2 (real repository, upstream fix commit known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Locate a defect in a real repository from its symptom; the answer must name the file and function the upstream fix changed, and no invented symbol."
+  },
+  {
+   "type": "task",
+   "id": "pyparsing-match-previous-expr-diagnosis",
+   "corpus": "corpus/external-v2.json",
+   "task": "pyparsing-match-previous-expr-diagnosis",
+   "origin": "corpus external-v2 (real repository, upstream fix commit known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Locate a defect in a real repository from its symptom; the answer must name the file and function the upstream fix changed, and no invented symbol."
+  },
+  {
+   "type": "task",
+   "id": "filenamify-normalization-diagnosis",
+   "corpus": "corpus/external-v2.json",
+   "task": "filenamify-normalization-diagnosis",
+   "origin": "corpus external-v2 (real repository, upstream fix commit known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Locate a defect in a real repository from its symptom; the answer must name the file and function the upstream fix changed, and no invented symbol."
+  },
+  {
+   "type": "task",
+   "id": "external-running-min-stability",
+   "corpus": "corpus/external-v1.json",
+   "task": "external-running-min-stability",
+   "origin": "corpus external-v1 (real repository, upstream fix commit known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Locate a defect in a real repository from its symptom; the answer must name the file and function the upstream fix changed."
+  },
+  {
+   "type": "task",
+   "id": "no-retry-exists",
+   "corpus": "corpus/m6-hard-v1.json",
+   "task": "no-retry-exists",
+   "origin": "corpus m6-hard-v1 (authored; answers known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Navigation where the answer is elsewhere than where the symptom surfaces, or does not exist; the answer must name it without inventing symbols, and nothing may change."
+  },
+  {
+   "type": "task",
+   "id": "diagnose-do-not-fix",
+   "corpus": "corpus/m6-hard-v1.json",
+   "task": "diagnose-do-not-fix",
+   "origin": "corpus m6-hard-v1 (authored; answers known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Navigation where the answer is elsewhere than where the symptom surfaces, or does not exist; the answer must name it without inventing symbols, and nothing may change."
+  },
+  {
+   "type": "task",
+   "id": "diagnose-two-calls-away",
+   "corpus": "corpus/m6-hard-v1.json",
+   "task": "diagnose-two-calls-away",
+   "origin": "corpus m6-hard-v1 (authored; answers known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Navigation where the answer is elsewhere than where the symptom surfaces, or does not exist; the answer must name it without inventing symbols, and nothing may change."
+  },
+  {
+   "type": "task",
+   "id": "diagnose-past-the-delegation",
+   "corpus": "corpus/m6-hard-v1.json",
+   "task": "diagnose-past-the-delegation",
+   "origin": "corpus m6-hard-v1 (authored; answers known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Navigation where the answer is elsewhere than where the symptom surfaces, or does not exist; the answer must name it without inventing symbols, and nothing may change."
+  },
+  {
+   "type": "task",
+   "id": "question-entrypoint",
+   "corpus": "corpus/m5-frozen-v1.json",
+   "task": "question-entrypoint",
+   "origin": "corpus m5-frozen-v1 (authored; answer known)",
+   "expect": {
+    "answered": true
+   },
+   "why": "Find the entry point a question names, without changing anything."
+  }
+ ]
+}

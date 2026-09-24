@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "assessed_on": "2026-09-06",
+  "note": "The single source of milestone status. The roadmap's status table is generated from this file by `scripts/milestones.py`; nothing else asserts a milestone's state. Written by hand, read by everything, so the three places that used to disagree cannot.",
+  "campaign_evidence": "Historical campaigns through 2026-09-05 are retained in experiment-log.md and roadmap.md. The 2026-09-06 v5 changes have two development campaigns and no held-out measurement: the local-v5 pilot (thirty trials, three deployments) and its read-only follow-up (nine trials), both under experiments/ with their protocols, frozen binaries and per-trial reports",
+  "milestones": [
+    {
+      "id": "M0",
+      "name": "Foundation",
+      "status": "complete",
+      "evidence": "Cargo workspace; versioned domain contracts; SQLite event log with a per-run hash chain and a verifier; typed run events; JSON, Markdown and JSONL reporting. Property tests cover serde round-trips, Observation variant integrity, deployment fingerprint sensitivity, UUIDv7 ordering, hash determinism, calibration sampling floors, execution-profile authorisation, typed execution budgets and event round-trips.",
+      "remaining": "Real migrations beyond the two in place, and an artifact table."
+    },
+    {
+      "id": "M1",
+      "name": "Discovery",
+      "status": "complete for the seven target deployments",
+      "evidence": "doctor captures host and backend facts. models inspect --probe runs the full capability suite with a content-addressed, non-overwritable artifact each. A run requires a matching artifact, and the measured emission rate shapes how much malformed-call patience it gets. Cancellation closes the connection the backend writes into, asserted from the server's side.",
+      "remaining": "The trial count is not calibrated against measured variance."
+    },
+    {
+      "id": "M2",
+      "name": "Calibration",
+      "status": "v5 implemented; deployment revalidation pending",
+      "evidence": "v5 gates exact needle recall, measured occupancy and complete streams; pressure before and after generation participates in admission. Offline adversarial provider tests cover wrong/missing evidence, incomplete streams and post-generation pressure. Previous v4 profiles remain historical measurements.",
+      "remaining": "Recalibrate the MVP cohort under v5 before new runs. Needle recall does not measure repository reasoning; unknown pressure/load observations remain unknown. Linux and Windows host probes."
+    },
+    {
+      "id": "M3",
+      "name": "Safe execution",
+      "status": "complete on macOS",
+      "evidence": "Gitignore semantics through one walker shared by the index and the tools; reads denied outside the workspace with a measured allowlist; writes confined; network denied without a grant; bounded incremental I/O with process-group kill; every attempt audited allowed or denied, in five outcome classes; corpus preparation and external verifiers under their own bounded policy; services owned by a supervisor that kills them on drop.",
+      "remaining": "Linux and Windows adapters. Under --provision an arbitrary executable with a network can still read the system and toolchain paths; that wants a separate process or VM."
+    },
+    {
+      "id": "M4",
+      "name": "Agent task loop",
+      "status": "complete",
+      "evidence": "Baseline includes narrow, broad and explicitly quarantined checks before editing. Normal completion requires passing non-exempt checks and preserved baseline; no-verifier completion is refused. Compaction retains the typed task under the production prompt layout. Regression tests cover unchanged red checks, broad regressions, explicit exceptions and task retention. Typed transitions, plans and replayable log remain implemented.",
+      "remaining": "Resuming into replayed state, semantic user clarification and large-repository effectiveness remain open. Baseline diagnostic equality is conservative and cannot establish individual test identity. See local-agent-research.md."
+    },
+    {
+      "id": "M5",
+      "name": "Evaluation",
+      "status": "historical campaigns; current revision unmeasured",
+      "evidence": "Previous campaign results are retained. New source fingerprints distinguish dirty builds; lexical symbol mentions are named honestly; ambiguous terminal symptoms remain unattributed. Eval now honors planning and observes runtime pressure but still receives the corpus verifier.",
+      "remaining": "Validate current revision on predeclared held-out tasks and repetitions. Product-path verification discovery/escalation, per-task durable campaign outcomes, semantic answer scoring and task/repository-level uncertainty remain open. No current model ranking is established."
+    },
+    {
+      "id": "M6",
+      "name": "Beta",
+      "status": "not ready",
+      "evidence": "Historical task rates do not demonstrate large-repository competence or parity. Offline harness regression checks do not establish deployment quality.",
+      "remaining": "Held-out large-repository evaluation, MVP cohort revalidation, semantic evidence assessment and usability beyond --json. Follow benchmark-design.md and local-agent-research.md; keep prior measurements distinct from current claims."
+    }
+  ]
+}

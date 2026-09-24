@@ -1,0 +1,45 @@
+{
+  "note": "Each entry is a hypothesis drawn from a measurement, not a result. A strategy is worth keeping only once it has been measured against the shared default on a frozen corpus.",
+  "strategies": [
+    {
+      "schema_version": 1,
+      "id": "01a05e00-0000-7000-8000-000000000001",
+      "model_selector": "muse-glimmer:30b-mlx",
+      "role": "control",
+      "prompt_suffix": " Do not explore before acting: the passages you were given already contain what you need. Read a file only if you are about to change it.",
+      "max_actions": null,
+      "retrieval_excerpts": 8,
+      "rationale": "Called list_tree on all three trials of the M1 edit probe instead of proposing an edit, and spent thirty actions on the generation task without creating a file. It explores rather than acts."
+    },
+    {
+      "schema_version": 1,
+      "id": "01a05e00-0000-7000-8000-000000000002",
+      "model_selector": "nemotron-3.5-lightning:30b-mlx",
+      "role": "long-context control",
+      "prompt_suffix": "",
+      "max_actions": 24,
+      "retrieval_excerpts": null,
+      "rationale": "Measured on m6-hard-v1, 2026-09-05: lost three tasks of four to the action budget, not to the work. extract-normaliser ran out at 12 with the repository checks passing -- it had finished and could not say so -- and deep-defect ran out at 12 as well. It takes 157 turns where qwen takes 81 for the same corpus, so the hypothesis is that the shared default of 12 is a wall built for a terser deployment rather than a limit the work implies. Doubled to 24 to measure that, and worth keeping only if it moves the resolved rate without simply spending more turns on the same result."
+    },
+    {
+      "schema_version": 1,
+      "id": "01a05e00-0000-7000-8000-000000000003",
+      "model_selector": "ornith-1.5:35b",
+      "role": "repair specialist",
+      "prompt_suffix": " Before calling complete, re-read the task statement and check that every requirement in it is satisfied, not only the one you changed.",
+      "max_actions": null,
+      "retrieval_excerpts": null,
+      "rationale": "Strongest repairer at 13 of 15 edit tasks, and the only deployment that wrote a syntactically valid generated server which missed its specification. It edits well and reads specifications loosely."
+    },
+    {
+      "schema_version": 1,
+      "id": "01a05e00-0000-7000-8000-000000000005",
+      "model_selector": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+      "role": "budget test",
+      "prompt_suffix": "",
+      "max_actions": 64,
+      "retrieval_excerpts": null,
+      "rationale": "Measured on the Part E orientation run, 2026-09-18 (experiments/part-e-orient-mlx-20260918): with the harness no longer breaking edits and orientation cheaper, all three failures of five ended on the shared budget of 26 while progressing -- one with the fix already in and the hidden check passing, one after a restore and four green edits, one in the API where its fix lives. The earlier 64-action run (strategy ...0004, withdrawn) circled on a harness that broke edits and hid the test command. Raised to 64 again to test the budget on the harness as it now is; kept only if it moves the resolved count."
+    }
+  ]
+}

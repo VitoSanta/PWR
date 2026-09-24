@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "tasks": {
+    "build-ledger": [
+      {
+        "description": "implements the public API but drops accounts whose balance returns to zero",
+        "files": {
+          "src/lib.rs": "pub mod entry;\npub mod report;\n",
+          "src/entry.rs": "#[derive(Debug, Clone, PartialEq, Eq)]\npub struct Entry {\n    pub date: String,\n    pub account: String,\n    pub amount: i64,\n}\n\n#[derive(Debug, PartialEq, Eq)]\npub enum ParseError {\n    WrongFieldCount,\n    BadDate,\n    BadAmount,\n}\n\nfn valid_date(date: &str) -> bool {\n    let bytes = date.as_bytes();\n    bytes.len() == 10\n        && bytes[4] == b'-'\n        && bytes[7] == b'-'\n        && bytes\n            .iter()\n            .enumerate()\n            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())\n}\n\npub fn parse_line(line: &str) -> Result<Entry, ParseError> {\n    let fields: Vec<&str> = line.split_whitespace().collect();\n    if fields.len() != 3 {\n        return Err(ParseError::WrongFieldCount);\n    }\n    if !valid_date(fields[0]) {\n        return Err(ParseError::BadDate);\n    }\n    let amount = fields[2].parse().map_err(|_| ParseError::BadAmount)?;\n    Ok(Entry {\n        date: fields[0].to_string(),\n        account: fields[1].to_string(),\n        amount,\n    })\n}\n\npub fn parse_all(text: &str) -> Result<Vec<Entry>, ParseError> {\n    let mut entries = Vec::new();\n    for line in text.lines() {\n        let line = line.trim();\n        if line.is_empty() || line.starts_with('#') {\n            continue;\n        }\n        entries.push(parse_line(line)?);\n    }\n    Ok(entries)\n}\n",
+          "src/report.rs": "use crate::entry::Entry;\nuse std::collections::BTreeMap;\n\npub fn balances(entries: &[Entry]) -> BTreeMap<String, i64> {\n    let mut totals = BTreeMap::new();\n    for entry in entries {\n        *totals.entry(entry.account.clone()).or_insert(0) += entry.amount;\n    }\n    totals.retain(|_, amount| *amount != 0);\n    totals\n}\n\npub fn render(entries: &[Entry]) -> String {\n    let mut out = String::new();\n    for (account, amount) in balances(entries) {\n        out.push_str(&format!(\"{account}: {amount}\\n\"));\n    }\n    out\n}\n"
+        }
+      }
+    ],
+    "cover-the-contract": [
+      {
+        "description": "adds six nominal assertions but misses the boundary clauses",
+        "files": {
+          "tests/coverage.rs": "use cov::rate::apply_discount;\n\n#[test]\nfn nominal_cases_only() {\n    assert_eq!(apply_discount(1000, 10), 900);\n    assert_eq!(apply_discount(2500, 20), 2000);\n    assert_eq!(apply_discount(999, 10), 900);\n    assert_eq!(apply_discount(1234, 10), 1111);\n    assert_eq!(apply_discount(750, 10), 675);\n    assert_eq!(apply_discount(333, 10), 300);\n}\n"
+        }
+      }
+    ],
+    "crossmodule-median": [
+      {
+        "description": "handles even samples but rounds the middle mean upward",
+        "files": {
+          "src/stats.rs": "pub fn median(values: &[i64]) -> Option<i64> {\n    if values.is_empty() {\n        return None;\n    }\n    let mut sorted = values.to_vec();\n    sorted.sort();\n    let mid = sorted.len() / 2;\n    if sorted.len() % 2 == 1 {\n        Some(sorted[mid])\n    } else {\n        Some((sorted[mid - 1] + sorted[mid] + 1) / 2)\n    }\n}\n"
+        }
+      }
+    ],
+    "deep-defect": [
+      {
+        "description": "fixes positive half values but leaves negative halves truncating toward zero",
+        "files": {
+          "src/leaf/round_tenths.rs": "pub fn apply(v: i64) -> i64 {\n    if v >= 0 {\n        (v + 5) / 10\n    } else {\n        v / 10\n    }\n}\n"
+        }
+      }
+    ],
+    "dirty-working-tree": [
+      {
+        "description": "guards the empty slice but only returns the first byte",
+        "files": {
+          "src/sum.rs": "pub fn checksum(bytes: &[u8]) -> usize {\n    if bytes.is_empty() {\n        0\n    } else {\n        bytes[0] as usize\n    }\n}\n"
+        }
+      }
+    ],
+    "empty-window": [
+      {
+        "description": "guards the empty cases but omits the final valid window",
+        "files": {
+          "src/win.rs": "pub fn windows(values: &[i32], size: usize) -> Vec<Vec<i32>> {\n    if values.is_empty() || size == 0 || size > values.len() {\n        return Vec::new();\n    }\n    let mut out = Vec::new();\n    for start in 0..(values.len() - size) {\n        out.push(values[start..start + size].to_vec());\n    }\n    out\n}\n"
+        }
+      }
+    ],
+    "extract-normaliser": [
+      {
+        "description": "extracts a shared helper but forgets to collapse internal whitespace",
+        "files": {
+          "src/text.rs": "pub fn normalise(input: &str) -> String {\n    input.trim().to_lowercase()\n}\n",
+          "src/users.rs": "use crate::text;\n\npub fn user_key(name: &str) -> String {\n    text::normalise(name)\n}\n",
+          "src/tags.rs": "use crate::text;\n\npub fn tag_key(tag: &str) -> String {\n    text::normalise(tag)\n}\n",
+          "src/paths.rs": "use crate::text;\n\npub fn path_key(path: &str) -> String {\n    text::normalise(path)\n}\n"
+        }
+      }
+    ],
+    "known-failing-suite": [
+      {
+        "description": "strips trailing slashes without preserving the root path",
+        "files": {
+          "src/path.rs": "pub fn normalise_path(input: &str) -> String {\n    let mut out = String::new();\n    let mut last_was_sep = false;\n    for ch in input.chars() {\n        if ch == '/' {\n            if !last_was_sep {\n                out.push(ch);\n            }\n            last_was_sep = true;\n        } else {\n            out.push(ch);\n            last_was_sep = false;\n        }\n    }\n    if out.ends_with('/') {\n        out.pop();\n    }\n    out\n}\n"
+        }
+      }
+    ],
+    "misattributed-failure": [
+      {
+        "description": "fixes the lower threshold but leaves the upper threshold exclusive",
+        "files": {
+          "src/discount.rs": "pub fn discount_bps(spend: i64) -> i64 {\n    if spend > 50000 {\n        1000\n    } else if spend >= 10000 {\n        500\n    } else {\n        0\n    }\n}\n"
+        }
+      }
+    ],
+    "missing-transition": [
+      {
+        "description": "adds the visible cancel transition but misses idle cancellation",
+        "files": {
+          "src/machine.rs": "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum State {\n    Idle,\n    Running,\n    Paused,\n    Done,\n}\n\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum Event {\n    Start,\n    Pause,\n    Finish,\n    Cancel,\n}\n\npub fn next(state: State, event: Event) -> Option<State> {\n    match (state, event) {\n        (State::Idle, Event::Start) => Some(State::Running),\n        (State::Running, Event::Pause) => Some(State::Paused),\n        (State::Running, Event::Finish) => Some(State::Done),\n        (State::Paused, Event::Start) => Some(State::Running),\n        (State::Paused, Event::Cancel) => Some(State::Done),\n        _ => None,\n    }\n}\n"
+        }
+      }
+    ],
+    "monotonic-table": [
+      {
+        "description": "restores monotonicity while changing an unrelated threshold",
+        "patch": [
+          "diff --git a/src/table.rs b/src/table.rs",
+          "--- a/src/table.rs",
+          "+++ b/src/table.rs",
+          "@@ -1,7 +1,7 @@",
+          " /// Code to threshold. Strictly increasing in the code, by contract.",
+          " pub const THRESHOLDS: [(u32, i64); 5200] = [",
+          "-    (0, 7),",
+          "+    (0, 8),",
+          "     (1, 15),",
+          "     (2, 24),",
+          "     (3, 31),",
+          "@@ -4211,7 +4211,7 @@",
+          "     (4208, 33672),",
+          "     (4209, 33679),",
+          "     (4210, 33687),",
+          "-    (4211, 33656),",
+          "+    (4211, 33696),",
+          "     (4212, 33703),",
+          "     (4213, 33711),",
+          "     (4214, 33720),"
+        ]
+      }
+    ],
+    "quadratic-duplicate-scan": [
+      {
+        "description": "uses a set but bypasses the comparison counter completely",
+        "files": {
+          "src/scan.rs": "use std::collections::HashSet;\n\npub fn first_duplicate(values: &[i64]) -> Option<i64> {\n    let mut seen = HashSet::new();\n    for &value in values {\n        if !seen.insert(value) {\n            return Some(value);\n        }\n    }\n    None\n}\n"
+        }
+      }
+    ],
+    "result-signature": [
+      {
+        "description": "propagates Result but reports values above the limit as NotNumeric",
+        "files": {
+          "src/ident.rs": "#[derive(Debug, PartialEq, Eq)]\npub enum IdError {\n    Empty,\n    NotNumeric,\n    TooLarge,\n}\n\npub fn parse_id(text: &str) -> Result<u32, IdError> {\n    if text.is_empty() {\n        return Err(IdError::Empty);\n    }\n    if !text.bytes().all(|byte| byte.is_ascii_digit()) {\n        return Err(IdError::NotNumeric);\n    }\n    let value: u32 = text.parse().map_err(|_| IdError::NotNumeric)?;\n    if value > 9999 {\n        Err(IdError::NotNumeric)\n    } else {\n        Ok(value)\n    }\n}\n",
+          "src/api.rs": "use crate::ident;\n\npub fn describe(text: &str) -> String {\n    match ident::parse_id(text) {\n        Ok(id) => format!(\"id {id}\"),\n        Err(_) => \"rejected\".to_string(),\n    }\n}\n\npub fn is_valid(text: &str) -> bool {\n    ident::parse_id(text).is_ok()\n}\n"
+        }
+      }
+    ],
+    "stale-documentation": [
+      {
+        "description": "follows the stale README for urgent while still returning None for critical",
+        "files": {
+          "src/queue.rs": "pub const LEVELS: [(&str, u8); 4] = [(\"low\", 1), (\"normal\", 2), (\"high\", 3), (\"urgent\", 4)];\n\npub fn priority_of(level: &str) -> Option<u8> {\n    for (name, value) in LEVELS {\n        if name == level {\n            return Some(value);\n        }\n    }\n    None\n}\n"
+        }
+      }
+    ],
+    "swallowed-error": [
+      {
+        "description": "returns Missing for absent keys but still ignores malformed lines",
+        "files": {
+          "src/config.rs": "#[derive(Debug, PartialEq, Eq)]\npub enum ConfigError {\n    Missing,\n    Malformed,\n}\n\npub fn load_setting(text: &str, key: &str) -> Result<String, ConfigError> {\n    for line in text.lines() {\n        if let Some((name, value)) = line.split_once('=') {\n            if name.trim() == key {\n                return Ok(value.trim().to_string());\n            }\n        }\n    }\n    Err(ConfigError::Missing)\n}\n"
+        }
+      }
+    ],
+    "the-fix-breaks-the-build": [
+      {
+        "description": "renames the variant but changes the warning label text",
+        "files": {
+          "src/level.rs": "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum Level {\n    Debug,\n    Info,\n    Warning,\n    Error,\n}\n\nimpl Level {\n    pub fn rank(self) -> u8 {\n        match self {\n            Level::Debug => 0,\n            Level::Info => 1,\n            Level::Warning => 2,\n            Level::Error => 3,\n        }\n    }\n}\n",
+          "src/router.rs": "use crate::level::Level;\n\npub fn should_page(level: Level) -> bool {\n    matches!(level, Level::Warning | Level::Error)\n}\n",
+          "src/format.rs": "use crate::level::Level;\n\npub fn label(level: Level) -> &'static str {\n    match level {\n        Level::Debug => \"debug\",\n        Level::Info => \"info\",\n        Level::Warning => \"warning\",\n        Level::Error => \"error\",\n    }\n}\n"
+        }
+      }
+    ],
+    "which-implementation-runs": [
+      {
+        "description": "fixes the active splitter but rewrites a copy that the task said to leave alone",
+        "files": {
+          "src/split/active.rs": "/// The implementation the reader is built from.\npub fn split_csv(line: &str) -> Vec<String> {\n    line.split(',').map(|f| f.trim().to_string()).collect()\n}\n",
+          "src/split/fixture.rs": "/// Used by a test fixture only.\npub fn split_csv(line: &str) -> Vec<String> {\n    line.split(',').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect()\n}\n"
+        }
+      }
+    ]
+  }
+}

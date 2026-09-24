@@ -1,0 +1,51 @@
+{
+ "name": "a2-navigation",
+ "tasks": [
+  {
+   "id": "a2-pyparsing-test-class",
+   "kind": "repository_question",
+   "statement": "Do not change any file. In pyparsing's tests/test_unit.py, which class defines the test method testParseResultsArithmeticContract, and what exact `python3 -m unittest` command runs only that one test? Call complete with a rationale that names the class and gives the command.",
+   "allowed_files": [],
+   "files": {},
+   "repository": {
+    "url": "https://github.com/pyparsing/pyparsing.git",
+    "commit": "d3388aaf5c60d1069b7294a743ccd0e7c87a1d1d",
+    "fix_commit": "b0e277721f36ccc701ac0e4d3693f0ec00baf4c1",
+    "fix_committed_at": "2026-08-01T15:56:56-05:00",
+    "tree_hash": "346d1cfe27fed49070426d4020f197e27533903b",
+    "setup": []
+   },
+   "visible_verifier": {
+    "executable": "python3",
+    "args": [
+     "-m",
+     "unittest",
+     "tests.test_unit",
+     "tests.test_simple_unit",
+     "-q"
+    ]
+   },
+   "hidden_verifier": {
+    "executable": "python3",
+    "args": [
+     "-m",
+     "unittest",
+     "tests.test_unit",
+     "tests.test_simple_unit",
+     "-q"
+    ]
+   },
+   "hidden_files": {},
+   "expected_in_rationale": [
+    "Test02_WithoutPackrat",
+    "tests.test_unit.Test02_WithoutPackrat.testParseResultsArithmeticContract"
+   ],
+   "forbidden_in_rationale": [
+    "ParseResultsTest",
+    "ParseResultsTestCase"
+   ],
+   "time_budget_secs": 900,
+   "provenance": "authored 2026-09-19 for poorAI suite A2 on pyparsing d3388aa (the workspace of pyparsing-iadd-non-results); modelled on the Part E budget variant of 2026-09-18, where a run spent forty actions reading this 11,000-line file backwards to learn this class, and first guessed `ParseResultsTest`. Answer checked on a checkout: the method is at line 3764, the class at 234, the next class at 11,445."
+  }
+ ]
+}

@@ -1,0 +1,22 @@
+[package]
+name = "pwr-mlx"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+pwr-compat = { path = "../pwr-compat" }
+pwr-domain = { path = "../pwr-domain" }
+pwr-provider = { path = "../pwr-provider" }
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

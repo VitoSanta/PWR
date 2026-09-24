@@ -1,0 +1,24 @@
+[package]
+name = "pwr-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+pwr-domain = { path = "../pwr-domain" }
+pwr-compat = { path = "../pwr-compat" }
+pwr-llama = { path = "../pwr-llama" }
+pwr-mlx = { path = "../pwr-mlx" }
+pwr-provider = { path = "../pwr-provider" }
+serde.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true
+tokio = { workspace = true, features = ["fs", "process", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,350 @@
+{
+  "note": "Sampling values carry their origin. official_model_card means the vendor published it; ollama_model means the packaged Modelfile declared it; backend_default means nothing set it and the backend decides. A run reporting a value without its origin cannot be compared with another run. Context defaults carry context_source: hardware_calibration means the value was set from a ladder measured on this machine, with every tier verified fully GPU resident. Product requirement: this agent targets large repositories, so a deployment that cannot serve 262144 tokens does not qualify for the use case regardless of how it scores. Deployments that can are allocated the full ceiling by default; throughput cost is accepted, because a faster model that cannot see the repository is not useful here.",
+  "profiles": [
+    {
+      "context": {
+        "default": 262144,
+        "maximum": 262144,
+        "minimum": 262144
+      },
+      "context_source": "poor_ai_override",
+      "model_selector": "qwen3.8:27b-mlx",
+      "provenance": "Vendor thinking-mode recommendation, which the packaged Modelfile already matches exactly. Not changed by PWR. Measured: the only deployment whose throughput falls monotonically with context \u2014 27.3 tok/s at 32K, 20.9 at 65K, 19.4 at 131K, 18.3 at 262K, fully GPU resident throughout. The 32K figure has a standard deviation of 47.3 against 2.7 at 262K and is the least reliable point in the series, so the real cost is likely smaller than 33 percent. 131072 is kept as the default pending a task that shows how much context is actually needed; it is the one context choice here that has a measured price. Default raised to the ceiling by product requirement: large repositories are the target, so context takes precedence over throughput.",
+      "reasoning": {
+        "enabled": true,
+        "kind": "think"
+      },
+      "sampling": {
+        "min_p": {
+          "source": "official_model_card",
+          "value": 0.0
+        },
+        "presence_penalty": {
+          "source": "official_model_card",
+          "value": 0.0
+        },
+        "repeat_penalty": {
+          "source": "official_model_card",
+          "value": 1.0
+        },
+        "temperature": {
+          "source": "official_model_card",
+          "value": 1.0
+        },
+        "top_k": {
+          "source": "official_model_card",
+          "value": 20
+        },
+        "top_p": {
+          "source": "official_model_card",
+          "value": 0.95
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "context": {
+        "default": 262144,
+        "maximum": 262144,
+        "minimum": 262144
+      },
+      "context_source": "poor_ai_override",
+      "model_selector": "ornith-1.5:35b",
+      "provenance": "The packaged Modelfile declares nothing, so this deployment was running on backend defaults (0.8/40/0.9) while its own card recommends 0.6/0.95/20 for use. Every measurement recorded before this profile existed was taken under the backend defaults, not the recommendation. Measured on this machine: 70.6 tok/s at 32K and 71.5 at 262K, first token 63 ms at both, fully GPU resident throughout. The largest context costs nothing here, so there is no reason to allocate less. Default raised to the ceiling by product requirement: large repositories are the target, so context takes precedence over throughput.",
+      "reasoning": null,
+      "sampling": {
+        "temperature": {
+          "source": "official_model_card",
+          "value": 0.6
+        },
+        "top_k": {
+          "source": "official_model_card",
+          "value": 20
+        },
+        "top_p": {
+          "source": "official_model_card",
+          "value": 0.95
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "context": {
+        "default": 131072,
+        "maximum": 131072,
+        "minimum": 65536
+      },
+      "model_selector": "granite4.2:30b-q6_K",
+      "provenance": "Vendor states temperature 1.0 and top_p 0.95 across all tasks including tool calling. top_k deliberately unset: the vendor recommends none, and inventing one is a configuration nobody chose.",
+      "reasoning": null,
+      "sampling": {
+        "temperature": {
+          "source": "official_model_card",
+          "value": 1.0
+        },
+        "top_p": {
+          "source": "official_model_card",
+          "value": 0.95
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "context": {
+        "default": 262144,
+        "maximum": 262144,
+        "minimum": 262144
+      },
+      "context_source": "poor_ai_override",
+      "model_selector": "nemotron-3.5-lightning:30b-mlx",
+      "provenance": "Vendor recommendation. Context maximum is the MLX tag's 256K, not the 1M the upstream model declares -- the tag is what is served. Measured: 80.9 tok/s at 32K falling to 71.3 at 65K and then flat at 72.3 and 72.4 through 262K. The 10 percent is paid leaving 32K and not again, so the larger context is free once it is paid. 131072 rather than 262144 because nothing has yet asked for more. Default raised to the ceiling by product requirement: large repositories are the target, so context takes precedence over throughput.",
+      "reasoning": null,
+      "sampling": {
+        "temperature": {
+          "source": "official_model_card",
+          "value": 1.0
+        },
+        "top_p": {
+          "source": "official_model_card",
+          "value": 0.95
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "context": {
+        "default": 131072,
+        "maximum": 131072,
+        "minimum": 65536
+      },
+      "context_source": "hardware_calibration",
+      "model_selector": "gpt-oss:20b",
+      "provenance": "The packaged Modelfile sets temperature 1.0; the upstream config imposes no sampling recommendation, so nothing further is invented. Depth is controlled by reasoning_effort rather than by sampling. Measured: 75.6 tok/s at 32K and 75.8 at 131K, first token 97-98 ms throughout, fully GPU resident. The 66.7 recorded at 65K has a standard deviation of 10.1 and is noise rather than a trend.",
+      "reasoning": {
+        "kind": "backend_option",
+        "name": "reasoning_effort",
+        "value": "high"
+      },
+      "sampling": {
+        "temperature": {
+          "source": "ollama_model",
+          "value": 1.0
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "context": {
+        "default": 262144,
+        "maximum": 262144,
+        "minimum": 262144
+      },
+      "context_source": "poor_ai_override",
+      "model_selector": "gemma4:31b-mlx",
+      "provenance": "Vendor recommendation for all use cases, which the packaged Modelfile already matches. Default raised to the ceiling by product requirement: large repositories are the target, so context takes precedence over throughput.",
+      "reasoning": null,
+      "sampling": {
+        "temperature": {
+          "source": "official_model_card",
+          "value": 1.0
+        },
+        "top_k": {
+          "source": "official_model_card",
+          "value": 64
+        },
+        "top_p": {
+          "source": "official_model_card",
+          "value": 0.95
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "context": {
+        "default": 131072,
+        "maximum": 131072,
+        "minimum": 65536
+      },
+      "model_selector": "muse-glimmer:30b-mlx",
+      "provenance": "Vendor recommendation, matching the packaged Modelfile. Depth is a system-prompt directive rather than an option, so it cannot be set through backend options.",
+      "reasoning": {
+        "kind": "prompt_directive",
+        "text": "Reasoning strength: high"
+      },
+      "sampling": {
+        "temperature": {
+          "source": "official_model_card",
+          "value": 1.0
+        },
+        "top_k": {
+          "source": "official_model_card",
+          "value": 64
+        },
+        "top_p": {
+          "source": "official_model_card",
+          "value": 0.95
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "qwen/qwen3.6-35b-a3b@4bit",
+      "context": {
+        "minimum": 262144,
+        "default": 262144,
+        "maximum": 262144
+      },
+      "context_source": "poor_ai_override",
+      "sampling": {
+        "temperature": {"value": 0.6, "source": "backend_model_config"},
+        "top_k": {"value": 20, "source": "backend_model_config"},
+        "top_p": {"value": 0.95, "source": "backend_model_config"}
+      },
+      "reasoning": {"kind": "prompt_directive", "text": "/no_think"},
+      "provenance": "Added 2026-09-18 from backlog A.17. Sampling is LM Studio's model file for this model (the values Bionic applies); a controlled test showed it does not change the runaway, and it is set so a run no longer reports backend_default. Reasoning: through LM Studio's OpenAI-compatible endpoint the template's enable_thinking and the native reasoning field are both ignored, and Qwen's /no_think soft switch in the system prompt is the only lever that reached the model -- it shortened a runaway 12,000-token reasoning to about 6,000 with a correct answer, without switching it off. An interim measure until the embedded engine renders the template itself (roadmap step 4). Context: the trained 262,144, which the computed window reaches on this host; the full-ceiling minimum follows this file's product requirement."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "lmstudio-community/Qwen3.8-27B-MLX-4bit",
+      "context": {
+        "minimum": 262144,
+        "default": 262144,
+        "maximum": 262144
+      },
+      "context_source": "poor_ai_override",
+      "sampling": {
+        "temperature": {
+          "value": 1.0,
+          "source": "model_generation_config"
+        },
+        "top_k": {
+          "value": 20,
+          "source": "model_generation_config"
+        },
+        "top_p": {
+          "value": 0.95,
+          "source": "model_generation_config"
+        }
+      },
+      "reasoning": {
+        "kind": "think",
+        "enabled": false
+      },
+      "provenance": "Added 2026-09-19 for roadmap step 7 (catalogue), on PWR's MLX engine. Same template family as Qwen3.6 (qwen3_5; XML tool calls, enable_thinking), so the qwen adapter reads it and reasoning is off for the same reason (backlog A.17). Sampling is the model's own generation_config.json, recorded with that source; it is the thinking-mode setting, not re-tuned for reasoning off. Context: declared at the trained 262,144, as this file declares what a model can serve; the window a run gets is computed per host (redesign Part D), and on a 64 GiB Mac it reaches the trained 262,144 once the engine reports its own prefill transient (`pwr models inspect`; 107,520 under the older 4x-the-cache rule)."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+      "context": {
+        "minimum": 262144,
+        "default": 262144,
+        "maximum": 262144
+      },
+      "context_source": "poor_ai_override",
+      "sampling": {
+        "temperature": {"value": 0.6, "source": "backend_model_config"},
+        "top_k": {"value": 20, "source": "backend_model_config"},
+        "top_p": {"value": 0.95, "source": "backend_model_config"}
+      },
+      "reasoning": {"kind": "think", "enabled": false},
+      "provenance": "Added 2026-09-18 for PWR's own MLX engine (roadmap step 4), which renders the chat template itself, so the template's enable_thinking is honoured rather than ignored as it is through LM Studio. Reasoning off because backlog A.17 found it both faster and right on the task whose reasoning ran away: with it off, the right mechanism twice out of twice in under 75 s; with it on, wrong twice at three to ten times the length; with a 2,000-token budget, a loop. Sampling is LM Studio's model file for this model, recorded with its source. Context: the trained 262,144, which the computed window reaches on this host; the full-ceiling minimum follows this file's product requirement."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "lmstudio-community/Seed-OSS-36B-Instruct-MLX-4bit",
+      "context": {
+        "minimum": 262144,
+        "default": 524288,
+        "maximum": 524288
+      },
+      "context_source": "poor_ai_override",
+      "sampling": {
+        "temperature": {
+          "value": 1.1,
+          "source": "model_generation_config"
+        },
+        "top_p": {
+          "value": 0.95,
+          "source": "model_generation_config"
+        }
+      },
+      "reasoning": {
+        "kind": "think",
+        "enabled": false
+      },
+      "provenance": "Added 2026-09-19 for roadmap step 7 (catalogue), on PWR's MLX engine. Seed-OSS writes Qwen's XML calls under <seed:tool_call> and reasons in <seed:think>; the seed adapter reads both. Reasoning off through its template's thinking_budget=0, which pre-fills a closed think block. Sampling is the model's own generation_config.json. Context: declared at the trained 524,288; the window a run gets is computed per host -- 59,392 on a 64 GiB M2 Max, bound by memory (256 KiB of cache per token; measured 52.0 GB at 60,112 tokens). Slow on that chip: 62 tokens/s of prefill, 8 of generation."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "mlx-community/gpt-oss-20b-MXFP4-Q8",
+      "context": {
+        "minimum": 131072,
+        "default": 131072,
+        "maximum": 131072
+      },
+      "context_source": "poor_ai_override",
+      "sampling": {
+        "temperature": {
+          "value": 1.0,
+          "source": "official_model_card"
+        },
+        "top_p": {
+          "value": 1.0,
+          "source": "official_model_card"
+        }
+      },
+      "reasoning": {
+        "kind": "think",
+        "enabled": false
+      },
+      "provenance": "Added 2026-09-19 for roadmap step 7 (catalogue), on PWR's MLX engine. gpt-oss speaks the harmony format (analysis/commentary/final channels, calls as `commentary to=functions.NAME` with a JSON body); the harmony adapter reads it. It cannot switch reasoning off: 'off' here sends reasoning_effort=low. Sampling is OpenAI's published recommendation for gpt-oss (temperature 1.0, top_p 1.0); its generation_config sets none. Context: its trained 131,072, which the computed window reaches on a 64 GiB host; below the 262,144 requirement, so it does not qualify for the product's large-repository tier."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "mlx-community/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-4bit",
+      "context": {
+        "minimum": 262144,
+        "default": 262144,
+        "maximum": 262144
+      },
+      "context_source": "poor_ai_override",
+      "sampling": {
+        "temperature": {
+          "value": 1.0,
+          "source": "model_generation_config"
+        },
+        "top_p": {
+          "value": 0.95,
+          "source": "model_generation_config"
+        }
+      },
+      "reasoning": {
+        "kind": "think",
+        "enabled": false
+      },
+      "provenance": "Added 2026-09-19 for the catalogue (roadmap step 7), chosen with the maintainer on paper before download: a hybrid Mamba-2 / attention MoE, ~31B total and ~3B active, 6 attention layers of 52 so 6 KiB of cache a token, fused attention (head 128), 17.8 GB at 4-bit; window on a 64 GiB host its trained 262,144. Writes Qwen's XML calls and think spans, so the Qwen adapter reads it; reasoning off through enable_thinking. Sampling is its generation_config.json."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "lmstudio-community/GLM-4.7-Flash-MLX-4bit",
+      "context": {
+        "minimum": 202752,
+        "default": 202752,
+        "maximum": 202752
+      },
+      "context_source": "poor_ai_override",
+      "sampling": {
+        "temperature": {
+          "value": 1.0,
+          "source": "model_generation_config"
+        }
+      },
+      "reasoning": {
+        "kind": "think",
+        "enabled": false
+      },
+      "provenance": "Added 2026-09-19 for the catalogue (roadmap step 7), chosen with the maintainer on paper before download: a 30B MoE with ~3B active and multi-head latent attention, 53 KiB of cached latent a token, 16.9 GB at 4-bit; window on a 64 GiB host its trained 202,752 -- below the 262,144 large-repository requirement, so it does not qualify for that tier. Its own call format (<arg_key>/<arg_value>) is read by the glm adapter; reasoning off through enable_thinking. Sampling is its generation_config.json (temperature only)."
+    }
+  ]
+}

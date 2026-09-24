@@ -1,0 +1,96 @@
+target/
+node_modules/
+dist/
+.angular/cache/
+
+# Runtime state: the event log, the workspace index, the lease. Machine-local,
+# rebuilt on demand, and never evidence of anything.
+/.poorai/*
+
+# Research evidence stays off the public repository for now (decided
+# 2026-09-23 by the maintainer, docs/roadmap.md): the model inspections and
+# calibrations under .poorai/ are one machine's observations, and which of them
+# are worth publishing -- anonymised, as fixtures -- is still to be decided.
+# They stay on the maintainer's machine, where the roadmap's numbers can still
+# be checked against them.
+
+# Evaluation reports stay untracked until the corpus is re-run.
+#
+# Every campaign recorded before 2026-09-03 is void: the tool-failure rate was
+# never measured, the context reaching the backend was not the one calibrated,
+# and a workspace with no checks scored as resolved. Committing them would put
+# artifacts in the repository that look like evidence and are not. The
+# exception is lifted, and this comment deleted, when the re-run produces
+# reports worth citing.
+/.poorai/evaluations/
+
+# The campaign directories from those same runs, for the same reason.
+#
+# Their tool-failure rate was never measured, the context reaching the backend
+# was not the one calibrated, and a workspace with no checks scored as
+# resolved. thresholds.md declares them void. Committing them would put
+# artifacts in the repository that look like evidence and are not; they stay on
+# the machine that made them until the corpus is re-run.
+/.poorai/evaluations-controls/
+/.poorai/evaluations-generation/
+/.poorai/evaluations-m6/
+/.poorai/evaluations-m6-final/
+/.poorai/evaluations-m6-post/
+/.poorai/evaluations-maxctx/
+/.poorai/evaluations-realistic/
+
+# macOS Finder metadata.
+.DS_Store
+
+# Byte-compiled Python from the campaign runners.
+__pycache__/
+
+# Manual test campaigns: workspaces, audits, screenshots and a copy of the
+# binary that produced each one. It is an archive of measurements rather than
+# part of the source, and the binaries alone run to hundreds of megabytes.
+# Reports worth keeping are quoted into docs/ rather than tracked from here.
+/pwr-tests/
+
+# Raw artifacts of the R2 campaigns: per-trial outcomes, event traces and the
+# runner's own output. They run to tens of megabytes per campaign and stay on
+# the machine that made them. What each campaign established is tracked beside
+# them -- protocol, conditions, runner, progress log, status and failure-class
+# summaries, analysis -- and those name the raw files they were built from.
+/experiments/r2-*/reports/
+/experiments/r2-*/run.out
+/experiments/r2-*/pid.txt
+/experiments/r2-*/status.json
+/experiments/r2-*/unfinished-trials.json
+/experiments/r2-*/nonprobe-inspects/
+/experiments/r3-h2-preparation/builder/repos/
+/experiments/r2-harness-revision-*/reports/
+/experiments/r2-harness-revision-*/run.out
+
+# Engine spikes: the isolated Python environment and raw measurement output.
+/experiments/engine-spike-*/.venv/
+/experiments/engine-spike-*/raw/
+/experiments/r3-*/reports/
+/experiments/r3-*/pending/
+
+# Experiments, test workspaces and campaign notes stay on the maintainer's
+# machine: the public repository carries the product only (decided
+# 2026-09-22, docs/roadmap.md). Local tooling state likewise.
+/experiments/
+/.claude/
+/.pwr-scratch/
+/.poorai-scratch/
+/.venv-mlx/
+
+# Local configuration and credentials.
+.env
+.env.*
+!.env.example
+
+# Model weights and signing material: never tracked, whatever their folder.
+*.gguf
+*.ggml
+*.safetensors
+*.pem
+*.key
+*.p12
+*.pfx

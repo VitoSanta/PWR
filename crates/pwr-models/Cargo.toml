@@ -1,0 +1,31 @@
+[package]
+name = "pwr-models"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+pwr-compat = { path = "../pwr-compat" }
+pwr-domain = { path = "../pwr-domain" }
+pwr-orchestrator = { path = "../pwr-orchestrator" }
+pwr-provider = { path = "../pwr-provider" }
+pwr-runtime = { path = "../pwr-runtime" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
+
+[lints]
+workspace = true

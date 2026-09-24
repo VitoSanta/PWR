@@ -1,0 +1,74 @@
+{
+ "schema_version": 1,
+ "id": "a3-editing",
+ "area": "A3",
+ "description": "Area A3, editing: six small self-contained tasks, each modelled on an edit that went wrong in a recorded run, each built with a reference fix and a wrong fix the hidden verifier must catch (suites/build_a3_corpus.py). A case holds when the task is resolved with nothing changed out of scope and nothing claimed falsely; the edit measures (applied first time, find text missed, shrink refusals, stale hashes, restores) are read from the traces. Run with suites/run.sh a3.",
+ "cases": [
+  {
+   "type": "task",
+   "id": "a3-regex-backslash",
+   "corpus": "suites/a3-editing.corpus.json",
+   "task": "a3-regex-backslash",
+   "origin": "tomli-optional-seconds, Part E budget variant 2026-09-18 (a regex written with `\\\\.` for `\\.`)",
+   "expect": {
+    "resolved": true
+   },
+   "why": "The edit touches a backslash inside a raw-string regex. The fix must reach the file with one backslash per backslash; a doubled one still passes the visible test and fails the hidden one ('07:32:05x5' accepted)."
+  },
+  {
+   "type": "task",
+   "id": "a3-one-method-long-file",
+   "corpus": "suites/a3-editing.corpus.json",
+   "task": "a3-one-method-long-file",
+   "origin": "pyparsing-iadd-non-results, Part E with both fixes 2026-09-18 (one method sent as the whole of a 940-line file)",
+   "expect": {
+    "resolved": true
+   },
+   "why": "One method in a 740-line file. The edit must land on that method and leave the other 180 alone; sending the method as the whole file loses them."
+  },
+  {
+   "type": "task",
+   "id": "a3-quotes-and-braces",
+   "corpus": "suites/a3-editing.corpus.json",
+   "task": "a3-quotes-and-braces",
+   "origin": "the escaping failures of 2026-09-18, where quotes and braces reached the model escaped",
+   "expect": {
+    "resolved": true
+   },
+   "why": "A line of quotes, braces and an f-string. The new text must keep its f-prefix and quoting exactly."
+  },
+  {
+   "type": "task",
+   "id": "a3-tab-indented",
+   "corpus": "suites/a3-editing.corpus.json",
+   "task": "a3-tab-indented",
+   "origin": "whitespace failures of replace_text, where the find text's indentation did not match the file",
+   "expect": {
+    "resolved": true
+   },
+   "why": "A tab-indented file. The find text must match tabs, and the replacement must keep them."
+  },
+  {
+   "type": "task",
+   "id": "a3-two-files-and-a-lookalike",
+   "corpus": "suites/a3-editing.corpus.json",
+   "task": "a3-two-files-and-a-lookalike",
+   "origin": "out-of-scope edits checked in A.1 (Bionic's idna run rewrote files outside the allowed set)",
+   "expect": {
+    "resolved": true
+   },
+   "why": "A change across two files, beside a look-alike file that is out of scope. Both files change; the look-alike does not."
+  },
+  {
+   "type": "task",
+   "id": "a3-crlf-line-endings",
+   "corpus": "suites/a3-editing.corpus.json",
+   "task": "a3-crlf-line-endings",
+   "origin": "the product's Windows target: an edit must keep a file's line endings",
+   "expect": {
+    "resolved": true
+   },
+   "why": "A file with CRLF line endings. The edit must match them and keep them."
+  }
+ ]
+}

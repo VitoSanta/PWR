@@ -1,0 +1,29 @@
+[package]
+name = "pwr-desktop"
+version = "0.1.0"
+description = "PWR's desktop app: a client of `pwr serve --stdio`"
+authors = ["Vito Santanelli"]
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.77.2"
+
+# Its own workspace, like the Slint client: the app's dependency graph must not
+# change the core's.
+[workspace]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "pwr_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.6", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"

@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "tasks": {
+    "pyparsing-iadd-non-results": [
+      {
+        "description": "guards list operands only, so += 1 still leaks AttributeError",
+        "patch": [
+          "diff --git a/pyparsing/results.py b/pyparsing/results.py",
+          "--- a/pyparsing/results.py",
+          "+++ b/pyparsing/results.py",
+          "@@ -519,6 +519,8 @@ class ParseResults:",
+          "         return ret",
+          " ",
+          "     def __iadd__(self, other: ParseResults) -> ParseResults:",
+          "+        if isinstance(other, list):",
+          "+            return NotImplemented",
+          "         if not other:",
+          "             return self",
+          " "
+        ]
+      }
+    ],
+    "pyparsing-quotedstring-whitespace-delimiter": [
+      {
+        "description": "stops stripping delimiters but only rejects an empty quote_char, so an all-whitespace one is accepted",
+        "patch": [
+          "diff --git a/pyparsing/core.py b/pyparsing/core.py",
+          "--- a/pyparsing/core.py",
+          "+++ b/pyparsing/core.py",
+          "@@ -3715,8 +3715,6 @@ class QuotedString(Token):",
+          "         )",
+          "         quote_char = quoteChar or quote_char",
+          " ",
+          "-        # remove white space from quote chars",
+          "-        quote_char = quote_char.strip()",
+          "         if not quote_char:",
+          "             raise ValueError(\"quote_char cannot be the empty string\")",
+          " "
+        ]
+      }
+    ],
+    "pyparsing-dict-empty-as-dict": [
+      {
+        "description": "returns a Python dict as the token for an empty named Dict, so as_dict is right and the parse result changes",
+        "patch": [
+          "diff --git a/pyparsing/core.py b/pyparsing/core.py",
+          "--- a/pyparsing/core.py",
+          "+++ b/pyparsing/core.py",
+          "@@ -6651,6 +6651,8 @@ class Dict(TokenConverter):",
+          "         if self._asPythonDict:",
+          "             return [tokenlist.as_dict()] if self.resultsName else tokenlist.as_dict()",
+          " ",
+          "+        if not tokenlist and self.resultsName:",
+          "+            return [{}]",
+          "         return [tokenlist] if self.resultsName else tokenlist",
+          " ",
+          " "
+        ]
+      }
+    ],
+    "filenamify-reserved-name-extension": [
+      {
+        "description": "takes the base before the last dot, so a name with two extensions is missed",
+        "patch": [
+          "diff --git a/filenamify.js b/filenamify.js",
+          "--- a/filenamify.js",
+          "+++ b/filenamify.js",
+          "@@ -100,8 +100,10 @@ export default function filenamify(string, options = {}) {",
+          " ",
+          " \t// Check for Windows reserved names after truncation and stripping",
+          " \t// Windows compatibility takes precedence over maxLength, so we add suffix even if it exceeds limit",
+          "-\tif (windowsReservedNameRegex().test(string)) {",
+          "-\t\tstring += replacement;",
+          "+\tconst extensionIndex = string.lastIndexOf('.');",
+          "+\tconst base = extensionIndex === -1 ? string : string.slice(0, extensionIndex);",
+          "+\tif (windowsReservedNameRegex().test(base)) {",
+          "+\t\tstring = extensionIndex === -1 ? string + replacement : base + replacement + string.slice(extensionIndex);",
+          " \t}",
+          " ",
+          " \treturn string;",
+          "diff --git a/test.js b/test.js",
+          "--- a/test.js",
+          "+++ b/test.js",
+          "@@ -222,9 +222,9 @@ test('Windows reserved names edge cases', t => {",
+          " \tt.is(filenamify('con'), 'con!');",
+          " \tt.is(filenamify('Com'), 'Com'); // Mixed case not reserved",
+          " ",
+          "-\t// With extensions they're fine",
+          "-\tt.is(filenamify('CON.txt'), 'CON.txt');",
+          "-\tt.is(filenamify('con.txt'), 'con.txt');",
+          "+\t// Reserved names with extensions get suffix before the extension",
+          "+\tt.is(filenamify('CON.txt'), 'CON!.txt');",
+          "+\tt.is(filenamify('con.txt'), 'con!.txt');",
+          " ",
+          " \t// With numbers",
+          " \tt.is(filenamify('COM1'), 'COM1!');"
+        ]
+      }
+    ],
+    "filenamify-replacement-spaces-periods": [
+      {
+        "description": "strips the trailing spaces and periods a replacement leaves but has no fallback when nothing remains",
+        "patch": [
+          "diff --git a/filenamify.js b/filenamify.js",
+          "--- a/filenamify.js",
+          "+++ b/filenamify.js",
+          "@@ -49,6 +49,7 @@ export default function filenamify(string, options = {}) {",
+          " \tstring = string.replace(reRelativePath, replacement);",
+          " \tstring = string.replace(filenameReservedRegex(), replacement);",
+          " \tstring = string.replaceAll(reControlChars, char => isZeroWidthJoiner(char) ? char : replacement);",
+          "+\tstring = string.replace(reTrailingDotsAndSpaces, '');",
+          " ",
+          " \t// If the string is now empty, use replacement or default",
+          " \tif (string.length === 0) {"
+        ]
+      }
+    ],
+    "filenamify-replacement-tokens-literal": [
+      {
+        "description": "makes the reserved-character replacement literal but not the relative-path one",
+        "patch": [
+          "diff --git a/filenamify.js b/filenamify.js",
+          "--- a/filenamify.js",
+          "+++ b/filenamify.js",
+          "@@ -89,7 +89,7 @@ export default function filenamify(string, options = {}) {",
+          " \tstring = string.replace(reTrailingDotsAndSpaces, '');",
+          " ",
+          " \tstring = string.replace(reRelativePath, replacement);",
+          "-\tstring = string.replace(filenameReservedRegex(), replacement);",
+          "+\tstring = string.replace(filenameReservedRegex(), () => replacement);",
+          " \tstring = string.replaceAll(reControlChars, char => isZeroWidthJoiner(char) ? char : replacement);",
+          " ",
+          " \t// Trim trailing spaces and periods again (in case replacement created new ones)"
+        ]
+      }
+    ],
+    "tomli-multiline-inline-table": [
+      {
+        "description": "accepts newlines between entries but still rejects a trailing comma",
+        "patch": [
+          "diff --git a/src/tomli/_parser.py b/src/tomli/_parser.py",
+          "--- a/src/tomli/_parser.py",
+          "+++ b/src/tomli/_parser.py",
+          "@@ -532,7 +532,7 @@ def parse_inline_table(",
+          "     nested_dict = NestedDict()",
+          "     flags = Flags()",
+          " ",
+          "-    pos = skip_chars(src, pos, TOML_WS)",
+          "+    pos = skip_comments_and_array_ws(src, pos)",
+          "     if src.startswith(\"}\", pos):",
+          "         return pos + 1, nested_dict.dict",
+          "     while True:",
+          "@@ -547,7 +547,7 @@ def parse_inline_table(",
+          "         if key_stem in nest:",
+          "             raise TOMLDecodeError(f\"Duplicate inline table key {key_stem!r}\", src, pos)",
+          "         nest[key_stem] = value",
+          "-        pos = skip_chars(src, pos, TOML_WS)",
+          "+        pos = skip_comments_and_array_ws(src, pos)",
+          "         c = src[pos : pos + 1]",
+          "         if c == \"}\":",
+          "             return pos + 1, nested_dict.dict",
+          "@@ -556,7 +556,7 @@ def parse_inline_table(",
+          "         if isinstance(value, (dict, list)):",
+          "             flags.set(key, Flags.FROZEN, recursive=True)",
+          "         pos += 1",
+          "-        pos = skip_chars(src, pos, TOML_WS)",
+          "+        pos = skip_comments_and_array_ws(src, pos)",
+          " ",
+          " ",
+          " def parse_basic_str_escape("
+        ]
+      }
+    ],
+    "tomli-hex-escape": [
+      {
+        "description": "reads \\x like \\u, taking four hexadecimal digits",
+        "patch": [
+          "diff --git a/src/tomli/_parser.py b/src/tomli/_parser.py",
+          "--- a/src/tomli/_parser.py",
+          "+++ b/src/tomli/_parser.py",
+          "@@ -580,7 +580,7 @@ def parse_basic_str_escape(",
+          "             pos += 1",
+          "         pos = skip_chars(src, pos, TOML_WS_AND_NEWLINE)",
+          "         return pos, \"\"",
+          "-    if escape_id == \"\\\\u\":",
+          "+    if escape_id in (\"\\\\u\", \"\\\\x\"):",
+          "         return parse_hex_char(src, pos, 4)",
+          "     if escape_id == \"\\\\U\":",
+          "         return parse_hex_char(src, pos, 8)"
+        ]
+      }
+    ],
+    "tomli-optional-seconds": [
+      {
+        "description": "makes seconds optional for local times but not inside date-times",
+        "patch": [
+          "diff --git a/src/tomli/_re.py b/src/tomli/_re.py",
+          "--- a/src/tomli/_re.py",
+          "+++ b/src/tomli/_re.py",
+          "@@ -40,7 +40,9 @@ RE_NUMBER: Final = re.compile(",
+          " \"\"\",",
+          "     flags=re.VERBOSE,",
+          " )",
+          "-RE_LOCALTIME: Final = re.compile(_TIME_RE_STR)",
+          "+RE_LOCALTIME: Final = re.compile(",
+          "+    r\"([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\\.([0-9]{1,6})[0-9]*)?)?\"",
+          "+)",
+          " RE_DATETIME: Final = re.compile(",
+          "     rf\"\"\"",
+          " ([0-9]{{4}})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])  # date, e.g. 1988-10-27",
+          "@@ -106,7 +108,7 @@ def cached_tz(hour_str: str, minute_str: str, sign_str: str) -> timezone:",
+          " def match_to_localtime(match: re.Match[str]) -> time:",
+          "     hour_str, minute_str, sec_str, micros_str = match.groups()",
+          "     micros = int(micros_str.ljust(6, \"0\")) if micros_str else 0",
+          "-    return time(int(hour_str), int(minute_str), int(sec_str), micros)",
+          "+    return time(int(hour_str), int(minute_str), int(sec_str or 0), micros)",
+          " ",
+          " ",
+          " def match_to_number(match: re.Match[str], parse_float: ParseFloat) -> Any:",
+          "diff --git a/tests/test_data.py b/tests/test_data.py",
+          "--- a/tests/test_data.py",
+          "+++ b/tests/test_data.py",
+          "@@ -46,7 +46,6 @@ class TestData(unittest.TestCase):",
+          "                 # compatible with yet.",
+          "                 if valid.stem in {",
+          "                     \"no-seconds\",",
+          "-                    \"common-34\",",
+          "                     \"common-31\",",
+          "                     \"common-29\",",
+          "                 }:"
+        ]
+      }
+    ],
+    "tomli-key-parts-limit": [
+      {
+        "description": "limits the parts but raises ValueError instead of RecursionError",
+        "patch": [
+          "diff --git a/src/tomli/_parser.py b/src/tomli/_parser.py",
+          "--- a/src/tomli/_parser.py",
+          "+++ b/src/tomli/_parser.py",
+          "@@ -471,6 +471,8 @@ def parse_key(src: str, pos: Pos) -> tuple[Pos, Key]:",
+          "             char = None",
+          "         if char != \".\":",
+          "             return pos, key",
+          "+        if len(key) > sys.getrecursionlimit():",
+          "+            raise ValueError(f\"TOML key has more than the allowed {sys.getrecursionlimit()} parts\")",
+          "         pos += 1",
+          "         pos = skip_chars(src, pos, TOML_WS)",
+          "         pos, key_part = parse_key_part(src, pos)"
+        ]
+      }
+    ],
+    "idna-incremental-domain-length": [
+      {
+        "description": "checks the length of each call's output, not of everything emitted so far",
+        "patch": [
+          "diff --git a/idna/codec.py b/idna/codec.py",
+          "--- a/idna/codec.py",
+          "+++ b/idna/codec.py",
+          "@@ -77,6 +77,8 @@ class IncrementalEncoder(codecs.BufferedIncrementalEncoder):",
+          " ",
+          "         result_bytes = b\".\".join(result) + trailing_dot",
+          "         size += len(trailing_dot)",
+          "+        if len(result_bytes) > 254 or (len(result_bytes) == 254 and not result_bytes.endswith(b\".\")):",
+          "+            raise IDNAError(\"Domain too long\")",
+          "         return result_bytes, size",
+          " ",
+          " "
+        ]
+      }
+    ],
+    "idna-error-attributes": [
+      {
+        "description": "adds the three attributes to IDNAError but never populates them",
+        "patch": [
+          "diff --git a/idna/core.py b/idna/core.py",
+          "--- a/idna/core.py",
+          "+++ b/idna/core.py",
+          "@@ -43,6 +43,10 @@ def _joining_type(cp: int) -> str | None:",
+          " class IDNAError(UnicodeError):",
+          "     \"\"\"Base exception for all IDNA-encoding related problems\"\"\"",
+          " ",
+          "+    text = None",
+          "+    codepoint = None",
+          "+    position = None",
+          "+",
+          " ",
+          " class IDNABidiError(IDNAError):",
+          "     \"\"\"Exception when bidirectional requirements are not satisfied\"\"\""
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+[package]
+name = "pwr-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ignore.workspace = true
+pwr-domain = { path = "../pwr-domain" }
+# For the declaration grammar `find_definition` builds its pattern from, which
+# retrieval already ranks with. One definition of what a declaration is.
+pwr-repo = { path = "../pwr-repo" }
+blake3.workspace = true
+flate2.workspace = true
+futures-util.workspace = true
+regex.workspace = true
+url.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pwr-domain = { path = "../pwr-domain" }
+flate2.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

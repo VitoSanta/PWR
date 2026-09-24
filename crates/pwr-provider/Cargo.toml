@@ -1,0 +1,24 @@
+[package]
+name = "pwr-provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
+pwr-domain = { path = "../pwr-domain" }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+# `test-util` for the paused clock: the idle bound is three minutes, and a test
+# that waited it out in real time would be three minutes of nothing.
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

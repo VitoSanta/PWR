@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f013b6408b652e2df4464430c93f3e17c0c77d8fd490378605dc649c99a4ff54 # shrinks to points = [StablePoint { context_tokens: 64126, samples: 3, success_rate: 0.0, median_first_token_ms: 1.0, generation_tokens_per_second: 1.0, variance: 0.0, memory_pressure_observed: false }], context_tokens = 64127
+cc 99aca0858190601e1b3bb4c0427d4adc53410d565c40ba2a9da883039c1d9fc1 # shrinks to count = 19
+cc b2ca413a85221d22326a863510b19690ea7f05cbec5006e11538a6b4d5abefb3 # shrinks to count = 30
