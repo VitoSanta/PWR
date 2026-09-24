@@ -40,6 +40,9 @@ pub struct LlamaConfig {
     pub port: u16,
 }
 
+/// The only address PWR's `llama-server` binds.
+const LOOPBACK: &str = "127.0.0.1";
+
 impl LlamaConfig {
     pub fn from_env() -> Self {
         let home = std::env::var_os("HOME")
@@ -48,11 +51,16 @@ impl LlamaConfig {
         LlamaConfig {
             models_root: std::env::var_os("PWR_LLAMA_MODELS")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(".lmstudio/models")),
+                .unwrap_or_else(|| home.join(".pwr/models")),
             server: std::env::var_os("PWR_LLAMA_SERVER")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("llama-server")),
-            host: std::env::var("PWR_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
+            // Loopback only, not configurable. The server PWR starts is the
+            // model a prompt full of repository excerpts is sent to, and
+            // `PWR_LLAMA_HOST` let it bind any address with nothing refusing
+            // it -- SECURITY.md promised a refusal the code no longer had
+            // after the HTTP backends were removed (2026-09-24).
+            host: LOOPBACK.into(),
             port: std::env::var("PWR_LLAMA_PORT")
                 .ok()
                 .and_then(|port| port.parse().ok())
@@ -1192,10 +1200,7 @@ mod tests {
         assert_eq!(body["messages"][3]["role"], "tool");
         assert_eq!(body["messages"][3]["tool_call_id"], "call_1");
         assert_eq!(body["messages"][1]["role"], "user");
-        assert_eq!(
-            body["messages"][1]["content"],
-            "[PWR] orphan harness note"
-        );
+        assert_eq!(body["messages"][1]["content"], "[PWR] orphan harness note");
         assert!(body["messages"][1]["tool_call_id"].is_null());
         assert_eq!(body["tool_choice"], "required");
     }

@@ -722,12 +722,7 @@ fn harness_directories_stay_out_of_the_snapshot() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("a.rs"), "x").unwrap();
     let before = snapshot(root.path()).unwrap();
-    for dir in [
-        "target/debug",
-        ".pwr",
-        "node_modules/pkg",
-        ".pwr-scratch",
-    ] {
+    for dir in ["target/debug", ".pwr", "node_modules/pkg", ".pwr-scratch"] {
         std::fs::create_dir_all(root.path().join(dir)).unwrap();
         std::fs::write(root.path().join(dir).join("f"), "noise").unwrap();
     }

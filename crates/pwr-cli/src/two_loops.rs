@@ -1145,8 +1145,7 @@ fn an_unreadable_reply_is_told_the_same_way_by_both_loops() {
     let from_run = told(&run_requests);
     assert_eq!(from_chat.role, from_run.role);
     assert_eq!(from_chat.content, from_run.content);
-    let parsed: serde_json::Value =
-        pwr_orchestrator::tool_result_json(&from_run.content).unwrap();
+    let parsed: serde_json::Value = pwr_orchestrator::tool_result_json(&from_run.content).unwrap();
     assert!(
         parsed["unparsed_output"]
             .as_str()
@@ -1165,10 +1164,7 @@ fn a_measured_window_is_chosen_by_one_rule() {
         pwr_orchestrator::lower_measured_tier(8192, &[0, 16384]),
         None
     );
-    assert_eq!(
-        pwr_orchestrator::lower_measured_tier(2048, &[2048]),
-        None
-    );
+    assert_eq!(pwr_orchestrator::lower_measured_tier(2048, &[2048]), None);
 }
 
 /// A backend that is down stays down, and the turn says which of the two it is.
@@ -2076,18 +2072,17 @@ fn both_loops_gate_an_approval_the_same_way() {
             calls("complete", serde_json::json!({"rationale": "refused"})),
         ],
     );
-    let decision =
-        |(store, id, _): &(pwr_store::Store, pwr_domain::Id, Vec<ModelRequest>)| {
-            let events = store.events_for_run(*id).unwrap();
-            let asked: Vec<serde_json::Value> = events
-                .iter()
-                .filter(|event| event.event_type == "approval.decision")
-                .map(|event| event.payload.clone())
-                .collect();
-            assert_eq!(asked.len(), 1);
-            assert_eq!(asked[0]["decision"], "deny");
-            asked[0]["description"].clone()
-        };
+    let decision = |(store, id, _): &(pwr_store::Store, pwr_domain::Id, Vec<ModelRequest>)| {
+        let events = store.events_for_run(*id).unwrap();
+        let asked: Vec<serde_json::Value> = events
+            .iter()
+            .filter(|event| event.event_type == "approval.decision")
+            .map(|event| event.payload.clone())
+            .collect();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0]["decision"], "deny");
+        asked[0]["description"].clone()
+    };
     assert_eq!(decision(&chat), decision(&run));
     for dir in [&chat_dir, &run_dir] {
         assert_eq!(

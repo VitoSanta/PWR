@@ -37,10 +37,7 @@ fn result(outcome: serde_json::Value) -> ChatMessage {
 fn working_session() -> Vec<ChatMessage> {
     let bulk = "fn body() {}\n".repeat(400);
     vec![
-        said(
-            "system",
-            "You are PWR. Harness rule: paths are relative.",
-        ),
+        said("system", "You are PWR. Harness rule: paths are relative."),
         said(
             "user",
             "Add a --verbose flag to the CLI and keep the tests green.",

@@ -347,11 +347,7 @@ fn a_hunk_already_applied_says_so() {
 fn a_listing_never_shows_the_harness_its_own_scratch_directory() {
     let workspace = tempfile::tempdir().unwrap();
     let root = workspace.path();
-    std::fs::create_dir_all(
-        root.join(pwr_tools::SCRATCH_DIRECTORY)
-            .join(".npm/_logs"),
-    )
-    .unwrap();
+    std::fs::create_dir_all(root.join(pwr_tools::SCRATCH_DIRECTORY).join(".npm/_logs")).unwrap();
     std::fs::write(
         root.join(pwr_tools::SCRATCH_DIRECTORY)
             .join(".npm/_logs/debug.log"),
@@ -360,8 +356,7 @@ fn a_listing_never_shows_the_harness_its_own_scratch_directory() {
     .unwrap();
     std::fs::create_dir_all(root.join(pwr_tools::STATE_DIRECTORY)).unwrap();
     std::fs::write(
-        root.join(pwr_tools::STATE_DIRECTORY)
-            .join("state.sqlite"),
+        root.join(pwr_tools::STATE_DIRECTORY).join("state.sqlite"),
         "x",
     )
     .unwrap();

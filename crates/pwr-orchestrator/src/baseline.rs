@@ -599,11 +599,11 @@ fn localized_context(policy: &ToolPolicy, paths: &[String], limit: usize) -> Str
     let per_file = (limit / paths.len().max(1)).max(512);
     let mut shown = Vec::new();
     for path in paths {
-        let text =
-            match pwr_tools::read_file_window(policy, std::path::Path::new(path), None, None) {
-                Ok(window) => serde_json::to_value(window).unwrap_or_default(),
-                Err(error) => serde_json::json!({"unreadable": error.to_string()}),
-            };
+        let text = match pwr_tools::read_file_window(policy, std::path::Path::new(path), None, None)
+        {
+            Ok(window) => serde_json::to_value(window).unwrap_or_default(),
+            Err(error) => serde_json::json!({"unreadable": error.to_string()}),
+        };
         shown.push(serde_json::json!({"path": path, "file": bounded_result(text, per_file)}));
     }
     serde_json::Value::Array(shown).to_string()
@@ -674,8 +674,7 @@ pub async fn run_staged_loop<P: ModelProvider>(
         .iter()
         .map(|record| {
             record.result.exit_code != Some(0)
-                && pwr_verify::classify(&record.result)
-                    == pwr_verify::FailureClass::Environment
+                && pwr_verify::classify(&record.result) == pwr_verify::FailureClass::Environment
         })
         .collect();
     let start_hash = question

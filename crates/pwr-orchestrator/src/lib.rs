@@ -1267,9 +1267,10 @@ async fn attempt_action(
         ActionProposal::StopService { id } => {
             serialize_tool_result(services.stop(*id, policy.output_limit).await)
         }
-        ActionProposal::MakeDirectory { path } => serialize_tool_result(
-            pwr_tools::make_directory(policy, std::path::Path::new(path)),
-        ),
+        ActionProposal::MakeDirectory { path } => serialize_tool_result(pwr_tools::make_directory(
+            policy,
+            std::path::Path::new(path),
+        )),
         ActionProposal::DeletePath {
             path,
             expected_hash,
@@ -1290,9 +1291,7 @@ async fn attempt_action(
             std::path::Path::new(from),
             std::path::Path::new(to),
         )),
-        ActionProposal::VcsStatus {} => {
-            serialize_tool_result(pwr_tools::vcs_status(policy).await)
-        }
+        ActionProposal::VcsStatus {} => serialize_tool_result(pwr_tools::vcs_status(policy).await),
         ActionProposal::VcsDiff { paths } => {
             serialize_tool_result(pwr_tools::vcs_diff(policy, paths).await)
         }
@@ -1330,14 +1329,8 @@ async fn attempt_action(
             stdin,
             cwd,
         } => serialize_tool_result(
-            pwr_tools::run_command_in(
-                policy,
-                executable,
-                args,
-                stdin.as_deref(),
-                cwd.as_deref(),
-            )
-            .await,
+            pwr_tools::run_command_in(policy, executable, args, stdin.as_deref(), cwd.as_deref())
+                .await,
         ),
         ActionProposal::FetchUrl { url } => {
             serialize_tool_result(pwr_tools::fetch_url(policy, url).await)
@@ -2365,9 +2358,7 @@ pub fn session_ledger(
                         changed.push(line);
                     }
                 } else {
-                    drifted.push(format!(
-                        "{line} -- changed outside PWR since this session"
-                    ));
+                    drifted.push(format!("{line} -- changed outside PWR since this session"));
                 }
             }
             Err(_) => missing.push(path.clone()),
@@ -2433,9 +2424,7 @@ fn compact_history(
         .ok_or("cannot compact history without an original user task")?;
     let mut kept: Vec<_> = request.messages[..=task_index]
         .iter()
-        .filter(|message| {
-            message.purpose != Some(pwr_domain::MessagePurpose::RepositoryExcerpts)
-        })
+        .filter(|message| message.purpose != Some(pwr_domain::MessagePurpose::RepositoryExcerpts))
         .cloned()
         .collect();
     kept.push(pwr_domain::ChatMessage {
@@ -2931,8 +2920,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         .zip(&baseline_checks)
         .filter(|(record, _)| {
             record.result.exit_code != Some(0)
-                && pwr_verify::classify(&record.result)
-                    == pwr_verify::FailureClass::Environment
+                && pwr_verify::classify(&record.result) == pwr_verify::FailureClass::Environment
         })
         .map(|(_, check)| check.clone())
         .collect();
@@ -3640,10 +3628,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 context_recovery_attempts,
                 recovery_budget,
             )?;
-            if matches!(
-                decision,
-                pwr_verify::RecoveryDecision::EditAndRetry { .. }
-            ) {
+            if matches!(decision, pwr_verify::RecoveryDecision::EditAndRetry { .. }) {
                 edit_recovery_attempts = edit_recovery_attempts.saturating_add(1);
             }
             if matches!(decision, pwr_verify::RecoveryDecision::Stop { .. }) {
@@ -3976,8 +3961,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 // verifier the plan had got wrong, and recorded the ending as
                 // an interruption -- losing the one fact that explained it.
                 let checked =
-                    pwr_verify::baseline(&policy, std::slice::from_ref(&(executable, args)))
-                        .await;
+                    pwr_verify::baseline(&policy, std::slice::from_ref(&(executable, args))).await;
                 let passed = match &checked {
                     Ok(checked) => checked
                         .checks
@@ -4675,9 +4659,7 @@ impl std::fmt::Display for MalformedCall {
 /// The call's name selects the capability and its arguments are decoded into
 /// the typed shape; a name that is not an offered capability is refused rather
 /// than guessed at.
-pub fn action_from_tool_call(
-    call: &pwr_domain::ToolCall,
-) -> Result<ActionProposal, MalformedCall> {
+pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionProposal, MalformedCall> {
     let mut arguments = call.arguments.clone();
     if !arguments.is_object() {
         return Err(MalformedCall::detailed(
@@ -5136,9 +5118,7 @@ pub fn decode_reply(
     actions_from_reply(&canonical)
 }
 
-fn action_from_reply(
-    reply: &pwr_compat::CanonicalReply,
-) -> Result<ActionProposal, MalformedCall> {
+fn action_from_reply(reply: &pwr_compat::CanonicalReply) -> Result<ActionProposal, MalformedCall> {
     actions_from_reply(reply).map(|mut actions| actions.remove(0))
 }
 

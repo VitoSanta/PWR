@@ -77,14 +77,7 @@ impl ModelProvider for Runaway {
     }
 }
 
-fn run(
-    runaway_replies: usize,
-) -> (
-    Store,
-    pwr_domain::Id,
-    Result<(), String>,
-    Vec<ModelRequest>,
-) {
+fn run(runaway_replies: usize) -> (Store, pwr_domain::Id, Result<(), String>, Vec<ModelRequest>) {
     let root = Box::leak(Box::new(tempfile::tempdir().unwrap()));
     std::fs::write(root.path().join("code.rs"), "one\n").unwrap();
     let policy = ToolPolicy {

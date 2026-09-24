@@ -3,8 +3,8 @@
 //! These exercise the crate through its public contract, the way the store,
 //! adapters and CLI see it.
 
-use pwr_domain::*;
 use proptest::prelude::*;
+use pwr_domain::*;
 use std::collections::BTreeMap;
 
 fn any_provenance() -> impl Strategy<Value = Provenance> {
@@ -700,9 +700,7 @@ fn every_run_event_round_trips_through_its_stored_shape() {
 /// state nothing ever recorded.
 #[test]
 fn an_unknown_event_type_is_not_guessed_at() {
-    assert!(
-        pwr_domain::RunEvent::from_stored("something.new", &serde_json::json!({})).is_none()
-    );
+    assert!(pwr_domain::RunEvent::from_stored("something.new", &serde_json::json!({})).is_none());
 }
 
 #[test]
@@ -1035,13 +1033,7 @@ fn the_least_reasoning_a_deployment_offers_is_chosen_by_name() {
 fn identifiers_taken_at_once_are_still_ordered() {
     let taken: Vec<(usize, pwr_domain::Id)> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
-            .map(|_| {
-                scope.spawn(|| {
-                    (0..250)
-                        .map(|_| pwr_domain::new_id())
-                        .collect::<Vec<_>>()
-                })
-            })
+            .map(|_| scope.spawn(|| (0..250).map(|_| pwr_domain::new_id()).collect::<Vec<_>>()))
             .collect();
         handles
             .into_iter()

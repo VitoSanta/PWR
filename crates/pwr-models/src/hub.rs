@@ -10,8 +10,8 @@
 //! `PWR_HF_BASE_URL` points it at another Hub (a mirror, or a test server);
 //! `HF_TOKEN`, when set, is sent for gated repositories.
 
-use crate::catalog::{self, Format, HubFile, HubModel};
 use crate::Filters;
+use crate::catalog::{self, Format, HubFile, HubModel};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -44,7 +44,10 @@ mod pagination_tests {
     fn reads_hub_next_link_cursor() {
         let link = "<https://huggingface.co/api/models?cursor=ignored>; rel=\"prev\", <https://huggingface.co/api/models?limit=20&cursor=a%2Bb%3D>; rel=\"next\"";
         assert_eq!(next_cursor(link).as_deref(), Some("a+b="));
-        assert_eq!(next_cursor("<https://huggingface.co/api/models>; rel=\"prev\""), None);
+        assert_eq!(
+            next_cursor("<https://huggingface.co/api/models>; rel=\"prev\""),
+            None
+        );
     }
 }
 
@@ -285,7 +288,10 @@ impl HubClient {
             .filter_map(catalog::parse_model)
             .filter(|model| catalog::is_repository(&model.repository))
             .collect();
-        Ok(ModelPage { models, next_cursor })
+        Ok(ModelPage {
+            models,
+            next_cursor,
+        })
     }
 
     /// One repository's listing, at its current commit.

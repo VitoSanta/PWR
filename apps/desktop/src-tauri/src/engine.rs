@@ -101,11 +101,8 @@ fn find(app: &AppHandle) -> Option<(&'static str, PathBuf)> {
     }
     if cfg!(debug_assertions) {
         let checkout = crate::repository()?;
-        return [".venv-mlx/bin/python", "experiments/engine-spike-mlx-20260917/.venv/bin/python"]
-            .into_iter()
-            .map(|candidate| checkout.join(candidate))
-            .find(|path| path.is_file())
-            .map(|path| ("checkout", path));
+        let python = checkout.join(".venv-mlx/bin/python");
+        return python.is_file().then_some(("checkout", python));
     }
     None
 }

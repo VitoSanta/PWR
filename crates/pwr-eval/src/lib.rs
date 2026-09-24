@@ -3539,10 +3539,7 @@ mod tests {
     fn preparation_is_granted_the_network_and_nothing_else() {
         let root = tempfile::tempdir().unwrap();
         let policy = corpus_policy(root.path(), &[], None);
-        assert_eq!(
-            policy.approvals,
-            vec![pwr_tools::Approval::NetworkAccess]
-        );
+        assert_eq!(policy.approvals, vec![pwr_tools::Approval::NetworkAccess]);
     }
 
     #[test]

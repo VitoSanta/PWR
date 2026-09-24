@@ -198,10 +198,7 @@ pub struct Restored {
 
 /// Rebuilds a conversation from its events. `None` if it never completed a
 /// turn, since there is then no conversation to continue.
-pub fn restore(
-    store: &Store,
-    conversation_id: pwr_domain::Id,
-) -> Result<Option<Restored>, String> {
+pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<Restored>, String> {
     let events = store
         .events_for_run(conversation_id)
         .map_err(|e| e.to_string())?;

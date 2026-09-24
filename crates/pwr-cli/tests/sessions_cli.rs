@@ -73,11 +73,7 @@ fn workspace() -> tempfile::TempDir {
 }
 
 fn run_json(root: &std::path::Path, args: &[&str]) -> serde_json::Value {
-    let output = pwr()
-        .args(args)
-        .current_dir(root)
-        .output()
-        .expect("pwr");
+    let output = pwr().args(args).current_dir(root).output().expect("pwr");
     serde_json::from_slice(&output.stdout).expect("json on stdout")
 }
 

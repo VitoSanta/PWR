@@ -23,7 +23,7 @@
 //!   `python3`);
 //! - `PWR_MLX_SIDECAR`: the sidecar script (default: the one in this crate);
 //! - `PWR_MLX_MODELS`: where a model named by a relative reference is looked
-//!   for (default `~/.lmstudio/models`, where the models already are).
+//!   for (default `~/.pwr/models`, where the Model Manager downloads them).
 
 pub mod embed;
 
@@ -74,7 +74,7 @@ impl MlxConfig {
                 }),
             models_root: std::env::var_os("PWR_MLX_MODELS")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(".lmstudio/models")),
+                .unwrap_or_else(|| home.join(".pwr/models")),
         }
     }
 

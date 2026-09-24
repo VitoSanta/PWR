@@ -682,10 +682,9 @@ async fn a_repeated_program_name_is_dropped_and_the_command_runs() {
     let mut policy = pwr_tools::PolicyProfile::Development.build(workspace.path().to_path_buf());
     policy.allow_commands.push("echo".into());
 
-    let ran =
-        pwr_tools::run_command(&policy, "echo", &["echo".to_string(), "hello".to_string()])
-            .await
-            .expect("a repeated program name runs the command it meant");
+    let ran = pwr_tools::run_command(&policy, "echo", &["echo".to_string(), "hello".to_string()])
+        .await
+        .expect("a repeated program name runs the command it meant");
     assert_eq!(ran.stdout.trim(), "hello", "{ran:?}");
 
     let bare = pwr_tools::run_command(&policy, "echo", &["echo".to_string()])

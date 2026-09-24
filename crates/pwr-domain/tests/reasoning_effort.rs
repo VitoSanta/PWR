@@ -1,11 +1,11 @@
 //! Reasoning Effort: effort to budget, clamped by the context, with the
 //! answer's room reserved whatever reasoning uses.
+use proptest::prelude::*;
 use pwr_domain::{
     ANSWER_RESERVE_MIN, BudgetSource, GenerationEnvelope, ReasoningBudgets, ReasoningCapability,
     ReasoningDirective, ReasoningEffort, ReasoningEvidence, ReasoningProfile, plan_finalization,
     plan_reasoning,
 };
-use proptest::prelude::*;
 
 fn profile(capability: ReasoningCapability) -> ReasoningProfile {
     ReasoningProfile {
