@@ -16,9 +16,9 @@ import { AgentStore } from '../core/agent.store';
         </button>
       </div>
 
-      <nav class="mode-toggle" aria-label="Conversation mode">
-        <button [class.active-mode]="!store.chatMode()" (click)="store.chatMode() ? store.leaveChat() : null" [disabled]="store.turnActive() || !store.chatMode()">Agente</button>
-        <button [class.active-mode]="store.chatMode()" (click)="store.chatMode() ? null : store.openChat()" [disabled]="store.turnActive() || store.chatMode() || !store.chatHome()">Solo Chat</button>
+      <nav class="mode-toggle" aria-label="Conversation mode" [attr.aria-busy]="store.switchingMode() || store.switchingWorkspace()">
+        <button [class.active-mode]="!store.chatMode()" (click)="store.chatMode() ? store.leaveChat() : null" [disabled]="store.turnActive() || !store.chatMode() || store.switchingMode() || store.switchingWorkspace()">Agente</button>
+        <button [class.active-mode]="store.chatMode()" (click)="store.chatMode() ? null : store.openChat()" [disabled]="store.turnActive() || store.chatMode() || !store.chatHome() || store.switchingMode() || store.switchingWorkspace()">Solo Chat</button>
       </nav>
 
       <button class="new" (click)="store.newConversation()" [disabled]="store.turnActive()">＋ New conversation</button>
@@ -31,7 +31,7 @@ import { AgentStore } from '../core/agent.store';
             <span class="path">Saved globally · no project workspace</span>
           </div>
         } @else {
-          <button class="workspace" (click)="store.chooseWorkspace()" [title]="store.workspace()">
+          <button class="workspace" (click)="store.chooseWorkspace()" [title]="store.workspace()" [disabled]="store.switchingMode() || store.switchingWorkspace()">
             <span class="folder">🗂</span>
             <span class="path">{{ short(store.workspace()) }}</span>
           </button>

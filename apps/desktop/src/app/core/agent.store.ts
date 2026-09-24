@@ -37,6 +37,8 @@ export class AgentStore {
   readonly corePath = signal('');
   readonly coreState = signal<'starting' | 'ready' | 'stopped' | 'error'>('starting');
   readonly coreError = signal('');
+  readonly switchingWorkspace = signal(false);
+  readonly switchingMode = signal(false);
   readonly pendingWorkspaceTrust = signal<string | null>(null);
   readonly trustingWorkspace = signal(false);
   readonly workspaceTrustError = signal('');
@@ -140,7 +142,11 @@ export class AgentStore {
     }
   }
 
-  async openWorkspace(path: string): Promise<void> {
+  async openWorkspace(path: string): Promise<boolean> {
+    // A core restart owns the protocol until initialization and its first
+    // reads finish. A second restart would reject those reads mid-flight.
+    if (this.switchingWorkspace()) return false;
+    this.switchingWorkspace.set(true);
     this.coreState.set('starting');
     this.coreError.set('');
     this.sessionId.set(null);
@@ -165,9 +171,13 @@ export class AgentStore {
       this.chatHome.set(hello?._meta?.pwr?.chatHome ?? '');
       this.coreState.set('ready');
       await Promise.all([this.refreshModels(), this.refreshSessions(), this.refreshPermissions()]);
+      return true;
     } catch (error) {
       this.coreState.set('error');
       this.coreError.set(String(error));
+      return false;
+    } finally {
+      this.switchingWorkspace.set(false);
     }
   }
 
@@ -213,20 +223,29 @@ export class AgentStore {
    * folders and images attached to it. The model in use comes along.
    */
   async openChat(): Promise<void> {
-    if (this.chatMode() || !this.chatHome() || this.turnActive()) return;
+    if (this.chatMode() || !this.chatHome() || this.turnActive() || this.switchingMode() || this.switchingWorkspace()) return;
+    this.switchingMode.set(true);
     this.lastWorkspace = this.workspace();
     const model = this.model();
-    await this.openWorkspace(this.chatHome());
-    if (!this.model() && model) await this.selectModel(model);
+    try {
+      if (await this.openWorkspace(this.chatHome()) && !this.model() && model) await this.selectModel(model);
+    } finally {
+      this.switchingMode.set(false);
+    }
   }
 
   /** Back to the workspace chat mode was opened from, or a new one. */
   async leaveChat(): Promise<void> {
-    if (this.turnActive()) return;
-    if (this.lastWorkspace && this.lastWorkspace !== this.chatHome()) {
-      await this.openWorkspace(this.lastWorkspace);
-    } else {
-      await this.chooseWorkspace();
+    if (this.turnActive() || this.switchingMode() || this.switchingWorkspace()) return;
+    this.switchingMode.set(true);
+    try {
+      if (this.lastWorkspace && this.lastWorkspace !== this.chatHome()) {
+        await this.openWorkspace(this.lastWorkspace);
+      } else {
+        await this.chooseWorkspace();
+      }
+    } finally {
+      this.switchingMode.set(false);
     }
   }
 
