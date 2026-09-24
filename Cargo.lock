@@ -1487,7 +1487,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-cli"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "async-trait",
  "base64",
@@ -1524,7 +1524,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-compat"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "pwr-domain",
  "pwr-provider",
@@ -1533,7 +1533,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-domain"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "blake3",
  "chrono",
@@ -1546,7 +1546,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-eval"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "chrono",
  "pwr-domain",
@@ -1561,7 +1561,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-llama"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1577,7 +1577,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-mlx"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1592,7 +1592,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-models"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "async-trait",
  "blake3",
@@ -1615,7 +1615,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-observe"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "chrono",
  "pwr-domain",
@@ -1626,7 +1626,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-orchestrator"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1646,7 +1646,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-provider"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "async-trait",
  "futures-core",
@@ -1659,7 +1659,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-repo"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "chrono",
  "ignore",
@@ -1673,7 +1673,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-runtime"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "async-trait",
  "pwr-compat",
@@ -1689,7 +1689,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-store"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "chrono",
  "pwr-domain",
@@ -1703,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-tools"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "blake3",
  "flate2",
@@ -1723,7 +1723,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-verify"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 dependencies = [
  "chrono",
  "pwr-domain",
