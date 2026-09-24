@@ -737,9 +737,11 @@ Format: **Name** — STATUS. *User value.* How it works. *Evidence.*
      engine's scripts (`sidecar/pwr_mlx.py`, `sidecar/pwr_embed.py`, passed to
      the core as `PWR_MLX_SIDECAR` / `PWR_EMBED_SIDECAR`) and `uv`. Ad-hoc
      signed. *Evidence:* [tauri.conf.json](../apps/desktop/src-tauri/tauri.conf.json), `core_start` in [lib.rs](../apps/desktop/src-tauri/src/lib.rs).
-109. **macOS DMG** — EXPERIMENTAL (the 0.1.0 release artifact).
-     `PWR_0.1.0_aarch64.dmg`, ad-hoc signed and not notarized. First launch
-     goes through System Settings → Privacy & Security → Open Anyway.
+109. **macOS DMG** — EXPERIMENTAL (the v0.1.0-alpha release artifact).
+     Tauri produces a versioned DMG; `scripts/release-macos.sh` validates it
+     and names the distribution asset `PWR-macOS-arm64.dmg`. Ad-hoc signed and
+     not notarized. First launch goes through System Settings → Privacy &
+     Security → Open Anyway.
 110. **CLI launcher install** (`scripts/install-pwr.sh` → `~/.local/bin`) —
      IMPLEMENTED.
 
@@ -1290,10 +1292,10 @@ binds `127.0.0.1` only (`PWR_LLAMA_HOST` removed 2026-09-24).
 
 ## 20. Installation and distribution
 
-### A) Prebuilt macOS DMG — the 0.1.0 release path
+### A) Prebuilt macOS DMG — the v0.1.0-alpha release path
 
-- `PWR_0.1.0_aarch64.dmg`, for Apple silicon (arm64) only, built by
-  `npx tauri build` in `apps/desktop`.
+- `PWR-macOS-arm64.dmg`, for Apple silicon (arm64) only, created and verified
+  by `scripts/release-macos.sh` from Tauri's DMG bundle.
 - `PWR.app` bundles the release `pwr` core, the MLX engine's scripts and a
   portable `uv`. On first launch it installs the engine's Python (about
   1.2 GB) under `~/Library/Application Support/ai.pwr.desktop/engine`.

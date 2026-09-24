@@ -3,6 +3,17 @@ node_modules/
 dist/
 .angular/cache/
 
+# Local editor state, temporary files, logs and databases.
+.idea/
+.vscode/
+*.swp
+/tmp/
+/output/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
 # Runtime state: the event log, the workspace index, the lease. Machine-local,
 # rebuilt on demand, and never evidence of anything.
 /.pwr/*
@@ -84,6 +95,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+credentials.json
+credentials.*
+*.token
 
 # Model weights and signing material: never tracked, whatever their folder.
 *.gguf

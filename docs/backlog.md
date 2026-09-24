@@ -1609,7 +1609,7 @@ decision. By volume this is plausibly more work than every other block together.
 - [ ] **D.16 The app's language.** Never decided. PWR is for people who
       cannot pay for API access, and the maintainer works in Italian; this is
       not a detail to leave to the end.
-- [ ] **D.17 S3 — the app itself**, **Status 2026-09-24:** 0.1.0 released as a public alpha for macOS on Apple silicon: ad-hoc signed DMG with the core, the engine scripts and `uv` bundled; not notarized (first launch goes through System Settings → Privacy & Security → Open Anyway). Notarization and Windows remain. Record: covering everything the console does, on
+- [ ] **D.17 S3 — the app itself**, **Status 2026-09-24:** v0.1.0-alpha release packaging is prepared for macOS on Apple silicon: ad-hoc signed DMG with the core, the engine scripts and `uv` bundled; not notarized (first launch goes through System Settings → Privacy & Security → Open Anyway). The GitHub release is not yet published. Notarization and Windows remain. Record: covering everything the console does, on
       both platforms, with signed installable builds.
 
 - [x] **D.E2E-1 Commands without a shell reported false success (2026-09-22).**

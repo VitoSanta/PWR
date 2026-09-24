@@ -60,7 +60,7 @@ Two different lists follow, and running them together is how a sequencing decisi
 Full legitimate machine access is the destination stated above, not a concession. It requires explicit scopes for paths, commands, network, applications and credentials, with observable policy decisions and practical recovery. Existing macOS confinement remains until replacement is validated. No promise of universal rollback: network effects, package scripts and external application actions may be irreversible.
 
 
-> **Amended 2026-09-24.** Model downloading left the "not yet" list: the app's Model Manager and `pwr models download` fetch checksum-verified models from the Hugging Face Hub at the person's request (see [models-and-context.md](docs/models-and-context.md)). The first public release, 0.1.0, is for macOS on Apple silicon only; Windows remains the product's second platform and is not built yet (backlog E.1, E.2). On a Mac the app runs the MLX engine alone; llama.cpp is kept for Windows.
+> **Amended 2026-09-24.** Model downloading left the "not yet" list: the app's Model Manager and `pwr models download` fetch checksum-verified models from the Hugging Face Hub at the person's request (see [models-and-context.md](docs/models-and-context.md)). The first public alpha is being prepared as v0.1.0-alpha for macOS on Apple silicon only; Windows remains the product's second platform and is not built yet (backlog E.1, E.2). On a Mac the app runs the MLX engine alone; llama.cpp is kept for Windows.
 
 ## Evidence vocabulary and authority
 
