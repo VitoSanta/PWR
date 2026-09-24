@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+/// A model file downloads for as long as data keeps arriving: only a
+/// connection that goes quiet this long is given up (and then resumed).
+const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// `config.json` is read into memory; anything larger is not a config.
 const CONFIG_LIMIT_BYTES: usize = 2 * 1024 * 1024;
 
@@ -85,6 +88,7 @@ impl std::fmt::Display for HubError {
 pub struct HubClient {
     base: url::Url,
     http: reqwest::Client,
+    transfer: reqwest::Client,
     token: Option<String>,
 }
 
@@ -115,15 +119,34 @@ impl HubClient {
             .user_agent(concat!("PWR/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| HubError::new(HubErrorKind::Unexpected, error.to_string()))?;
-        Ok(Self { base, http, token })
+        // Not `http`: its timeout covers the whole response, body included,
+        // and cut every model file that took longer than that to arrive.
+        let transfer = reqwest::Client::builder()
+            .connect_timeout(REQUEST_TIMEOUT)
+            .read_timeout(STALL_TIMEOUT)
+            .user_agent(concat!("PWR/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|error| HubError::new(HubErrorKind::Unexpected, error.to_string()))?;
+        Ok(Self {
+            base,
+            http,
+            transfer,
+            token,
+        })
     }
 
     pub fn token(&self) -> Option<&str> {
         self.token.as_deref()
     }
 
+    /// For API requests: bounded end to end.
     pub fn http(&self) -> &reqwest::Client {
         &self.http
+    }
+
+    /// For model files: no limit on the whole transfer, only on a stall.
+    pub fn transfer(&self) -> &reqwest::Client {
+        &self.transfer
     }
 
     fn url(&self, segments: &[&str]) -> url::Url {

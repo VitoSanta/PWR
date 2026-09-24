@@ -352,21 +352,112 @@ async fn download_file(
         )
     })?;
     let part = part_path(destination);
+    let started_with = part.metadata().map(|m| m.len()).unwrap_or(0);
+    if started_with == file.expected_bytes {
+        progress(Phase::Verifying, started_with);
+        let observed = observe(&part, needs)?;
+        return finish(file, &part, observed, "verified_part").map(|o| outcome(&o.0, o.1));
+    }
+    // A transfer that stops after data arrived is resumed where the `.part`
+    // ends: large files over a real connection are interrupted now and then,
+    // and giving up there left a 19 GB download failing every few gigabytes.
+    // One that never connects fails at once, so being offline is reported
+    // promptly rather than after a round of waits.
+    let mut retries_left = TRANSFER_RETRIES;
+    let mut progressed_before = false;
+    let written = loop {
+        match fetch(client, file, auth_token, &part, progress, stop).await {
+            Ok(written) => break written,
+            Err(attempt) => {
+                let resumable = attempt.transient
+                    && (attempt.progressed || progressed_before)
+                    && retries_left > 0
+                    && !stop.load(Ordering::Relaxed);
+                if !resumable {
+                    return Err(attempt.error);
+                }
+                progressed_before |= attempt.progressed;
+                retries_left -= 1;
+                let wait = RETRY_WAIT * 2_u32.pow(TRANSFER_RETRIES - retries_left - 1);
+                if !pause(wait.min(MAX_RETRY_WAIT), stop).await {
+                    return Err(DownloadError::new(
+                        FailureKind::Cancelled,
+                        "download cancelled; partial data was kept for resume",
+                    ));
+                }
+                if attempt.progressed {
+                    // Progress earns the patience back.
+                    retries_left = TRANSFER_RETRIES;
+                }
+            }
+        }
+    };
+    progress(Phase::Verifying, written);
+    let observed = observe(&part, needs)?;
+    let status = if started_with > 0 {
+        "resumed"
+    } else {
+        "downloaded"
+    };
+    finish(file, &part, observed, status).map(|o| outcome(&o.0, o.1))
+}
+
+/// How many times a stalled or dropped transfer is resumed in a row before
+/// the download fails (the `.part` is kept either way).
+const TRANSFER_RETRIES: u32 = 5;
+const RETRY_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+const MAX_RETRY_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// One failed attempt at a file: whether trying again can help, and whether
+/// it got any bytes before it failed.
+struct Attempt {
+    error: DownloadError,
+    transient: bool,
+    progressed: bool,
+}
+
+/// Waits, checking for cancellation; false if the download was cancelled.
+async fn pause(wait: std::time::Duration, stop: &AtomicBool) -> bool {
+    let step = std::time::Duration::from_millis(200);
+    let mut waited = std::time::Duration::ZERO;
+    while waited < wait {
+        if stop.load(Ordering::Relaxed) {
+            return false;
+        }
+        tokio::time::sleep(step).await;
+        waited += step;
+    }
+    !stop.load(Ordering::Relaxed)
+}
+
+/// Brings `part` up to the file's size from where it ends, returning the
+/// bytes it then holds.
+async fn fetch(
+    client: &reqwest::Client,
+    file: &PlannedFile,
+    auth_token: Option<&str>,
+    part: &Path,
+    progress: &mut dyn FnMut(Phase, u64),
+    stop: &AtomicBool,
+) -> Result<u64, Attempt> {
+    let fatal = |error: DownloadError| Attempt {
+        error,
+        transient: false,
+        progressed: false,
+    };
     let existing = part.metadata().map(|m| m.len()).unwrap_or(0);
     progress(Phase::Downloading, existing);
     if existing > file.expected_bytes {
-        return Err(DownloadError::new(
+        return Err(fatal(DownloadError::new(
             FailureKind::Conflict,
             format!(
                 "{} is larger than the registry expects; remove it before retrying",
                 part.display()
             ),
-        ));
+        )));
     }
     if existing == file.expected_bytes {
-        progress(Phase::Verifying, existing);
-        let observed = observe(&part, needs)?;
-        return finish(file, &part, observed, "verified_part").map(|o| outcome(&o.0, o.1));
+        return Ok(existing);
     }
     let mut request = client.get(&file.url);
     if let Some(token) = auth_token.filter(|token| !token.trim().is_empty()) {
@@ -375,11 +466,13 @@ async fn download_file(
     if existing > 0 {
         request = request.header(reqwest::header::RANGE, format!("bytes={existing}-"));
     }
-    let response = request.send().await.map_err(|error| {
-        DownloadError::new(
+    let response = request.send().await.map_err(|error| Attempt {
+        error: DownloadError::new(
             FailureKind::Network,
             format!("cannot download {}: {error}", file.url),
-        )
+        ),
+        transient: true,
+        progressed: false,
     })?;
     let status = response.status();
     if !(status.is_success() || (existing > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT)) {
@@ -391,10 +484,15 @@ async fn download_file(
             429 => " -- the Hub is rate-limiting; wait a minute and retry",
             _ => "",
         };
-        return Err(DownloadError::new(
-            FailureKind::Network,
-            format!("{} returned HTTP {status}{hint}", file.url),
-        ));
+        return Err(Attempt {
+            error: DownloadError::new(
+                FailureKind::Network,
+                format!("{} returned HTTP {status}{hint}", file.url),
+            ),
+            // The server's own trouble passes; a refusal does not.
+            transient: status.is_server_error(),
+            progressed: false,
+        });
     }
     let append = existing > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
     let mut writer = std::fs::OpenOptions::new()
@@ -402,60 +500,69 @@ async fn download_file(
         .write(true)
         .append(append)
         .truncate(!append)
-        .open(&part)
+        .open(part)
         .map_err(|error| {
-            DownloadError::new(
+            fatal(DownloadError::new(
                 FailureKind::Io,
                 format!("cannot open {}: {error}", part.display()),
-            )
+            ))
         })?;
-    let mut written = if append { existing } else { 0 };
+    let from = if append { existing } else { 0 };
+    let mut written = from;
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         if stop.load(Ordering::Relaxed) {
-            return Err(DownloadError::new(
+            return Err(fatal(DownloadError::new(
                 FailureKind::Cancelled,
                 "download cancelled; partial data was kept for resume",
-            ));
+            )));
         }
-        let chunk = chunk.map_err(|error| {
-            DownloadError::new(
+        let chunk = chunk.map_err(|error| Attempt {
+            error: DownloadError::new(
                 FailureKind::Network,
                 format!(
                     "download failed for {}: {error}; the partial file is kept, retry to resume",
                     file.url
                 ),
-            )
+            ),
+            transient: true,
+            progressed: written > from,
         })?;
         writer.write_all(&chunk).map_err(|error| {
-            DownloadError::new(
+            fatal(DownloadError::new(
                 FailureKind::Io,
                 format!("cannot write {}: {error}", part.display()),
-            )
+            ))
         })?;
         written += chunk.len() as u64;
         if written > file.expected_bytes {
             drop(writer);
-            let _ = std::fs::remove_file(&part);
-            return Err(DownloadError::new(
+            let _ = std::fs::remove_file(part);
+            return Err(fatal(DownloadError::new(
                 FailureKind::Verification,
                 format!(
                     "{} sent more than the {} bytes declared; the partial file was removed",
                     file.url, file.expected_bytes
                 ),
-            ));
+            )));
         }
         progress(Phase::Downloading, written);
     }
-    drop(writer);
-    progress(Phase::Verifying, written);
-    let observed = observe(&part, needs)?;
-    let status = if existing > 0 {
-        "resumed"
-    } else {
-        "downloaded"
-    };
-    finish(file, &part, observed, status).map(|o| outcome(&o.0, o.1))
+    if written < file.expected_bytes {
+        // The server closed the connection early: resume from here.
+        return Err(Attempt {
+            error: DownloadError::new(
+                FailureKind::Network,
+                format!(
+                    "{} ended after {written} of {} bytes; the partial file is kept, retry to resume",
+                    file.url, file.expected_bytes
+                ),
+            ),
+            transient: true,
+            progressed: written > from,
+        });
+    }
+    Ok(written)
 }
 
 /// Moves a verified `.part` into place. A `.part` that is complete and wrong

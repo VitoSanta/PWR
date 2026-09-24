@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { AgentStore } from './core/agent.store';
-import { inTauri } from './core/bridge';
+import { bridge, inTauri } from './core/bridge';
 import { LayoutService, RAIL } from './core/layout';
 import { ThemeService } from './core/theme';
-import { DialogStack, SHORTCUTS, UiStore, isMac } from './core/ui';
+import { DialogStack, SHORTCUTS, ToastService, UiStore, isMac } from './core/ui';
 import { CommandPalette } from './ui/command-palette';
 import { Composer } from './ui/composer';
 import { ContextMeter } from './ui/context-meter';
@@ -49,6 +49,7 @@ export class App implements OnInit {
   protected readonly layout = inject(LayoutService);
   private readonly ui = inject(UiStore);
   private readonly dialogs = inject(DialogStack);
+  private readonly toast = inject(ToastService);
   protected readonly isMac = isMac;
   protected readonly rail = RAIL;
   protected readonly keys = SHORTCUTS;
@@ -80,6 +81,25 @@ export class App implements OnInit {
     await check();
     // Entering and leaving full screen both resize the window.
     await window.onResized(() => void check());
+  }
+
+  /**
+   * Web links open in the browser. In the app's webview a new-tab link does
+   * nothing, and any other would replace the whole interface -- the Hub
+   * links, and links inside what a model writes.
+   */
+  @HostListener('document:click', ['$event'])
+  protected externalLink(event: MouseEvent): void {
+    const link = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+    if (!link || event.defaultPrevented || event.button !== 0) return;
+    const url = new URL(link.href, location.href);
+    if (!/^https?:$/.test(url.protocol) || url.origin === location.origin) return;
+    event.preventDefault();
+    if (inTauri()) {
+      bridge.openExternal(url.href).catch((error) => this.toast.show(String(error), 'danger'));
+    } else {
+      window.open(url.href, '_blank', 'noopener');
+    }
   }
 
   @HostListener('window:keydown', ['$event'])
