@@ -127,7 +127,14 @@ export class AgentStore {
       for (const waiting of this.pending.values()) waiting.reject(new Error('the core stopped'));
       this.pending.clear();
     });
-    await this.openWorkspace(await bridge.defaultWorkspace());
+    try {
+      const remembered = await bridge.defaultWorkspace();
+      const trusted = await bridge.workspaceIsTrusted(remembered);
+      await this.openWorkspace(trusted ? remembered : await bridge.chatHome());
+    } catch (error) {
+      this.coreState.set('error');
+      this.coreError.set(String(error));
+    }
   }
 
   async openWorkspace(path: string): Promise<void> {
@@ -163,7 +170,16 @@ export class AgentStore {
 
   async chooseWorkspace(): Promise<void> {
     const folder = await bridge.pickFolder('Open a workspace');
-    if (folder) await this.openWorkspace(folder);
+    if (!folder) return;
+    try {
+      if (!(await bridge.workspaceIsTrusted(folder))) {
+        if (!(await bridge.confirmWorkspaceTrust(folder))) return;
+        await bridge.trustWorkspace(folder);
+      }
+      await this.openWorkspace(folder);
+    } catch (error) {
+      this.coreError.set(String(error));
+    }
   }
 
   /**

@@ -2,7 +2,7 @@
 // `src-tauri/src/lib.rs`, which owns the `pwr serve --stdio` process.
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { confirm, open } from '@tauri-apps/plugin-dialog';
 
 export interface Started {
   core: string;
@@ -16,6 +16,13 @@ export const inTauri = (): boolean =>
 
 export const bridge = {
   defaultWorkspace: () => invoke<string>('default_workspace'),
+  chatHome: () => invoke<string>('chat_home_path'),
+  workspaceIsTrusted: (workspace: string) => invoke<boolean>('workspace_is_trusted', { workspace }),
+  trustWorkspace: (workspace: string) => invoke<void>('trust_workspace', { workspace }),
+  confirmWorkspaceTrust: (workspace: string) => confirm(
+    `PWR’s agent can read and edit files and run commands in this folder. Trust its contents and any project instructions before continuing.\n\n${workspace}\n\nThis does not change the Ask/Auto-approve setting.`,
+    { title: 'Trust this folder?', kind: 'warning' },
+  ),
   start: (workspace: string) => invoke<Started>('core_start', { workspace }),
   send: (message: unknown) => invoke<void>('core_send', { message }),
   restoreFile: (workspace: string, path: string, content: string, remove: boolean) =>

@@ -50,13 +50,28 @@ fn repository() -> Option<PathBuf> {
     root.join("Cargo.toml").is_file().then(|| root.to_path_buf())
 }
 
-/// `POORAI_CORE`, else the checkout's release build, else `pwr` on PATH.
-fn core_path() -> PathBuf {
+/// `POORAI_CORE`, the bundled core, the checkout build, then `pwr` on PATH.
+fn core_path(app: &AppHandle) -> PathBuf {
     if let Some(path) = std::env::var_os("POORAI_CORE") {
         return PathBuf::from(path);
     }
+    if let Some(path) = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|dir| dir.join("pwr"))
+        .filter(|path| path.is_file())
+    {
+        return path;
+    }
     repository()
-        .map(|root| root.join("target/release/pwr"))
+        .map(|root| {
+            root.join(if cfg!(debug_assertions) {
+                "target/debug/pwr"
+            } else {
+                "target/release/pwr"
+            })
+        })
         .filter(|path| path.is_file())
         .unwrap_or_else(|| PathBuf::from("pwr"))
 }
@@ -104,6 +119,81 @@ fn last_workspace_file(app: &AppHandle) -> Option<PathBuf> {
         .map(|dir| dir.join("last-workspace"))
 }
 
+fn chat_home() -> Result<PathBuf, String> {
+    let path = std::env::var_os("POORAI_CHAT_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".poorai/chat")))
+        .ok_or("HOME is not set")?;
+    std::fs::create_dir_all(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    path.canonicalize()
+        .map_err(|error| format!("{}: {error}", path.display()))
+}
+
+fn trusted_workspaces_file(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|dir| dir.join("trusted-workspaces.json"))
+        .map_err(|error| error.to_string())
+}
+
+fn read_trusted_workspaces(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+    let file = trusted_workspaces_file(app)?;
+    let Ok(bytes) = std::fs::read(&file) else {
+        return Ok(Vec::new());
+    };
+    let paths: Vec<String> = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("{}: {error}", file.display()))?;
+    Ok(paths.into_iter().map(PathBuf::from).collect())
+}
+
+fn canonical_workspace(workspace: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(workspace)
+        .canonicalize()
+        .map_err(|error| format!("{workspace}: {error}"))?;
+    if !path.is_dir() {
+        return Err(format!("Not a folder: {}", path.display()));
+    }
+    Ok(path)
+}
+
+fn is_workspace_trusted(app: &AppHandle, workspace: &Path) -> Result<bool, String> {
+    if chat_home().is_ok_and(|home| home == workspace) {
+        return Ok(true);
+    }
+    Ok(read_trusted_workspaces(app)?.iter().any(|path| path == workspace))
+}
+
+#[tauri::command]
+fn chat_home_path() -> Result<String, String> {
+    chat_home().map(|path| path.display().to_string())
+}
+
+#[tauri::command]
+fn workspace_is_trusted(app: AppHandle, workspace: String) -> Result<bool, String> {
+    let path = canonical_workspace(&workspace)?;
+    is_workspace_trusted(&app, &path)
+}
+
+#[tauri::command]
+fn trust_workspace(app: AppHandle, workspace: String) -> Result<(), String> {
+    let path = canonical_workspace(&workspace)?;
+    if chat_home().is_ok_and(|home| home == path) {
+        return Ok(());
+    }
+    let mut paths = read_trusted_workspaces(&app)?;
+    if paths.iter().any(|trusted| trusted == &path) {
+        return Ok(());
+    }
+    paths.push(path);
+    let file = trusted_workspaces_file(&app)?;
+    let parent = file.parent().ok_or("app config directory has no parent")?;
+    std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+    let bytes = serde_json::to_vec_pretty(&paths).map_err(|error| error.to_string())?;
+    let temporary = file.with_extension("json.tmp");
+    std::fs::write(&temporary, bytes).map_err(|error| format!("{}: {error}", temporary.display()))?;
+    std::fs::rename(&temporary, &file).map_err(|error| format!("{}: {error}", file.display()))
+}
+
 /// `POORAI_WORKSPACE`, else the workspace opened last (if it still exists),
 /// else the checkout's site, else the home folder.
 #[tauri::command]
@@ -128,10 +218,11 @@ fn default_workspace(app: AppHandle) -> String {
 
 #[tauri::command]
 fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Result<Started, String> {
-    let workspace = PathBuf::from(&workspace)
-        .canonicalize()
-        .map_err(|error| format!("{workspace}: {error}"))?;
-    let program = core_path();
+    let workspace = canonical_workspace(&workspace)?;
+    if !is_workspace_trusted(&app, &workspace)? {
+        return Err(format!("Workspace has not been trusted: {}", workspace.display()));
+    }
+    let program = core_path(&app);
     let backend = std::env::var("POORAI_BACKEND").unwrap_or_else(|_| {
         if cfg!(target_os = "macos") { "mlx" } else { "llama" }.into()
     });
@@ -194,11 +285,13 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
     });
     // Remembered only once the core has started there, so a folder that
     // cannot be opened is not reopened next time.
-    if let Some(file) = last_workspace_file(&app) {
-        if let Some(dir) = file.parent() {
-            let _ = std::fs::create_dir_all(dir);
+    if !chat_home().is_ok_and(|home| home == workspace) {
+        if let Some(file) = last_workspace_file(&app) {
+            if let Some(dir) = file.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(file, workspace.display().to_string());
         }
-        let _ = std::fs::write(file, workspace.display().to_string());
     }
     Ok(Started {
         core: program.display().to_string(),
@@ -268,6 +361,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             default_workspace,
+            chat_home_path,
+            workspace_is_trusted,
+            trust_workspace,
             core_start,
             core_send,
             restore_workspace_file,

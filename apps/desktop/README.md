@@ -58,6 +58,12 @@ the Finder gets the PATH of a login shell, so the checks a workspace declares
 
 ## Build and run
 
+On first launch PWR opens **Solo Chat**, which has no project workspace. To
+enter Agent mode, choose a folder; the first open asks you to trust that exact
+folder before starting the core. Trust is remembered per folder, and does not
+change the Ask/Auto-approve setting. The desktop bundle includes the `pwr`
+core executable.
+
 ```bash
 cargo build --release -p pwr-cli          # from the repository root: the core
 npm install
