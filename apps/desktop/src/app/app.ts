@@ -15,6 +15,7 @@ import { Tooltip } from './ui/kit/tooltip';
 import { ModelManager } from './ui/model-manager';
 import { ModelPicker } from './ui/model-picker';
 import { Permission } from './ui/permission';
+import { EngineSetup } from './ui/engine-setup';
 import { Settings } from './ui/settings';
 import { Rail, Sidebar } from './ui/sidebar';
 import { WorkspaceTrust } from './ui/workspace-trust';
@@ -33,6 +34,7 @@ import { WorkspaceTrust } from './ui/workspace-trust';
     ModelManager,
     WorkspaceTrust,
     Settings,
+    EngineSetup,
     CommandPalette,
     ConfirmHost,
     Toasts,

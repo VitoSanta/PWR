@@ -7,7 +7,7 @@
     "frontendDist": "../dist/desktop/browser",
     "devUrl": "http://localhost:4200",
     "beforeDevCommand": "cargo build --manifest-path ../../Cargo.toml --target-dir ../../target -p pwr-cli && npm run start",
-    "beforeBuildCommand": "npm run build && cargo build --manifest-path ../../Cargo.toml --target-dir ../../target --release -p pwr-cli"
+    "beforeBuildCommand": "npm run build && cargo build --manifest-path ../../Cargo.toml --target-dir ../../target --release -p pwr-cli && sh ../../scripts/bundle-uv.sh"
   },
   "app": {
     "windows": [
@@ -35,7 +35,8 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "../../../target/release/pwr": "pwr"
+      "../../../target/release/pwr": "pwr",
+      "resources/uv": "uv"
     },
     "icon": [
       "icons/32x32.png",

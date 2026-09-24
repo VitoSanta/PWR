@@ -1,3 +1,6 @@
+@if (store.engineSetup()) {
+  <pa-engine-setup [class.is-mac]="isMac" [class.is-fullscreen]="fullscreen()" />
+} @else {
 <div
   class="shell"
   [class.is-mac]="isMac"
@@ -66,6 +69,7 @@
     <pa-inspector class="is-overlay" animate.leave="is-leaving" />
   }
 </div>
+}
 
 <pa-permission />
 <pa-workspace-trust />

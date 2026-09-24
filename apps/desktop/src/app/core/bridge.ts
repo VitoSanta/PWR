@@ -3,6 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
+import type { EngineProgress, EngineStatus } from './model';
 
 export interface Started {
   core: string;
@@ -24,6 +25,11 @@ export const bridge = {
   restoreFile: (workspace: string, path: string, content: string, remove: boolean) =>
     invoke<void>('restore_workspace_file', { workspace, path, content, remove }),
   stop: () => invoke<void>('core_stop'),
+  engineStatus: () => invoke<EngineStatus>('engine_status'),
+  engineInstall: () => invoke<void>('engine_install'),
+  engineCancel: () => invoke<void>('engine_cancel'),
+  onEngineSetup: (handler: (progress: EngineProgress) => void): Promise<UnlistenFn> =>
+    listen<EngineProgress>('engine-setup', (event) => handler(event.payload)),
   onMessage: (handler: (message: any) => void): Promise<UnlistenFn> =>
     listen<any>('acp', (event) => handler(event.payload)),
   onLog: (handler: (line: string) => void): Promise<UnlistenFn> =>

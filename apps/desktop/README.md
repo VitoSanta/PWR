@@ -84,11 +84,26 @@ remembered.
 ⌘B the sidebar, ⌥⌘B the inspector, Esc closes the innermost dialog, popover
 or floating panel.
 
-The shell looks for the core in `PWR_CORE`, then the checkout's
-`target/release/pwr`, then `pwr` on `PATH`; for the engine's Python it
-uses `PWR_MLX_PYTHON`, then the checkout's `.venv-mlx`. An app opened from
-the Finder gets the PATH of a login shell, so the checks a workspace declares
-(`npm`, `cargo`) are found.
+The shell looks for the core in `PWR_CORE`, then the bundled one, then the
+checkout's `target/release/pwr`, then `pwr` on `PATH`. For the engine's
+Python it uses `PWR_MLX_PYTHON`, then the environment the app installed
+itself (below); a development build (`npx tauri dev`) also takes the
+checkout's `.venv-mlx`, a release build never does, so it behaves as it will
+for anyone who downloads it. An app opened from the Finder gets the PATH of a
+login shell, so the checks a workspace declares (`npm`, `cargo`) are found.
+
+### First run: the engine
+
+On an Apple-silicon Mac with no engine, PWR opens a setup screen instead of
+the app. **Install engine** creates a private environment in
+`~/Library/Application Support/ai.pwr.desktop/engine` with the `uv` bundled
+in the app: a standalone Python 3.11 (not the system's, no Xcode tools
+needed), the pinned `mlx`, `mlx-lm`, `mlx-embeddings` and `mlx-vlm` of
+`scripts/setup-mlx.sh`, and the search encoder in the Hugging Face cache --
+about 1.2 GB, with progress, cancel and retry. It is marked ready only once a
+final import check passes. Then the app starts as usual and points to the
+Model Manager for a first model. Deleting that folder brings the setup back.
+`?setup` in a browser shows the screen with a simulated install.
 
 ## Build and run
 
@@ -96,7 +111,8 @@ On first launch PWR opens **Chat**, which has no project workspace. To
 enter Agent mode, choose a folder; the first open asks you to trust that exact
 folder before starting the core. Trust is remembered per folder, and does not
 change the Ask/Auto-approve setting. The desktop bundle includes the `pwr`
-core executable.
+core executable and `uv`, which `scripts/bundle-uv.sh` copies from `PATH`
+at build time (`brew install uv`; the binary is not committed).
 
 ```bash
 cargo build --release -p pwr-cli          # from the repository root: the core
