@@ -302,7 +302,7 @@ conversation.)
 - The finalization fallback depends on the model continuing sensibly after
   its closing delimiter; calibration tests it, once, at a tiny budget.
 - Reasoning Effort and the compatibility gate apply to conversations (the
-  app, `pwr serve`, the console). The scripted research loops (`PWR
+  app, `pwr serve`, the console). The scripted research loops (`pwr
   run`, `eval run`) keep their own reasoning policy and are unchanged.
 - Parameter count is not recorded (neither engine reports it).
 - Hardware class is coarse by design.

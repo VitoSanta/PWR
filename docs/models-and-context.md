@@ -161,7 +161,10 @@ points it elsewhere; `HF_TOKEN` is sent for gated repositories.
 
 **Formats and engines.** MLX (PWR's engine, Apple Silicon) and GGUF
 (llama.cpp). A search is per format; the app starts on the format of the
-engine it runs. An MLX variant is the repository's config, weights, tokenizer
+engine it runs. **On a Mac the app runs MLX only** (2026-09-24): the format
+choice and the llama.cpp engine are not shown, and a release build ignores
+`PWR_BACKEND`. GGUF search stays in the core for the llama.cpp engine, which is
+meant for Windows. An MLX variant is the repository's config, weights, tokenizer
 and template files (never `.py`); a GGUF variant is one quantization, all
 shards of a split file, without projectors or importance matrices.
 Repositories whose config needs custom code (`auto_map`) are marked
@@ -180,7 +183,8 @@ and whether the engine already lists it.
 length, download size, quantization, family (name or base model).
 
 **Downloads** go to the engine's models folder — `PWR_MLX_MODELS` /
-`PWR_LLAMA_MODELS`, by default `~/.lmstudio/models` — as
+`PWR_LLAMA_MODELS`, by default `~/.pwr/models` (until 2026-09-24,
+`~/.lmstudio/models`) — as
 `<owner>/<name>/<files>`, which is where the engines look, so a finished MLX
 download is selectable at once (it appears in the model chip). The client
 names only repository, commit, variant and format; the core re-reads the file
@@ -216,9 +220,9 @@ folder (symlinks included), for a folder with no `config.json`, and for a model
 folder that contains another folder; empty parent folders are removed up to,
 never including, the models folder.
 
-When a download is for an engine the app is not running (a GGUF while the app
-runs MLX), it completes and says the remaining step: start the app with
-`PWR_BACKEND=llama`. PWR does not switch engines in a running app.
+When a download is for an engine the core is not running (a GGUF while it
+runs MLX, possible only through the protocol or the command line), it
+completes and says so. PWR does not switch engines in a running app.
 
 ## Limitations
 

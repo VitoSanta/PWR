@@ -1,6 +1,8 @@
 # Research roadmap
 
-**PAUSED, 2026-09-17.** PWR is paused while the maintainer follows a study plan. Where it stands: [the redesign](redesign-2026-09-17.md) is proposed with its first decisions taken (six evaluation areas, the host's largest window for end-to-end tests, MLX first, a hardware catalogue of models) and six decisions open; R3 is shelved; the MLX engine spike is done (`experiments/engine-spike-mlx-20260917/analysis.md`) and found LM Studio's MLX path as fast as in-process MLX. **First step on resuming is the outside reference, not a build** — see "Where we are and what is left" immediately below, which is the current statement of order and supersedes the sequencing in the milestone sections.
+**Update — 2026-09-24: first public release.** Work resumed on 2026-09-18 and the pause below ended with it. PWR 0.1.0 is published as a public alpha for Apple-silicon Macs: the desktop app bundles the core, the MLX engine's scripts and an installer for the engine's Python; Revert goes through the core (`_pwr/revert`); the webview has a Content Security Policy; models live in `~/.pwr/models`; the app runs MLX only on a Mac, with llama.cpp kept for Windows and bound to loopback. The order of work after the release is the 2026-09-23 update's, below. The current description of the product is [PWR_PRODUCT_SOURCE_OF_TRUTH.md](PWR_PRODUCT_SOURCE_OF_TRUTH.md).
+
+**PAUSED, 2026-09-17 (ended 2026-09-18).** PWR is paused while the maintainer follows a study plan. Where it stands: [the redesign](redesign-2026-09-17.md) is proposed with its first decisions taken (six evaluation areas, the host's largest window for end-to-end tests, MLX first, a hardware catalogue of models) and six decisions open; R3 is shelved; the MLX engine spike is done (`experiments/engine-spike-mlx-20260917/analysis.md`) and found LM Studio's MLX path as fast as in-process MLX. **First step on resuming is the outside reference, not a build** — see "Where we are and what is left" immediately below, which is the current statement of order and supersedes the sequencing in the milestone sections.
 
 **Old regime, 2026-09-17.** Every campaign recorded below up to `experiments/r3-h2-dev-20260917` ran under the old regime (*sotto vecchia gestione*): one calibrated 16,384-token window for every question, a calibration probe before any run, a single blended completion rate, and models served through Ollama or LM Studio. Their defect fixes and mechanism observations stand; their completion rates are not capability claims and their sample sizes are not carried forward. The proposed replacement -- evaluation sectioned by harness area, models loaded without a probe, an embedded local engine -- is [the redesign](redesign-2026-09-17.md), under review.
 
@@ -308,7 +310,7 @@ it is taken under starvation. See the redesign, Part E.
    **Launcher follow-up 2026-09-21:** MLX remains the preferred macOS engine;
    the Slint app now defaults to MLX on macOS and keeps explicit `llama` for
    GGUF testing. The repository launcher opens the app in the invocation
-   directory and preserves direct terminal access through `PWR --cli`.
+   directory and preserves direct terminal access through `pwr --cli`.
    **Frontend startup fix 2026-09-21:** the launcher now routes the app's
    development-default `PWR ... serve --stdio` invocation to the core
    binary, preventing recursive app windows and the resulting false

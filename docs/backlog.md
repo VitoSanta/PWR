@@ -599,7 +599,7 @@ Ordered by what they protect, not by size.
       state in the app and the CLI header; refuse by default outside macOS
       until an adapter exists (Linux: bubblewrap or Landlock; Windows: a job
       object and AppContainer), with an explicit opt-out.
-- [ ] **R.4 Keep llama.cpp's server alive across turns.** `LlamaProvider::chat`
+- [ ] **R.4 Keep llama.cpp's server alive across turns.** **Status 2026-09-24:** not needed for the macOS release, where the app runs MLX only; required before Windows. `llama-server` now binds `127.0.0.1` only (`PWR_LLAMA_HOST` removed). `LlamaProvider::chat`
       starts `llama-server` per generation and kills it after one stream, so
       every turn pays the model load and loses the KV cache; `prepare_context`
       reports the requested window without asking the server. Before any
@@ -1585,7 +1585,7 @@ decision. By volume this is plausibly more work than every other block together.
       lab can replace the workspace's ask-before list with all supported action
       kinds or an empty list through `_pwr/approvals`. Model and window are
       visible; window and sandbox controls remain.
-- [ ] **D.10 First run and onboarding.** A new user opens PWR with no model
+- [ ] **D.10 First run and onboarding.** **Status 2026-09-24:** a first-run screen installs the MLX engine (standalone Python and pinned packages through the bundled `uv`, progress, cancel, retry), then points to the Model Manager; an empty conversation offers the Model Manager too. A guided first task remains. Record: A new user opens PWR with no model
       at all. This path has neither a design nor a line of code, and it is the
       first thing every user will meet.
 - [ ] **D.11 Evidence and verification view.** **Status 2026-09-23:** the Tauri app has Evidence and Core log panels beside Changes; a dedicated verification layout and stop classification remain. Record: **Command increment
@@ -1609,7 +1609,7 @@ decision. By volume this is plausibly more work than every other block together.
 - [ ] **D.16 The app's language.** Never decided. PWR is for people who
       cannot pay for API access, and the maintainer works in Italian; this is
       not a detail to leave to the end.
-- [ ] **D.17 S3 — the app itself**, covering everything the console does, on
+- [ ] **D.17 S3 — the app itself**, **Status 2026-09-24:** 0.1.0 released as a public alpha for macOS on Apple silicon: ad-hoc signed DMG with the core, the engine scripts and `uv` bundled; not notarized (first launch goes through System Settings → Privacy & Security → Open Anyway). Notarization and Windows remain. Record: covering everything the console does, on
       both platforms, with signed installable builds.
 
 - [x] **D.E2E-1 Commands without a shell reported false success (2026-09-22).**

@@ -7,7 +7,7 @@ document says plainly what the boundary is and where it ends.
 **It is a public alpha. Do not point it at anything you cannot afford to lose,
 and do not run it unattended on a repository you did not write.**
 
-## Current policy — 2026-09-23
+## Current policy — 2026-09-24
 
 **Two permission modes, per workspace.** A conversation runs in **Ask**, the
 default, or **Auto**, chosen in the app (`permission_mode` in the workspace's
@@ -57,6 +57,16 @@ On macOS a tool runs under a seatbelt profile:
 - **`HOME` and `TMPDIR`** point inside the workspace, so a package manager's
   caches stay inside the boundary rather than widening it.
 
+In the app:
+
+- **The app's webview has a Content Security Policy.** Scripts load only
+  from the app itself, network requests only reach the core's IPC, and
+  remote images in a model's reply are not loaded. Web links open in your
+  browser, and only `http(s)` links.
+- **Revert goes through the core.** The app never writes to a workspace
+  itself. "Revert" asks the core to put a file back, the core refuses if the
+  file no longer holds what the model wrote, and every revert is logged.
+
 Every tool attempt is recorded in a hash-chained log, denied as well as
 allowed, and `pwr report --format jsonl <run>` will tell you whether that
 chain still holds.
@@ -70,16 +80,25 @@ These are not oversights; they are the known limits of the current design.
   still read the system and toolchain paths. The flag's own help says to use it
   only for work you are willing to watch. Running provisioning in a separate
   process or VM is unbuilt.
-- **Linux and Windows have no sandbox adapter.** On those platforms
-  `SandboxPolicy::Required` refuses to run rather than running unconfined, and
-  `Preferred` runs unconfined and records that it did. Check `sandboxed` on any
-  result before trusting it.
+- **Linux and Windows have no sandbox adapter.** On those platforms a command
+  is refused, unless `PWR_ALLOW_UNCONFINED=1` is set; then it runs with your
+  full rights and is recorded as `sandboxed: false`. Check `sandboxed` on any
+  result before trusting it. The app is built for macOS only.
 - **A repository is untrusted input.** A file that instructs the agent to fetch
   and run something is prose; the command still has to pass policy. The frozen
   corpus contains such a file deliberately.
-- **The model backend is trusted to be local.** A non-loopback endpoint is
-  refused unless `--allow-remote-endpoint` is given, because a prompt carries
-  repository excerpts with it.
+- **Local services are host-wide, not loopback-only.** On macOS the sandbox
+  can only name `localhost`, which covers every address the machine holds, so
+  a `LocalService` grant reaches services on LAN interfaces too.
+- **The model runs on this machine, and nowhere else.** A prompt carries
+  repository excerpts, so PWR has no remote-inference option. The MLX engine
+  is a child process of the core, spoken to over its standard input and
+  output, with no network endpoint at all. The llama.cpp engine (command line
+  only, not used by the app) is a `llama-server` the core starts on
+  `127.0.0.1` and nowhere else. Until 2026-09-24 `PWR_LLAMA_HOST` could bind
+  it to another address with nothing refusing it; that setting is gone. (The
+  `--allow-remote-endpoint` flag this document used to describe was removed
+  with the Ollama and LM Studio backends on 2026-09-19.)
 
 ## Reporting something
 

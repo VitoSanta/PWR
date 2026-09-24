@@ -14,7 +14,7 @@ Three words carried more than one meaning in the older documents and are disambi
 | **Adapter** | The code translating canonical requests into a deployment's wire and prompt conventions, IMPLEMENTED in [pwr-compat](../crates/pwr-compat/src/lib.rs). An adapter cannot supply a tool skill the model was never trained for. |
 | **Probe** | A measurement run against a deployment. Discovery probes read declared facts; protocol probes test streams, tool names/arguments, abstention and cancellation; task-like probes vary catalog size, dependency depth, stale paths and evidence position; performance probes separate load, cold prefill, cached prefill, decode and pressure. |
 | **Capability evidence** | Versioned probe observations with sample counts, uncertainty and provenance. Distinguishes `supported`, `observed reliable in these trials`, `unsupported` and `unknown`. A short successful probe is not certification. |
-| **Calibration** | The measurement of an operating point (granted context, occupancy, complete-stream and pressure behaviour) for a deployment, IMPLEMENTED as the v5 protocol in the orchestrator. It is not evidence of useful coding context. |
+| **Calibration** | The measurement of an operating point (granted context, occupancy, complete-stream and pressure behaviour) for a deployment, IMPLEMENTED as the v6 protocol in the orchestrator (`pwr calibrate`; no longer required before a conversation, which computes its window instead). It is not evidence of useful coding context. |
 
 ## Context
 

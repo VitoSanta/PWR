@@ -1,7 +1,7 @@
 # `pwr serve` — the protocol between the PWR app and its core
 
 **Product decision, 2026-09-16.** PWR's user-facing product is **its own
-desktop application, for macOS and Windows** -- a standalone app in the manner of
+desktop application, for macOS and (not yet built) Windows** -- a standalone app in the manner of
 the ChatGPT and Claude desktop apps: a simple interface that makes clear what the
 agent is doing. **It is the only front end PWR has.** PWR is not a plugin for
 code editors or IDEs, and editor integration is not a goal. An earlier version of
@@ -30,7 +30,11 @@ returns rated variants; `_pwr/download` also takes a Hub variant
 (`repository`, `revision`, `variant`, `format`) whose files the core re-reads
 at that commit, and `_pwr/download_progress` now carries the download's
 `state` (`preparing`, `downloading`, `verifying`, `completed`, `failed` with a
-`kind`, `cancelled`); `_pwr/local_models` (`cwd`) lists the models on
+`kind`, `cancelled`); `_pwr/revert` (`sessionId`, `path`, `expected`, `restore` -- the previous
+content, or `null` to remove a created file) puts one changed file back only
+if it still holds `expected`, the model's version, and records
+`conversation.reverted` (2026-09-24; the app used to write the file itself);
+`_pwr/local_models` (`cwd`) lists the models on
 this machine and `_pwr/model_delete` (`cwd`, `modelRef`, `format`)
 deletes one, refusing the model the workspace uses. **2026-09-24** (details in
 [`model-compatibility.md`](model-compatibility.md)): `_pwr/models` also

@@ -3,7 +3,7 @@
 # CLI Specification
 
 ```text
-PWR                                  # interactive workspace chat and agent control
+pwr                                  # interactive workspace chat and agent control
 pwr chat [--attach PATH]...          # same, with explicit external inputs
 pwr doctor [--json]                  # discover host, Ollama and capability probes
 pwr models inspect <model> [--probe] [--timeout-secs N] [--probe-trials N]
@@ -13,7 +13,7 @@ pwr repo index [PATH]                # build/update repository intelligence
 pwr run <TASK> [--model TAG] [--profile CALIBRATION] [--dry-run]
                                         [--approve dependency-change,history-rewrite,publish,network-access]
                                         [--turn-timeout-secs N]
-PWR verify [RUN_ID] [--scope targeted|full]
+pwr verify [RUN_ID] [--scope targeted|full]
 pwr eval run <SUITE> --model <TAG> --profile <CALIBRATION>
                                         [--seed N] [--temperature-milli N]
                                         [--turn-timeout-secs N] [--out-dir DIR]

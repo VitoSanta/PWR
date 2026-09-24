@@ -13,7 +13,7 @@ llama.cpp.
 The installed launcher resolves PWR's own Cargo workspace before it checks
 for a rebuild, while preserving the shell's current directory as the target
 workspace. Therefore `pwr` is valid from a non-Rust project such as an
-Angular application; `PWR --cli ...` addresses the direct terminal core.
+Angular application; `pwr --cli ...` addresses the direct terminal core.
 
 For a substantial task such as an Angular site, select the assistant, enable
 **Goal mode** in the compose bar, then send one complete objective. Goal mode
@@ -264,7 +264,7 @@ Every run prints a run id. Afterwards:
 pwr report <run-id> --format md      # what happened, as a document
 pwr session list                     # sessions in this workspace
 pwr session show <name>              # what a session established, re-checked
-PWR verify <run-id>                  # the event log's hash chain
+pwr verify <run-id>                  # the event log's hash chain
 ```
 
 For each run, keep: the task text verbatim, the deployment and profile, the run

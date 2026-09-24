@@ -27,6 +27,8 @@ All transitions --> EventStore --> UI projection / diagnostics / evaluation
 RepositoryIndex --> ContextEngine; CapabilityEvidence --> BehaviorPolicy
 ```
 
+> **Note, 2026-09-24.** This table records the 2026-09-12 target. Since then the client is the desktop app (Tauri 2 + Angular), a client of `pwr serve --stdio` (ACP). The ratatui console remains as the development tool; see the [audit](adaptive-runtime/CURRENT_ARCHITECTURE_AUDIT.md) and [PWR_PRODUCT_SOURCE_OF_TRUTH.md](PWR_PRODUCT_SOURCE_OF_TRUTH.md) for what is built.
+
 No adapter executes tools. No model result authorizes effects. Evaluator-hidden checks never reach the context engine, task state, file search or ordinary tool process.
 
 | Component | Responsibility and state owned | Dependencies and boundary reason | Current reuse / decision |

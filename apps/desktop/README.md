@@ -23,11 +23,13 @@ the app never writes to a workspace itself. It is the supported desktop client.
   context panel -- what fills the window (estimated), the auto-compaction
   threshold, the last compaction and **Compact now**
   ([`docs/models-and-context.md`](../../docs/models-and-context.md)).
-- **Model Manager**: this machine's memory, GPU, disk and engines; a search of
-  Hugging Face for MLX or GGUF models, with further pages available through
+- **Model Manager**: this machine's memory, GPU, disk and engine; a search of
+  Hugging Face for MLX models, with further pages available through
   **Load more models**; each variant is rated for this machine
-  with its explanation; verified, resumable downloads into the engine's
-  models folder, with progress and cancel.
+  with its explanation; verified, resumable downloads into `~/.pwr/models`
+  (or `PWR_MLX_MODELS`), with progress and cancel; the models on this Mac,
+  with delete. GGUF search appears only when the core runs llama.cpp, which a
+  release build on macOS never does.
 - **Goal** mode (keep working across check-ins until verified) and the
   **Auto-approve** switch (off = Ask, on = Auto, amber) with a warning when
   commands are not sandboxed.
@@ -37,6 +39,10 @@ the app never writes to a workspace itself. It is the supported desktop client.
 - **Images** for models that see: an image file dropped or attached reaches
   the model (the picker marks them "sees images"); with any other model the
   composer warns and the core refuses the message.
+- **Revert** a changed file, or all of them, from the Changes panel. The
+  core does it (`_pwr/revert`): it refuses when the file no longer holds what
+  the model wrote, so a later manual edit is never overwritten, and it records
+  the revert in the conversation's log.
 - Permission prompts (allow once, for the session, reject); conversations
   listed and resumed per workspace; the last workspace reopened.
 
@@ -54,6 +60,17 @@ src/app/ui/kit/          the shared primitives: icon, dialog, popover, select, t
                          toasts and the confirmation dialog
 src/styles/              the design system, in layers: tokens, base, primitives, shell, conversation, panels
 ```
+
+### Content Security Policy
+
+`tauri.conf.json` sets one: scripts only from the app (Tauri adds the hash of
+the inline theme script in `index.html`), styles from the app and inline
+(Angular injects component styles at run time, so Tauri is told not to add
+hashes to `style-src`, which would disable `'unsafe-inline'`), images from
+the app, `data:` and `blob:`, and network access only to Tauri's IPC. Angular's
+inlined critical CSS is off (`angular.json`), because it loads the stylesheet
+through an inline `onload` handler the policy would block. A development build
+uses a looser `devCsp` that also allows the dev server's websocket.
 
 ### Design system
 
@@ -85,7 +102,12 @@ remembered.
 or floating panel.
 
 The shell looks for the core in `PWR_CORE`, then the bundled one, then the
-checkout's `target/release/pwr`, then `pwr` on `PATH`. For the engine's
+checkout's `target/release/pwr`, then `pwr` on `PATH`. It hands the core the
+engine's scripts bundled with the app (`sidecar/pwr_mlx.py`,
+`sidecar/pwr_embed.py`, as `PWR_MLX_SIDECAR` / `PWR_EMBED_SIDECAR` unless
+those are already set); a build without them falls back to the checkout's.
+A release build always runs the MLX engine; `PWR_BACKEND` is honoured only by
+a development build. For the engine's
 Python it uses `PWR_MLX_PYTHON`, then the environment the app installed
 itself (below); a development build (`npx tauri dev`) also takes the
 checkout's `.venv-mlx`, a release build never does, so it behaves as it will
@@ -111,8 +133,10 @@ On first launch PWR opens **Chat**, which has no project workspace. To
 enter Agent mode, choose a folder; the first open asks you to trust that exact
 folder before starting the core. Trust is remembered per folder, and does not
 change the Ask/Auto-approve setting. The desktop bundle includes the `pwr`
-core executable and `uv`, which `scripts/bundle-uv.sh` copies from `PATH`
-at build time (`brew install uv`; the binary is not committed).
+core executable, the MLX engine's two Python scripts, and `uv`, which
+`scripts/bundle-uv.sh` copies from `PATH` at build time (`brew install uv`;
+the binary is not committed). The bundle is ad-hoc signed
+(`signingIdentity: "-"`), not notarized.
 
 ```bash
 cargo build --release -p pwr-cli          # from the repository root: the core
@@ -120,7 +144,8 @@ npm install
 npx tauri build --bundles app                # src-tauri/target/release/bundle/macos/PWR.app
 ```
 
-Copy `PWR.app` to `/Applications` to install it. `npx tauri dev` runs it
+Copy `PWR.app` to `/Applications` to install it. `npx tauri build` (all
+targets) also produces `bundle/dmg/PWR_0.1.0_aarch64.dmg`. `npx tauri dev` runs it
 against the development server; `npx ng serve` alone serves the interface in a
 browser, where `?demo` fills it with a recorded conversation (the core is not
 reachable from a browser).

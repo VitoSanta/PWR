@@ -1,6 +1,6 @@
 # Current CLI: manual local testing
 
-**Current as of 2026-09-23.** The command line is the development and research
+**Current as of 2026-09-24.** The command line is the development and research
 surface: it makes model selection, probes, suites, runs and failures
 reproducible from a terminal. The product surface is the desktop app
 (`apps/desktop`, Tauri 2 + Angular), which drives the same core through
@@ -19,10 +19,12 @@ sh scripts/setup-mlx.sh           # .venv-mlx: mlx, mlx-lm, mlx-vlm, mlx-embeddi
 cargo build --release -p pwr-cli
 ```
 
-MLX models are folders under `~/.lmstudio/models/<publisher>/<name>` (the
-folder is only storage) or under `PWR_MLX_MODELS`. `PWR_MLX_PYTHON`
-names another interpreter; without it the launcher and the app look for
-`.venv-mlx`, then the engine spike's environment on the maintainer's machine.
+MLX models are folders under `~/.pwr/models/<publisher>/<name>`, where the
+app's Model Manager and `pwr models download` put them, or under
+`PWR_MLX_MODELS`. (Until 2026-09-24 the default was `~/.lmstudio/models`; a
+collection kept there is used by pointing `PWR_MLX_MODELS` at it or by moving
+it.) `PWR_MLX_PYTHON` names another interpreter; without it the launcher
+uses the checkout's `.venv-mlx`, and the app the engine it installed itself.
 
 ## A conversation
 
@@ -96,16 +98,20 @@ not change with what is installed.
 - `search` with `in_dependencies: true` is the model's tool for reading the
   project's installed dependencies; it has no flag.
 
-## GGUF through llama.cpp (limited)
+## GGUF through llama.cpp (experimental, command line only)
+
+On a Mac, PWR runs MLX; the desktop app never starts llama.cpp in a release
+build. The GGUF engine is kept for the Windows work, and can be tried from the
+command line:
 
 ```bash
-export PWR_LLAMA_MODELS="$HOME/.pwr/artifacts"
 export PWR_LLAMA_SERVER="$(command -v llama-server)"
-PWR --backend llama chat --model <publisher>/<repo>/<file>.gguf
+pwr --backend llama chat --model <publisher>/<repo>/<file>.gguf
 ```
 
-The engine starts and owns `llama-server`, and constrains a tool call to the
-offered catalogue. **The server is started per generation** (backlog R.4), so
+GGUF files are looked for under `~/.pwr/models` or `PWR_LLAMA_MODELS`. The
+engine starts and owns `llama-server` on `127.0.0.1` (not configurable), and
+constrains a tool call to the offered catalogue. **The server is started per generation** (backlog R.4), so
 each turn pays the model load and loses the KV cache: usable for a watched
 check, not for performance.
 
