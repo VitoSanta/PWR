@@ -363,6 +363,8 @@ textarea::placeholder { color: var(--muted); }
 .shield { font-size: 26px; color: var(--warn); }
 .delete-shield { color: var(--bad); }
 .choices { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.trust-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(100%, 280px); margin-left: auto; }
+.trust-choices button { min-width: 0; min-height: 40px; box-sizing: border-box; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes pop { from { opacity: 0; transform: translateY(12px) scale(0.97); } }
 

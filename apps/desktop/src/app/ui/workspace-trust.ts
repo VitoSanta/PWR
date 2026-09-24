@@ -12,8 +12,8 @@ import { AgentStore } from '../core/agent.store';
           <p class="asked trust-path">{{ folder }}</p>
           <p id="trust-description" class="muted">PWR can read and edit files and run commands here. Review this folder and its project instructions before continuing. Your Ask or Auto-approve setting stays as configured.</p>
           @if (store.workspaceTrustError()) { <p class="warn">{{ store.workspaceTrustError() }}</p> }
-          <div class="choices">
-            <button class="ghost" autofocus (click)="store.cancelWorkspaceTrust()" [disabled]="store.trustingWorkspace()">Cancel</button>
+          <div class="choices trust-choices">
+            <button class="ghost" (click)="store.cancelWorkspaceTrust()" [disabled]="store.trustingWorkspace()">Cancel</button>
             <button class="primary" (click)="store.confirmWorkspaceTrust()" [disabled]="store.trustingWorkspace()">{{ store.trustingWorkspace() ? 'Opening…' : 'Trust folder' }}</button>
           </div>
         </div>
