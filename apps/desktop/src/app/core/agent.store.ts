@@ -159,7 +159,7 @@ export class AgentStore {
         clientCapabilities: {},
         clientInfo: { name: 'pwr-desktop', version: '0.1.0' },
       });
-      this.chatHome.set(hello?._meta?.poorai?.chatHome ?? '');
+      this.chatHome.set(hello?._meta?.pwr?.chatHome ?? hello?._meta?.poorai?.chatHome ?? '');
       this.coreState.set('ready');
       await Promise.all([this.refreshModels(), this.refreshSessions(), this.refreshPermissions()]);
     } catch (error) {
