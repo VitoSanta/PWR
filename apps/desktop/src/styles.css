@@ -66,15 +66,16 @@ code, pre { font-family: var(--mono); }
   position: relative;
   display: grid;
   --side-cap: max(230px, calc((100vw - 540px) / 2));
-  grid-template-columns: min(var(--left-width, 272px), var(--side-cap)) minmax(540px, 1fr) min(var(--right-width, 360px), var(--side-cap));
+  grid-template-columns: minmax(0px, min(var(--left-width, 272px), var(--side-cap))) minmax(540px, 1fr) minmax(0px, min(var(--right-width, 360px), var(--side-cap)));
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
+  transition: grid-template-columns 240ms var(--ease);
 }
 .shell.mac-titlebar { padding-top: 30px; }
 .titlebar-space { position: absolute; inset: 0 0 auto; height: 30px; }
-.shell:has(pa-sidebar.collapsed) { --side-cap: max(230px, calc(100vw - 588px)); grid-template-columns: 48px minmax(540px, 1fr) min(var(--right-width, 360px), var(--side-cap)); }
-.shell:has(pa-inspector.collapsed) { --side-cap: max(230px, calc(100vw - 588px)); grid-template-columns: min(var(--left-width, 272px), var(--side-cap)) minmax(540px, 1fr) 48px; }
-.shell:has(pa-sidebar.collapsed):has(pa-inspector.collapsed) { grid-template-columns: 48px minmax(540px, 1fr) 48px; }
+.shell:has(pa-sidebar.collapsed) { --side-cap: max(230px, calc(100vw - 588px)); grid-template-columns: minmax(0px, 48px) minmax(540px, 1fr) minmax(0px, min(var(--right-width, 360px), var(--side-cap))); }
+.shell:has(pa-inspector.collapsed) { --side-cap: max(230px, calc(100vw - 588px)); grid-template-columns: minmax(0px, min(var(--left-width, 272px), var(--side-cap))) minmax(540px, 1fr) minmax(0px, 48px); }
+.shell:has(pa-sidebar.collapsed):has(pa-inspector.collapsed) { grid-template-columns: minmax(0px, 48px) minmax(540px, 1fr) minmax(0px, 48px); }
 .center { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-inline: 1px solid var(--line); background: rgba(7, 9, 14, 0.55); backdrop-filter: blur(18px); }
 .topbar {
   height: 52px; flex: none;
@@ -114,11 +115,13 @@ pa-composer { display: block; flex: none; }
   background: rgba(10, 13, 20, 0.7); backdrop-filter: blur(20px);
   overflow-y: auto;
 }
-pa-sidebar.collapsed .sidebar > :not(.brand), pa-inspector.collapsed .inspector > :not(.inspector-heading) { display: none; }
-pa-sidebar.collapsed .sidebar { padding-inline: 8px; }
+.sidebar > :not(.brand), .inspector > :not(.inspector-heading) { transition: opacity 140ms ease, visibility 0s; }
+pa-sidebar.collapsed .sidebar > :not(.brand), pa-inspector.collapsed .inspector > :not(.inspector-heading) { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 140ms ease, visibility 0s linear 140ms; }
+pa-sidebar.collapsed .sidebar { padding-inline: 8px; overflow: hidden; }
 pa-sidebar.collapsed .brand > :not(.sidecar-toggle) { display: none; }
 pa-sidebar.collapsed .brand { padding: 0; justify-content: center; }
 .inspector-heading { min-height: 32px; }
+pa-inspector.collapsed .inspector { overflow: hidden; }
 pa-inspector.collapsed .inspector-heading { justify-content: center; padding-inline: 4px; }
 pa-inspector.collapsed .inspector-heading strong { display: none; }
 .sidecar-toggle { display: grid; place-items: center; flex: none; border: 1px solid transparent; background: transparent; border-radius: 8px; width: 30px; height: 30px; color: var(--muted); }
@@ -373,10 +376,11 @@ textarea::placeholder { color: var(--muted); }
 @keyframes pop { from { opacity: 0; transform: translateY(12px) scale(0.97); } }
 
 @media (max-width: 1180px) {
-  .shell:has(pa-inspector:not(.collapsed)) { --side-cap: max(230px, calc(100vw - 588px)); grid-template-columns: min(var(--left-width, 272px), var(--side-cap)) minmax(540px, 1fr) 48px; }
-  .shell:has(pa-sidebar.collapsed):has(pa-inspector:not(.collapsed)) { grid-template-columns: 48px minmax(540px, 1fr) 48px; }
+  .shell:has(pa-inspector:not(.collapsed)) { --side-cap: max(230px, calc(100vw - 588px)); grid-template-columns: minmax(0px, min(var(--left-width, 272px), var(--side-cap))) minmax(540px, 1fr) minmax(0px, 48px); }
+  .shell:has(pa-sidebar.collapsed):has(pa-inspector:not(.collapsed)) { grid-template-columns: minmax(0px, 48px) minmax(540px, 1fr) minmax(0px, 48px); }
   .shell pa-inspector:not(.collapsed) { position: absolute; z-index: 5; inset: 0 0 0 auto; width: min(360px, 88vw); box-shadow: -16px 0 40px #0008; }
   .shell.mac-titlebar pa-inspector:not(.collapsed) { top: 30px; }
+  .shell pa-inspector:not(.collapsed) .resize-handle { display: none; }
 }
 
 @media (max-width: 860px) {
@@ -384,7 +388,7 @@ textarea::placeholder { color: var(--muted); }
   .shell:has(pa-sidebar:not(.collapsed)), .shell:has(pa-inspector:not(.collapsed)),
   .shell:has(pa-sidebar.collapsed):has(pa-inspector:not(.collapsed)),
   .shell:has(pa-sidebar:not(.collapsed)):has(pa-inspector.collapsed),
-  .shell:has(pa-sidebar:not(.collapsed)):has(pa-inspector:not(.collapsed)) { grid-template-columns: 48px minmax(0, 1fr) 48px; }
+  .shell:has(pa-sidebar:not(.collapsed)):has(pa-inspector:not(.collapsed)) { grid-template-columns: minmax(0px, 48px) minmax(0px, 1fr) minmax(0px, 48px); }
   .sidebar, .inspector { padding: 12px 8px; }
   .topbar { padding-inline: 10px; }
   .shell pa-sidebar:not(.collapsed) { position: absolute; z-index: 5; inset: 0 auto 0 0; width: min(300px, 85vw); box-shadow: 16px 0 40px #0008; }
