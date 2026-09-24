@@ -1,15 +1,15 @@
 <div class="aurora" aria-hidden="true"></div>
 <div class="shell" [class.mac-titlebar]="isMac" [style.--left-width]="leftWidth() + 'px'" [style.--right-width]="rightWidth() + 'px'">
-  @if (isMac) { <div class="titlebar-space" data-tauri-drag-region></div> }
+  @if (isMac) { <div class="titlebar-space" data-tauri-drag-region="deep"></div> }
   <pa-sidebar [width]="leftWidth()" (widthChange)="setLeftWidth($event)" />
   <main class="center">
-    <header class="topbar" data-tauri-drag-region>
-      <div class="title" data-tauri-drag-region>
+    <header class="topbar" data-tauri-drag-region="deep">
+      <div class="title" data-tauri-drag-region="deep">
         <span class="live-dot" [class.on]="store.turnActive()"></span>
         {{ store.turnActive() ? 'Working' : store.sessionId() ? 'Conversation' : 'New conversation' }}
         @if (store.actionCount()) { <small>· {{ store.actionCount() }} actions</small> }
       </div>
-      <div class="topbar-right" data-tauri-drag-region>
+      <div class="topbar-right">
         <pa-context-meter />
         <pa-model-picker />
       </div>
