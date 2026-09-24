@@ -7846,8 +7846,15 @@ async fn computed_execution(
         .prepare_context(deployment, decision.tokens)
         .await
         .map_err(provider_error)?;
+    // The profile's id is derived from its content and it is written as an
+    // immutable artifact, so every field has to be as well: a random strategy
+    // id made the second run in a workspace refuse to overwrite the first
+    // run's identical profile.
     let profile = window::computed_profile(
-        new_id(),
+        pwr_domain::id_from_content(format!(
+            "computed-window:{model_identity}:{}",
+            hardware.compatibility_key
+        )),
         &decision,
         window_in_force,
         &hardware.compatibility_key,

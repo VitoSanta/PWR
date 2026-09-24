@@ -64,9 +64,21 @@ impl MlxConfig {
             .map(PathBuf::from)
             .unwrap_or_default();
         MlxConfig {
+            // Without an override, the engine the desktop app installed is
+            // preferred over the system `python3`, which has no MLX: a `pwr`
+            // run from a shell otherwise saw the sidecar exit on its first
+            // request and every capability probe came back `unknown`.
             python: std::env::var_os("PWR_MLX_PYTHON")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("python3")),
+                .unwrap_or_else(|| {
+                    let installed = home
+                        .join("Library/Application Support/ai.pwr.desktop/engine/venv/bin/python");
+                    if installed.is_file() {
+                        installed
+                    } else {
+                        PathBuf::from("python3")
+                    }
+                }),
             sidecar: std::env::var_os("PWR_MLX_SIDECAR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| {
