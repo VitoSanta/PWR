@@ -16,10 +16,15 @@ import { AgentStore } from '../core/agent.store';
         </button>
       </div>
 
-      <nav class="mode-toggle" aria-label="Conversation mode" [attr.aria-busy]="store.switchingMode() || store.switchingWorkspace()">
-        <button [class.active-mode]="!store.chatMode()" (click)="store.chatMode() ? store.leaveChat() : null" [disabled]="store.turnActive() || !store.chatMode() || store.switchingMode() || store.switchingWorkspace()">Agente</button>
-        <button [class.active-mode]="store.chatMode()" (click)="store.chatMode() ? null : store.openChat()" [disabled]="store.turnActive() || store.chatMode() || !store.chatHome() || store.switchingMode() || store.switchingWorkspace()">Solo Chat</button>
-      </nav>
+      <div class="mode-control">
+        <nav class="mode-toggle" aria-label="Conversation mode" [attr.aria-busy]="store.switchingMode() || store.switchingWorkspace()">
+          <button [class.active-mode]="!store.chatMode()" (click)="store.chatMode() ? store.leaveChat() : null" [disabled]="store.turnActive() || !store.chatMode() || store.switchingMode() || store.switchingWorkspace()">Agente</button>
+          <button [class.active-mode]="store.chatMode()" (click)="store.chatMode() ? null : store.openChat()" [disabled]="store.turnActive() || store.chatMode() || !store.chatHome() || store.switchingMode() || store.switchingWorkspace()">Solo Chat</button>
+        </nav>
+        @if (store.switchingMode() || store.switchingWorkspace()) {
+          <span class="mode-loading" role="status"><span class="spinner" aria-hidden="true"></span>Apertura workspace…</span>
+        }
+      </div>
 
       <button class="new" (click)="store.newConversation()" [disabled]="store.turnActive()">＋ New conversation</button>
 
