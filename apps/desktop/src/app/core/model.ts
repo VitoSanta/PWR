@@ -241,6 +241,10 @@ export interface DownloadView {
   downloadId: string;
   state: DownloadState;
   file?: string;
+  /** Known before the first progress event so the local tab can show it. */
+  format?: 'mlx' | 'gguf';
+  totalBytes?: number;
+  fileCount?: number;
   /** Set when the download finished: what to do, if anything, before use. */
   modelRef?: string;
   ready?: boolean;

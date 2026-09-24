@@ -38,7 +38,7 @@ use pwr_provider::{
     BackendCapabilities, DiscoveredModel, InferenceBackend, ModelFacts, ModelProvider, ModelStream,
     ProviderError,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
@@ -456,6 +456,52 @@ impl MlxProvider {
             .map(|metadata| metadata.len())
             .sum();
         (total > 0).then_some(total)
+    }
+
+    fn model_weights_complete(dir: &Path) -> bool {
+        let index = dir.join("model.safetensors.index.json");
+        if index.exists() {
+            let Ok(bytes) = std::fs::read(index) else {
+                return false;
+            };
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                return false;
+            };
+            let Some(weight_map) = value
+                .get("weight_map")
+                .and_then(serde_json::Value::as_object)
+            else {
+                return false;
+            };
+            let required: BTreeSet<&str> = weight_map
+                .values()
+                .filter_map(serde_json::Value::as_str)
+                .collect();
+            if required.is_empty() {
+                return false;
+            }
+            return required.into_iter().all(|name| {
+                let path = Path::new(name);
+                path.components().count() == 1
+                    && path.file_name().and_then(|part| part.to_str()) == Some(name)
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension == "safetensors")
+                    && std::fs::metadata(dir.join(path))
+                        .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+            });
+        }
+
+        std::fs::read_dir(dir).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                let path = entry.path();
+                path.extension()
+                    .is_some_and(|extension| extension == "safetensors")
+                    && entry
+                        .metadata()
+                        .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+            })
+        })
     }
 }
 
@@ -915,6 +961,14 @@ impl ModelProvider for MlxProvider {
         deployment: &DeploymentDescriptor,
     ) -> Result<ModelInspection, ProviderError> {
         let dir = self.config.model_dir(&deployment.model_ref)?;
+        if !MlxProvider::model_weights_complete(&dir) {
+            return Err(ProviderError::Protocol {
+                safe_context: format!(
+                    "{} does not have all required safetensors weights",
+                    deployment.model_ref
+                ),
+            });
+        }
         let config_bytes =
             std::fs::read(dir.join("config.json")).map_err(|error| ProviderError::Protocol {
                 safe_context: format!("cannot read {}: {error}", dir.display()),
@@ -1127,6 +1181,9 @@ impl InferenceBackend for MlxProvider {
                 let Some(config) = Self::read_config(&dir) else {
                     continue;
                 };
+                if !MlxProvider::model_weights_complete(&dir) {
+                    continue;
+                }
                 // Only MLX-format artifacts: a GGUF directory has no config.
                 let Ok(relative) = dir.strip_prefix(&self.config.models_root) else {
                     continue;
@@ -1173,6 +1230,11 @@ impl InferenceBackend for MlxProvider {
 
     async fn load_model(&self, model_ref: &str) -> Result<(), ProviderError> {
         let dir = self.config.model_dir(model_ref)?;
+        if !MlxProvider::model_weights_complete(&dir) {
+            return Err(ProviderError::Protocol {
+                safe_context: format!("{model_ref} does not have all required safetensors weights"),
+            });
+        }
         let mut slot = self.sidecar.lock().await;
         self.ensure_loaded(&mut slot, &dir).await
     }
