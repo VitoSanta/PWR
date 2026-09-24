@@ -76,6 +76,10 @@ against the development server; `npx ng serve` alone serves the interface in a
 browser, where `?demo` fills it with a recorded conversation (the core is not
 reachable from a browser).
 
+The bundled desktop icon is generated from `src-tauri/icons/pwr-source.png`.
+After changing that source, run `npx tauri icon src-tauri/icons/pwr-source.png`
+to regenerate the platform icons before building.
+
 ## Tests
 
 `npx ng test --watch=false` runs the unit tests (Vitest): number formatting,

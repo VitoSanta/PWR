@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, inject, Input, Output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, inject, Input, Output, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { Diff, diffStats } from './diff';
 
@@ -76,7 +76,8 @@ import { Diff, diffStats } from './diff';
 })
 export class Inspector {
   protected readonly store = inject(AgentStore);
-  protected readonly collapsed = signal(typeof window !== 'undefined' && window.innerWidth <= 1180);
+  private autoCollapsed = typeof window !== 'undefined' && window.innerWidth <= 1180;
+  protected readonly collapsed = signal(this.autoCollapsed);
   @Input() width = 360;
   @Output() widthChange = new EventEmitter<number>();
   private drag: { pointerId: number; x: number; width: number } | null = null;
@@ -90,6 +91,15 @@ export class Inspector {
   protected readonly commands = ['verify', 'changes', 'report', 'diagnose', 'doctor'] as const;
 
   protected toggleCollapsed(): void { this.collapsed.update((value) => !value); }
+
+  @HostListener('window:resize')
+  protected syncWindowWidth(): void {
+    const compact = window.innerWidth <= 1180;
+    if (compact !== this.autoCollapsed) {
+      this.autoCollapsed = compact;
+      this.collapsed.set(compact);
+    }
+  }
 
   protected startResize(event: PointerEvent): void {
     this.drag = { pointerId: event.pointerId, x: event.clientX, width: this.width };
@@ -116,7 +126,7 @@ export class Inspector {
 
   private clampWidth(width: number): number {
     const left = document.querySelector('pa-sidebar')?.getBoundingClientRect().width ?? 48;
-    return Math.max(230, Math.min(500, window.innerWidth - left - 600, width));
+    return Math.max(230, Math.min(500, window.innerWidth - left - 540, width));
   }
 
   protected stats(change: { oldText: string; newText: string }) {

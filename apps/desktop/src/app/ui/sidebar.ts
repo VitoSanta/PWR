@@ -84,7 +84,8 @@ import { AgentStore } from '../core/agent.store';
 })
 export class Sidebar {
   protected readonly store = inject(AgentStore);
-  protected readonly collapsed = signal(typeof window !== 'undefined' && window.innerWidth <= 760);
+  private autoCollapsed = typeof window !== 'undefined' && window.innerWidth <= 860;
+  protected readonly collapsed = signal(this.autoCollapsed);
   protected readonly deleteError = signal('');
   protected readonly pendingDelete = signal<{ sessionId: string; title: string } | null>(null);
   protected readonly deleting = signal(false);
@@ -93,6 +94,15 @@ export class Sidebar {
   private drag: { pointerId: number; x: number; width: number } | null = null;
 
   protected toggleCollapsed(): void { this.collapsed.update((value) => !value); }
+
+  @HostListener('window:resize')
+  protected syncWindowWidth(): void {
+    const compact = window.innerWidth <= 860;
+    if (compact !== this.autoCollapsed) {
+      this.autoCollapsed = compact;
+      this.collapsed.set(compact);
+    }
+  }
 
   protected askDelete(sessionId: string, title: string): void {
     this.deleteError.set('');
@@ -146,7 +156,7 @@ export class Sidebar {
 
   private clampWidth(width: number): number {
     const right = document.querySelector('pa-inspector')?.getBoundingClientRect().width ?? 48;
-    return Math.max(230, Math.min(500, window.innerWidth - right - 600, width));
+    return Math.max(230, Math.min(500, window.innerWidth - right - 540, width));
   }
 
   protected short(path: string): string {
