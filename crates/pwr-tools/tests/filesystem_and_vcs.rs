@@ -179,6 +179,29 @@ fn status_and_diff_report_what_actually_changed() {
     assert!(diff.stdout.contains("+fn two() {}"), "{}", diff.stdout);
 }
 
+#[test]
+fn status_and_diff_find_one_nested_checkout() {
+    let workspace = tempfile::tempdir().unwrap();
+    let site = workspace.path().join("site");
+    fs::create_dir(&site).unwrap();
+    git(&site, &["init", "-q", "-b", "main"]);
+    fs::write(site.join("index.html"), "before\n").unwrap();
+    git(&site, &["add", "."]);
+    git(&site, &["commit", "-qm", "first"]);
+    fs::write(site.join("index.html"), "after\n").unwrap();
+
+    let policy = policy(workspace.path());
+    let status = block_on(vcs_status(&policy)).unwrap();
+    assert!(
+        status
+            .changed
+            .iter()
+            .any(|(_, path)| path == "site/index.html")
+    );
+    let diff = block_on(vcs_diff(&policy, &["site/index.html".into()])).unwrap();
+    assert!(diff.stdout.contains("+after"), "{}", diff.stdout);
+}
+
 /// A workspace that is not a checkout reports no branch rather than inventing
 /// one, which is the rule `session show` already follows.
 #[test]

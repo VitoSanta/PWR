@@ -9,7 +9,7 @@ PWR is an open-source desktop app and Rust core that turns a local language mode
 
 It is also a research project. The question behind it is **same model + same task + different harness: what improves, and at what cost?** PWR does not claim that local models equal frontier models, or that it already competes with cloud coding agents.
 
-> **Public alpha (0.1.0-alpha).** PWR is usable today and changes quickly; it is open source and developed in the open. It runs a model's output as commands against your files: read [SECURITY.md](SECURITY.md) first, and do not point it at anything you cannot afford to lose.
+> **Public alpha (0.1.1-alpha).** PWR is usable today and changes quickly; it is open source and developed in the open. It runs a model's output as commands against your files: read [SECURITY.md](SECURITY.md) first, and do not point it at anything you cannot afford to lose.
 
 ## What it does today
 
@@ -30,7 +30,7 @@ Requires a Mac with Apple silicon (M1 or later). A model needs free memory rough
 
 ### The app (DMG)
 
-1. Download [PWR-macOS-arm64.dmg](https://github.com/VitoSanta/PWR/releases/download/v0.1.0-alpha/PWR-macOS-arm64.dmg) from the [v0.1.0-alpha release](https://github.com/VitoSanta/PWR/releases/tag/v0.1.0-alpha), open it and drag **PWR** to **Applications**.
+1. Download [PWR-macOS-arm64.dmg](https://github.com/VitoSanta/PWR/releases/download/v0.1.1-alpha/PWR-macOS-arm64.dmg) and [SHA256SUMS.txt](https://github.com/VitoSanta/PWR/releases/download/v0.1.1-alpha/SHA256SUMS.txt) from the [v0.1.1-alpha release](https://github.com/VitoSanta/PWR/releases/tag/v0.1.1-alpha). Run `shasum -a 256 -c SHA256SUMS.txt` beside the DMG, then open it and drag **PWR** to **Applications**.
 2. This alpha is ad-hoc signed and not notarized by Apple. On first open, macOS may block it. If you trust the copy you downloaded, use **System Settings → Privacy & Security → Open Anyway** after trying to open PWR, then confirm. This is [Apple's documented procedure](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac). Do not disable Gatekeeper globally.
 3. On first launch, PWR installs its engine: a private Python with the pinned MLX packages, about 1.2 GB, in `~/Library/Application Support/ai.pwr.desktop/engine`. No system Python or Xcode tools are needed.
 4. Open the **Model Manager** from the model chip and download a model. Then open a folder, trust it, and ask.
@@ -52,7 +52,7 @@ To reproduce the public Apple-silicon DMG and checksum locally, run
 `sh scripts/release-macos.sh`. It cleans the Rust build outputs, installs the
 locked npm dependencies, builds and verifies the DMG, and writes the final
 files to `dist/release/`. It does not publish anything. See the
-[alpha release notes](docs/release/v0.1.0-alpha-release-notes.md) for the
+[alpha release notes](docs/release/v0.1.1-alpha-release-notes.md) for the
 release procedure and download links.
 
 `npx tauri dev` runs the app from the checkout. From a terminal, `target/release/pwr chat` opens a conversation in the current directory and `pwr run "<task>"` runs a task unattended; `--help` on any command lists its flags, and [docs/current-cli.md](docs/current-cli.md) is the command-line guide.

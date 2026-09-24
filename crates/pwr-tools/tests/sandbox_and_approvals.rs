@@ -815,6 +815,44 @@ fn cwd_runs_the_program_in_a_workspace_subdirectory() {
 }
 
 #[test]
+fn npx_run_reports_the_script_invocation_error_before_execution() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands.push("npx".into());
+    let result = block_on(run_command_in(
+        &policy,
+        "npx",
+        &["run".into(), "build".into()],
+        None,
+        None,
+    ));
+    assert!(
+        matches!(result, Err(ToolError::Denied(message)) if message.contains("executable `npm`")),
+        "expected a concrete npm command"
+    );
+}
+
+#[test]
+fn npm_run_names_the_nested_project_when_cwd_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("site")).unwrap();
+    fs::write(root.path().join("site/package.json"), "{}").unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands.push("npm".into());
+    let result = block_on(run_command_in(
+        &policy,
+        "npm",
+        &["run".into(), "build".into()],
+        None,
+        None,
+    ));
+    assert!(
+        matches!(result, Err(ToolError::Denied(message)) if message.contains("cwd `site`")),
+        "expected a concrete cwd hint"
+    );
+}
+
+#[test]
 fn cwd_cannot_leave_the_workspace() {
     let root = tempfile::tempdir().unwrap();
     let policy = policy(root.path());

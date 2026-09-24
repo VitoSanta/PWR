@@ -267,9 +267,48 @@ impl MlxProvider {
             pwr_compat::adapter_for(family.as_deref(), &request.deployment.model_ref),
         );
         let mut guard = self.sidecar.clone().lock_owned().await;
+        if guard
+            .as_ref()
+            .is_some_and(|sidecar| sidecar.pending.is_some())
+        {
+            match tokio::time::timeout(
+                Self::ENGINE_SILENCE,
+                guard.as_mut().expect("pending sidecar").drain(),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    *guard = None;
+                    return Err(error);
+                }
+                Err(_) => {
+                    *guard = None;
+                    return Err(unavailable(
+                        "the previous MLX reply did not finish draining; the engine was restarted"
+                            .into(),
+                    ));
+                }
+            }
+        }
         self.ensure_loaded(&mut guard, &dir).await?;
+        let requested = tokio::time::timeout(
+            Self::ENGINE_SILENCE,
+            guard.as_mut().expect("loaded").request(chat_body(&request)),
+        )
+        .await;
+        let id = match requested {
+            Ok(Ok(id)) => id,
+            Ok(Err(error)) => return Err(error),
+            Err(_) => {
+                *guard = None;
+                return Err(unavailable(
+                    "the previous MLX reply did not finish draining; the engine was restarted"
+                        .into(),
+                ));
+            }
+        };
         let sidecar = guard.as_mut().expect("loaded");
-        let id = sidecar.request(chat_body(&request)).await?;
         sidecar.pending = Some(id);
         let stdin = sidecar.stdin.clone();
         let (ended_tx, ended_rx) = tokio::sync::oneshot::channel::<()>();
@@ -282,58 +321,102 @@ impl MlxProvider {
         // reply rather than interleaving with it. A stream dropped early leaves
         // `pending` set, and the next request drains the rest first; the
         // sender dropped with it is what ends a cancel watcher.
-        let replies = stream::unfold(Some((guard, live, ended_tx)), move |state| {
-            let adapter = adapter.clone();
-            async move {
-                let (mut guard, mut live, ended) = state?;
-                loop {
-                    let sidecar = guard.as_mut().expect("loaded");
-                    // Every stretch of a reply produces an event: prefill
-                    // progress, then a delta per token. Silence this long is
-                    // an engine stuck, not a slow one -- measured 2026-09-22,
-                    // a sidecar blocked in `mlx::core::eval` for thirty
-                    // minutes while the turn waited without a bound, because
-                    // the reply had not produced its first chunk.
-                    let event =
-                        match tokio::time::timeout(Self::ENGINE_SILENCE, sidecar.event()).await {
+        let replies = stream::unfold(
+            Some((
+                guard,
+                live,
+                ended_tx,
+                std::time::Instant::now(),
+                std::time::Instant::now(),
+            )),
+            move |state| {
+                let adapter = adapter.clone();
+                async move {
+                    let (mut guard, mut live, ended, mut last_event, mut last_chunk) = state?;
+                    loop {
+                        let sidecar = guard.as_mut().expect("loaded");
+                        // Every stretch of a reply produces an event: prefill
+                        // progress, then a delta per token. Silence this long is
+                        // an engine stuck, not a slow one -- measured 2026-09-22,
+                        // a sidecar blocked in `mlx::core::eval` for thirty
+                        // minutes while the turn waited without a bound, because
+                        // the reply had not produced its first chunk.
+                        let remaining = Self::ENGINE_SILENCE.saturating_sub(last_event.elapsed());
+                        if remaining.is_zero() {
+                            *guard = None;
+                            return Some((
+                                Err(unavailable(
+                                    "the MLX engine stopped reporting progress and was restarted"
+                                        .into(),
+                                )),
+                                None,
+                            ));
+                        }
+                        let wait = Self::PROGRESS_INTERVAL
+                            .saturating_sub(last_chunk.elapsed())
+                            .min(remaining);
+                        let event = match tokio::time::timeout(wait, sidecar.event()).await {
                             Ok(Ok(event)) => event,
                             Ok(Err(error)) => return Some((Err(error), None)),
                             Err(_) => {
-                                // Dropped, the child is killed; the next request
-                                // starts a fresh engine and reloads the model.
-                                *guard = None;
+                                // A content-free chunk keeps the reply collector
+                                // informed without exposing partial tool arguments.
+                                last_chunk = std::time::Instant::now();
                                 return Some((
-                                    Err(unavailable(format!(
-                                        "the MLX engine produced nothing for {} seconds and was \
-                                     restarted; carrying on will reload the model",
-                                        Self::ENGINE_SILENCE.as_secs()
-                                    ))),
-                                    None,
+                                    Ok(ModelChunk::default()),
+                                    Some((guard, live, ended, last_event, last_chunk)),
                                 ));
                             }
                         };
-                    if event["id"].as_u64() != Some(id) {
-                        continue;
-                    }
-                    match step_of(&event, &live.answer, adapter.as_ref()) {
-                        Step::Yield(chunk) => {
-                            return Some((Ok(chunk), Some((guard, live, ended))));
+                        last_event = std::time::Instant::now();
+                        if event["id"].as_u64() != Some(id) {
+                            continue;
                         }
-                        Step::Answer(text) => {
-                            live.answer.push_str(&text);
-                            if let Some(chunk) = live.advance() {
-                                return Some((Ok(chunk), Some((guard, live, ended))));
+                        match step_of(&event, &live.answer, adapter.as_ref()) {
+                            Step::Yield(chunk) => {
+                                return Some((
+                                    Ok(chunk),
+                                    Some((
+                                        guard,
+                                        live,
+                                        ended,
+                                        last_event,
+                                        std::time::Instant::now(),
+                                    )),
+                                ));
                             }
+                            Step::Answer(text) => {
+                                live.answer.push_str(&text);
+                                if let Some(chunk) = live.advance() {
+                                    return Some((
+                                        Ok(chunk),
+                                        Some((
+                                            guard,
+                                            live,
+                                            ended,
+                                            last_event,
+                                            std::time::Instant::now(),
+                                        )),
+                                    ));
+                                }
+                            }
+                            Step::Finish(item) => {
+                                sidecar.pending = None;
+                                return Some((item.map(|chunk| live.finish(chunk)), None));
+                            }
+                            Step::Skip => {}
                         }
-                        Step::Finish(item) => {
-                            sidecar.pending = None;
-                            return Some((item.map(|chunk| live.finish(chunk)), None));
+                        if last_chunk.elapsed() >= Self::PROGRESS_INTERVAL {
+                            last_chunk = std::time::Instant::now();
+                            return Some((
+                                Ok(ModelChunk::default()),
+                                Some((guard, live, ended, last_event, last_chunk)),
+                            ));
                         }
-                        Step::Skip => {}
                     }
                 }
-            }
-        });
+            },
+        );
         Ok((Box::pin(replies), id, stdin, ended_rx))
     }
 
@@ -341,6 +424,7 @@ impl MlxProvider {
     /// Prefill reports progress per step (seconds each, at the widest windows
     /// measured) and generation a delta per token, so this is generous.
     const ENGINE_SILENCE: std::time::Duration = std::time::Duration::from_secs(300);
+    const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(20);
 
     /// Starts the sidecar if it is not running.
     fn ensure_started(&self, slot: &mut Option<Sidecar>) -> Result<(), ProviderError> {

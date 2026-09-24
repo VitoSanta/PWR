@@ -871,6 +871,13 @@ async fn take_turn_inner<P: ModelProvider>(
                             thinking,
                             content: chunk.content.clone(),
                         });
+                    } else if chunk.is_empty() && !chunk.done {
+                        // The provider is still making progress, possibly in
+                        // tool arguments that must not be rendered as text.
+                        on_step(TurnStep::Streaming {
+                            thinking: String::new(),
+                            content: String::new(),
+                        });
                     }
                 }) => outcome,
                 () = pressed(stop) => {

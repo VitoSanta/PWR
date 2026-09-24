@@ -2011,6 +2011,13 @@ impl<R: TurnRunner + 'static> Server<R> {
                         return;
                     }
                     if let TurnStep::Streaming { thinking, content } = &step {
+                        if thinking.is_empty() && content.is_empty() {
+                            server.send(notification(
+                                "_pwr/model_progress",
+                                json!({"sessionId": session_id}),
+                            ));
+                            return;
+                        }
                         // ACP's own channels: reasoning as a thought, the
                         // answer as a message chunk marked live, so a client
                         // can tell it from the whole answer the turn sends at
