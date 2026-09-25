@@ -36,6 +36,9 @@ pub const INTENT_EVENT: &str = "action.intent";
 pub const STEERED_EVENT: &str = "conversation.steered";
 pub const RESUMED_EVENT: &str = "conversation.resumed";
 pub const DELETED_EVENT: &str = "conversation.deleted";
+/// The person took the conversation back to one of their messages; the
+/// snapshot recorded after it is the conversation from then on.
+pub const REWOUND_EVENT: &str = "conversation.rewound";
 
 /// Where a conversation stood at an action boundary.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -3488,6 +3488,30 @@ impl serve::TurnRunner for ConsoleTurns {
         pwr_orchestrator::conversation::record_snapshot(&store, conversation_id, messages)
     }
 
+    fn record_rewind(
+        &self,
+        root: &Path,
+        conversation_id: pwr_domain::Id,
+        messages: &[ChatMessage],
+        detail: &serde_json::Value,
+    ) -> Result<(), String> {
+        let root = root
+            .canonicalize()
+            .map_err(|error| format!("{}: {error}", root.display()))?;
+        fs::create_dir_all(root.join(".pwr")).map_err(|error| error.to_string())?;
+        let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
+            .map_err(|error| error.to_string())?;
+        store
+            .append(
+                Some(conversation_id),
+                pwr_orchestrator::conversation::REWOUND_EVENT,
+                detail.clone(),
+            )
+            .map_err(|error| error.to_string())?;
+        // So a reload resumes from where the person went back to.
+        pwr_orchestrator::conversation::record_snapshot(&store, conversation_id, messages)
+    }
+
     fn last_compaction(
         &self,
         root: &Path,

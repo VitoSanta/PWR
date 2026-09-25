@@ -1014,10 +1014,25 @@ pa-composer {
 .queued-text {
   flex: 1;
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
   overflow: hidden;
   color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: text;
+}
+
+.queued-text:hover {
+  color: var(--text-primary);
+}
+
+.queued-edit {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ------------------------------------------ the trace: Compact phases */
@@ -1311,4 +1326,61 @@ pa-trace-raw {
 
 .outcome.tone-failed > pa-icon {
   color: var(--danger);
+}
+
+/* ------------------------------------------ message actions and rewind */
+.message-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin: var(--space-2) calc(-1 * var(--space-2)) calc(-1 * var(--space-2));
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.message-user:hover .message-actions,
+.message-user:focus-within .message-actions,
+.turn:hover .turn-actions,
+.turn:focus-within .turn-actions {
+  opacity: 1;
+}
+
+.turn-actions {
+  justify-content: flex-start;
+  margin: var(--space-1) 0 0 calc(-1 * var(--space-1));
+}
+
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+  }
+}
+
+.rewind-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+}
+
+.rewind-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rewind-option:hover,
+.rewind-option:focus-visible {
+  background: var(--surface-hover);
+}
+
+.rewind-option > .fine {
+  margin: 0;
 }

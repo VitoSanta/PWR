@@ -136,6 +136,9 @@ export class AgentStore {
   readonly sandboxed = signal(true);
   /** Prompts written while a turn runs, sent in order when it ends. */
   readonly queue = signal<string[]>([]);
+  /** Text for the composer to take up, such as a message being edited. */
+  readonly composerDraft = signal<string | null>(null);
+  readonly rewinding = signal(false);
 
   readonly modelName = computed(() => {
     const model = this.model();
@@ -711,6 +714,66 @@ export class AgentStore {
     this.queue.update((queued) => queued.filter((_, position) => position !== index));
   }
 
+  /** Changes a queued message before it is sent; an empty one is removed. */
+  editQueued(index: number, text: string): void {
+    if (!text.trim()) return this.unqueue(index);
+    this.queue.update((queued) => queued.map((item, position) => (position === index ? text : item)));
+  }
+
+  /** Moves a queued message earlier (-1) or later (+1). */
+  moveQueued(index: number, by: -1 | 1): void {
+    this.queue.update((queued) => {
+      const target = index + by;
+      if (target < 0 || target >= queued.length) return queued;
+      const copy = queued.slice();
+      [copy[index], copy[target]] = [copy[target], copy[index]];
+      return copy;
+    });
+  }
+
+  /**
+   * Takes the conversation back to just before one of the person's messages
+   * -- and, with `restoreFiles`, the files PWR edited since. Returns the
+   * files someone else changed since PWR wrote them, when that stopped it,
+   * so the caller can ask before forcing it.
+   */
+  async rewind(
+    entry: Entry,
+    options: { restoreFiles: boolean; force?: boolean; edit?: boolean },
+  ): Promise<{ conflicts: string[] }> {
+    const sessionId = this.sessionId();
+    if (!sessionId || entry.turn === undefined || this.turnActive()) return { conflicts: [] };
+    this.rewinding.set(true);
+    try {
+      const reply = await this.request('_pwr/rewind', {
+        sessionId,
+        turn: entry.turn,
+        restoreFiles: options.restoreFiles,
+        force: options.force === true,
+      });
+      if (!reply.rewound) return { conflicts: reply.conflicts ?? [] };
+      const restored: string[] = (reply.restored ?? []).map((path: string) => relative(path, this.workspace()));
+      this.timeline.update((entries) => {
+        const index = entries.findIndex((item) => item.key === entry.key);
+        return index < 0 ? entries : entries.slice(0, index);
+      });
+      if (restored.length) this.changes.update((all) => all.filter((change) => !restored.includes(change.path)));
+      this.usage.set(null);
+      this.streamedChars.set(0);
+      this.outcome.set('');
+      if (options.edit) this.composerDraft.set(entry.text);
+      const failed: string[] = reply.failed ?? [];
+      if (failed.length) this.notice('Some files were not restored', failed.join('; '), 'error');
+      if (this.contextInfo()) void this.refreshContext();
+      return { conflicts: [] };
+    } catch (error) {
+      this.notice('Rewind failed', String(error).replace(/^Error: /, ''), 'error');
+      return { conflicts: [] };
+    } finally {
+      this.rewinding.set(false);
+    }
+  }
+
   /**
    * A queued prompt delivered into the running turn: the core hands it to the
    * model at the next safe point, between two actions, instead of after the
@@ -835,6 +898,19 @@ export class AgentStore {
     }
     if (message.method === '_pwr/compacted') {
       this.onCompacted(message.params ?? {});
+      return;
+    }
+    if (message.method === '_pwr/turn_started') {
+      const { sessionId, turn } = message.params ?? {};
+      if (sessionId !== this.sessionId() || typeof turn !== 'number') return;
+      // The person's newest message is the one this turn answers.
+      this.timeline.update((entries) => {
+        const index = entries.map((entry) => entry.kind).lastIndexOf('user');
+        if (index < 0 || entries[index].turn !== undefined) return entries;
+        const copy = entries.slice();
+        copy[index] = { ...copy[index], turn };
+        return copy;
+      });
       return;
     }
     if (message.method === '_pwr/turn_event') {
