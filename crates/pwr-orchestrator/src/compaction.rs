@@ -163,8 +163,8 @@ pub fn compact(
 ) -> Option<Compaction> {
     let system = messages.first().cloned()?;
     // Reasoning handed back between steps is the first thing a compaction
-    // gives up: it is a working note for the steps of one exchange, and the
-    // record below keeps what those steps established.
+    // gives up: it is a working note, and the record below keeps what those
+    // steps established.
     for message in messages.iter_mut() {
         message.reasoning = None;
     }

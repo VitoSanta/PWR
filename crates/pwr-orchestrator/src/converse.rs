@@ -2216,7 +2216,8 @@ fn own_overwrite(action: ActionProposal, root: &std::path::Path) -> ActionPropos
 /// its end, which is where a model writes what it concluded.
 const REASONING_KEPT_CHARS: usize = 16_000;
 
-/// The reasoning an assistant step carries to the next steps of its exchange.
+/// The reasoning an assistant step carries in the history, for every step
+/// after it, until a compaction folds it away.
 fn kept_reasoning(thinking: &str) -> Option<String> {
     let thinking = thinking.trim();
     if thinking.is_empty() {
@@ -2233,16 +2234,6 @@ fn kept_reasoning(thinking: &str) -> Option<String> {
         "[earlier reasoning omitted]\n{}",
         &thinking[start..]
     ))
-}
-
-/// Clears the reasoning earlier exchanges carried, called when the person
-/// sends a new message. Reasoning is handed back only for the steps of one
-/// exchange -- a goal's check-ins included -- as reasoning templates were
-/// trained on multi-step tool use; a new request starts a new exchange.
-pub fn forget_reasoning(messages: &mut [ChatMessage]) {
-    for message in messages.iter_mut() {
-        message.reasoning = None;
-    }
 }
 
 fn prompt_tokens_now(
@@ -2542,8 +2533,7 @@ mod tests {
         let mut messages = vec![ChatMessage::text("system", "s"), step];
         // Counted while it is carried, since the prompt carries it.
         assert!(prompt_tokens_now(&messages, Some(100), 1) > 100 + 500);
-        forget_reasoning(&mut messages);
-        assert!(messages.iter().all(|message| message.reasoning.is_none()));
+        messages[1].reasoning = None;
         assert_eq!(prompt_tokens_now(&messages, Some(100), 1), 100);
     }
 

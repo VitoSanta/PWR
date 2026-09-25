@@ -789,9 +789,12 @@ pub fn template_message(message: &ChatMessage) -> serde_json::Value {
         object.insert("content".into(), serde_json::Value::Array(parts));
     }
     // The template decides whether to render it: Qwen 3.x's shows an
-    // assistant step's reasoning back to the model while the exchange it
-    // belongs to continues, which is how it was trained on multi-step tool use.
-    // The harness hands it only that far (see `converse::forget_reasoning`).
+    // assistant step's reasoning back to the model (with `preserve_thinking`,
+    // on every turn), which is how it was trained on multi-step tool use. The
+    // harness keeps it on the step it belongs to for the whole conversation:
+    // dropping it when the person wrote again changed the history part way,
+    // and a prompt cache that cannot be cut back (Qwen 3.5/3.6) then prefilled
+    // the whole conversation for every message.
     if message.role == "assistant"
         && let Some(reasoning) = &message.reasoning
     {

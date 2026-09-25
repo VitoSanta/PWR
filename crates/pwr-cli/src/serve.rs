@@ -2069,7 +2069,6 @@ impl<R: TurnRunner + 'static> Server<R> {
             }
         }
         session.messages.truncate(point.at);
-        converse::forget_reasoning(&mut session.messages);
         session.rewind_points.truncate(position);
         let root = session.root.clone();
         let conversation_id = session.conversation_id;
@@ -2312,7 +2311,6 @@ impl<R: TurnRunner + 'static> Server<R> {
         session.turns += 1;
         session.stop = Arc::new(AtomicBool::new(false));
         session.continuity.operator_spoke();
-        converse::forget_reasoning(&mut session.messages);
         session
             .continuity
             .person_turn
@@ -3452,9 +3450,25 @@ mod tests {
                     ));
                     report("compacted")
                 }
+                // Whether the reasoning an earlier turn carried is still on
+                // its step when the person writes again.
+                "recall" => report(
+                    if messages
+                        .iter()
+                        .any(|message| message.reasoning.as_deref() == Some("worked it out"))
+                    {
+                        "the reasoning is still there"
+                    } else {
+                        "the reasoning was dropped"
+                    },
+                ),
                 other => report(&format!("you said {other}")),
             };
-            messages.push(ChatMessage::text("assistant", outcome.answer.clone()));
+            let mut answer = ChatMessage::text("assistant", outcome.answer.clone());
+            if asked == "think" {
+                answer.reasoning = Some("worked it out".into());
+            }
+            messages.push(answer);
             Ok((outcome, messages))
         }
 
@@ -4466,6 +4480,26 @@ mod tests {
             assert_eq!(updates(&second)[0]["content"]["text"], "you said again");
             // Each message the person sends is numbered, for rewinding to it.
             assert_eq!(client.turns_started, [1, 2]);
+        })
+        .await;
+    }
+
+    /// The history a new message is added to is the history the model last
+    /// saw, reasoning included: dropping it when the person wrote again
+    /// changed the prompt part way, and an engine whose cache cannot be cut
+    /// back (Qwen 3.5/3.6) prefilled the whole conversation for every message.
+    #[tokio::test]
+    async fn a_new_message_keeps_the_reasoning_earlier_turns_carried() {
+        with_server(|mut client| async move {
+            let session = client.new_session(1).await;
+            client.prompt(2, &session, "think").await;
+            client.until_response(2).await;
+            client.prompt(3, &session, "recall").await;
+            let reply = client.until_response(3).await;
+            assert_eq!(
+                updates(&reply)[0]["content"]["text"],
+                "the reasoning is still there"
+            );
         })
         .await;
     }

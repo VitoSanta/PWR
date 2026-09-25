@@ -110,6 +110,74 @@ class ParentGone(unittest.TestCase):
 
 
 
+class TrimmedCache(unittest.TestCase):
+    """A cache that can be cut back is reused up to where two prompts part,
+    with no copy beside it; what a generation added is cut off after it."""
+
+    def setUp(self):
+        import pwr_mlx
+
+        class Layer:
+            def __init__(self):
+                self.offset = 0
+
+        self.prefilled = []
+        patches = {
+            "can_trim_prompt_cache": lambda cache: True,
+            "trim_prompt_cache": lambda cache, n: [setattr(c, "offset", c.offset - n) for c in cache],
+            "make_prompt_cache": lambda model: [Layer(), Layer()],
+        }
+        self.saved = {name: getattr(pwr_mlx, name) for name in patches}
+        for name, value in patches.items():
+            setattr(pwr_mlx, name, value)
+        self.addCleanup(lambda: [setattr(pwr_mlx, n, v) for n, v in self.saved.items()])
+        self.engine = pwr_mlx.Engine()
+
+        def prefill(tokens, offset, progress):
+            self.prefilled.append(len(tokens))
+            for layer in self.engine.cache:
+                layer.offset += len(tokens)
+
+        self.engine.prefill = prefill
+
+    def generate(self, prompt, count):
+        for layer in self.engine.cache:
+            layer.offset += count
+        self.engine.settle(len(prompt))
+
+    def test_the_cache_is_reused_up_to_where_prompts_part(self):
+        engine = self.engine
+        first = [1, 2, 3, 4]
+        self.assertEqual(engine.resume(first, lambda *_: None), 0)
+        self.assertIsNone(engine.checkpoint)
+        self.generate(first, 5)
+        self.assertEqual(engine.cache[0].offset, 4)
+        # A step that extends the prompt prefills only what it adds.
+        second = first + [9, 9]
+        self.assertEqual(engine.resume(second, lambda *_: None), 4)
+        self.assertEqual(self.prefilled[-1], 2)
+        self.generate(second, 3)
+        # A history rewritten part way (a new message after reasoning was
+        # dropped, a compaction) reuses what comes before the change.
+        third = [1, 2, 7, 7, 7]
+        self.assertEqual(engine.resume(third, lambda *_: None), 2)
+        self.assertEqual(self.prefilled[-1], 3)
+        self.assertEqual(engine.cache[0].offset, 5)
+
+    def test_a_failed_prefill_leaves_nothing_to_resume_from(self):
+        engine = self.engine
+        engine.resume([1, 2, 3], lambda *_: None)
+
+        def fail(tokens, offset, progress):
+            raise MemoryError("out of memory")
+
+        engine.prefill = fail
+        with self.assertRaises(MemoryError):
+            engine.resume([1, 2, 3, 4], lambda *_: None)
+        self.assertIsNone(engine.cache)
+        self.assertEqual(engine.checkpoint_tokens, [])
+
+
 class StableHistory(unittest.TestCase):
     """D.E2E-21: a user message must not re-render the history before it."""
 
