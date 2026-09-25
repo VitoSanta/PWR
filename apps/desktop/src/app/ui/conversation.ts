@@ -16,7 +16,7 @@ import { RunOutcome, Step, groupSteps } from '../core/trace';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
-import { TraceCompact } from './trace';
+import { TraceCompact, TraceSteps } from './trace';
 
 /** One row of the conversation: the person's message, or the whole reply to it. */
 type Item =
@@ -26,13 +26,13 @@ type Item =
 
 @Component({
   selector: 'pa-conversation',
-  imports: [Icon, Popover, Tooltip, TraceCompact],
+  imports: [Icon, Popover, Tooltip, TraceCompact, TraceSteps],
   template: `
     <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
         <div class="welcome">
           <img class="welcome-mark" src="/pwr-mark-96.png" alt="" width="44" height="44" />
-          <h2 class="t-display">What are we building?</h2>
+          <h2 class="t-display">{{ store.chatMode() ? 'What would you like to know?' : 'What are we building?' }}</h2>
           @if (store.model()) {
             <p class="welcome-text">
               @if (store.chatMode()) {
@@ -134,10 +134,16 @@ type Item =
                   <img class="turn-avatar" src="/pwr-mark-96.png" alt="" width="22" height="22" />
                   <strong>PWR</strong>
                   <span class="turn-meta truncate">{{ store.modelName() }}</span>
-                  <span class="turn-meta num">· {{ item.live ? 'working' : 'done' }} · {{ duration(item) }}</span>
+                  <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }}</span>
                 </header>
                 <div class="turn-body">
-                  <pa-trace-compact [entries]="item.entries" [live]="item.live" />
+                  @if (store.chatMode()) {
+                    <!-- A conversation, not a task: the reasoning, what it read and the
+                         answer, in order -- no phases of work it cannot do here. -->
+                    <pa-trace-steps [steps]="item.steps" />
+                  } @else {
+                    <pa-trace-compact [entries]="item.entries" [live]="item.live" />
+                  }
                   @if (!item.live && answer(item.entries); as text) {
                     <div class="message-actions turn-actions">
                       <button class="icon-btn icon-btn-sm" (click)="copy(text)" aria-label="Copy answer" paTooltip="Copy answer">
@@ -161,7 +167,7 @@ type Item =
             <header class="turn-head">
               <img class="turn-avatar" src="/pwr-mark-96.png" alt="" width="22" height="22" />
               <strong>PWR</strong>
-              <span class="turn-meta truncate">{{ store.modelName() }} · working</span>
+              <span class="turn-meta truncate">{{ store.modelName() }} · {{ store.chatMode() ? 'thinking' : 'working' }}</span>
             </header>
             <div class="turn-body">
               <div class="step working" role="status">
@@ -198,7 +204,8 @@ export class Conversation {
   /**
    * Everything the model does between two messages of the person is one
    * turn -- reasoning, text, actions, retries in order, on one rail. The turn
-   * keeps its entries, shown as phases that open onto their steps.
+   * keeps its entries: in a workspace, phases that open onto their steps; in chat,
+   * the steps themselves.
    */
   protected readonly items = computed<Item[]>(() => {
     const items: Item[] = [];
@@ -232,10 +239,13 @@ export class Conversation {
 
   protected readonly workingLabel = computed(() => {
     const quiet = Math.floor((this.now() - this.store.lastEventAt()) / 1000);
-    if (quiet < 5) return 'Working';
+    const chat = this.store.chatMode();
+    if (quiet < 5) return chat ? 'Thinking' : 'Working';
     const minutes = Math.floor(quiet / 60);
     const seconds = String(quiet % 60).padStart(2, '0');
-    return `Working · no new output for ${minutes}m ${seconds}s — checks, reading the prompt, or a long file being written`;
+    return chat
+      ? `Thinking · no new output for ${minutes}m ${seconds}s — reading the message and what is attached`
+      : `Working · no new output for ${minutes}m ${seconds}s — checks, reading the prompt, or a long file being written`;
   });
 
   constructor() {
