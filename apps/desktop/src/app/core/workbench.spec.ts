@@ -61,7 +61,7 @@ describe('WorkbenchStore', () => {
   });
 });
 
-describe('the Browser card', () => {
+describe('the Web preview card', () => {
   it('previews only pages on this machine', () => {
     expect(normalize('localhost:4200')).toBe('http://localhost:4200/');
     expect(normalize('http://127.0.0.1:8000/docs')).toBe('http://127.0.0.1:8000/docs');
@@ -69,6 +69,8 @@ describe('the Browser card', () => {
     expect(normalize('file:///etc/passwd')).toBeNull();
     expect(normalize('javascript:alert(1)')).toBeNull();
     expect(normalize('')).toBeNull();
+    // Only what the frame's policy admits.
+    expect(normalize('http://[::1]:3000')).toBeNull();
     // The app's own origin is never framed: same-origin scripts would reach it.
     expect(normalize('localhost:4200', 'http://localhost:4200')).toBeNull();
     expect(normalize('localhost:4201', 'http://localhost:4200')).toBe('http://localhost:4201/');

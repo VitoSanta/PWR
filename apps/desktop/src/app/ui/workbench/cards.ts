@@ -462,7 +462,7 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
   }
 }
 
-/** Browser: a preview of the app the workspace serves on this machine. */
+/** Web preview: the app the workspace serves on this machine. */
 @Component({
   selector: 'pa-browser-card',
   imports: [Icon, Tooltip],
@@ -553,7 +553,10 @@ export function normalize(raw: string, own: string = globalThis.location?.origin
   if (!/^https?:\/\//i.test(text)) text = `http://${text}`;
   try {
     const url = new URL(text);
-    const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    // What the frame's policy (CSP) admits, and no more: it has no form for
+    // an IPv6 address, so `[::1]` would open to a blank frame. `localhost`
+    // reaches the same server.
+    const local = ['localhost', '127.0.0.1'].includes(url.hostname);
     // Never PWR itself (the development server): the frame may run scripts
     // as its own origin, which would then be the app's, with its bridge.
     if (url.origin === own) return null;

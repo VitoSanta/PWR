@@ -5709,7 +5709,10 @@ fn suite_wrong_path(suite: &Path) -> PathBuf {
 /// `main` is not. Every field is absent when it cannot be read.
 fn version_control_state(root: &Path) -> serde_json::Value {
     let read = |args: &[&str]| -> Option<String> {
+        // A workspace's own configuration is not ours to run: `status` would
+        // start whatever `core.fsmonitor` names, outside any sandbox.
         let output = std::process::Command::new("git")
+            .args(["-c", "core.fsmonitor=false"])
             .args(args)
             .current_dir(root)
             .output()
