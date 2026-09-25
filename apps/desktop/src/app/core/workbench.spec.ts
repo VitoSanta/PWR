@@ -43,7 +43,7 @@ describe('WorkbenchStore', () => {
     work.maximize('terminal');
     agent.chatHome.set('/home/chat');
     agent.workspace.set('/home/chat');
-    expect(work.available().map((card) => card.id)).toEqual(['browser', 'activity']);
+    expect(work.available().map((card) => card.id)).toEqual(['browser', 'knowledge', 'activity']);
     expect(work.visible().map((card) => card.id)).toEqual(['activity']);
     expect(work.focused()).toBeNull();
     work.show('files');

@@ -2959,7 +2959,26 @@ fn wiki_request(id: Value, params: &Value) -> Value {
         return error_response(id, -32602, "name the workspace with cwd");
     };
     let dir = root.join(".pwr/wiki");
-    if !dir.join("graph.json").is_file() {
+    // `readOnly`, from a conversation with no workspace looking at a project
+    // PWR has worked in: only a project it knows, and only its wiki as it
+    // stands -- nothing is built or written in a folder not opened here.
+    if params.get("readOnly").and_then(Value::as_bool) == Some(true) {
+        let known = personal::Home::from_env()
+            .map(|home| wiki::projects(&home))
+            .unwrap_or_default()
+            .iter()
+            .any(|project| project.path == root);
+        if !known {
+            return error_response(id, -32602, "not a project PWR has worked in");
+        }
+        if !dir.join("graph.json").is_file() {
+            return error_response(
+                id,
+                -32000,
+                "PWR has no knowledge graph for this project yet: it is built the next time you work in it",
+            );
+        }
+    } else if !dir.join("graph.json").is_file() {
         let built = personal::Home::from_env().and_then(|home| wiki::refresh(&home, &root, None));
         if let Err(why) = built {
             return error_response(id, -32000, &format!("the wiki could not be built: {why}"));
@@ -3314,6 +3333,14 @@ mod tests {
             std::fs::write(elsewhere.path().join("x.py"), "").unwrap();
             assert!(rewind_target(workspace.path(), "x.py").is_err());
         }
+    }
+
+    #[test]
+    fn a_read_only_wiki_is_only_a_known_projects_and_never_built() {
+        let folder = tempfile::tempdir().unwrap();
+        let reply = wiki_request(json!(1), &json!({"cwd": folder.path(), "readOnly": true}));
+        assert_eq!(reply["error"]["code"], -32602, "{reply}");
+        assert!(!folder.path().join(".pwr").exists());
     }
 
     #[test]
