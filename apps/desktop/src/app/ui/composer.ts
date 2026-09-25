@@ -5,8 +5,10 @@ import {
   HostListener,
   OnDestroy,
   OnInit,
+  effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { UnlistenFn } from '@tauri-apps/api/event';
@@ -40,7 +42,26 @@ const MAX_HEIGHT = 260;
           @for (queued of store.queue(); track $index; let index = $index) {
             <li class="queued" animate.enter="anim-pop-in">
               <span class="queued-badge num">{{ index + 1 }}</span>
-              <span class="queued-text">{{ queued }}</span>
+              @if (editingQueued() === index) {
+                <input
+                  class="input input-sm queued-edit"
+                  [value]="queued"
+                  (keydown.enter)="$event.preventDefault(); commitQueued(index, $any($event.target).value)"
+                  (keydown.escape)="editingQueued.set(null)"
+                  (blur)="commitQueued(index, $any($event.target).value)"
+                  aria-label="Edit queued message"
+                />
+              } @else {
+                <button type="button" class="queued-text" (click)="editingQueued.set(index)" paTooltip="Edit">{{ queued }}</button>
+              }
+              @if (store.queue().length > 1) {
+                <button type="button" class="icon-btn icon-btn-sm" (click)="store.moveQueued(index, -1)" [disabled]="index === 0" aria-label="Move up" paTooltip="Send earlier">
+                  <pa-icon name="chevron-up" [size]="14" />
+                </button>
+                <button type="button" class="icon-btn icon-btn-sm" (click)="store.moveQueued(index, 1)" [disabled]="index === store.queue().length - 1" aria-label="Move down" paTooltip="Send later">
+                  <pa-icon name="chevron-down" [size]="14" />
+                </button>
+              }
               @if (store.turnActive()) {
                 <button
                   type="button"
@@ -212,9 +233,32 @@ export class Composer implements OnInit, OnDestroy {
     return 'Ask PWR to build, fix or explain something…';
   }
   protected readonly draft = signal('');
+  protected readonly editingQueued = signal<number | null>(null);
+
+  protected commitQueued(index: number, text: string): void {
+    if (this.editingQueued() !== index) return;
+    this.editingQueued.set(null);
+    this.store.editQueued(index, text);
+  }
   protected readonly dropping = signal(false);
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
   private unlisten?: UnlistenFn;
+
+  constructor() {
+    // A message being edited arrives here to be changed and sent again.
+    effect(() => {
+      const text = this.store.composerDraft();
+      if (text === null) return;
+      untracked(() => {
+        this.store.composerDraft.set(null);
+        this.draft.set(text);
+        const box = this.box().nativeElement;
+        box.value = text;
+        this.grow(box);
+        box.focus();
+      });
+    });
+  }
 
   async ngOnInit(): Promise<void> {
     queueMicrotask(() => this.grow(this.box().nativeElement));

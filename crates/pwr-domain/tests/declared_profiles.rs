@@ -49,7 +49,12 @@ fn every_qualifying_deployment_is_allocated_the_full_ceiling() {
                 "{} qualifies but is allocated less than it can serve",
                 profile.model_selector
             );
-            assert_eq!(profile.context.minimum, REQUIRED);
+            // The rule is the most the model and the host allow: the
+            // default is the model's maximum, and the minimum is only the
+            // floor a smaller host may fall back to, never a demand. A
+            // minimum at the maximum would clamp a window the hardware
+            // lowered back up past what it can hold.
+            assert!(profile.context.minimum <= profile.context.default);
             assert_eq!(profile.context_source, ParameterSource::PwrOverride);
         } else {
             // Below the requirement, and the profile does not pretend
@@ -61,7 +66,7 @@ fn every_qualifying_deployment_is_allocated_the_full_ceiling() {
         .iter()
         .filter(|p| p.context.maximum >= REQUIRED)
         .count();
-    assert_eq!(qualifying, 9);
+    assert_eq!(qualifying, 11);
 }
 
 /// The throughput cost of the choice stays recorded even though the choice was

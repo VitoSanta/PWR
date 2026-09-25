@@ -224,6 +224,17 @@ pub trait TurnRunner {
     ) -> Result<(), String> {
         Ok(())
     }
+    /// Records a rewind in the audit and the conversation it left, so a
+    /// reload resumes from it.
+    fn record_rewind(
+        &self,
+        _root: &Path,
+        _conversation_id: pwr_domain::Id,
+        _messages: &[ChatMessage],
+        _detail: &Value,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// The last compaction the conversation recorded, if any.
     fn last_compaction(&self, _root: &Path, _conversation_id: pwr_domain::Id) -> Option<Value> {
         None
@@ -405,6 +416,20 @@ struct Session {
     grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
     /// The person's last request, in their words, for the workspace's wiki.
     last_request: String,
+    /// Where each of the person's messages in this session began, for
+    /// `_pwr/rewind`.
+    rewind_points: Vec<RewindPoint>,
+}
+
+/// One of the person's messages, as a place the conversation can go back to.
+#[derive(Debug, Clone)]
+struct RewindPoint {
+    turn: u32,
+    /// The length of the conversation before the message.
+    at: usize,
+    /// The message as sent, to recognise it is still where it was: a
+    /// compaction since has folded it away.
+    text: String,
 }
 
 const GOAL_MAX_ACTIONS: usize = 208;
@@ -428,6 +453,7 @@ impl Session {
             turns: 0,
             grants: Arc::default(),
             last_request: String::new(),
+            rewind_points: Vec::new(),
         }
     }
 
@@ -754,6 +780,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             "_pwr/memory" => self.send(memory_request(id, &params)),
             "_pwr/projects" => self.send(projects_request(id, &params)),
             "_pwr/wiki" => self.send(wiki_request(id, &params)),
+            "_pwr/rewind" => self.rewind(id, &params),
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/compact" => self.compact(id, &params).await,
@@ -1908,6 +1935,143 @@ impl<R: TurnRunner + 'static> Server<R> {
         }
     }
 
+    /// `_pwr/rewind`: the conversation back to just before the person's
+    /// message `turn`, and with `restoreFiles` the files PWR edited since back
+    /// to how they were. A file changed since by someone else stops the
+    /// rewind and is named, unless `force`. Commands' own effects (an install,
+    /// files a script wrote) are not undone, and a conversation reopened from
+    /// disk can rewind its messages but not its files.
+    fn rewind(&self, id: Value, params: &Value) {
+        let session_id = session_param(params).to_owned();
+        let Some(turn) = params
+            .get("turn")
+            .and_then(Value::as_u64)
+            .and_then(|turn| u32::try_from(turn).ok())
+        else {
+            return self.send(error_response(id, -32602, "name the message with turn"));
+        };
+        let restore = params.get("restoreFiles").and_then(Value::as_bool) == Some(true);
+        let force = params.get("force").and_then(Value::as_bool) == Some(true);
+        let mut sessions = self.sessions.borrow_mut();
+        let Some(session) = sessions.get_mut(&session_id) else {
+            return self.send(error_response(id, -32602, "no such session"));
+        };
+        if session.busy {
+            return self.send(error_response(
+                id,
+                -32000,
+                "wait for the turn to end, or stop it",
+            ));
+        }
+        let Some(position) = session
+            .rewind_points
+            .iter()
+            .position(|point| point.turn == turn)
+        else {
+            return self.send(error_response(
+                id,
+                -32000,
+                "this message was sent before the conversation was opened here, so it cannot be rewound to",
+            ));
+        };
+        let point = session.rewind_points[position].clone();
+        if session
+            .messages
+            .get(point.at)
+            .map(|message| message.content.as_str())
+            != Some(point.text.as_str())
+        {
+            return self.send(error_response(
+                id,
+                -32000,
+                "the conversation was compacted after this message, so it can no longer be rewound to",
+            ));
+        }
+        let mut restored = Vec::new();
+        let mut failed = Vec::new();
+        if restore {
+            let edits = session
+                .continuity
+                .edits
+                .lock()
+                .map(|edits| edits.clone())
+                .unwrap_or_default();
+            let written = session
+                .continuity
+                .written
+                .lock()
+                .map(|written| written.clone())
+                .unwrap_or_default();
+            let (plan, conflicts) = converse::rewind_plan(&session.root, &edits, &written, turn);
+            if !conflicts.is_empty() && !force {
+                return self.send(result(
+                    id,
+                    json!({"rewound": false, "conflicts": conflicts}),
+                ));
+            }
+            for (path, before) in &plan {
+                let target = session.root.join(path);
+                let outcome = match before {
+                    Some(text) => target
+                        .parent()
+                        .map_or(Ok(()), std::fs::create_dir_all)
+                        .and_then(|()| std::fs::write(&target, text)),
+                    None => match std::fs::remove_file(&target) {
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                        other => other,
+                    },
+                };
+                match outcome {
+                    Ok(()) => restored.push(path.clone()),
+                    Err(error) => failed.push(format!("{path}: {error}")),
+                }
+            }
+            // What PWR wrote is now what an earlier turn left, or nothing.
+            if let Ok(mut written) = session.continuity.written.lock() {
+                for (path, before) in &plan {
+                    let earlier = edits
+                        .iter()
+                        .any(|edit| edit.turn < turn && &edit.path == path);
+                    match before {
+                        Some(text) if earlier => {
+                            written.insert(path.clone(), pwr_domain::hash_bytes(text));
+                        }
+                        _ => {
+                            written.remove(path);
+                        }
+                    }
+                }
+            }
+            if let Ok(mut edits) = session.continuity.edits.lock() {
+                edits.retain(|edit| edit.turn < turn);
+            }
+        }
+        session.messages.truncate(point.at);
+        converse::forget_reasoning(&mut session.messages);
+        session.rewind_points.truncate(position);
+        let root = session.root.clone();
+        let conversation_id = session.conversation_id;
+        let messages = session.messages.clone();
+        drop(sessions);
+        self.usage.borrow_mut().remove(&session_id);
+        let detail = json!({
+            "turn": turn,
+            "restoreFiles": restore,
+            "restored": restored,
+            "failed": failed,
+        });
+        if let Err(why) = self
+            .runner
+            .record_rewind(&root, conversation_id, &messages, &detail)
+        {
+            eprintln!("pwr serve: the rewind was not recorded: {why}");
+        }
+        self.send(result(
+            id,
+            json!({"rewound": true, "turn": turn, "restored": restored, "failed": failed}),
+        ));
+    }
+
     /// Brings the workspace's wiki up to date after a turn, and logs the turn
     /// when it changed or finished something (`pwr_orchestrator::wiki`). A
     /// wiki that cannot be written costs the turn nothing.
@@ -2118,6 +2282,19 @@ impl<R: TurnRunner + 'static> Server<R> {
         session.stop = Arc::new(AtomicBool::new(false));
         session.continuity.operator_spoke();
         converse::forget_reasoning(&mut session.messages);
+        session
+            .continuity
+            .person_turn
+            .store(session.turns, Ordering::Relaxed);
+        session.rewind_points.push(RewindPoint {
+            turn: session.turns,
+            at: session.messages.len(),
+            text: text.clone(),
+        });
+        self.send(notification(
+            "_pwr/turn_started",
+            json!({"sessionId": session_id, "turn": session.turns}),
+        ));
         let mut message = ChatMessage::text("user", text);
         message.images = stored;
         session.messages.push(message);

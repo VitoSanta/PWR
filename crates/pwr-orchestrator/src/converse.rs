@@ -487,6 +487,58 @@ pub struct Continuity {
     /// Files this conversation wrote, by workspace path, with the hash each
     /// had when it last wrote it. See [`own_overwrite`].
     pub written: std::sync::Arc<std::sync::Mutex<BTreeMap<String, String>>>,
+    /// The person's message the work in progress answers, numbered from 1 in
+    /// this session; set by the front end when the person sends one.
+    pub person_turn: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    /// Every file edit this session made, with the file as it was before, so
+    /// the person can rewind to one of their messages (see [`FileEdit`]).
+    pub edits: std::sync::Arc<std::sync::Mutex<Vec<FileEdit>>>,
+}
+
+/// A file as it was before an edit, kept for rewinding. In memory only, for
+/// the session: a conversation reopened later can rewind its messages but not
+/// its files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEdit {
+    /// The person's message the edit answered.
+    pub turn: u32,
+    pub path: String,
+    /// `None` when the edit created the file.
+    pub before: Option<String>,
+}
+
+/// The most file edits a session keeps for rewinding, and the largest file
+/// whose earlier content it keeps: past either, a rewind says what it could
+/// not restore.
+pub const EDITS_KEPT: usize = 5_000;
+pub const EDIT_BYTES_KEPT: usize = 2 * 1024 * 1024;
+
+/// How a rewind would put the files back: each path's content before the
+/// first edit made at or after `turn`, and the files changed since by
+/// someone other than PWR (their hash no longer the one it left).
+pub fn rewind_plan(
+    root: &std::path::Path,
+    edits: &[FileEdit],
+    written: &BTreeMap<String, String>,
+    turn: u32,
+) -> (Vec<(String, Option<String>)>, Vec<String>) {
+    let mut restore: Vec<(String, Option<String>)> = Vec::new();
+    for edit in edits.iter().filter(|edit| edit.turn >= turn) {
+        if !restore.iter().any(|(path, _)| path == &edit.path) {
+            restore.push((edit.path.clone(), edit.before.clone()));
+        }
+    }
+    let conflicts = restore
+        .iter()
+        .filter(|(path, _)| {
+            let current = std::fs::read(root.join(path))
+                .ok()
+                .map(pwr_domain::hash_bytes);
+            current.as_ref() != written.get(path)
+        })
+        .map(|(path, _)| path.clone())
+        .collect();
+    (restore, conflicts)
 }
 
 impl Continuity {
@@ -520,6 +572,17 @@ pub fn chat_tool_catalog() -> ToolCatalog {
         .tools
         .into_iter()
         .filter(|tool| !RUN_ONLY.contains(&tool.name.as_str()))
+        .map(|mut tool| {
+            // A conversation replaces an existing file whole rather than
+            // refusing (see `own_overwrite`), and says so.
+            if tool.name == "write_file" {
+                tool.description = "Write a file with the given content: creates it, or replaces \
+                                    an existing one whole. To change part of a file, prefer \
+                                    replace_text or apply_patch."
+                    .into();
+            }
+            tool
+        })
         .collect();
     // Conversations only: a scripted run has no person to confirm it, and its
     // catalogue is part of what a campaign measures.
@@ -1581,7 +1644,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 ));
                 continue;
             }
-            let action = own_overwrite(action, &policy.root, &continuity.written);
+            let action = own_overwrite(action, &policy.root);
             // Whether it mutates is decided here, while the typed action is
             // still in hand; whether it *did* is decided below, by whether it
             // ran. A denied edit marked the turn as having changed the
@@ -1701,6 +1764,22 @@ async fn take_turn_inner<P: ModelProvider>(
             }
             match outcome {
                 Ok(value) => {
+                    if edits_a_file
+                        && let Some(path) = &path
+                        && let Ok(mut edits) = continuity.edits.lock()
+                        && edits.len() < EDITS_KEPT
+                        && before
+                            .as_ref()
+                            .is_none_or(|text| text.len() <= EDIT_BYTES_KEPT)
+                    {
+                        edits.push(FileEdit {
+                            turn: continuity
+                                .person_turn
+                                .load(std::sync::atomic::Ordering::Relaxed),
+                            path: path.clone(),
+                            before: before.clone(),
+                        });
+                    }
                     if edits_a_file
                         && let Some(path) = &path
                         && let Ok(bytes) = std::fs::read(policy.root.join(path))
@@ -2030,39 +2109,29 @@ fn conservative_prompt_tokens(
     base.saturating_add(since)
 }
 
-/// A `write_file` onto a file this conversation wrote itself, and that nobody
-/// has changed since, as the whole-file replacement it means.
+/// A `write_file` onto a file that exists, as the whole-file replacement it
+/// means.
 ///
-/// `write_file` refuses an existing file so that a blind overwrite of the
-/// person's work is never one missing argument away, and the refusal names
-/// `apply_replace` and the hash. Measured 2026-09-25 on Ornith 1.5 35B: six
-/// refusals in one conversation, every one on a file it had itself created
-/// minutes earlier (a scratch `_check.py`, its own module), each costing a
-/// whole regenerated file. The file's current hash matching the one this
-/// conversation left is the same guarantee `apply_replace` asks for, so the
-/// person's work stays protected: a file they touched no longer matches.
-fn own_overwrite(
-    action: ActionProposal,
-    root: &std::path::Path,
-    written: &std::sync::Mutex<BTreeMap<String, String>>,
-) -> ActionProposal {
+/// `write_file` alone refuses an existing file, so that a blind overwrite is
+/// never one missing argument away, and names `apply_replace` and the hash.
+/// Measured 2026-09-25 on Ornith 1.5 35B: six refusals in one conversation,
+/// every one on a file it had itself created minutes earlier, each costing a
+/// whole regenerated file -- a limit that bought nothing a person needed.
+/// A conversation keeps every file's earlier content for rewinding
+/// ([`FileEdit`]) and shows each change as a diff that can be reverted, so an
+/// overwrite is no longer the unrecoverable act the refusal guarded against.
+/// Protected paths and the workspace boundary are still enforced by the tool.
+fn own_overwrite(action: ActionProposal, root: &std::path::Path) -> ActionProposal {
     let ActionProposal::WriteFile { path, content } = action else {
         return action;
     };
-    let current = std::fs::read(root.join(&path))
-        .ok()
-        .map(pwr_domain::hash_bytes);
-    let ours = written
-        .lock()
-        .ok()
-        .and_then(|written| written.get(&path).cloned());
-    match (current, ours) {
-        (Some(current), Some(ours)) if current == ours => ActionProposal::ApplyReplace {
+    match std::fs::read(root.join(&path)) {
+        Ok(bytes) => ActionProposal::ApplyReplace {
             path,
-            expected_hash: current,
+            expected_hash: pwr_domain::hash_bytes(&bytes),
             replacement: content,
         },
-        _ => ActionProposal::WriteFile { path, content },
+        Err(_) => ActionProposal::WriteFile { path, content },
     }
 }
 
@@ -2272,32 +2341,61 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_file_this_conversation_wrote_and_nobody_changed_may_be_rewritten_whole() {
+    fn a_rewind_restores_each_file_as_it_was_and_names_what_someone_else_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.py"), "v3\n").unwrap();
+        std::fs::write(dir.path().join("new.py"), "created\n").unwrap();
+        std::fs::write(dir.path().join("mine.py"), "edited by hand\n").unwrap();
+        let edit = |turn, path: &str, before: Option<&str>| FileEdit {
+            turn,
+            path: path.into(),
+            before: before.map(str::to_owned),
+        };
+        let edits = vec![
+            edit(1, "a.py", Some("v1\n")),
+            edit(2, "a.py", Some("v2\n")),
+            edit(3, "a.py", Some("v2.5\n")),
+            edit(2, "new.py", None),
+            edit(2, "mine.py", Some("original\n")),
+        ];
+        let written = BTreeMap::from([
+            ("a.py".to_owned(), pwr_domain::hash_bytes(b"v3\n")),
+            ("new.py".to_owned(), pwr_domain::hash_bytes(b"created\n")),
+            (
+                "mine.py".to_owned(),
+                pwr_domain::hash_bytes(b"what PWR wrote\n"),
+            ),
+        ]);
+        let (plan, conflicts) = rewind_plan(dir.path(), &edits, &written, 2);
+        // Each file as it was before the first edit at or after turn 2.
+        assert_eq!(
+            plan,
+            vec![
+                ("a.py".to_owned(), Some("v2\n".to_owned())),
+                ("new.py".to_owned(), None),
+                ("mine.py".to_owned(), Some("original\n".to_owned())),
+            ]
+        );
+        assert_eq!(conflicts, vec!["mine.py".to_owned()]);
+        // Nothing at or after turn 4: nothing to restore.
+        assert!(rewind_plan(dir.path(), &edits, &written, 4).0.is_empty());
+    }
+
+    #[test]
+    fn writing_an_existing_file_replaces_it_and_a_new_one_is_created() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("_check.py"), "print(1)\n").unwrap();
-        std::fs::write(dir.path().join("mine.py"), "the person's\n").unwrap();
-        let written = std::sync::Mutex::new(BTreeMap::from([(
-            "_check.py".to_owned(),
-            pwr_domain::hash_bytes(b"print(1)\n"),
-        )]));
         let write = |path: &str| ActionProposal::WriteFile {
             path: path.into(),
             content: "print(2)\n".into(),
         };
         assert!(matches!(
-            own_overwrite(write("_check.py"), dir.path(), &written),
+            own_overwrite(write("_check.py"), dir.path()),
             ActionProposal::ApplyReplace { ref expected_hash, .. }
                 if *expected_hash == pwr_domain::hash_bytes(b"print(1)\n")
         ));
-        // Never written by it: still refused by write_file.
         assert!(matches!(
-            own_overwrite(write("mine.py"), dir.path(), &written),
-            ActionProposal::WriteFile { .. }
-        ));
-        // Written by it, then changed by someone else: refused too.
-        std::fs::write(dir.path().join("_check.py"), "edited by hand\n").unwrap();
-        assert!(matches!(
-            own_overwrite(write("_check.py"), dir.path(), &written),
+            own_overwrite(write("new.py"), dir.path()),
             ActionProposal::WriteFile { .. }
         ));
     }

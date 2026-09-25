@@ -47,6 +47,28 @@ describe('AgentStore context', () => {
     expect(store.usage()).toEqual({ used: 54_000, window: 128_000, estimated: false });
   });
 
+  it('numbers the person's message with the turn the core started for it', () => {
+    store.sessionId.set('s1');
+    store.timeline.set([{ key: 'u1', kind: 'user', title: 'You', text: 'build it', status: 'sent', at: 1 }]);
+    store.receive({ jsonrpc: '2.0', method: '_pwr/turn_started', params: { sessionId: 's1', turn: 3 } });
+    expect(store.timeline()[0].turn).toBe(3);
+    // Another session's turn is not this one's.
+    store.timeline.set([{ key: 'u2', kind: 'user', title: 'You', text: 'x', status: 'sent', at: 2 }]);
+    store.receive({ jsonrpc: '2.0', method: '_pwr/turn_started', params: { sessionId: 'other', turn: 4 } });
+    expect(store.timeline()[0].turn).toBeUndefined();
+  });
+
+  it('edits, reorders and drops queued messages before they are sent', () => {
+    store.queue.set(['first', 'second', 'third']);
+    store.editQueued(1, 'second, reworded');
+    store.moveQueued(2, -1);
+    expect(store.queue()).toEqual(['first', 'third', 'second, reworded']);
+    store.moveQueued(0, -1);
+    expect(store.queue()[0]).toBe('first');
+    store.editQueued(0, '   ');
+    expect(store.queue()).toEqual(['third', 'second, reworded']);
+  });
+
   it('follows the window while a reply streams, until the engine counts it', () => {
     store.receive({
       jsonrpc: '2.0',

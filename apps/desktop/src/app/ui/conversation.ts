@@ -11,8 +11,11 @@ import {
 import { AgentStore } from '../core/agent.store';
 import { Entry } from '../core/model';
 import { ModelsStore } from '../core/models.store';
+import { ConfirmService, ToastService } from '../core/ui';
 import { RunOutcome, Step, groupSteps } from '../core/trace';
 import { Icon, IconName } from './kit/icon';
+import { Popover } from './kit/popover';
+import { Tooltip } from './kit/tooltip';
 import { TraceCompact, TraceRaw, TraceSteps } from './trace';
 
 /** One row of the conversation: the person's message, or the whole reply to it. */
@@ -23,7 +26,7 @@ type Item =
 
 @Component({
   selector: 'pa-conversation',
-  imports: [Icon, TraceCompact, TraceSteps, TraceRaw],
+  imports: [Icon, Popover, Tooltip, TraceCompact, TraceSteps, TraceRaw],
   template: `
     <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
@@ -79,6 +82,42 @@ type Item =
                     }
                   </div>
                 }
+                <div class="message-actions">
+                  <button class="icon-btn icon-btn-sm" (click)="copy(item.entry.text)" aria-label="Copy message" paTooltip="Copy">
+                    <pa-icon name="copy" [size]="14" />
+                  </button>
+                  @if (item.entry.turn !== undefined && !store.turnActive()) {
+                    <button class="icon-btn icon-btn-sm" (click)="edit(item.entry)" [disabled]="store.rewinding()" aria-label="Edit message" paTooltip="Edit and send again">
+                      <pa-icon name="pencil" [size]="14" />
+                    </button>
+                    <button
+                      #rewindTrigger
+                      class="icon-btn icon-btn-sm"
+                      (click)="rewindMenu.set(rewindMenu() === item.key ? null : item.key)"
+                      [disabled]="store.rewinding()"
+                      aria-label="Rewind to here"
+                      aria-haspopup="menu"
+                      [attr.aria-expanded]="rewindMenu() === item.key"
+                      paTooltip="Rewind to before this message"
+                    >
+                      <pa-icon name="history" [size]="14" />
+                    </button>
+                    @if (rewindMenu() === item.key) {
+                      <pa-popover [anchor]="rewindTrigger" anchorAlign="end" width="300px" ariaLabel="Rewind" (closed)="rewindMenu.set(null)">
+                        <div class="rewind-menu" role="menu">
+                          <button class="rewind-option" role="menuitem" (click)="rewind(item.entry, true)">
+                            <span class="settings-row-title">Conversation and files</span>
+                            <span class="fine">Back to before this message; files PWR changed since are restored.</span>
+                          </button>
+                          <button class="rewind-option" role="menuitem" (click)="rewind(item.entry, false)">
+                            <span class="settings-row-title">Conversation only</span>
+                            <span class="fine">Back to before this message; files stay as they are.</span>
+                          </button>
+                        </div>
+                      </pa-popover>
+                    }
+                  }
+                </div>
               </article>
             }
             @case ('notice') {
@@ -106,6 +145,13 @@ type Item =
                     @case ('raw') {
                       <pa-trace-raw [entries]="item.entries" [startedAt]="item.startedAt" [endedAt]="item.endedAt" [live]="item.live" />
                     }
+                  }
+                  @if (!item.live && answer(item.entries); as text) {
+                    <div class="message-actions turn-actions">
+                      <button class="icon-btn icon-btn-sm" (click)="copy(text)" aria-label="Copy answer" paTooltip="Copy answer">
+                        <pa-icon name="copy" [size]="14" />
+                      </button>
+                    </div>
                   }
                   @if (item.live) {
                     <div class="step working" role="status">
@@ -221,6 +267,55 @@ export class Conversation {
   protected onScroll(): void {
     const element = this.scroller().nativeElement;
     this.pinned = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+  }
+
+  private readonly confirm = inject(ConfirmService);
+  private readonly toast = inject(ToastService);
+  protected readonly rewindMenu = signal<string | null>(null);
+
+  /** A turn's answer: its last reply. */
+  protected answer(entries: Entry[]): string {
+    return [...entries].reverse().find((entry) => entry.kind === 'reply')?.text.trim() ?? '';
+  }
+
+  protected async copy(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast.show('Copied');
+    } catch {
+      this.toast.show('Could not copy', 'danger');
+    }
+  }
+
+  /** Edit a sent message: back to before it, files included, and its text in the composer. */
+  protected async edit(entry: Entry): Promise<void> {
+    const ok = await this.confirm.ask({
+      title: 'Edit this message?',
+      message:
+        'The conversation goes back to before it and the files PWR changed since are restored. ' +
+        'What commands did (installs, files a script wrote) is not undone.',
+      confirmLabel: 'Edit',
+    });
+    if (ok) await this.runRewind(entry, true, true);
+  }
+
+  protected async rewind(entry: Entry, restoreFiles: boolean): Promise<void> {
+    this.rewindMenu.set(null);
+    await this.runRewind(entry, restoreFiles, false);
+  }
+
+  private async runRewind(entry: Entry, restoreFiles: boolean, edit: boolean): Promise<void> {
+    const { conflicts } = await this.store.rewind(entry, { restoreFiles, edit });
+    if (!conflicts.length) return;
+    const force = await this.confirm.ask({
+      title: 'Some files changed after PWR wrote them',
+      message: 'Restoring them discards those changes. Keep them by rewinding the conversation only.',
+      subject: conflicts.join('\n'),
+      subjectIsText: true,
+      confirmLabel: 'Restore anyway',
+      tone: 'danger',
+    });
+    if (force) await this.store.rewind(entry, { restoreFiles, edit, force: true });
   }
 
   protected lastIsUser(): boolean {

@@ -41,6 +41,8 @@ export interface Entry {
   data?: Record<string, any>;
   /** The protocol messages this entry was built from, for Raw Trace. */
   raw?: unknown[];
+  /** For the person's message: its number in this session, when it can be rewound to. */
+  turn?: number;
   at: number;
 }
 
