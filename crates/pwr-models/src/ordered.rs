@@ -83,7 +83,13 @@ impl Walk {
             order,
             edge,
             end,
-            width: FIRST_WIDTH,
+            // Going down, a quarter of the top: ranges a billion wide took a
+            // page's listings to step through the sparse largest sizes, and
+            // it came back empty (measured on the Mac, 18 s for nothing).
+            width: match order {
+                CatalogOrder::SmallestFirst => FIRST_WIDTH,
+                CatalogOrder::LargestFirst => (high / 4).max(FIRST_WIDTH),
+            },
             listed: Vec::new(),
             done: low > high,
         }
@@ -141,6 +147,10 @@ async fn fill(walk: &mut Walk, listing: &impl Listing, wanted: usize) -> Result<
                 }
             }
         }
+        // The Hub counts a model it has no parameter count for as having
+        // none, so it lands in the lowest range: "smallest first" opened on
+        // a 19B model listed as 0. It cannot be placed, so it is not shown.
+        models.retain(|model| count(model) > 0);
         models.sort_by(|a, b| {
             let (x, y) = (count(a), count(b));
             let by_size = if up { x.cmp(&y) } else { y.cmp(&x) };
@@ -262,6 +272,8 @@ mod tests {
             ("big", 70 * B, 9_000),
             ("qwen8", 8 * B, 8_000),
             ("tiny", B / 2, 1),
+            // No parameter count on the Hub: listed in the lowest range as 0.
+            ("unknown", 0, 5_000),
         ];
         let filler: Vec<(String, u64, u64)> = (0..120)
             .map(|n| (format!("m{n}"), 3 * B + n * 10_000_000, 100 + n))
@@ -269,7 +281,8 @@ mod tests {
         models.extend(filler.iter().map(|(name, p, d)| (name.as_str(), *p, *d)));
         let hub = Hub::new(&models);
         let order = walk(&hub, CatalogOrder::SmallestFirst, None).await;
-        assert_eq!(order.len(), 123, "every model, once");
+        assert_eq!(order.len(), 123, "every model with a size, once");
+        assert!(!order.contains(&"unknown".to_owned()));
         assert_eq!(order[0], "tiny");
         assert_eq!(order.last().unwrap(), "big");
         let counts: Vec<u64> = order

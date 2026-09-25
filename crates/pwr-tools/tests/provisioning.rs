@@ -102,8 +102,8 @@ async fn the_grant_does_not_widen_where_a_command_may_write() {
     );
 }
 
-/// A command may commit, but not plant what git later runs unconfined: a hook,
-/// or a `core.fsmonitor` in the repository's configuration.
+/// A command may commit and configure the repository, but not plant what
+/// git later runs unconfined: a hook, or a `core.fsmonitor` in its config.
 #[cfg(target_os = "macos")]
 #[tokio::test]
 async fn a_command_cannot_plant_what_git_runs_outside_the_sandbox() {
@@ -116,7 +116,8 @@ async fn a_command_cannot_plant_what_git_runs_outside_the_sandbox() {
         "sh",
         &[
             "-c".into(),
-            "echo planted > .git/hooks/pre-commit; echo '[core] fsmonitor = x' >> .git/config; \
+            "echo planted > .git/hooks/pre-commit; \
+             printf '\\tfsmonitor = x\\n[remote \"origin\"]\\n\\turl = /tmp/r\\n' >> .git/config; \
              echo ok > .git/description"
                 .into(),
         ],
@@ -125,11 +126,15 @@ async fn a_command_cannot_plant_what_git_runs_outside_the_sandbox() {
     .unwrap();
     assert!(result.sandboxed);
     assert!(!root.path().join(".git/hooks/pre-commit").exists());
-    assert_eq!(
-        std::fs::read_to_string(root.path().join(".git/config")).unwrap(),
-        "[core]\n"
+    let config = std::fs::read_to_string(root.path().join(".git/config")).unwrap();
+    assert!(!config.contains("fsmonitor"), "{config}");
+    // The rest of what the command did to the repository stays.
+    assert!(config.contains("url = /tmp/r"), "{config}");
+    assert!(
+        result.stderr.contains("core.fsmonitor"),
+        "{}",
+        result.stderr
     );
-    // The rest of the repository stays writable, so git itself still works.
     assert_eq!(
         std::fs::read_to_string(root.path().join(".git/description")).unwrap(),
         "ok\n"

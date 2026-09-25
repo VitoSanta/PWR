@@ -19,12 +19,15 @@ use crate::ordered::{self, Listing};
 use crate::{CatalogOrder, Filters, SEARCH_LIMIT};
 use serde::{Deserialize, Serialize};
 
-/// Enrichments one page may spend: each is two requests.
-const ENRICHED_PER_PAGE: usize = 60;
+/// Enrichments one page may spend: each is two requests, and the Hub limits
+/// how many an address makes (measured on the Mac: seven searches in a row
+/// were rate-limited at sixty a page).
+const ENRICHED_PER_PAGE: usize = 40;
 /// Listings of the Hub's own order one page may read.
-const PAGES_READ: usize = 8;
-/// Walk batches one page may take (each a few range listings).
-const WALK_BATCHES: usize = 4;
+const PAGES_READ: usize = 6;
+/// Walk batches one page may take (each a few range listings): enough to
+/// walk down past the largest models when none of them can load here.
+const WALK_BATCHES: usize = 8;
 /// Bits per weight below which no model is stored: the floor a listing's
 /// size is estimated at when its name does not say its quantization.
 const FLOOR_BITS: f64 = 1.5;
@@ -39,7 +42,7 @@ pub trait Catalogue: Listing {
     -> Result<(Vec<HubModel>, Option<String>), HubError>;
     /// Listings enriched and filtered exactly, in the order given.
     #[allow(async_fn_in_trait)]
-    async fn enrich(&self, models: Vec<HubModel>) -> Vec<Self::Entry>;
+    async fn enrich(&self, models: Vec<HubModel>) -> Result<Vec<Self::Entry>, HubError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,7 +110,13 @@ pub async fn fill<C: Catalogue>(
                         break;
                     }
                     reads += 1;
-                    let (models, next) = catalogue.page(cursor.as_deref()).await?;
+                    let (models, next) = match catalogue.page(cursor.as_deref()).await {
+                        Ok(read) => read,
+                        Err(error) if shown.is_empty() => return Err(error),
+                        // What the page has is shown, and the next goes on
+                        // from here.
+                        Err(_) => break,
+                    };
                     *done = next.is_none();
                     *cursor = next;
                     (models, false)
@@ -120,7 +129,11 @@ pub async fn fill<C: Catalogue>(
                             break;
                         }
                         reads += 1;
-                        (walk.next(catalogue, ordered::LISTING_LIMIT).await?, false)
+                        match walk.next(catalogue, ordered::LISTING_LIMIT).await {
+                            Ok(listed) => (listed, false),
+                            Err(error) if shown.is_empty() => return Err(error),
+                            Err(_) => break,
+                        }
                     }
                 }
             };
@@ -139,7 +152,18 @@ pub async fn fill<C: Catalogue>(
             .min(state.pending.len());
         let chunk: Vec<HubModel> = state.pending.drain(..wanted).collect();
         enriched += chunk.len();
-        shown.extend(catalogue.enrich(chunk).await);
+        match catalogue.enrich(chunk.clone()).await {
+            Ok(entries) => shown.extend(entries),
+            Err(error) => {
+                // Rate-limited: these go back first in line, shown by the
+                // next page -- or this one is the error, when it has nothing.
+                state.pending.splice(0..0, chunk);
+                if shown.is_empty() {
+                    return Err(error);
+                }
+                break;
+            }
+        }
     }
     let more = !state.pending.is_empty()
         || match &state.source {
@@ -173,6 +197,15 @@ pub fn could_pass(
     {
         return true;
     }
+    // A quantization asked for, and a different one in the name.
+    if let (Some(wanted), Some(stated)) = (
+        filters.quantization.as_deref().and_then(asked_bits),
+        stated_bits(&model.repository),
+    ) && format == Format::Mlx
+        && wanted != stated
+    {
+        return false;
+    }
     let Some(parameters) = model.gguf_parameters.or(model.safetensors_parameters) else {
         return true;
     };
@@ -186,6 +219,25 @@ pub fn could_pass(
         || budget.is_none_or(|budget| least + crate::fit::RUNTIME_OVERHEAD_BYTES <= budget);
     let small_enough = filters.max_bytes.is_none_or(|max| least <= max);
     fits && small_enough
+}
+
+/// The bits a quantization filter asks for -- "4-bit", "4bit", "q4",
+/// "mxfp4", "bf16" -- or `None` when it names no width.
+fn asked_bits(filter: &str) -> Option<f64> {
+    let filter = filter.trim().to_ascii_lowercase();
+    if filter.contains("16") && filter.contains('f') {
+        return Some(16.0);
+    }
+    if filter.contains("fp4") {
+        return Some(4.0);
+    }
+    let digits: String = filter
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
+        .collect();
+    let bits: f64 = digits.parse().ok()?;
+    (filter.contains("bit") || filter.starts_with('q')).then_some(bits)
 }
 
 /// The bits per weight a repository's name states: `-4bit`, `-8bit`,
@@ -228,6 +280,19 @@ mod tests {
         models: Vec<HubModel>,
         fits: Vec<&'static str>,
         enriched: RefCell<Vec<String>>,
+        /// Enrichments answered before the Hub starts rate-limiting.
+        limit_after: std::cell::Cell<Option<usize>>,
+    }
+
+    impl Fake {
+        fn new(models: Vec<HubModel>, fits: Vec<&'static str>) -> Self {
+            Fake {
+                models,
+                fits,
+                enriched: RefCell::new(Vec::new()),
+                limit_after: std::cell::Cell::new(None),
+            }
+        }
     }
 
     fn model(name: &str, parameters: u64, downloads: u64) -> HubModel {
@@ -264,16 +329,22 @@ mod tests {
         ) -> Result<(Vec<HubModel>, Option<String>), HubError> {
             Ok(slice(self.models.clone(), cursor, SEARCH_LIMIT))
         }
-        async fn enrich(&self, models: Vec<HubModel>) -> Vec<String> {
+        async fn enrich(&self, models: Vec<HubModel>) -> Result<Vec<String>, HubError> {
+            if let Some(left) = self.limit_after.get() {
+                if left == 0 {
+                    return Err(HubError::new(HubErrorKind::RateLimited, "rate-limited"));
+                }
+                self.limit_after.set(Some(left - 1));
+            }
             let names: Vec<String> = models
                 .iter()
                 .map(|m| m.repository.trim_start_matches("org/").to_owned())
                 .collect();
             self.enriched.borrow_mut().extend(names.iter().cloned());
-            names
+            Ok(names
                 .into_iter()
                 .filter(|name| self.fits.contains(&name.as_str()))
-                .collect()
+                .collect())
         }
     }
 
@@ -317,11 +388,7 @@ mod tests {
                 .iter()
                 .map(|name| &*Box::leak(name.clone().into_boxed_str())),
         );
-        let fake = Fake {
-            models,
-            fits,
-            enriched: RefCell::new(Vec::new()),
-        };
+        let fake = Fake::new(models, fits);
         let filters = Filters {
             compatible_only: true,
             ..Default::default()
@@ -364,11 +431,7 @@ mod tests {
                 fits.push(name);
             }
         }
-        let fake = Fake {
-            models,
-            fits,
-            enriched: RefCell::new(Vec::new()),
-        };
+        let fake = Fake::new(models, fits);
         let filters = Filters {
             compatible_only: true,
             ..Default::default()
@@ -399,11 +462,7 @@ mod tests {
         let fits: Vec<&'static str> = (0..45)
             .map(|n| &*Box::leak(format!("m{n}").into_boxed_str()))
             .collect();
-        let fake = Fake {
-            models,
-            fits,
-            enriched: RefCell::new(Vec::new()),
-        };
+        let fake = Fake::new(models, fits);
         let filters = Filters::default();
         let mut all = Vec::new();
         let mut cursor = None;
@@ -426,6 +485,61 @@ mod tests {
         }
         let expected: Vec<String> = (0..45).map(|n| format!("m{n}")).collect();
         assert_eq!(all, expected, "every model once, in the Hub's order");
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_shows_what_the_page_has_and_the_next_goes_on() {
+        let models: Vec<HubModel> = (0..30u64)
+            .map(|n| model(&format!("m{n}"), 8 * B, 100 - n))
+            .collect();
+        let fits: Vec<&'static str> = (0..30)
+            .map(|n| &*Box::leak(format!("m{n}").into_boxed_str()))
+            .collect();
+        let fake = Fake::new(models, fits);
+        let filters = Filters::default();
+        // The first enrichment is answered; the second is rate-limited.
+        fake.limit_after.set(Some(1));
+        let (first, next) = fill(&fake, None, None, (None, None), None, keep(&filters))
+            .await
+            .unwrap();
+        assert_eq!(first.len(), 20);
+        // Once the Hub answers again, nothing was skipped.
+        fake.limit_after.set(None);
+        let (second, _) = fill(
+            &fake,
+            None,
+            None,
+            (None, None),
+            next.as_deref(),
+            keep(&filters),
+        )
+        .await
+        .unwrap();
+        assert_eq!(second[0], "m20");
+        assert_eq!(second.len(), 10);
+        // A page that has nothing yet is the error, said as it is.
+        fake.limit_after.set(Some(0));
+        let refused = fill(&fake, None, None, (None, None), None, keep(&filters)).await;
+        assert_eq!(refused.unwrap_err().kind, HubErrorKind::RateLimited);
+    }
+
+    #[test]
+    fn a_quantization_asked_for_drops_the_names_that_state_another() {
+        let filters = Filters {
+            quantization: Some("4-bit".into()),
+            ..Default::default()
+        };
+        let pass =
+            |name: &str| could_pass(&model(name, 8 * B, 0), Format::Mlx, &filters, None, &[]);
+        assert!(pass("Qwen3-8B-4bit"));
+        assert!(pass("gpt-oss-20b-mxfp4"));
+        assert!(!pass("Qwen3-8B-8bit"));
+        assert!(!pass("Jaja-small-2bit-mlx"));
+        // A name that states nothing is kept: its config decides.
+        assert!(pass("Qwen3-8B-MLX"));
+        assert_eq!(asked_bits("Q4_K"), Some(4.0));
+        assert_eq!(asked_bits("bf16"), Some(16.0));
+        assert_eq!(asked_bits("DWQ"), None);
     }
 
     #[test]

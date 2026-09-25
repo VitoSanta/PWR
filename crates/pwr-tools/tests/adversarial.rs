@@ -1187,6 +1187,8 @@ async fn a_command_cannot_print_the_sandbox_error_to_escape_confinement() {
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::NamedTempFile::new().unwrap();
     let target = outside.path().to_path_buf();
+    // Compared on macOS only, where the sandbox runs.
+    #[cfg(target_os = "macos")]
     let original = fs::read_to_string(&target).unwrap();
     let policy = ToolPolicy {
         root: root.path().to_path_buf(),

