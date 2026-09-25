@@ -362,6 +362,13 @@ fn chat_messages(messages: &[pwr_domain::ChatMessage]) -> Vec<serde_json::Value>
 fn chat_message(message: &pwr_domain::ChatMessage) -> serde_json::Value {
     let mut value = serde_json::json!({"role": message.role, "content": message.content});
     let object = value.as_object_mut().expect("literal object");
+    // As for MLX: `llama-server --jinja` passes it to the model's template,
+    // which renders it while the exchange it belongs to continues.
+    if message.role == "assistant"
+        && let Some(reasoning) = &message.reasoning
+    {
+        object.insert("reasoning_content".into(), serde_json::json!(reasoning));
+    }
     if !message.tool_calls.is_empty() {
         object.insert(
             "tool_calls".into(),

@@ -135,6 +135,8 @@ export interface ContextInfo {
     toolResults: number;
     taskState: number;
     compactedMemory: number;
+    /** Profile, memories and the project's instructions (absent from older cores). */
+    personal?: number;
   };
   autoCompact: {
     enabled: boolean;
@@ -321,4 +323,39 @@ export interface EngineProgress {
   total: number;
   label: string;
   line: string | null;
+}
+
+/** The person, as they describe themselves in Settings (`_pwr/profile`). */
+export interface Profile {
+  name?: string;
+  role?: string;
+  about?: string;
+  language?: string;
+  style?: string;
+  memoryEnabled: boolean;
+}
+
+export type MemoryScope = 'global' | 'workspace';
+
+/** One remembered fact (`_pwr/memory`). */
+export interface Memory {
+  id: string;
+  text: string;
+  createdAt: string;
+  source?: string;
+}
+
+export interface MemoryList {
+  global: Memory[];
+  workspace: Memory[];
+  /** The project's instructions file, when there is one. */
+  instructions: { path: string; chars: number } | null;
+}
+
+/** A fact the model proposed to remember, waiting for the person. */
+export interface MemoryProposal {
+  key: string;
+  sessionId: string | null;
+  text: string;
+  scope: MemoryScope;
 }

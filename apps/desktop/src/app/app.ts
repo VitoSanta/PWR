@@ -6,6 +6,7 @@ import { ThemeService } from './core/theme';
 import { DialogStack, SHORTCUTS, ToastService, UiStore, isMac } from './core/ui';
 import { CommandPalette } from './ui/command-palette';
 import { Composer } from './ui/composer';
+import { MemoryProposals } from './ui/personal';
 import { ContextMeter } from './ui/context-meter';
 import { RunMetricsChip } from './ui/run-metrics';
 import { TraceVisibilityControl } from './ui/trace';
@@ -29,6 +30,7 @@ import { WorkspaceTrust } from './ui/workspace-trust';
     Rail,
     Conversation,
     Composer,
+    MemoryProposals,
     Inspector,
     Permission,
     ContextMeter,

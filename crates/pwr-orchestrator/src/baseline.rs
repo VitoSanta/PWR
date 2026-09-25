@@ -185,6 +185,7 @@ async fn take_turn<P: ModelProvider>(
         tool_call_id: None,
         purpose: None,
         images: Vec::new(),
+        reasoning: None,
     });
     let answering = reply.tool_calls.first().and_then(|call| call.id.clone());
     match actions_from_reply(&reply) {

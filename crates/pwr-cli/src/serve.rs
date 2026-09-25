@@ -739,6 +739,8 @@ impl<R: TurnRunner + 'static> Server<R> {
             "_pwr/catalog" => self.catalog(id, &params),
             "_pwr/local_models" | "_pwr/model_delete" => self.local(id, method, &params),
             "_pwr/model_sampling" => self.model_sampling(id, &params),
+            "_pwr/profile" => self.send(profile_request(id, &params)),
+            "_pwr/memory" => self.send(memory_request(id, &params)),
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/compact" => self.compact(id, &params).await,
@@ -2062,6 +2064,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         session.turns += 1;
         session.stop = Arc::new(AtomicBool::new(false));
         session.continuity.operator_spoke();
+        converse::forget_reasoning(&mut session.messages);
         let mut message = ChatMessage::text("user", text);
         message.images = stored;
         session.messages.push(message);
@@ -2086,6 +2089,13 @@ impl<R: TurnRunner + 'static> Server<R> {
                         && let Ok(mut proposed) = asking_about.lock()
                     {
                         *proposed = Some(tool_call_id(number, call.id));
+                    }
+                    if let TurnStep::MemoryProposed { text, scope } = &step {
+                        server.send(notification(
+                            "_pwr/memory_proposed",
+                            json!({"sessionId": session_id, "text": text, "scope": scope}),
+                        ));
+                        return;
                     }
                     if let TurnStep::Compacted(note) = &step {
                         server.send(notification(
@@ -2590,6 +2600,94 @@ fn error_response(id: Value, code: i64, message: &str) -> Value {
 
 fn notification(method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+
+/// `_pwr/profile`: the person's profile, and with `profile` in the params,
+/// saved first. See `pwr_orchestrator::personal`.
+fn profile_request(id: Value, params: &Value) -> Value {
+    use pwr_orchestrator::personal;
+    let home = match personal::Home::from_env() {
+        Ok(home) => home,
+        Err(why) => return error_response(id, -32000, &why),
+    };
+    let outcome = match params.get("profile") {
+        None | Some(Value::Null) => personal::load_profile(&home),
+        Some(value) => match serde_json::from_value::<personal::Profile>(value.clone()) {
+            Ok(profile) => personal::save_profile(&home, &profile),
+            Err(error) => {
+                return error_response(id, -32602, &format!("profile is not readable: {error}"));
+            }
+        },
+    };
+    match outcome {
+        Ok(profile) => result(id, json!({ "profile": profile })),
+        Err(why) => error_response(id, -32000, &why),
+    }
+}
+
+/// `_pwr/memory`: the memories of the person and of the workspace `cwd`, and
+/// the project's instructions file. `action` is `list` (the default), `add`
+/// (`scope`, `text`, optional `source`), `update` (`scope`, `id`, `text`) or
+/// `delete` (`scope`, `id`); every reply is the whole list after it.
+fn memory_request(id: Value, params: &Value) -> Value {
+    use pwr_orchestrator::personal::{self, Scope};
+    let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
+        return error_response(id, -32602, "name the workspace with cwd");
+    };
+    let home = match personal::Home::from_env() {
+        Ok(home) => home,
+        Err(why) => return error_response(id, -32000, &why),
+    };
+    let text = |name: &str| params.get(name).and_then(Value::as_str).unwrap_or_default();
+    let scope = match text("scope") {
+        "global" => Some(Scope::Global),
+        "workspace" => Some(Scope::Workspace),
+        "" => None,
+        _ => return error_response(id, -32602, "scope is `workspace` or `global`"),
+    };
+    let action = match text("action") {
+        "" => "list",
+        other => other,
+    };
+    let changed = match (action, scope) {
+        ("list", _) => Ok(()),
+        ("add", Some(scope)) => personal::add_memory(
+            &home,
+            scope,
+            &root,
+            text("text"),
+            params
+                .get("source")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        )
+        .map(|_| ()),
+        ("update", Some(scope)) => {
+            personal::update_memory(&home, scope, &root, text("id"), text("text"))
+        }
+        ("delete", Some(scope)) => personal::delete_memory(&home, scope, &root, text("id")),
+        ("add" | "update" | "delete", None) => {
+            return error_response(id, -32602, "name the scope: `workspace` or `global`");
+        }
+        _ => return error_response(id, -32602, "action is list, add, update or delete"),
+    };
+    if let Err(why) = changed {
+        return error_response(id, -32000, &why);
+    }
+    let listed = |scope| personal::load_memories(&home, scope, &root);
+    match (listed(Scope::Global), listed(Scope::Workspace)) {
+        (Ok(global), Ok(workspace)) => result(
+            id,
+            json!({
+                "global": global,
+                "workspace": workspace,
+                "instructions": personal::project_instructions(&root)
+                    .map(|(path, text)| json!({"path": path, "chars": text.len()})),
+            }),
+        ),
+        (Err(why), _) | (_, Err(why)) => error_response(id, -32000, &why),
+    }
 }
 
 #[cfg(test)]
@@ -4102,7 +4200,11 @@ mod tests {
         assert!(generation["firstChunkMs"].is_null());
         assert!(generation["promptEvalMs"].is_null());
         // What ACP already carries is not repeated.
-        assert!(turn_event(&TurnStep::Usage { used: 1, window: 2 }).is_none());
+        assert!(turn_event(&TurnStep::Usage {
+            used: 1,
+            window: 2,
+            estimated: false,
+        }).is_none());
     }
 
     #[test]

@@ -135,7 +135,11 @@ fn message_tokens(message: &ChatMessage) -> usize {
                 + crate::context::estimate_tokens(&call.arguments.to_string())
         })
         .sum();
-    crate::context::estimate_tokens(&message.content) + calls
+    let reasoning = message
+        .reasoning
+        .as_deref()
+        .map_or(0, crate::context::estimate_tokens);
+    crate::context::estimate_tokens(&message.content) + calls + reasoning
 }
 
 /// The verbatim tail a manual compaction keeps: a quarter of what the
@@ -158,6 +162,12 @@ pub fn compact(
     trigger: Trigger,
 ) -> Option<Compaction> {
     let system = messages.first().cloned()?;
+    // Reasoning handed back between steps is the first thing a compaction
+    // gives up: it is a working note for the steps of one exchange, and the
+    // record below keeps what those steps established.
+    for message in messages.iter_mut() {
+        message.reasoning = None;
+    }
     let mut spent = 0usize;
     let mut keep_from = messages.len();
     for (index, message) in messages.iter().enumerate().skip(1).rev() {
@@ -286,6 +296,9 @@ pub struct Composition {
     pub task_state: usize,
     /// Records left by compaction.
     pub compacted_memory: usize,
+    /// The person's profile, their memories and the project's instructions,
+    /// carried in the system message (`crate::personal`).
+    pub personal: usize,
 }
 
 impl Composition {
@@ -296,6 +309,7 @@ impl Composition {
             + self.tool_results
             + self.task_state
             + self.compacted_memory
+            + self.personal
     }
 }
 
@@ -314,7 +328,12 @@ pub fn composition(messages: &[ChatMessage]) -> Composition {
     for message in messages {
         let tokens = message_tokens(message);
         match (message.role.as_str(), message.purpose) {
-            ("system", _) => parts.system += tokens,
+            ("system", _) => {
+                let (_, person) = crate::personal::split_system(&message.content);
+                let person = crate::context::estimate_tokens(person);
+                parts.personal += person;
+                parts.system += tokens.saturating_sub(person);
+            }
             (_, Some(MessagePurpose::CompactedMemory)) => parts.compacted_memory += tokens,
             (_, Some(MessagePurpose::SessionLedger)) => parts.task_state += tokens,
             (_, Some(MessagePurpose::RepositoryExcerpts)) => parts.repository += tokens,

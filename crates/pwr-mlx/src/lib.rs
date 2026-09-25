@@ -788,6 +788,18 @@ pub fn template_message(message: &ChatMessage) -> serde_json::Value {
         parts.push(serde_json::json!({"type": "text", "text": message.content}));
         object.insert("content".into(), serde_json::Value::Array(parts));
     }
+    // The template decides whether to render it: Qwen 3.x's shows an
+    // assistant step's reasoning back to the model while the exchange it
+    // belongs to continues, which is how it was trained on multi-step tool use.
+    // The harness hands it only that far (see `converse::forget_reasoning`).
+    if message.role == "assistant"
+        && let Some(reasoning) = &message.reasoning
+    {
+        object.insert(
+            "reasoning_content".into(),
+            serde_json::json!(reasoning),
+        );
+    }
     if !message.tool_calls.is_empty() {
         object.insert(
             "tool_calls".into(),
@@ -1741,6 +1753,26 @@ mod tests {
             wire["tool_calls"][0]["function"]["arguments"]["path"],
             "src/lib.rs"
         );
+    }
+
+    #[test]
+    fn an_assistant_steps_reasoning_reaches_the_template_and_nothing_else_carries_it() {
+        let mut step = ChatMessage::text("assistant", "Running the tests.");
+        step.reasoning = Some("The check character is U; the tables are settled.".into());
+        let wire = template_message(&step);
+        assert_eq!(
+            wire["reasoning_content"],
+            "The check character is U; the tables are settled."
+        );
+        // Not stored: a message written to disk and read back has none.
+        let stored: ChatMessage = serde_json::from_str(&serde_json::to_string(&step).unwrap()).unwrap();
+        assert_eq!(stored.reasoning, None);
+        let mut user = ChatMessage::text("user", "hi");
+        user.reasoning = Some("never sent for a user message".into());
+        assert!(template_message(&user).get("reasoning_content").is_none());
+        assert!(template_message(&ChatMessage::text("assistant", "ok"))
+            .get("reasoning_content")
+            .is_none());
     }
 
     #[test]
