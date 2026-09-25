@@ -1584,64 +1584,85 @@ async fn take_turn_inner<P: ModelProvider>(
                     declined: false,
                 });
             }
-            // Proposed, not performed: the person decides. The model is told
-            // so, and the turn goes on.
-            if let ActionProposal::Remember { text, scope } = &action {
-                let scope = scope.clone().unwrap_or_else(|| {
-                    if continuity.chat_only {
-                        "global"
-                    } else {
-                        "workspace"
+            // What PWR keeps about the person and their projects: answered
+            // here, never put to the workspace's policy, and shown to the
+            // front end like any other action. `remember` is proposed, not
+            // performed -- the person decides -- and the model is told so.
+            if matches!(
+                action,
+                ActionProposal::Remember { .. }
+                    | ActionProposal::RecallProject { .. }
+                    | ActionProposal::WikiQuery { .. }
+            ) {
+                call_sequence += 1;
+                let step = |phase| {
+                    TurnStep::ToolCall(ToolCallStep {
+                        id: call_sequence,
+                        capability: call.name.clone(),
+                        detail: tool_call_detail(call),
+                        path: None,
+                        phase,
+                        diff: None,
+                    })
+                };
+                on_step(step(ToolPhase::Started));
+                let outcome = match &action {
+                    ActionProposal::Remember { text, scope } => {
+                        let scope = scope.clone().unwrap_or_else(|| {
+                            if continuity.chat_only {
+                                "global"
+                            } else {
+                                "workspace"
+                            }
+                            .to_owned()
+                        });
+                        on_step(TurnStep::MemoryProposed {
+                            text: text.trim().to_owned(),
+                            scope: scope.clone(),
+                        });
+                        Ok(serde_json::json!({
+                            "proposed": true,
+                            "scope": scope,
+                            "note": "shown to the person; it is saved only if they confirm it",
+                        }))
                     }
-                    .to_owned()
-                });
-                on_step(TurnStep::MemoryProposed {
-                    text: text.trim().to_owned(),
-                    scope: scope.clone(),
-                });
-                messages.push(tool_message(
-                    call,
-                    crate::action_outcome(Ok(serde_json::json!({
-                        "proposed": true,
-                        "scope": scope,
-                        "note": "shown to the person; it is saved only if they confirm it",
-                    }))),
-                ));
-                continue;
-            }
-            // Reads another workspace's wiki, never its files.
-            if let ActionProposal::RecallProject { name } = &action {
-                let recalled = crate::personal::Home::from_env()
-                    .map(|home| crate::wiki::recall(&home, name.as_deref().unwrap_or_default()));
-                on_step(TurnStep::Acted {
-                    capability: "recall_project".into(),
-                    detail: name.clone().unwrap_or_else(|| "known projects".into()),
-                });
-                messages.push(tool_message(
-                    call,
-                    crate::action_outcome(match recalled {
-                        Ok(text) => Ok(serde_json::json!({"recalled": text})),
-                        Err(why) => Err(crate::ActionExecutionError::Invalid(why)),
-                    }),
-                ));
-                continue;
-            }
-            if let ActionProposal::WikiQuery { query, project } = &action {
-                let root = (!continuity.chat_only).then_some(policy.root.as_path());
-                let answered = crate::personal::Home::from_env().map(|home| {
-                    crate::wiki::query(&home, root, project.as_deref().unwrap_or_default(), query)
-                });
-                on_step(TurnStep::Acted {
-                    capability: "wiki_query".into(),
-                    detail: query.clone(),
-                });
-                messages.push(tool_message(
-                    call,
-                    crate::action_outcome(match answered {
-                        Ok(text) => Ok(serde_json::json!({"graph": text})),
-                        Err(why) => Err(crate::ActionExecutionError::Invalid(why)),
-                    }),
-                ));
+                    ActionProposal::RecallProject { name } => crate::personal::Home::from_env()
+                        .map(|home| {
+                            serde_json::json!({
+                                "recalled": crate::wiki::recall(
+                                    &home,
+                                    name.as_deref().unwrap_or_default()
+                                )
+                            })
+                        }),
+                    ActionProposal::WikiQuery { query, project } => {
+                        let root = (!continuity.chat_only).then_some(policy.root.as_path());
+                        crate::personal::Home::from_env().map(|home| {
+                            serde_json::json!({
+                                "graph": crate::wiki::query(
+                                    &home,
+                                    root,
+                                    project.as_deref().unwrap_or_default(),
+                                    query
+                                )
+                            })
+                        })
+                    }
+                    _ => unreachable!("matched above"),
+                };
+                match outcome {
+                    Ok(value) => {
+                        on_step(step(ToolPhase::Completed));
+                        messages.push(tool_message(call, crate::action_outcome(Ok(value))));
+                    }
+                    Err(why) => {
+                        on_step(step(ToolPhase::Failed(why.clone())));
+                        messages.push(tool_message(
+                            call,
+                            crate::action_outcome(Err(crate::ActionExecutionError::Invalid(why))),
+                        ));
+                    }
+                }
                 continue;
             }
             let action = own_overwrite(action, &policy.root);
