@@ -144,6 +144,11 @@ pub trait TurnRunner {
     }
     /// One of the console's commands, answered in prose.
     async fn command(&self, command: Command, context: CommandContext) -> Result<String, String>;
+    /// One short generation with no tools and no reasoning, for the
+    /// workspace's wiki: (the text, the model that wrote it).
+    async fn summarise(&self, _root: &Path, _prompt: String) -> Result<(String, String), String> {
+        Err("summaries are not available for this runner".into())
+    }
     /// Full repository verification for a goal completion. Kept separate from
     /// the user-facing `verify` command so this is structured evidence rather
     /// than prose the server would need to parse.
@@ -526,6 +531,8 @@ struct Server<R> {
     calibrations: Rc<RefCell<HashMap<String, Arc<AtomicBool>>>>,
     /// The engine's own count after each session's last reply: (used, window).
     usage: Rc<RefCell<HashMap<String, (u64, u64)>>>,
+    /// Whether wiki summaries are being written in the background.
+    summarising: Rc<std::cell::Cell<bool>>,
 }
 
 /// Serves one client until its input closes.
@@ -555,6 +562,7 @@ where
         downloads: Rc::default(),
         calibrations: Rc::default(),
         usage: Rc::default(),
+        summarising: Rc::default(),
     });
     let mut lines = input.lines();
     while let Some(line) = lines.next_line().await.map_err(|error| error.to_string())? {
@@ -745,6 +753,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             "_pwr/profile" => self.send(profile_request(id, &params)),
             "_pwr/memory" => self.send(memory_request(id, &params)),
             "_pwr/projects" => self.send(projects_request(id, &params)),
+            "_pwr/wiki" => self.send(wiki_request(id, &params)),
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/compact" => self.compact(id, &params).await,
@@ -2114,6 +2123,8 @@ impl<R: TurnRunner + 'static> Server<R> {
         session.messages.push(message);
         let number = session.turns;
         let root = session.root.clone();
+        let summary_root = root.clone();
+        let chat_only = session.continuity.chat_only;
         let conversation_id = session.conversation_id;
         let messages = session.messages.clone();
         let continuity = session.continuity.clone();
@@ -2236,7 +2247,80 @@ impl<R: TurnRunner + 'static> Server<R> {
                 )
                 .await;
             server.finish(&session_id, reply);
+            if !chat_only {
+                server.summarise_while_idle(summary_root);
+            }
         });
+    }
+
+    /// Writes the wiki's missing or stale module summaries while no session
+    /// is working, one module at a time, and stops as soon as one is: the
+    /// engine serves one generation at a time, and a person's next message
+    /// must not wait behind more than one short summary. What is left is
+    /// picked up after the next turn.
+    fn summarise_while_idle(self: &Rc<Self>, root: PathBuf) {
+        if self.summarising.replace(true) {
+            return;
+        }
+        let server = Rc::clone(self);
+        tokio::task::spawn_local(async move {
+            server.summarise_modules(&root).await;
+            server.summarising.set(false);
+        });
+    }
+
+    async fn summarise_modules(&self, root: &Path) {
+        use pwr_orchestrator::{graph, personal, wiki};
+        const PER_IDLE: usize = 8;
+        let Ok(home) = personal::Home::from_env() else {
+            return;
+        };
+        let Ok(index) = wiki::index(root) else {
+            return;
+        };
+        let written_before = wiki::summaries(root);
+        let language = personal::load_profile(&home)
+            .map(|profile| profile.language)
+            .unwrap_or_default();
+        let mut written = 0;
+        for id in graph::summary_candidates(&index).into_iter().take(40) {
+            if written >= PER_IDLE || self.sessions.borrow().values().any(|session| session.busy) {
+                break;
+            }
+            let Some(hash) = graph::source_hash(&index, &id) else {
+                continue;
+            };
+            if written_before
+                .get(&id)
+                .is_some_and(|summary| summary.source_hash == hash)
+            {
+                continue;
+            }
+            let prompt = wiki::summary_prompt(root, &index, &id, &language);
+            match self.runner.summarise(root, prompt).await {
+                Ok((text, model)) if !text.trim().is_empty() => {
+                    let summary = graph::Summary {
+                        text: text.trim().to_owned(),
+                        source_hash: hash,
+                        model,
+                        at: chrono::Utc::now().to_rfc3339(),
+                    };
+                    if wiki::save_summary(root, &id, summary).is_err() {
+                        break;
+                    }
+                    written += 1;
+                }
+                // No engine, or it failed: the next turn tries again.
+                _ => break,
+            }
+        }
+        if written > 0 {
+            let _ = wiki::refresh(&home, root, None);
+            self.send(notification(
+                "_pwr/wiki_updated",
+                json!({"cwd": root, "summaries": written}),
+            ));
+        }
     }
 
     /// Frees the session for its next prompt, then answers the one that ran.
@@ -2644,6 +2728,64 @@ fn error_response(id: Value, code: i64, message: &str) -> Value {
 
 fn notification(method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+/// `_pwr/wiki`: the workspace `cwd`'s wiki -- its overview, its log, its
+/// modules with their summaries, the graph's outline -- and, with `query`, a
+/// node of the graph and its neighbours. Built on first ask when there is none.
+fn wiki_request(id: Value, params: &Value) -> Value {
+    use pwr_orchestrator::{graph::NodeKind, personal, wiki};
+    let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
+        return error_response(id, -32602, "name the workspace with cwd");
+    };
+    let dir = root.join(".pwr/wiki");
+    if !dir.join("graph.json").is_file() {
+        let built = personal::Home::from_env().and_then(|home| wiki::refresh(&home, &root, None));
+        if let Err(why) = built {
+            return error_response(id, -32000, &format!("the wiki could not be built: {why}"));
+        }
+    }
+    let Some(graph) = wiki::load_graph(&root) else {
+        return error_response(id, -32000, "the workspace's graph is unreadable");
+    };
+    let modules: Vec<Value> = pwr_orchestrator::graph::summary_candidates_in(&graph)
+        .iter()
+        .filter_map(|module| graph.nodes.iter().find(|node| &node.id == module))
+        .filter(|node| matches!(node.kind, NodeKind::Module | NodeKind::Project))
+        .take(40)
+        .map(|node| {
+            json!({
+                "id": node.id,
+                "label": node.label,
+                "summary": node.attrs.get("summary"),
+                "stale": node.attrs.get("summaryStale"),
+                "model": node.attrs.get("summaryModel"),
+            })
+        })
+        .collect();
+    let work: Vec<Value> = wiki::work_entries(&root)
+        .into_iter()
+        .rev()
+        .take(30)
+        .map(|entry| json!({"when": entry.when, "request": entry.request, "files": entry.files}))
+        .collect();
+    let query = params
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    result(
+        id,
+        json!({
+            "overview": std::fs::read_to_string(dir.join("overview.md")).unwrap_or_default(),
+            "outline": graph.outline(),
+            "generatedAt": graph.generated_at,
+            "nodes": graph.nodes.len(),
+            "edges": graph.edges.len(),
+            "modules": modules,
+            "work": work,
+            "answer": (!query.trim().is_empty()).then(|| graph.neighbourhood(query)),
+        }),
+    )
 }
 
 /// `_pwr/projects`: the workspaces PWR keeps a wiki for, most recent first;

@@ -28,7 +28,7 @@ export class UiStore {
   readonly settingsOpen = signal(false);
   readonly paletteOpen = signal(false);
   /** Kept here so the tab survives the inspector docking and undocking. */
-  readonly inspectorTab = signal<'changes' | 'evidence' | 'log'>('changes');
+  readonly inspectorTab = signal<'changes' | 'evidence' | 'wiki' | 'log'>('changes');
 }
 
 /**

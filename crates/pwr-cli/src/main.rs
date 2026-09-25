@@ -3539,6 +3539,52 @@ impl serve::TurnRunner for ConsoleTurns {
         })
     }
 
+    async fn summarise(&self, root: &Path, prompt: String) -> Result<(String, String), String> {
+        let root = self.ready(root).await?;
+        let config = load_chat_config(&root).map_err(|error| error.context)?;
+        let model = config.model.clone().ok_or("no model is selected")?;
+        let selection = self
+            .runtime
+            .select(model.clone(), Duration::from_secs(config.timeout_secs))
+            .map_err(|error| error.to_string())?;
+        // Short, factual and without reasoning: a summary is a few sentences,
+        // and a model thinking for minutes about one would hold the engine
+        // the person's next message is waiting for.
+        let request = ModelRequest {
+            deployment: selection.deployment.clone(),
+            context_tokens: config.context_tokens.min(16_384),
+            tools: None,
+            seed: None,
+            sampling: BTreeMap::from([
+                ("think".to_owned(), serde_json::json!(false)),
+                ("max_tokens".to_owned(), serde_json::json!(400)),
+                ("temperature".to_owned(), serde_json::json!(0.3)),
+            ]),
+            messages: vec![
+                ChatMessage::text(
+                    "system",
+                    "You write short, factual descriptions of source code for a project wiki. \
+                     Describe only what the code shows.",
+                ),
+                ChatMessage::text("user", prompt),
+            ],
+        };
+        let stream = selection
+            .backend
+            .chat(request)
+            .await
+            .map_err(|error| error.to_string())?;
+        let reply = pwr_provider::collect_reply(stream)
+            .await
+            .map_err(|error| error.to_string())?;
+        // A model that reasons anyway writes it inline on some templates.
+        let text = match reply.content.rsplit_once("</think>") {
+            Some((_, after)) => after.trim().to_owned(),
+            None => reply.content.trim().to_owned(),
+        };
+        Ok((text, model))
+    }
+
     async fn verify_goal(
         &self,
         context: serve::CommandContext,
