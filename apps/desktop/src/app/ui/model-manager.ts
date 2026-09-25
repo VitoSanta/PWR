@@ -525,11 +525,11 @@ import { Tooltip } from './kit/tooltip';
                     [max]="samplingMax(field.name)"
                     [step]="field.name === 'top_k' ? 1 : 'any'"
                     [value]="models.profileDraft()[field.name] ?? ''"
-                    [placeholder]="field.automatic.toString()"
+                    [placeholder]="field.automatic === null ? 'off' : field.automatic.toString()"
                     (input)="models.setProfileValue(field.name, $any($event.target).value)"
                     [attr.aria-label]="samplingLabel(field.name) + ' override'"
                   />
-                  <small class="t-caption">Automatic: {{ field.automatic }} · {{ samplingSource(field.automaticSource) }}</small>
+                  <small class="t-caption">Automatic: {{ field.automatic === null ? 'off' : field.automatic }} · {{ samplingSource(field.automaticSource) }}</small>
                   @if (samplingUrl(field.automaticSource); as url) {
                     <a class="t-caption" [href]="url" target="_blank" rel="noopener">Source</a>
                   }
@@ -626,6 +626,7 @@ export class ModelManager {
       artifact_do_sample_false: 'generation_config.json',
       declared_profile: 'PWR profile',
       mlx_sidecar_default: 'engine default',
+      unset: 'not applied',
     } as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
   }
 

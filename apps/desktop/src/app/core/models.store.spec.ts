@@ -174,4 +174,34 @@ describe('ModelsStore downloads', () => {
     expect(models.results().map((model) => model.repository)).toEqual(['a/b', 'c/d']);
     expect(models.nextCursor()).toBeNull();
   });
+  it('saves only the filled sampling fields as numbers, and resets to none', async () => {
+    const saved: any[] = [];
+    const view = (overrides: Record<string, number>) => ({
+      modelRef: 'a/b',
+      backend: 'mlx',
+      overrides,
+      fields: [
+        { name: 'temperature', value: overrides['temperature'] ?? 1, source: 'artifact_generation_config',
+          automatic: 1, automaticSource: 'artifact_generation_config', override: overrides['temperature'] ?? null },
+        { name: 'repetition_penalty', value: null, source: 'unset',
+          automatic: null, automaticSource: 'unset', override: null },
+      ],
+    });
+    agent.useDemo((method, params) => {
+      if (method !== '_pwr/model_sampling') return {};
+      if (params.values) saved.push(params.values);
+      return view(params.values ?? {});
+    });
+
+    await models.openProfile('a/b');
+    expect(models.profileDraft()).toEqual({ temperature: '', repetition_penalty: '' });
+    models.setProfileValue('temperature', '0.6');
+    await models.saveProfile();
+    expect(saved.pop()).toEqual({ temperature: 0.6 });
+    expect(models.profileDraft()['temperature']).toBe('0.6');
+
+    await models.saveProfile(true);
+    expect(saved.pop()).toEqual({});
+    expect(models.profileDraft()['temperature']).toBe('');
+  });
 });
