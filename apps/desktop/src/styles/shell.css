@@ -1006,7 +1006,7 @@ pa-inspector {
   width: 100%;
   min-height: 0;
   border: 0;
-  background: #fff;
+  background: var(--surface-primary);
 }
 
 .browser-suggestions {
@@ -1052,6 +1052,7 @@ pa-inspector {
   flex: 1;
   min-height: 240px;
   overflow: hidden;
+  background: var(--surface-primary);
 }
 
 .graph-stage > pa-graph3d,

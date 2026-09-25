@@ -15,6 +15,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { ActivityStore } from '../../core/activity';
+import { ThemeService } from '../../core/theme';
 import { AgentStore } from '../../core/agent.store';
 import { CORE_TOO_OLD } from '../../core/personal.store';
 import { WorkbenchStore } from '../../core/workbench';
@@ -105,11 +106,15 @@ export class Graph3d implements AfterViewInit, OnDestroy {
   private neighbours = new Map<string, Set<string>>();
 
   constructor() {
+    const theme = inject(ThemeService);
     effect(() => {
       const nodes = this.nodes();
       const edges = this.edges();
+      // Redrawn with the theme: its colours are read from the page's tokens,
+      // after the theme has been applied to it.
+      theme.theme();
       if (!this.ready()) return;
-      untracked(() => void this.draw(nodes, edges));
+      untracked(() => requestAnimationFrame(() => void this.draw(nodes, edges)));
     });
     effect(() => {
       const selected = this.selected();
@@ -198,7 +203,7 @@ export class Graph3d implements AfterViewInit, OnDestroy {
         if (labelled && (this.degree.get(node.id) ?? 0) < labelled && node.kind !== 'project') return null;
         const text = new this.sprite(node.label);
         text.color = token('--text-secondary');
-        text.textHeight = node.kind === 'project' ? 5 : 3;
+        text.textHeight = node.kind === 'project' ? 7 : node.kind === 'module' ? 5 : 4;
         text.fontFace = style.getPropertyValue('--font').trim() || 'sans-serif';
         text.position.y = -(Math.cbrt(node.val) * 4 + 4);
         return text;
