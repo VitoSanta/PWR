@@ -102,6 +102,30 @@ pub struct Filters {
     pub quantization: Option<String>,
     pub min_context: Option<u32>,
     pub max_bytes: Option<u64>,
+    /// The order the Hub returns the catalogue in, across every page; the
+    /// most downloaded first when unset.
+    pub sort: Option<HubSort>,
+}
+
+/// Orders the Hub itself can sort by, named as its API names them. Anything
+/// the Hub cannot sort by (parameters, download size) is ordered by the
+/// interface among the results it has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HubSort {
+    Downloads,
+    Likes,
+    LastModified,
+}
+
+impl HubSort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HubSort::Downloads => "downloads",
+            HubSort::Likes => "likes",
+            HubSort::LastModified => "lastModified",
+        }
+    }
 }
 
 /// Keeps what the filters allow. A variant filter (quantization, size, fit)

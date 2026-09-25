@@ -539,6 +539,103 @@ pa-model-picker {
   width: 180px;
 }
 
+.mm-params-trigger {
+  width: auto;
+  min-width: 124px;
+}
+
+.mm-result-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.mm-result-bar .result-status {
+  min-width: 0;
+}
+
+.mm-sort {
+  flex: none;
+  min-width: 170px;
+}
+
+/* The parameter range: two range inputs over one track, the span between
+   their handles in the accent. */
+.params-range {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.params-range-head,
+.params-range-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.params-range-track {
+  position: relative;
+  height: 20px;
+}
+
+.params-range-track::before {
+  content: '';
+  position: absolute;
+  inset: 8px 0;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    to right,
+    var(--border-subtle) var(--from),
+    var(--accent-primary) var(--from),
+    var(--accent-primary) var(--to),
+    var(--border-subtle) var(--to)
+  );
+}
+
+.params-range-track input {
+  outline: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  appearance: none;
+}
+
+.params-range-track input::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--accent-primary);
+  border-radius: 50%;
+  background: var(--surface-elevated);
+  cursor: grab;
+  pointer-events: auto;
+  appearance: none;
+}
+
+.params-range-track input::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent-primary);
+  border-radius: 50%;
+  background: var(--surface-elevated);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.params-range-track input:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.params-range-track input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
 .mm-filter-sep {
   width: 1px;
   height: 18px;

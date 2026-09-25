@@ -102,7 +102,10 @@ export class Popover implements AfterViewInit, OnDestroy {
 
   @HostListener('document:keydown', ['$event'])
   protected key(event: KeyboardEvent): void {
-    if (event.key !== 'Escape' || event.defaultPrevented || this.dialogs.open) return;
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    // Behind an open dialog, Escape is the dialog's; inside one, it closes
+    // this first -- it closed the whole Model Manager from its filters.
+    if (this.dialogs.open && !this.host.nativeElement.closest('pa-dialog')) return;
     event.preventDefault();
     this.anchor().focus({ preventScroll: true });
     this.closed.emit();

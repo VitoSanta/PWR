@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Dialog } from './dialog';
+import { Popover } from './popover';
 import { Select, SelectOption } from './select';
 
 @Component({
@@ -42,6 +43,23 @@ class TwoSelects {
 })
 class DialogHost {
   readonly open = signal(false);
+}
+
+@Component({
+  imports: [Dialog, Popover],
+  template: `
+    <pa-dialog labelledBy="t" (closed)="open.set(false)">
+      <h2 id="t">Title</h2>
+      <button #anchor id="anchor">Filters</button>
+      @if (popover()) {
+        <pa-popover [anchor]="anchor" ariaLabel="Filter" (closed)="popover.set(false)"><button>Inside</button></pa-popover>
+      }
+    </pa-dialog>
+  `,
+})
+class PopoverInDialog {
+  readonly open = signal(true);
+  readonly popover = signal(true);
 }
 
 const press = (target: Element, key: string) => {
@@ -154,6 +172,25 @@ describe('Dialog', () => {
     await settle(fixture);
     expect(fixture.componentInstance.open()).toBe(false);
     expect(document.activeElement).toBe(opener);
+    fixture.nativeElement.remove();
+  });
+
+  it('lets Escape close a popover inside it first, and only then the dialog', async () => {
+    const fixture = TestBed.createComponent(PopoverInDialog);
+    document.body.append(fixture.nativeElement);
+    await settle(fixture);
+    const escape = () => {
+      const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      document.dispatchEvent(event);
+      window.dispatchEvent(event);
+    };
+    escape();
+    await settle(fixture);
+    expect(fixture.componentInstance.popover()).toBe(false);
+    expect(fixture.componentInstance.open()).toBe(true);
+    escape();
+    await settle(fixture);
+    expect(fixture.componentInstance.open()).toBe(false);
     fixture.nativeElement.remove();
   });
 });

@@ -249,7 +249,16 @@ export interface CatalogFilters {
   quantization?: string;
   minContext?: number;
   maxBytes?: number;
+  /** The Hub's own order, across every page; most downloaded when unset. */
+  sort?: 'likes' | 'lastModified';
 }
+
+/**
+ * How the Model Manager lists results. The first three are the Hub's, over
+ * the whole catalogue; the rest the Hub cannot sort by, so they order the
+ * results loaded so far.
+ */
+export type ModelOrder = 'downloads' | 'likes' | 'lastModified' | 'params-desc' | 'params-asc' | 'size-asc' | 'name';
 
 /** A download as the core's state machine reports it. */
 export type DownloadState =
