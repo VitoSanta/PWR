@@ -298,7 +298,7 @@ interface FileEntry {
       @if (open.binary) {
         <p class="card-empty">A binary file ({{ size(open.bytes) }}); nothing to show as text.</p>
       } @else {
-        <div class="file-view card-scroll" role="document" [attr.aria-label]="open.path">
+        <div class="file-view card-scroll" role="document" [attr.aria-label]="open.path" animate.enter="anim-fade-in">
           @for (line of lines(); track $index) {
             <div class="file-line"><span class="file-number" aria-hidden="true">{{ $index + 1 }}</span><span class="file-text">{{ line }}</span></div>
           }
@@ -308,7 +308,7 @@ interface FileEntry {
         }
       }
     } @else {
-      <ul class="file-list card-scroll">
+      <ul class="file-list card-scroll" animate.enter="anim-fade-in">
         @for (entry of entries(); track entry.path) {
           <li>
             <button class="file-entry" (click)="enter(entry)">

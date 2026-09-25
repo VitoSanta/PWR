@@ -876,6 +876,10 @@ button.badge:hover {
   animation: pa-fade-out var(--dur-fast) var(--ease) both;
 }
 
+.anim-rise-in {
+  animation: pa-rise-in var(--dur-slow) var(--ease-out) backwards;
+}
+
 /* ---------------------------------------------------------------- dialog */
 .dialog-scrim {
   position: fixed;

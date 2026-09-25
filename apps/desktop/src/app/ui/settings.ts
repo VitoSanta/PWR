@@ -41,15 +41,16 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
             </button>
             @switch (page()) {
               @case ('profile') {
-                <pa-profile-settings />
+                <pa-profile-settings animate.enter="anim-fade-in" />
               }
               @case ('memory') {
-                <pa-memory-settings />
+                <pa-memory-settings animate.enter="anim-fade-in" />
               }
               @case ('projects') {
-                <pa-projects-settings />
+                <pa-projects-settings animate.enter="anim-fade-in" />
               }
               @case ('appearance') {
+                <div class="settings-page" animate.enter="anim-fade-in">
                 <header class="settings-page-head">
                   <h3 class="settings-page-title">Appearance</h3>
                   <p class="fine">System follows your operating system's appearance and changes with it.</p>
@@ -96,8 +97,10 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
                     </div>
                   }
                 }
+                </div>
               }
               @case ('shortcuts') {
+                <div class="settings-page" animate.enter="anim-fade-in">
                 <header class="settings-page-head">
                   <h3 class="settings-page-title">Keyboard shortcuts</h3>
                 </header>
@@ -111,6 +114,7 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
                     </div>
                   }
                 </dl>
+                </div>
               }
             }
           </div>

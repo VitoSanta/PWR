@@ -47,7 +47,7 @@ describe('AgentStore context', () => {
     expect(store.usage()).toEqual({ used: 54_000, window: 128_000, estimated: false });
   });
 
-  it('numbers the person's message with the turn the core started for it', () => {
+  it("numbers the person's message with the turn the core started for it", () => {
     store.sessionId.set('s1');
     store.timeline.set([{ key: 'u1', kind: 'user', title: 'You', text: 'build it', status: 'sent', at: 1 }]);
     store.receive({ jsonrpc: '2.0', method: '_pwr/turn_started', params: { sessionId: 's1', turn: 3 } });

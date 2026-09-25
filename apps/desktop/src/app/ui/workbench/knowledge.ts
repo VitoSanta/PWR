@@ -257,6 +257,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
     } @else if (wiki(); as data) {
       @switch (view()) {
         @case ('graph') {
+          <div class="knowledge-view" animate.enter="anim-fade-in">
           <div class="graph-controls">
             <form class="graph-search" (submit)="$event.preventDefault(); find(search.value)">
               <input #search class="input input-sm" placeholder="Find a file, folder or package" aria-label="Find in the graph" />
@@ -272,7 +273,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
               }
             </ul>
             @if (detail(); as node) {
-              <section class="graph-detail" aria-label="Selected node">
+              <section class="graph-detail" aria-label="Selected node" animate.enter="anim-rise-in" animate.leave="anim-fade-out">
                 <header>
                   <span class="badge">{{ kindLabel(node.kind) }}</span>
                   <strong class="truncate" [attr.title]="node.label">{{ node.label }}</strong>
@@ -298,8 +299,10 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
               </section>
             }
           </div>
+          </div>
         }
         @case ('modules') {
+          <div class="knowledge-view" animate.enter="anim-fade-in">
           <div class="card-toolbar">
             <span class="t-meta">{{ summaryStatus() }}</span>
             <span class="spacer"></span>
@@ -322,9 +325,10 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
               <p class="card-empty">No source folders found.</p>
             }
           </div>
+          </div>
         }
         @case ('work') {
-          <ol class="card-scroll card-pad work-list">
+          <ol class="card-scroll card-pad work-list" animate.enter="anim-fade-in">
             @for (entry of data.work; track $index) {
               <li class="work-item">
                 <span class="t-meta num">{{ entry.when }}</span>
@@ -343,7 +347,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
           </ol>
         }
         @case ('overview') {
-          <div class="card-scroll card-pad">
+          <div class="card-scroll card-pad" animate.enter="anim-fade-in">
             <pa-markdown [text]="data.overview" [copyable]="false" />
           </div>
         }
