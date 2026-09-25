@@ -341,12 +341,17 @@ pub fn entry(input: EntryInput<'_>) -> CatalogEntry {
         },
         _ => (None, None),
     };
-    let (parameters, parameters_source) =
-        match (model.gguf_parameters, model.safetensors_parameters) {
-            (Some(count), _) => (Some(count), Some("GGUF metadata (Hub)".to_owned())),
-            (None, Some(count)) => (Some(count), Some("safetensors metadata (Hub)".to_owned())),
-            _ => (None, None),
-        };
+    let (parameters, parameters_source) = match (
+        model.listed_parameters(),
+        model.gguf_parameters.is_some(),
+        catalog::named_parameters(&model.repository),
+    ) {
+        (Some(count), true, _) => (Some(count), Some("GGUF metadata (Hub)".to_owned())),
+        (Some(count), false, _) => (Some(count), Some("safetensors metadata (Hub)".to_owned())),
+        // The Hub's count is missing or not believable: the name's, said so.
+        (None, _, Some(named)) => (Some(named), Some("the repository's name".to_owned())),
+        (None, _, None) => (None, None),
+    };
     let config_context = text_config
         .and_then(|text| text.get("max_position_embeddings"))
         .and_then(serde_json::Value::as_u64)
