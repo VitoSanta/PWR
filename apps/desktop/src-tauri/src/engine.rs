@@ -89,9 +89,16 @@ fn supported() -> bool {
 /// `PWR_MLX_PYTHON`, else the environment this app installed, else -- in a
 /// development build only -- the checkout's (`scripts/setup-mlx.sh`). A
 /// release build behaves as it will for anyone who downloads it.
+///
+/// A Python named by the environment or the checkout is taken only if it has
+/// mlx-lm: taken on its name alone, one that had never been installed was
+/// reported ready, the installer was never offered and every model failed to
+/// load with "cannot import mlx_lm".
 fn find(app: &AppHandle) -> Option<(&'static str, PathBuf)> {
-    if let Some(python) = std::env::var_os("PWR_MLX_PYTHON") {
-        return Some(("environment", PathBuf::from(python)));
+    if let Some(python) = std::env::var_os("PWR_MLX_PYTHON").map(PathBuf::from) {
+        if has_engine(&python) {
+            return Some(("environment", python));
+        }
     }
     if let Ok(root) = root(app) {
         let python = venv_python(&root);
@@ -102,9 +109,25 @@ fn find(app: &AppHandle) -> Option<(&'static str, PathBuf)> {
     if cfg!(debug_assertions) {
         let checkout = crate::repository()?;
         let python = checkout.join(".venv-mlx/bin/python");
-        return python.is_file().then_some(("checkout", python));
+        return has_engine(&python).then_some(("checkout", python));
     }
     None
+}
+
+/// Whether `python` runs and can find mlx-lm. Found, not imported: importing
+/// it loads MLX, which takes seconds; finding it takes a fraction of one.
+fn has_engine(python: &Path) -> bool {
+    python.is_file()
+        && std::process::Command::new(python)
+            .args([
+                "-c",
+                "import importlib.util, sys; sys.exit(importlib.util.find_spec('mlx_lm') is None)",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
 }
 
 /// The interpreter the core should be started with, if there is one.
