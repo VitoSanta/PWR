@@ -19,6 +19,7 @@ pub mod catalog;
 pub mod download;
 pub mod fit;
 pub mod hub;
+pub mod loader;
 pub mod local;
 pub mod ordered;
 pub mod profile;
@@ -453,65 +454,56 @@ pub async fn search(
     models_root: &Path,
     installed: &[String],
 ) -> Result<SearchPage, hub::HubError> {
-    if let Some(order) = filters.order {
-        let limit = capacity_parameter_limit(capacity, filters);
-        let (models, next_cursor) = ordered::page(
-            &HubListing {
-                hub,
-                query,
-                format,
-                filters,
-            },
-            order,
-            limit,
-            cursor,
-            (filters.min_parameters, filters.max_parameters),
-        )
-        .await?;
-        let entries = enrich(hub, models, format, capacity, models_root, installed).await;
-        return Ok(SearchPage {
-            entries,
-            next_cursor,
-        });
-    }
-    // Speech, embedding and image models share these formats. Keep the Hub's
-    // cursor so every subsequent page can still be reached after filtering.
-    let page = hub
-        .search_page(query, format, filters, cursor, SEARCH_LIMIT)
-        .await?;
-    let models: Vec<HubModel> = page
-        .models
-        .into_iter()
-        .filter(catalog::is_language_model)
-        .collect();
-    let entries = enrich(hub, models, format, capacity, models_root, installed).await;
+    let catalogue = HubCatalogue {
+        hub,
+        query,
+        format,
+        filters,
+        capacity,
+        models_root,
+        installed,
+    };
+    let budget = fit::budget(capacity, format);
+    let (entries, next_cursor) = loader::fill(
+        &catalogue,
+        filters.order,
+        walk_limit(budget, filters),
+        (filters.min_parameters, filters.max_parameters),
+        cursor,
+        |model| loader::could_pass(model, format, filters, budget, installed),
+    )
+    .await?;
     Ok(SearchPage {
         entries,
-        next_cursor: page.next_cursor,
+        next_cursor,
     })
 }
 
 /// The most parameters a model that fits this machine could have, when only
 /// fitting models are asked for: at the lowest precision weights are stored
-/// at (about 1.5 bits), in all of its memory. A walk from the largest down
-/// starts there rather than paging through models that could never load.
-fn capacity_parameter_limit(capacity: &Capacity, filters: &Filters) -> Option<u64> {
+/// at, in all the memory a model may take. A walk from the largest down
+/// starts there rather than walking through models that could never load.
+fn walk_limit(budget: Option<u64>, filters: &Filters) -> Option<u64> {
     if !filters.compatible_only {
         return None;
     }
-    let memory = capacity.total_memory_bytes.max(capacity.vram_bytes)?;
-    Some(memory.saturating_mul(8) / 3 * 2)
+    let room = budget?.saturating_sub(fit::RUNTIME_OVERHEAD_BYTES);
+    Some(room.saturating_mul(8) / 3 * 2)
 }
 
-/// The Hub's listing within a parameter range, for [`ordered::page`].
-struct HubListing<'a> {
+/// The Hub, for one search: its listings, and the enrichment and exact
+/// filters a page shows them through.
+struct HubCatalogue<'a> {
     hub: &'a hub::HubClient,
     query: &'a str,
     format: Format,
     filters: &'a Filters,
+    capacity: &'a Capacity,
+    models_root: &'a Path,
+    installed: &'a [String],
 }
 
-impl ordered::Listing for HubListing<'_> {
+impl ordered::Listing for HubCatalogue<'_> {
     async fn list(
         &self,
         min: u64,
@@ -542,6 +534,47 @@ impl ordered::Listing for HubListing<'_> {
                 .collect(),
             page.next_cursor,
         ))
+    }
+}
+
+impl loader::Catalogue for HubCatalogue<'_> {
+    type Entry = CatalogEntry;
+
+    async fn page(
+        &self,
+        cursor: Option<&str>,
+    ) -> Result<(Vec<HubModel>, Option<String>), hub::HubError> {
+        // Speech, embedding and image models share these formats.
+        let page = self
+            .hub
+            .search_page(
+                self.query,
+                self.format,
+                self.filters,
+                cursor,
+                ordered::LISTING_LIMIT,
+            )
+            .await?;
+        Ok((
+            page.models
+                .into_iter()
+                .filter(catalog::is_language_model)
+                .collect(),
+            page.next_cursor,
+        ))
+    }
+
+    async fn enrich(&self, models: Vec<HubModel>) -> Vec<CatalogEntry> {
+        let entries = enrich(
+            self.hub,
+            models,
+            self.format,
+            self.capacity,
+            self.models_root,
+            self.installed,
+        )
+        .await;
+        apply_filters(entries, self.filters)
     }
 }
 
