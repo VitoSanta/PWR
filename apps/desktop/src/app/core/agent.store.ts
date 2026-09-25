@@ -92,8 +92,20 @@ export class AgentStore {
   /** The Evidence command that is running, if any. */
   readonly commandRunning = signal<string | null>(null);
   readonly permission = signal<PermissionRequest | null>(null);
-  /** Tokens the conversation occupies and the window, after the last reply. */
-  readonly usage = signal<{ used: number; window: number } | null>(null);
+  /**
+   * Tokens the conversation occupies and the window: the engine's count after
+   * a reply, or -- `estimated` -- the core's estimate of the prompt it is about
+   * to send, tool results included.
+   */
+  readonly usage = signal<{ used: number; window: number; estimated: boolean } | null>(null);
+  /**
+   * Characters of reasoning and answer streamed since the last count: what the
+   * generation in flight has added to the window, which the engine counts only
+   * once the reply ends.
+   */
+  private readonly streamedChars = signal(0);
+  /** Those characters as tokens, estimated at four characters a token. */
+  readonly streamedTokens = computed(() => Math.ceil(this.streamedChars() / 4));
   /** The context panel's account, read when it is opened or after a change. */
   readonly contextInfo = signal<ContextInfo | null>(null);
   readonly compacting = signal(false);
@@ -575,6 +587,7 @@ export class AgentStore {
   newConversation(): void {
     if (this.turnActive()) return;
     this.usage.set(null);
+    this.streamedChars.set(0);
     this.contextInfo.set(null);
     this.sessionId.set(null);
     this.timeline.set([]);
@@ -588,6 +601,7 @@ export class AgentStore {
     this.changes.set([]);
     this.segment = 0;
     this.usage.set(null);
+    this.streamedChars.set(0);
     this.contextInfo.set(null);
     this.sessionId.set(sessionId);
     await this.request('session/load', { sessionId, cwd: this.workspace(), mcpServers: [] });
@@ -639,6 +653,8 @@ export class AgentStore {
       this.notice('The turn failed', String(error), 'error');
     } finally {
       this.turnActive.set(false);
+      // What an unfinished generation streamed is not kept in the history.
+      this.streamedChars.set(0);
       this.settleLive();
       void this.refreshSessions();
       this.sendNextQueued();
@@ -771,9 +787,11 @@ export class AgentStore {
       return;
     }
     if (message.method === '_pwr/usage') {
-      const { used, window } = message.params ?? {};
+      const { used, window, estimated } = message.params ?? {};
       if (typeof used === 'number' && typeof window === 'number' && window > 0) {
-        this.usage.set({ used, window });
+        this.usage.set({ used, window, estimated: estimated === true });
+        // The count now covers everything streamed before it.
+        this.streamedChars.set(0);
       }
       return;
     }
@@ -820,10 +838,12 @@ export class AgentStore {
     const live = update._meta?.pwr?.live === true;
     switch (kind) {
       case 'agent_thought_chunk':
+        this.streamedChars.update((chars) => chars + text.length);
         this.stream(`thought-${this.segment}`, 'thought', 'Thinking', text);
         return;
       case 'agent_message_chunk':
         if (live) {
+          this.streamedChars.update((chars) => chars + text.length);
           this.stream(`reply-${this.segment}`, 'reply', 'PWR', text);
         } else {
           this.finalMessage(text);
