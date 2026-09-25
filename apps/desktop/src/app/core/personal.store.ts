@@ -115,5 +115,10 @@ export class PersonalStore {
 }
 
 function message(error: unknown): string {
-  return String(error).replace(/^Error: /, '');
+  const text = String(error).replace(/^Error: /, '');
+  return /method not found/i.test(text) ? CORE_TOO_OLD : text;
 }
+
+/** What a core built before this app answers for a method it lacks. */
+export const CORE_TOO_OLD =
+  'The PWR core running is older than this app. Rebuild it (cargo build --release -p pwr-cli) and restart PWR.';

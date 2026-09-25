@@ -571,6 +571,11 @@ pub fn recall_project_tool() -> ToolDefinition {
     }
 }
 
+/// Capabilities a conversation has and a scripted run does not: each needs a
+/// person (to confirm a memory) or reads what PWR kept about them and their
+/// projects, and a run's catalogue is part of what a campaign measures.
+pub const CONVERSATION_ONLY: [&str; 3] = ["remember", "recall_project", "wiki_query"];
+
 /// `remember`: proposes a fact to keep across conversations. The person
 /// confirms it before anything is saved (`crate::personal`).
 pub fn remember_tool() -> ToolDefinition {
@@ -2712,7 +2717,18 @@ mod tests {
             .map(|tool| tool.name.as_str())
             .collect();
         names.sort_unstable();
-        assert_eq!(names, ["list_tree", "read_file"]);
+        // Reading, and what PWR keeps about the person and their projects --
+        // none of which acts on anything.
+        assert_eq!(
+            names,
+            [
+                "list_tree",
+                "read_file",
+                "recall_project",
+                "remember",
+                "wiki_query"
+            ]
+        );
         for (name, arguments) in [
             (
                 "write_file",

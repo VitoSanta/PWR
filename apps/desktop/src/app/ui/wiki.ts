@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
+import { CORE_TOO_OLD } from '../core/personal.store';
 import { Icon } from './kit/icon';
 import { Tooltip } from './kit/tooltip';
 import { Markdown } from './markdown';
@@ -132,7 +133,8 @@ export class Wiki implements OnInit {
         (await this.agent.call('_pwr/wiki', { cwd: this.agent.workspace(), query: this.query })) as WikiView,
       );
     } catch (error) {
-      this.error.set(String(error).replace(/^Error: /, ''));
+      const text = String(error).replace(/^Error: /, '');
+      this.error.set(/method not found/i.test(text) ? CORE_TOO_OLD : text);
     } finally {
       this.loading.set(false);
     }

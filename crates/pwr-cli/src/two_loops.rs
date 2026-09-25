@@ -499,10 +499,10 @@ fn the_conversation_is_offered_a_smaller_catalogue_than_a_run() {
 
     let only_in_run: Vec<&String> = run.iter().filter(|name| !chat.contains(name)).collect();
     assert_eq!(only_in_run, ["record_progress", "propose_verifier"]);
-    assert!(
-        chat.iter().all(|name| run.contains(name)),
-        "the conversation gained a capability the run does not have: {chat:?}"
-    );
+    // Beyond the run's, only what needs a person or reads what PWR keeps
+    // about them -- and nothing that acts on the workspace.
+    let only_in_chat: Vec<&String> = chat.iter().filter(|name| !run.contains(name)).collect();
+    assert_eq!(only_in_chat, converse::CONVERSATION_ONLY);
 }
 
 // --------------------------------------------------------- the ordinary turn

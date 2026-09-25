@@ -18,7 +18,7 @@ fn declared() -> Vec<ModelProfile> {
 #[test]
 fn every_profile_is_coherent_and_explains_itself() {
     let profiles = declared();
-    assert_eq!(profiles.len(), 14);
+    assert_eq!(profiles.len(), 16);
     for profile in &profiles {
         assert!(
             profile.context.is_coherent(),
