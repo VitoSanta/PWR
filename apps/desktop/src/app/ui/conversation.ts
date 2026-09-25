@@ -16,7 +16,7 @@ import { RunOutcome, Step, groupSteps } from '../core/trace';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
-import { TraceCompact, TraceRaw, TraceSteps } from './trace';
+import { TraceCompact } from './trace';
 
 /** One row of the conversation: the person's message, or the whole reply to it. */
 type Item =
@@ -26,7 +26,7 @@ type Item =
 
 @Component({
   selector: 'pa-conversation',
-  imports: [Icon, Popover, Tooltip, TraceCompact, TraceSteps, TraceRaw],
+  imports: [Icon, Popover, Tooltip, TraceCompact],
   template: `
     <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
@@ -137,17 +137,7 @@ type Item =
                   <span class="turn-meta num">· {{ item.live ? 'working' : 'done' }} · {{ duration(item) }}</span>
                 </header>
                 <div class="turn-body">
-                  @switch (store.traceVisibility()) {
-                    @case ('compact') {
-                      <pa-trace-compact [entries]="item.entries" [live]="item.live" />
-                    }
-                    @case ('detailed') {
-                      <pa-trace-steps [steps]="item.steps" />
-                    }
-                    @case ('raw') {
-                      <pa-trace-raw [entries]="item.entries" [startedAt]="item.startedAt" [endedAt]="item.endedAt" [live]="item.live" />
-                    }
-                  }
+                  <pa-trace-compact [entries]="item.entries" [live]="item.live" />
                   @if (!item.live && answer(item.entries); as text) {
                     <div class="message-actions turn-actions">
                       <button class="icon-btn icon-btn-sm" (click)="copy(text)" aria-label="Copy answer" paTooltip="Copy answer">
@@ -208,7 +198,7 @@ export class Conversation {
   /**
    * Everything the model does between two messages of the person is one
    * turn -- reasoning, text, actions, retries in order, on one rail. The turn
-   * keeps its entries; Compact, Detailed and Raw Trace each render them.
+   * keeps its entries, shown as phases that open onto their steps.
    */
   protected readonly items = computed<Item[]>(() => {
     const items: Item[] = [];

@@ -4,7 +4,7 @@
 /**
  * One stream of what a run did, in order. `retry`, `recovery`, `generation`,
  * `note` and `stop` come from `_pwr/turn_event` and the turn's reply; the
- * views (Compact, Detailed, Raw Trace) all read this same list.
+ * conversation's phases and their steps read this same list.
  */
 export type EntryKind =
   | 'user'
@@ -39,7 +39,7 @@ export interface Entry {
   attachments?: string[];
   /** Structured fields of a turn event: a retry's cause, a generation's counts. */
   data?: Record<string, any>;
-  /** The protocol messages this entry was built from, for Raw Trace. */
+  /** The protocol messages this entry was built from, for a diagnostic export. */
   raw?: unknown[];
   /** For the person's message: its number in this session, when it can be rewound to. */
   turn?: number;

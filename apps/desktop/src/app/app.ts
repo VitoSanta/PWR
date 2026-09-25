@@ -11,7 +11,6 @@ import { Composer } from './ui/composer';
 import { MemoryProposals } from './ui/personal';
 import { ContextMeter } from './ui/context-meter';
 import { RunMetricsChip } from './ui/run-metrics';
-import { TraceVisibilityControl } from './ui/trace';
 import { Conversation } from './ui/conversation';
 import { Inspector } from './ui/inspector';
 import { Icon } from './ui/kit/icon';
@@ -37,7 +36,6 @@ import { WorkspaceTrust } from './ui/workspace-trust';
     Permission,
     ContextMeter,
     RunMetricsChip,
-    TraceVisibilityControl,
     ModelPicker,
     ModelManager,
     WorkspaceTrust,
