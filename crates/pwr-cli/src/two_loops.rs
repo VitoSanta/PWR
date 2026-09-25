@@ -396,7 +396,10 @@ fn drive_chat_under<P: Recording>(
                     converse::TurnStep::Note(text) => format!("note {text}"),
                     converse::TurnStep::ToolCall(_)
                     | converse::TurnStep::Streaming { .. }
-                    | converse::TurnStep::Usage { .. } => return,
+                    | converse::TurnStep::Usage { .. }
+                    | converse::TurnStep::Retry { .. }
+                    | converse::TurnStep::Recovered { .. }
+                    | converse::TurnStep::Generation(_) => return,
                 });
             },
         ))
@@ -1785,6 +1788,7 @@ fn every_stop_reason_has_a_terminal_class() {
         StopReason::ContextFull,
         StopReason::Looping,
         StopReason::Silent,
+        StopReason::ToolCallInReasoning,
         StopReason::Unparseable,
         StopReason::BudgetSpent,
         StopReason::BackendFailing,
@@ -2609,6 +2613,66 @@ fn reasoning_that_ends_without_an_answer_is_retried_once_with_thinking_off() {
             .iter()
             .any(|event| event.event_type == "reasoning.finalization_failed")
     );
+}
+
+#[test]
+fn a_tool_call_inside_reasoning_is_not_run_and_gets_an_answer_phase_retry() {
+    let misplaced = || {
+        ModelChunk {
+        thinking: Some("<tool_call><function=read_file><parameter=path>code.rs</parameter></function></tool_call>".into()),
+        done: true,
+        ..Default::default()
+    }
+    };
+    let provider = Reasoned::new(vec![Ok(misplaced()), Ok(says("Ready."))]);
+    let (report, store, conversation) = reasoned_turn(
+        &provider,
+        pwr_domain::ReasoningEffort::Medium,
+        explicit_reasoning(),
+        131_072,
+    );
+    assert_eq!(report.actions, 0);
+    assert_eq!(report.answer, "Ready.");
+    let requests = provider.requests.lock().unwrap().clone();
+    assert_eq!(
+        requests[1].sampling.get("think"),
+        Some(&serde_json::json!(false))
+    );
+    assert!(requests[1].messages.iter().any(|message| {
+        message
+            .content
+            .contains("tool call was inside the reasoning phase")
+    }));
+    assert!(
+        !store
+            .events_for_run(conversation)
+            .unwrap()
+            .iter()
+            .any(|event| { event.event_type == "action.executed" })
+    );
+}
+
+#[test]
+fn repeated_tool_calls_inside_reasoning_stop_with_the_right_cause() {
+    let misplaced = || {
+        ModelChunk {
+        thinking: Some("<tool_call><function=read_file><parameter=path>code.rs</parameter></function></tool_call>".into()),
+        done: true,
+        ..Default::default()
+    }
+    };
+    let provider = Reasoned::new(vec![Ok(misplaced()), Ok(misplaced()), Ok(misplaced())]);
+    let (report, _, _) = reasoned_turn(
+        &provider,
+        pwr_domain::ReasoningEffort::Medium,
+        explicit_reasoning(),
+        131_072,
+    );
+    assert_eq!(
+        report.stopped,
+        Some(converse::StopReason::ToolCallInReasoning)
+    );
+    assert_eq!(report.actions, 0);
 }
 
 #[test]

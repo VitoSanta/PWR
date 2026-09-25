@@ -3335,6 +3335,81 @@ impl serve::TurnRunner for ConsoleTurns {
         }))
     }
 
+    async fn model_sampling(
+        &self,
+        _root: &Path,
+        model_ref: &str,
+        values: Option<BTreeMap<String, serde_json::Value>>,
+    ) -> Result<serde_json::Value, String> {
+        if self.runtime.kind() != BackendKind::Mlx {
+            return Err("sampling controls are available for the MLX engine".into());
+        }
+        let dir = pwr_mlx::MlxConfig::from_env()
+            .model_dir(model_ref)
+            .map_err(|error| error.to_string())?;
+        let selection = self
+            .runtime
+            .select(model_ref.to_owned(), Duration::from_secs(30))
+            .map_err(|error| error.to_string())?;
+        let inspection = selection
+            .backend
+            .inspect(&selection.deployment)
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Some(values) = values {
+            for (name, value) in &values {
+                pwr_mlx::validate_sampling(name, value).map_err(|error| error.to_string())?;
+            }
+            pwr_models::sampling::save_user_overrides(&dir, &values)?;
+        }
+        let profiles =
+            load_model_profiles(Path::new(MODEL_PROFILE_FILE)).map_err(|error| error.context)?;
+        let identity = pwr_domain::DeploymentIdentity::from_inspection(
+            &selection.deployment,
+            &inspection.definition,
+        );
+        let declared = pwr_domain::ModelProfile::select_for(&profiles, &identity);
+        let mut automatic = pwr_orchestrator::TaskProfile::resolve(None, declared).sampling;
+        enrich_mlx_sampling(
+            model_ref,
+            declared,
+            &mut automatic,
+            inspection.definition.metadata.get("generation_config"),
+            false,
+        )
+        .await?;
+        let mut sampling = pwr_orchestrator::TaskProfile::resolve(None, declared).sampling;
+        enrich_mlx_sampling(
+            model_ref,
+            declared,
+            &mut sampling,
+            inspection.definition.metadata.get("generation_config"),
+            true,
+        )
+        .await?;
+        let overrides = pwr_models::sampling::user_overrides(&dir)?;
+        let fields = pwr_mlx::MLX_SAMPLING_FIELDS
+            .into_iter()
+            .filter_map(|name| {
+                let value = sampling.get(name)?;
+                Some(serde_json::json!({
+                    "name": name,
+                    "value": value,
+                    "source": sampling["_pwr_sampling_sources"][name],
+                    "automatic": automatic[name],
+                    "automaticSource": automatic["_pwr_sampling_sources"][name],
+                    "override": overrides.get(name),
+                }))
+            })
+            .collect::<Vec<_>>();
+        Ok(serde_json::json!({
+            "modelRef": model_ref,
+            "backend": "mlx",
+            "fields": fields,
+            "overrides": overrides,
+        }))
+    }
+
     async fn delete_model(
         &self,
         root: &Path,
@@ -3448,12 +3523,42 @@ impl serve::TurnRunner for ConsoleTurns {
         let report = verify_in(&context.root, None, "full".into())
             .await
             .map_err(|error| error.context)?;
-        let technical_passed = report["verified"].as_bool().unwrap_or(false);
+        let no_tests: Vec<String> = report
+            .get("baseline")
+            .and_then(|baseline| baseline.get("checks"))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|check| {
+                check["result"]["exit_code"] == 0
+                    && check["command"]
+                        .as_str()
+                        .is_some_and(|command| command.starts_with("cargo test "))
+                    && check["result"]["stdout"]
+                        .as_str()
+                        .is_some_and(|output| !cargo_ran_tests(output))
+            })
+            .map(|check| {
+                format!(
+                    "{} ran no tests",
+                    check["command"].as_str().unwrap_or("cargo test")
+                )
+            })
+            .collect();
+        let technical_passed = report["verified"].as_bool().unwrap_or(false) && no_tests.is_empty();
         let acceptance_available = !acceptance.is_empty()
             && context.acceptance_contract_hash.is_some()
             && context.acceptance_contract_hash == serve::acceptance_contract_hash(&context.root);
-        let summary = summarise_verification(&report);
-        let failing = report
+        let summary = if no_tests.is_empty() {
+            summarise_verification(&report)
+        } else {
+            format!(
+                "{}\n{}",
+                summarise_verification(&report),
+                no_tests.join("; ")
+            )
+        };
+        let mut failing: Vec<String> = report
             .get("baseline")
             .and_then(|baseline| baseline.get("checks"))
             .and_then(serde_json::Value::as_array)
@@ -3474,6 +3579,7 @@ impl serve::TurnRunner for ConsoleTurns {
                     .to_owned()
             })
             .collect();
+        failing.extend(no_tests);
         Ok(serve::GoalVerification {
             failing,
             passed: technical_passed && acceptance_available,
@@ -3584,7 +3690,10 @@ fn console_line(step: converse::TurnStep) -> Option<String> {
         // the answer once it is whole.
         converse::TurnStep::ToolCall(_)
         | converse::TurnStep::Streaming { .. }
-        | converse::TurnStep::Usage { .. } => return None,
+        | converse::TurnStep::Usage { .. }
+        | converse::TurnStep::Retry { .. }
+        | converse::TurnStep::Recovered { .. }
+        | converse::TurnStep::Generation(_) => return None,
     })
 }
 
@@ -3747,6 +3856,45 @@ fn check_verdict(
         CheckVerdict::Green
     } else {
         CheckVerdict::BaselinePreserved { still_failing }
+    }
+}
+
+/// Cargo can exit successfully after running zero tests. That establishes a
+/// successful build, not that an application was exercised.
+fn cargo_ran_tests(output: &str) -> bool {
+    output.lines().any(|line| {
+        line.trim()
+            .strip_prefix("running ")
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|count| count.parse::<usize>().ok())
+            .is_some_and(|count| count > 0)
+    })
+}
+
+fn cargo_checks_ran_zero_tests(baseline: &pwr_verify::VerificationBaseline) -> bool {
+    !baseline.checks.is_empty()
+        && baseline
+            .checks
+            .iter()
+            .all(|check| check.command.starts_with("cargo test "))
+        && baseline
+            .checks
+            .iter()
+            .all(|check| !cargo_ran_tests(&check.result.stdout))
+}
+
+#[cfg(test)]
+mod new_project_verification_tests {
+    use super::cargo_ran_tests;
+
+    #[test]
+    fn an_empty_cargo_suite_is_not_presented_as_behavioral_verification() {
+        assert!(!cargo_ran_tests(
+            "running 0 tests\n\ntest result: ok. 0 passed"
+        ));
+        assert!(cargo_ran_tests(
+            "running 0 tests\nrunning 2 tests\ntest result: ok"
+        ));
     }
 }
 
@@ -4198,7 +4346,8 @@ async fn chat_turn(
         .await
         .map_err(|error| error.to_string())?;
     let adapter = pwr_compat::adapter_for(inspection.definition.family.as_deref(), &model);
-    let profiles = load_model_profiles(Path::new(MODEL_PROFILE_FILE)).unwrap_or_default();
+    let profiles =
+        load_model_profiles(Path::new(MODEL_PROFILE_FILE)).map_err(|error| error.context)?;
     let identity =
         pwr_domain::DeploymentIdentity::from_inspection(&deployment, &inspection.definition);
     // By evidence -- digest, deployment, family -- and only then by the legacy
@@ -4236,6 +4385,19 @@ async fn chat_turn(
         task_profile
             .sampling
             .insert(REASONING_EFFORT.into(), serde_json::json!(effort));
+    }
+    // Resolve the same artifact values the MLX provider will use before the
+    // conversation records generation.started. This makes Provisional runs
+    // observable and keeps a copied profile value distinct from artifact data.
+    if provider.backend_id() == "mlx" {
+        enrich_mlx_sampling(
+            &deployment.model_ref,
+            declared,
+            &mut task_profile.sampling,
+            inspection.definition.metadata.get("generation_config"),
+            true,
+        )
+        .await?;
     }
     // Reasoning Effort becomes a budget per generation, inside the room the
     // context has left then; see `pwr_domain::plan_reasoning`.
@@ -4394,15 +4556,64 @@ async fn chat_turn(
         };
     }
     if report.edited {
-        let verdict = match (&before, checks.is_empty()) {
-            (_, true) => "nothing verified this: the workspace declares no checks".to_owned(),
-            (Some(before), false) => match pwr_verify::baseline(&policy, &checks).await {
-                Ok(after) => check_verdict(before, &after).said(),
-                Err(error) => format!("the checks could not be run: {error}"),
+        let after_checks = if chat_only {
+            Vec::new()
+        } else {
+            pwr_verify::discover_checks(&root, "targeted").unwrap_or_default()
+        };
+        let mut verification_policy = policy.clone();
+        for (executable, _) in &after_checks {
+            if !verification_policy.allow_commands.contains(executable) {
+                verification_policy.allow_commands.push(executable.clone());
+            }
+        }
+        let verdict = match (&before, after_checks.is_empty(), checks == after_checks) {
+            (_, true, _) => "nothing verified this: the workspace declares no checks".to_owned(),
+            (Some(before), false, true) => {
+                match pwr_verify::baseline(&verification_policy, &after_checks).await {
+                    Ok(after) => {
+                        let verdict = check_verdict(before, &after);
+                        if matches!(verdict, CheckVerdict::Green)
+                            && cargo_checks_ran_zero_tests(&after)
+                        {
+                            "the Rust checks exited successfully but ran zero tests; behavior \
+                             remains unverified"
+                                .to_owned()
+                        } else {
+                            verdict.said()
+                        }
+                    }
+                    Err(error) => format!("the checks could not be run: {error}"),
+                }
+            }
+            _ => match pwr_verify::baseline(&verification_policy, &after_checks).await {
+                Ok(after) => {
+                    let failing: Vec<_> = after
+                        .checks
+                        .iter()
+                        .filter(|check| check.result.exit_code != Some(0))
+                        .map(|check| check.command.as_str())
+                        .collect();
+                    if failing.is_empty() {
+                        if cargo_checks_ran_zero_tests(&after) {
+                            "the new Rust project builds, but cargo ran zero tests; its \
+                             behavior has not been verified"
+                                .to_owned()
+                        } else {
+                            "the newly discovered project checks passed after the edit; no prior \
+                             baseline exists for them"
+                                .to_owned()
+                        }
+                    } else {
+                        format!(
+                            "the newly discovered project checks failed: {}; no prior \
+                                 baseline exists for them",
+                            failing.join(", ")
+                        )
+                    }
+                }
+                Err(error) => format!("the newly discovered checks could not be run: {error}"),
             },
-            (None, false) => "the checks could not be run before the change, so what they say \
-                              now cannot be attributed to it"
-                .to_owned(),
         };
         steps(converse::TurnStep::Note(format!("✓ {verdict}")));
         report.answer = format!("{}\n\n{verdict}", report.answer.trim());
@@ -6123,9 +6334,27 @@ async fn evaluate(
             .sampling
             .insert(REASONING_EFFORT.into(), serde_json::json!(effort));
     }
+    if provider.backend_id() == "mlx" {
+        enrich_mlx_sampling(
+            &deployment.model_ref,
+            profile,
+            &mut task_profile.sampling,
+            inspection.definition.metadata.get("generation_config"),
+            true,
+        )
+        .await
+        .map_err(|context| SafeError {
+            category: "invalid_input",
+            context,
+        })?;
+    }
     let task_profile = task_profile;
     // What the backend will actually receive, and where each value came from.
-    let resolved_sampling = resolved_sampling_for(profile);
+    let resolved_sampling = if provider.backend_id() == "mlx" {
+        resolved_mlx_sampling_for(profile, &task_profile.sampling)
+    } else {
+        resolved_sampling_for(profile)
+    };
     let sampling = task_profile.sampling.clone();
     // A computed window has no measured tiers beneath it to retreat to.
     let context_tiers: Vec<u32> = calibration
@@ -6527,6 +6756,78 @@ const MODEL_PROFILE_FILE: &str = "strategies/models.json";
 /// The model profile registry as built, used where the workspace has none.
 const PACKAGED_MODEL_PROFILES: &str = include_str!("../../../strategies/models.json");
 
+/// A cached, pinned card recommendation for an installed MLX artifact. A
+/// missing card or unavailable Hub leaves generation_config.json in charge.
+async fn model_card_sampling(
+    model_ref: &str,
+) -> Option<(pwr_models::sampling::CardSampling, String)> {
+    let dir = pwr_mlx::MlxConfig::from_env().model_dir(model_ref).ok()?;
+    let hub = pwr_models::hub::HubClient::from_env().ok()?;
+    let card = pwr_models::sampling::for_installed(&hub, model_ref, &dir).await?;
+    let url = card.url(&hub);
+    Some((card, url))
+}
+
+/// One precedence order for the UI, chat and evaluations: saved user values,
+/// declared profile, pinned card, artifact generation config, backend default.
+async fn enrich_mlx_sampling(
+    model_ref: &str,
+    declared: Option<&pwr_domain::ModelProfile>,
+    sampling: &mut BTreeMap<String, serde_json::Value>,
+    generation_config: Option<&serde_json::Value>,
+    apply_user_overrides: bool,
+) -> Result<(), String> {
+    let mut sources = declared
+        .map(|profile| {
+            profile
+                .sampling
+                .iter()
+                .map(|(name, parameter)| {
+                    (
+                        name.clone(),
+                        serde_json::json!({
+                            "kind": "declared_profile",
+                            "declared_source": parameter.source,
+                            "selector": profile.model_selector,
+                        }),
+                    )
+                })
+                .collect::<serde_json::Map<String, serde_json::Value>>()
+        })
+        .unwrap_or_default();
+    if let Some((card, url)) = model_card_sampling(model_ref).await {
+        for (name, value) in card.values {
+            if !sampling.contains_key(&name) {
+                sampling.insert(name.clone(), value);
+                sources.insert(
+                    name,
+                    serde_json::json!({
+                        "kind": "model_card",
+                        "url": &url,
+                        "revision": &card.source_revision,
+                    }),
+                );
+            }
+        }
+    }
+    if apply_user_overrides {
+        let model_dir = pwr_mlx::MlxConfig::from_env()
+            .model_dir(model_ref)
+            .map_err(|error| error.to_string())?;
+        for (name, value) in pwr_models::sampling::user_overrides(&model_dir)? {
+            pwr_mlx::validate_sampling(&name, &value).map_err(|error| error.to_string())?;
+            sampling.insert(name.clone(), value);
+            sources.insert(name, serde_json::json!({ "kind": "user_profile" }));
+        }
+    }
+    sampling.insert(
+        "_pwr_sampling_sources".into(),
+        serde_json::Value::Object(sources),
+    );
+    pwr_mlx::resolve_generation_sampling(sampling, generation_config)
+        .map_err(|error| error.to_string())
+}
+
 fn load_model_profiles(path: &Path) -> Result<Vec<pwr_domain::ModelProfile>, SafeError> {
     #[derive(serde::Deserialize)]
     struct File {
@@ -6668,6 +6969,55 @@ fn resolved_sampling_for(
             },
         )]),
     }
+}
+
+/// Reports the values this MLX sidecar applies, rather than copying
+/// unsupported profile fields into an evaluation's "effective sampling" map.
+fn resolved_mlx_sampling_for(
+    profile: Option<&pwr_domain::ModelProfile>,
+    sampling: &BTreeMap<String, serde_json::Value>,
+) -> BTreeMap<String, pwr_domain::ResolvedParameter> {
+    [
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "presence_penalty",
+        "repetition_penalty",
+    ]
+    .into_iter()
+    .filter_map(|name| {
+        let value = sampling.get(name)?.clone();
+        let source = profile
+            .and_then(|profile| {
+                profile.sampling.get(name).or_else(|| {
+                    (name == "repetition_penalty")
+                        .then(|| profile.sampling.get("repeat_penalty"))
+                        .flatten()
+                })
+            })
+            .map(|parameter| parameter.source)
+            .unwrap_or_else(|| {
+                let origin = sampling["_pwr_sampling_sources"][name].as_str();
+                if sampling["_pwr_sampling_sources"][name]["kind"] == "user_profile" {
+                    pwr_domain::ParameterSource::PwrOverride
+                } else if sampling["_pwr_sampling_sources"][name]["kind"] == "model_card" {
+                    pwr_domain::ParameterSource::ModelCard
+                } else if matches!(
+                    origin,
+                    Some("artifact_generation_config" | "artifact_do_sample_false")
+                ) {
+                    pwr_domain::ParameterSource::ModelGenerationConfig
+                } else {
+                    pwr_domain::ParameterSource::MlxSidecarDefault
+                }
+            });
+        Some((
+            name.to_owned(),
+            pwr_domain::ResolvedParameter { value, source },
+        ))
+    })
+    .collect()
 }
 
 /// Where declared strategies live, relative to the working directory.
@@ -10006,7 +10356,7 @@ async fn download_from_hub(
             },
             message,
         })?;
-    let preflight = download_preflight(&plan)?;
+    let preflight = download_preflight(&plan).await?;
     let outcomes =
         pwr_models::download::download(hub.transfer(), &plan, hub.token(), progress, stop).await?;
     let model_ref = match format {
@@ -10089,7 +10439,7 @@ async fn download_artifact(
             .collect(),
         revision: None,
     };
-    let preflight = download_preflight(&shared)?;
+    let preflight = download_preflight(&shared).await?;
     let client = reqwest::Client::new();
     let token = std::env::var("HF_TOKEN").ok();
     let outcomes =
@@ -10105,11 +10455,19 @@ async fn download_artifact(
 }
 
 /// The disk check before a download, with the free space where it will land.
-fn download_preflight(
+async fn download_preflight(
     plan: &pwr_models::download::Plan,
 ) -> Result<pwr_models::download::Preflight, pwr_models::download::DownloadError> {
-    let available = pwr_models::download::available_disk_bytes(&plan.destination_root)?;
-    pwr_models::download::preflight(plan, available)
+    let plan = plan.clone();
+    tokio::task::spawn_blocking(move || {
+        let available = pwr_models::download::available_disk_bytes(&plan.destination_root)?;
+        pwr_models::download::preflight(&plan, available)
+    })
+    .await
+    .map_err(|error| pwr_models::download::DownloadError {
+        kind: pwr_models::download::FailureKind::Io,
+        message: format!("download disk check stopped unexpectedly: {error}"),
+    })?
 }
 
 fn download_error(error: pwr_models::download::DownloadError) -> SafeError {
@@ -10832,6 +11190,12 @@ mod tests {
         std::fs::write(
             dir.path().join("Cargo.toml"),
             "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/lib.rs"),
+            "pub fn value() -> i32 { 1 }\n",
         )
         .unwrap();
         let (full, known) =
@@ -12116,6 +12480,48 @@ mod tests {
 mod profile_tests {
     use super::*;
 
+    #[test]
+    fn bonsai_uses_its_published_sampler_instead_of_greedy_fallback() {
+        let profiles = declared();
+        let profile = pwr_domain::ModelProfile::select(&profiles, "prism-ml/Bonsai-27B-mlx-1bit")
+            .expect("Bonsai profile");
+        let mut sampling = profile.sampling_options();
+        pwr_mlx::resolve_generation_sampling(&mut sampling, None).unwrap();
+        assert_eq!(sampling["temperature"], serde_json::json!(0.7));
+        assert_eq!(sampling["top_p"], serde_json::json!(0.95));
+        assert_eq!(sampling["top_k"], serde_json::json!(20));
+        assert_eq!(sampling["min_p"], serde_json::json!(0.0));
+        assert_eq!(
+            profile.sampling["temperature"].source,
+            pwr_domain::ParameterSource::OfficialModelCard
+        );
+        assert!(profile.reasoning.is_none());
+    }
+
+    #[test]
+    fn mlx_evaluation_reports_values_the_sidecar_will_receive() {
+        let mut sampling = BTreeMap::new();
+        pwr_mlx::resolve_generation_sampling(
+            &mut sampling,
+            Some(&serde_json::json!({
+                "temperature": 1.0, "top_p": 0.95, "top_k": 20,
+                "min_p": 0.1
+            })),
+        )
+        .unwrap();
+        let report = resolved_mlx_sampling_for(None, &sampling);
+        assert_eq!(report["temperature"].value, serde_json::json!(1.0));
+        assert_eq!(
+            report["temperature"].source,
+            pwr_domain::ParameterSource::ModelGenerationConfig
+        );
+        assert_eq!(report["min_p"].value, serde_json::json!(0.1));
+        assert_eq!(
+            report["min_p"].source,
+            pwr_domain::ParameterSource::ModelGenerationConfig
+        );
+    }
+
     fn declared() -> Vec<pwr_domain::ModelProfile> {
         // An absolute path, because a relative one resolves against the crate
         // directory here and against the working directory in a run -- and a
@@ -12146,6 +12552,32 @@ mod profile_tests {
         assert_eq!(options["temperature"], serde_json::json!(0.6));
         assert_eq!(options["top_p"], serde_json::json!(0.95));
         assert_eq!(options["top_k"], serde_json::json!(20));
+    }
+
+    #[test]
+    fn mlx_ornith_uses_general_task_sampling_over_artifact_benchmark_sampling() {
+        let profiles = declared();
+        let ornith =
+            pwr_domain::ModelProfile::select(&profiles, "ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit")
+                .expect("the MLX artifact needs its own exact profile");
+        let mut options = ornith.sampling_options();
+        pwr_mlx::resolve_generation_sampling(
+            &mut options,
+            Some(&serde_json::json!({
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "top_k": 20
+            })),
+        )
+        .unwrap();
+        assert_eq!(options["temperature"], serde_json::json!(0.6));
+        assert_eq!(options["top_p"], serde_json::json!(0.95));
+        assert_eq!(options["top_k"], serde_json::json!(20));
+        let report = resolved_mlx_sampling_for(Some(ornith), &options);
+        assert_eq!(
+            report["temperature"].source,
+            pwr_domain::ParameterSource::OfficialModelCard
+        );
     }
 
     /// A vendor that recommends nothing gets nothing invented for it.

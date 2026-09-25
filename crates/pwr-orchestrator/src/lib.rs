@@ -258,7 +258,7 @@ pub fn prepare_dry_run(
             "RunCommand".into(),
         ],
         expected_checks: if index.files.iter().any(|file| file.path == "Cargo.toml") {
-            vec!["cargo test --workspace --lib".into()]
+            vec!["cargo test --workspace".into()]
         } else {
             vec![]
         },
@@ -4350,7 +4350,7 @@ pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
         ),
         function(
             "run_command",
-            "Run one command directly. `executable` is the program alone and `args` is what follows it, so `npm run build` is executable \"npm\" with args [\"run\", \"build\"] -- never repeat the program inside args. There is no shell, so no `cd`, no `&&`, no pipes, no redirection and no globs: args are arguments, not syntax, and each call runs one program. To run in a subdirectory, set cwd to its workspace-relative path (`cd web && npm run build` is executable \"npm\", args [\"run\", \"build\"], cwd \"web\"). To give the program input, put it in stdin rather than trying to pipe into it.",
+            "Run one command directly. `executable` is the program alone and `args` is a list of what follows it: `cargo test` is executable \"cargo\" with args [\"test\"]; `npm run build` is executable \"npm\" with args [\"run\", \"build\"]. Never repeat the program inside args. There is no shell, so no `cd`, no `&&`, no pipes, no redirection and no globs: args are arguments, not syntax, and each call runs one program. To run in a subdirectory, set cwd to its workspace-relative path (`cd web && npm run build` is executable \"npm\", args [\"run\", \"build\"], cwd \"web\"). To give the program input, put it in stdin rather than trying to pipe into it.",
             serde_json::json!({
                 "executable": {"type": "string"},
                 "args": {"type": "array", "items": {"type": "string"}},
@@ -4668,6 +4668,7 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
             format!("{}: {}", call.name, call.arguments),
         ));
     }
+    normalize_run_command_arguments(&call.name, &mut arguments)?;
     // File content sent as a structure: `write_file` for `package.json` with
     // `content` an object rather than the JSON text of one. It has one reading
     // -- the file is that value, as JSON -- so it is written out rather than
@@ -4777,6 +4778,21 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
     // do, and the hash guard, the policy and the sandbox judge the result
     // exactly as they judge a call written right.
     let name = repair_form(&call.name, &mut arguments);
+    if name == "run_command"
+        && let Some(object) = arguments.as_object()
+        && let Some(unknown) = object
+            .keys()
+            .find(|key| !["executable", "args", "stdin", "cwd"].contains(&key.as_str()))
+    {
+        return Err(MalformedCall::detailed(
+            "schema_mismatch",
+            format!(
+                "run_command does not accept `{unknown}`; send `executable` and `args` \
+                 (a list of strings), with optional `cwd` or `stdin`"
+            ),
+            format!("run_command: {unknown}"),
+        ));
+    }
     // Taken before the decode consumes the arguments, and before the capability
     // is inserted, so the detail shows what the deployment actually sent.
     let keys: Vec<String> = arguments
@@ -4823,6 +4839,55 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
         .validate()
         .map_err(|e| MalformedCall::new("invalid_action", e.to_string()))?;
     Ok(action)
+}
+
+/// Some XML tool emitters call the program's argument list `arguments`, even
+/// though the offered schema calls it `args`. Interpret a command-line string
+/// as words without invoking a shell; never drop it and then run a bare
+/// executable. This was the cause of 20 `cargo` help calls in one Bonsai run.
+fn normalize_run_command_arguments(
+    name: &str,
+    arguments: &mut serde_json::Value,
+) -> Result<(), MalformedCall> {
+    if name != "run_command" {
+        return Ok(());
+    }
+    let Some(object) = arguments.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(alias) = object.remove("arguments") else {
+        return Ok(());
+    };
+    if object.contains_key("args") {
+        return Err(MalformedCall::detailed(
+            "argument_shape",
+            "run_command received both `args` and `arguments`; send only `args` as a list",
+            "run_command: args, arguments",
+        ));
+    }
+    let value = match alias {
+        serde_json::Value::String(text) if !text.trim_start().starts_with('[') => {
+            let words = shell_words::split(&text).map_err(|error| {
+                MalformedCall::detailed(
+                    "argument_shape",
+                    format!("run_command `arguments` could not be split into arguments: {error}"),
+                    "run_command: arguments",
+                )
+            })?;
+            serde_json::json!(words)
+        }
+        serde_json::Value::String(text) => serde_json::Value::String(text),
+        serde_json::Value::Array(items) => serde_json::Value::Array(items),
+        _ => {
+            return Err(MalformedCall::detailed(
+                "argument_shape",
+                "run_command `arguments` must be a command-line string or list of strings",
+                "run_command: arguments",
+            ));
+        }
+    };
+    object.insert("args".into(), value);
+    Ok(())
 }
 
 /// Takes the action from a reply: the native tool channel where the deployment
@@ -7517,5 +7582,48 @@ mod tests {
             !events.iter().any(|e| e.event_type == "task.complete"),
             "a changed red suite was excused"
         );
+    }
+
+    #[test]
+    fn xml_command_arguments_are_not_discarded_before_execution() {
+        let call = pwr_domain::ToolCall {
+            name: "run_command".into(),
+            arguments: serde_json::json!({"executable": "cargo", "arguments": "test --nocapture"}),
+            id: None,
+        };
+        let action = action_from_tool_call(&call).unwrap();
+        assert!(matches!(
+            action,
+            ActionProposal::RunCommand { executable, args, .. }
+                if executable == "cargo" && args == ["test", "--nocapture"]
+        ));
+    }
+
+    #[test]
+    fn command_argument_alias_preserves_quoted_words_and_rejects_ambiguity() {
+        let call = |arguments| pwr_domain::ToolCall {
+            name: "run_command".into(),
+            arguments,
+            id: None,
+        };
+        let action = action_from_tool_call(&call(serde_json::json!({
+            "executable": "echo", "arguments": "'hello world'"
+        })))
+        .unwrap();
+        assert!(matches!(
+            action,
+            ActionProposal::RunCommand { args, .. } if args == ["hello world"]
+        ));
+        let ambiguous = action_from_tool_call(&call(serde_json::json!({
+            "executable": "cargo", "args": ["build"], "arguments": "test"
+        })))
+        .unwrap_err();
+        assert_eq!(ambiguous.kind, "argument_shape");
+        let invented = action_from_tool_call(&call(serde_json::json!({
+            "executable": "bash", "inputs": "echo test"
+        })))
+        .unwrap_err();
+        assert_eq!(invented.kind, "schema_mismatch");
+        assert!(invented.problem.contains("inputs"));
     }
 }

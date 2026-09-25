@@ -2,7 +2,7 @@
 
 use futures_util::StreamExt as _;
 use pwr_domain::{GenerationMetrics, ModelChunk, ToolCall};
-use pwr_provider::{ModelStream, ProviderError, collect_reply};
+use pwr_provider::{ModelStream, ProviderError, collect_reply, collect_reply_with_guard};
 
 fn stream(chunks: Vec<Result<ModelChunk, ProviderError>>) -> ModelStream {
     Box::pin(futures_util::stream::iter(chunks))
@@ -150,6 +150,54 @@ async fn hitting_the_chunk_bound_is_an_error_rather_than_a_short_reply() {
         .collect();
     let failed = collect_reply(stream(chunks)).await;
     assert!(matches!(failed, Err(ProviderError::Truncated { .. })));
+}
+
+#[tokio::test]
+async fn an_agent_answer_that_keeps_ruminating_is_cut_off_before_token_exhaustion() {
+    let reply = collect_reply_with_guard(
+        stream(vec![
+            Ok(thinking("why ")),
+            Ok(content("let me think ")),
+            Ok(content("again ")),
+            Ok(content("and again ")),
+            Ok(ModelChunk {
+                done: true,
+                ..Default::default()
+            }),
+        ]),
+        |_| {},
+        Some((4, 20)),
+    )
+    .await;
+    assert!(matches!(reply, Err(ProviderError::Truncated { .. })));
+}
+
+#[tokio::test]
+async fn an_agent_reply_with_a_tool_call_can_continue_after_the_plain_text_limit() {
+    let call = ModelChunk {
+        tool_calls: vec![ToolCall {
+            name: "run_command".into(),
+            arguments: serde_json::json!({}),
+            id: None,
+        }],
+        ..Default::default()
+    };
+    let reply = collect_reply_with_guard(
+        stream(vec![
+            Ok(thinking("why ")),
+            Ok(call),
+            Ok(content("let me think again and again")),
+            Ok(ModelChunk {
+                done: true,
+                ..Default::default()
+            }),
+        ]),
+        |_| {},
+        Some((4, 20)),
+    )
+    .await
+    .expect("a valid tool call is usable even with a long narrative");
+    assert_eq!(reply.tool_calls.len(), 1);
 }
 
 /// A stream that stops producing is not a stream that is slow.

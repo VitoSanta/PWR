@@ -1,7 +1,22 @@
 // What the interface shows, derived from the protocol. Nothing here decides
 // anything about the work: the core does.
 
-export type EntryKind = 'user' | 'thought' | 'reply' | 'tool' | 'notice';
+/**
+ * One stream of what a run did, in order. `retry`, `recovery`, `generation`,
+ * `note` and `stop` come from `_pwr/turn_event` and the turn's reply; the
+ * views (Compact, Detailed, Raw Trace) all read this same list.
+ */
+export type EntryKind =
+  | 'user'
+  | 'thought'
+  | 'reply'
+  | 'tool'
+  | 'notice'
+  | 'retry'
+  | 'recovery'
+  | 'generation'
+  | 'note'
+  | 'stop';
 export type EntryStatus = 'live' | 'pending' | 'running' | 'done' | 'failed' | 'sent' | 'info' | 'error';
 
 export interface FileDiff {
@@ -22,6 +37,10 @@ export interface Entry {
   toolKind?: string;
   diff?: FileDiff;
   attachments?: string[];
+  /** Structured fields of a turn event: a retry's cause, a generation's counts. */
+  data?: Record<string, any>;
+  /** The protocol messages this entry was built from, for Raw Trace. */
+  raw?: unknown[];
   at: number;
 }
 
@@ -262,6 +281,22 @@ export interface LocalModel {
   partial: boolean;
   inUse: boolean;
   usable: boolean;
+}
+
+export interface ModelSamplingField {
+  name: string;
+  value: number;
+  source: string | { kind: string; url?: string; revision?: string; declared_source?: string };
+  automatic: number;
+  automaticSource: string | { kind: string; url?: string; revision?: string; declared_source?: string };
+  override: number | null;
+}
+
+export interface ModelSamplingView {
+  modelRef: string;
+  backend: 'mlx';
+  fields: ModelSamplingField[];
+  overrides: Record<string, number>;
 }
 
 /** The MLX engine's Python environment, as the desktop shell found it. */

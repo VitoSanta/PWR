@@ -123,6 +123,9 @@ import { Tooltip } from './kit/tooltip';
                     <p class="empty-state-text">{{ models.localError() }}</p>
                   </div>
               } @else {
+                @if (models.localError()) {
+                  <p class="result-status text-danger" role="alert">{{ models.localError() }}</p>
+                }
                 @if (models.localStatus() === 'loading') {
                   <p class="result-status"><span class="spinner spinner-sm" aria-hidden="true"></span> Refreshing models…</p>
                 }
@@ -158,6 +161,9 @@ import { Tooltip } from './kit/tooltip';
                         </div>
                       }
                       <div class="variant-action">
+                        @if (model.usable && model.format === 'mlx') {
+                          <button class="btn btn-sm" (click)="models.openProfile(model.modelRef)" [paTooltip]="'Sampling settings for ' + name(model.modelRef)">Settings</button>
+                        }
                         @if (model.download && ['preparing', 'downloading', 'verifying'].includes(model.download.state.state)) {
                           <button class="btn btn-sm" (click)="models.pause(model.modelRef, model.format)">Pause</button>
                         } @else if (model.partial && !model.inUse) {
@@ -169,8 +175,8 @@ import { Tooltip } from './kit/tooltip';
                         <button
                           class="btn btn-sm btn-danger-quiet"
                           (click)="models.askDelete(model)"
-                          [disabled]="model.inUse"
-                          [paTooltip]="model.inUse ? 'Choose another model for this workspace first' : 'Delete from this Mac'"
+                          [disabled]="model.inUse || (model.download && ['preparing', 'downloading', 'verifying'].includes(model.download.state.state))"
+                          [paTooltip]="model.inUse ? 'Choose another model for this workspace first' : model.download && ['preparing', 'downloading', 'verifying'].includes(model.download.state.state) ? 'Pause the download before discarding it' : 'Delete from this Mac'"
                         >
                           <pa-icon name="trash" [size]="14" /> {{ model.partial ? 'Discard' : 'Delete' }}
                         </button>
@@ -284,7 +290,7 @@ import { Tooltip } from './kit/tooltip';
               </p>
             </div>
 
-            <div class="mm-results" [class.stale]="models.status() === 'loading' && models.results().length > 0">
+            <div class="mm-results mm-discover-results" [class.stale]="models.status() === 'loading' && models.results().length > 0">
               @switch (models.status() === 'loading' && models.results().length > 0 ? 'ready' : models.status()) {
                 @case ('loading') {
                   @for (i of [1, 2, 3]; track i) {
@@ -485,6 +491,61 @@ import { Tooltip } from './kit/tooltip';
       </pa-dialog>
     }
 
+    @if (models.profileTarget(); as modelRef) {
+      <pa-dialog
+        labelledBy="model-profile-title"
+        describedBy="model-profile-description"
+        [dismissible]="!models.profileSaving()"
+        (closed)="models.closeProfile()"
+        animate.leave="is-leaving"
+      >
+        <div class="dialog-header">
+          <span class="dialog-icon tone-accent"><pa-icon name="settings" [size]="18" /></span>
+          <div class="dialog-header-text">
+            <h2 class="dialog-title" id="model-profile-title">Sampling · {{ name(modelRef) }}</h2>
+            <p class="dialog-description" id="model-profile-description">Leave a field empty to use its automatic value. Saved values apply to the next generation.</p>
+          </div>
+        </div>
+        <div class="dialog-body">
+          @if (models.profileLoading()) {
+            <p class="result-status"><span class="spinner spinner-sm" aria-hidden="true"></span> Reading model settings…</p>
+          }
+          @if (models.profileError()) {
+            <p class="banner banner-danger" role="alert">{{ models.profileError() }}</p>
+          }
+          @if (models.profile(); as profile) {
+            <div class="model-sampling-fields">
+              @for (field of profile.fields; track field.name) {
+                <label class="model-sampling-field">
+                  <span class="model-sampling-label">{{ samplingLabel(field.name) }}</span>
+                  <input
+                    class="input input-sm"
+                    type="number"
+                    [min]="samplingMin(field.name)"
+                    [max]="samplingMax(field.name)"
+                    [step]="field.name === 'top_k' ? 1 : 'any'"
+                    [value]="models.profileDraft()[field.name] ?? ''"
+                    [placeholder]="field.automatic.toString()"
+                    (input)="models.setProfileValue(field.name, $any($event.target).value)"
+                    [attr.aria-label]="samplingLabel(field.name) + ' override'"
+                  />
+                  <small class="t-caption">Automatic: {{ field.automatic }} · {{ samplingSource(field.automaticSource) }}</small>
+                  @if (samplingUrl(field.automaticSource); as url) {
+                    <a class="t-caption" [href]="url" target="_blank" rel="noopener">Source</a>
+                  }
+                </label>
+              }
+            </div>
+          }
+        </div>
+        <div class="dialog-footer">
+          <button class="btn" (click)="models.closeProfile()" [disabled]="models.profileSaving()">Close</button>
+          <button class="btn" (click)="models.saveProfile(true)" [disabled]="!models.profile() || models.profileSaving()">Reset all</button>
+          <button class="btn btn-primary" (click)="models.saveProfile()" [disabled]="!models.profile() || models.profileSaving()" [attr.aria-busy]="models.profileSaving()">Save profile</button>
+        </div>
+      </pa-dialog>
+    }
+
     @if (models.pendingDelete(); as target) {
       <pa-dialog
         dialogRole="alertdialog"
@@ -543,6 +604,34 @@ export class ModelManager {
     { value: '16-40', label: '16–40B' },
     { value: '40-', label: 'Over 40B' },
   ];
+
+  protected samplingLabel(name: string): string {
+    return name.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase());
+  }
+
+  protected samplingMin(name: string): number {
+    return name === 'repetition_penalty' ? 0.01 : name === 'presence_penalty' ? -2 : 0;
+  }
+
+  protected samplingMax(name: string): number | null {
+    return name === 'top_p' || name === 'min_p' ? 1 : name === 'presence_penalty' ? 2 : null;
+  }
+
+  protected samplingSource(source: string | { kind: string; url?: string }): string {
+    const kind = typeof source === 'string' ? source : source.kind;
+    return ({
+      user_profile: 'your profile',
+      model_card: 'model card',
+      artifact_generation_config: 'generation_config.json',
+      artifact_do_sample_false: 'generation_config.json',
+      declared_profile: 'PWR profile',
+      mlx_sidecar_default: 'engine default',
+    } as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
+  }
+
+  protected samplingUrl(source: string | { kind: string; url?: string }): string | null {
+    return typeof source === 'string' ? null : source.url ?? null;
+  }
   protected readonly contextOptions: SelectOption<number | undefined>[] = [
     { value: undefined, label: 'Any context' },
     { value: 32768, label: '≥ 32k' },

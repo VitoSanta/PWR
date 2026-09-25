@@ -333,7 +333,7 @@ async fn download_file(
     };
     if destination.is_file() {
         progress(Phase::Verifying, file.expected_bytes);
-        let observed = observe(destination, needs)?;
+        let observed = observe_async(destination, needs).await?;
         if file.matches(&observed) {
             return Ok(outcome("already_present", observed));
         }
@@ -355,7 +355,7 @@ async fn download_file(
     let started_with = part.metadata().map(|m| m.len()).unwrap_or(0);
     if started_with == file.expected_bytes {
         progress(Phase::Verifying, started_with);
-        let observed = observe(&part, needs)?;
+        let observed = observe_async(&part, needs).await?;
         return finish(file, &part, observed, "verified_part").map(|o| outcome(&o.0, o.1));
     }
     // A transfer that stops after data arrived is resumed where the `.part`
@@ -393,7 +393,7 @@ async fn download_file(
         }
     };
     progress(Phase::Verifying, written);
-    let observed = observe(&part, needs)?;
+    let observed = observe_async(&part, needs).await?;
     let status = if started_with > 0 {
         "resumed"
     } else {
@@ -706,6 +706,21 @@ fn observe(path: &Path, needs: Needs) -> Result<Observed, DownloadError> {
         sha256: sha256.map(|hasher| format!("{:x}", hasher.finalize())),
         git_sha1: git_sha1.map(|hasher| format!("{:x}", hasher.finalize())),
     })
+}
+
+/// Large weights take seconds to hash. Keep the server's event loop available
+/// for Pause, progress and other model-manager requests while that disk work
+/// runs. The synchronous preflight uses `observe` inside its own blocking task.
+async fn observe_async(path: &Path, needs: Needs) -> Result<Observed, DownloadError> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || observe(&path, needs))
+        .await
+        .map_err(|error| {
+            DownloadError::new(
+                FailureKind::Io,
+                format!("download verification stopped unexpectedly: {error}"),
+            )
+        })?
 }
 
 /// A download as the app follows it. The server holds one per download and

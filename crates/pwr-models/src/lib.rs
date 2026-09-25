@@ -21,6 +21,7 @@ pub mod fit;
 pub mod hub;
 pub mod local;
 pub mod profile;
+pub mod sampling;
 
 use catalog::{Format, HubFile, HubModel, ModelVariant};
 use fit::{Capacity, FitEstimate, FitLevel, Footprint};

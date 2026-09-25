@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, isDevMode, signal } from '@angular/core';
 import { AgentStore } from './core/agent.store';
 import { bridge, inTauri } from './core/bridge';
 import { LayoutService, RAIL } from './core/layout';
@@ -7,6 +7,8 @@ import { DialogStack, SHORTCUTS, ToastService, UiStore, isMac } from './core/ui'
 import { CommandPalette } from './ui/command-palette';
 import { Composer } from './ui/composer';
 import { ContextMeter } from './ui/context-meter';
+import { RunMetricsChip } from './ui/run-metrics';
+import { TraceVisibilityControl } from './ui/trace';
 import { Conversation } from './ui/conversation';
 import { Inspector } from './ui/inspector';
 import { Icon } from './ui/kit/icon';
@@ -30,6 +32,8 @@ import { WorkspaceTrust } from './ui/workspace-trust';
     Inspector,
     Permission,
     ContextMeter,
+    RunMetricsChip,
+    TraceVisibilityControl,
     ModelPicker,
     ModelManager,
     WorkspaceTrust,
@@ -51,6 +55,7 @@ export class App implements OnInit {
   private readonly dialogs = inject(DialogStack);
   private readonly toast = inject(ToastService);
   protected readonly isMac = isMac;
+  protected readonly developmentExport = isDevMode() && inTauri();
   protected readonly rail = RAIL;
   protected readonly keys = SHORTCUTS;
   /** In full screen macOS hides the traffic lights, so their space is given back. */
@@ -71,6 +76,27 @@ export class App implements OnInit {
   ngOnInit(): void {
     void this.store.boot();
     void this.followFullscreen();
+  }
+
+  protected async exportDiagnostic(): Promise<void> {
+    const timeline = this.store.timeline();
+    if (!this.developmentExport || !timeline.length || this.store.turnActive()) return;
+    const destination = await bridge.pickDebugExport();
+    if (!destination) return;
+    const from = timeline[0].at;
+    const to = timeline[timeline.length - 1].at + 2000;
+    try {
+      await bridge.debugExportChat(destination, {
+        session_id: this.store.sessionId(),
+        workspace: this.store.workspace(),
+        model: this.store.model(),
+        timeline,
+        core_log: this.store.logLines().filter((line) => line.at >= from && line.at <= to),
+      });
+      this.toast.show('Diagnostic chat exported.', 'success');
+    } catch (error) {
+      this.toast.show(`Export failed: ${String(error)}`, 'danger', 6000);
+    }
   }
 
   private async followFullscreen(): Promise<void> {

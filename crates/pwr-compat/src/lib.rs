@@ -512,14 +512,20 @@ impl ModelBehaviorAdapter for HarmonyAdapter {
                 }
                 continue;
             };
-            let body = ["<|end|>", "<|call|>", "<|return|>", "<|start|>"]
+            let end = ["<|end|>", "<|call|>", "<|return|>", "<|start|>"]
                 .iter()
                 .filter_map(|marker| body.find(marker))
-                .min()
-                .map_or(body, |end| &body[..end]);
+                .min();
+            let body = end.map_or(body, |end| &body[..end]);
             let channel = header.split_whitespace().next().unwrap_or_default();
             match (channel, harmony_recipient(header).or(pending.take())) {
                 (_, Some(target)) => {
+                    if end.is_none() {
+                        canonical.diagnostics.push(Diagnostic {
+                            kind: "harmony_unterminated_tool_call",
+                            detail: "a tool-call message had no closing protocol marker".into(),
+                        });
+                    }
                     let name = target.strip_prefix("functions.").unwrap_or(&target);
                     // The first JSON value is the arguments; anything the model
                     // wrote after it is not.
@@ -630,7 +636,13 @@ impl ModelBehaviorAdapter for GlmFamilyAdapter {
             let after = &rest[open + OPEN_TOOL.len()..];
             let (body, next) = match after.find(CLOSE_TOOL) {
                 Some(close) => (&after[..close], &after[close + CLOSE_TOOL.len()..]),
-                None => (after, ""),
+                None => {
+                    canonical.diagnostics.push(Diagnostic {
+                        kind: "glm_unterminated_tool_call",
+                        detail: "a <tool_call> block was not closed before the reply ended".into(),
+                    });
+                    (after, "")
+                }
             };
             match glm_call(body) {
                 Some(call) => {

@@ -16,6 +16,9 @@ import {
   SessionSummary,
   modelLabel,
 } from './model';
+import { RunOutcome, TraceVisibility, runOutcome } from './trace';
+
+const VISIBILITY_KEY = 'pwr:trace-visibility';
 
 type Pending = { resolve: (value: any) => void; reject: (error: Error) => void };
 
@@ -45,6 +48,8 @@ export class AgentStore {
   readonly trustingWorkspace = signal(false);
   readonly workspaceTrustError = signal('');
   readonly logs = signal<string[]>([]);
+  /** The same lines with when they arrived, so Raw Trace can place them in a run. */
+  readonly logLines = signal<{ at: number; line: string }[]>([]);
 
   // --------------------------------------------------------- the engine
   /** The MLX engine's environment, as last checked. */
@@ -87,6 +92,13 @@ export class AgentStore {
   readonly turnActive = signal(false);
   readonly lastEventAt = signal(Date.now());
   readonly outcome = signal('');
+  /** How the last run ended, and whether it can be retried or continued. */
+  readonly runOutcome = signal<RunOutcome | null>(null);
+  /**
+   * How much of the run the conversation shows. Presentation only: it is not
+   * Reasoning Effort, and changes nothing the model does.
+   */
+  readonly traceVisibility = signal<TraceVisibility>(readVisibility());
   readonly changes = signal<FileDiff[]>([]);
   readonly commandOutput = signal<{ name: string; text: string } | null>(null);
   /** The Evidence command that is running, if any. */
@@ -143,7 +155,10 @@ export class AgentStore {
       return;
     }
     await bridge.onMessage((message) => this.receive(message));
-    await bridge.onLog((line) => this.logs.update((lines) => [...lines.slice(-400), line]));
+    await bridge.onLog((line) => {
+      this.logs.update((lines) => [...lines.slice(-400), line]);
+      this.logLines.update((lines) => [...lines.slice(-400), { at: Date.now(), line }]);
+    });
     await bridge.onExit((generation) => {
       // A core this app already replaced; the running one is unaffected.
       if (generation !== this.generation) return;
@@ -407,6 +422,15 @@ export class AgentStore {
     return this.refreshModels({ model: ref });
   }
 
+  setTraceVisibility(visibility: TraceVisibility): void {
+    this.traceVisibility.set(visibility);
+    try {
+      localStorage.setItem(VISIBILITY_KEY, visibility);
+    } catch {
+      /* storage unavailable: the choice lasts for this run */
+    }
+  }
+
   setReasoningEffort(effort: ReasoningEffort): Promise<void> {
     return this.refreshModels({ reasoningEffort: effort });
   }
@@ -580,6 +604,7 @@ export class AgentStore {
     this.timeline.set([]);
     this.changes.set([]);
     this.outcome.set('');
+    this.runOutcome.set(null);
   }
 
   async resume(sessionId: string): Promise<void> {
@@ -587,6 +612,7 @@ export class AgentStore {
     this.timeline.set([]);
     this.changes.set([]);
     this.segment = 0;
+    this.runOutcome.set(null);
     this.usage.set(null);
     this.contextInfo.set(null);
     this.sessionId.set(sessionId);
@@ -622,6 +648,7 @@ export class AgentStore {
     this.segment += 1;
     this.turnActive.set(true);
     this.outcome.set('');
+    this.runOutcome.set(null);
     this.lastEventAt.set(Date.now());
     const blocks: unknown[] = [{ type: 'text', text: prompt }];
     for (const path of attachments) {
@@ -643,6 +670,17 @@ export class AgentStore {
       void this.refreshSessions();
       this.sendNextQueued();
     }
+  }
+
+  /**
+   * Picks the work up where the core stopped it: offered only once the core's
+   * own automatic retries are spent, or a turn paused at its action budget.
+   */
+  continueRun(): Promise<void> {
+    const outcome = this.runOutcome();
+    if (!outcome?.action || this.turnActive()) return Promise.resolve();
+    this.runOutcome.set(null);
+    return this.send(outcome.action === 'retry' ? 'Retry the last step and continue.' : 'Continue.');
   }
 
   /** The next queued prompt, once the turn it waited for has ended. */
@@ -781,6 +819,10 @@ export class AgentStore {
       this.onCompacted(message.params ?? {});
       return;
     }
+    if (message.method === '_pwr/turn_event') {
+      this.turnEvent(message.params ?? {});
+      return;
+    }
     if (message.method === 'session/update') {
       this.apply(message.params?.update ?? {});
       return;
@@ -814,6 +856,41 @@ export class AgentStore {
     });
   }
 
+  /**
+   * What the core did that ACP has no update for: an automatic retry, the
+   * recovery after it, a generation's counts, a note. Entries like any other,
+   * so each view reads them from the same timeline.
+   */
+  private turnEvent(params: any): void {
+    if (params.sessionId && params.sessionId !== this.sessionId()) return;
+    const at = Date.now();
+    const key = `${params.event}-${at}-${Math.random()}`;
+    const { sessionId: _session, event, ...data } = params;
+    switch (event) {
+      case 'retry':
+        // The failed generation's text stays where it was; the next one
+        // streams into a new block rather than onto it.
+        this.settleLive();
+        this.segment += 1;
+        this.push({ key, kind: 'retry', title: String(data.cause ?? 'retry'), text: String(data.detail ?? ''), status: 'running', data, raw: [params], at });
+        return;
+      case 'recovered':
+        this.timeline.update((entries) =>
+          entries.map((entry) => (entry.kind === 'retry' && entry.status === 'running' ? { ...entry, status: 'done' } : entry)),
+        );
+        this.push({ key, kind: 'recovery', title: 'Recovered', text: '', status: 'done', data, raw: [params], at });
+        return;
+      case 'generation':
+        this.push({ key, kind: 'generation', title: 'Generation', text: '', status: 'info', data, raw: [params], at });
+        return;
+      case 'note':
+        this.push({ key, kind: 'note', title: 'Core', text: String(data.text ?? ''), status: data.level === 'warning' ? 'error' : 'info', data, raw: [params], at });
+        return;
+      default:
+        return;
+    }
+  }
+
   private apply(update: any): void {
     const kind: string = update.sessionUpdate ?? '';
     const text: string = update.content?.text ?? '';
@@ -826,7 +903,7 @@ export class AgentStore {
         if (live) {
           this.stream(`reply-${this.segment}`, 'reply', 'PWR', text);
         } else {
-          this.finalMessage(text);
+          this.finalMessage(text, update);
         }
         return;
       case 'user_message_chunk':
@@ -851,6 +928,8 @@ export class AgentStore {
     const detail: string | undefined = update._meta?.pwr?.detail;
     const diffBlock = (update.content ?? []).find?.((block: any) => block.type === 'diff');
     const failure = (update.content ?? []).find?.((block: any) => block.type === 'content')?.content?.text;
+    const location: string | undefined = update.locations?.[0]?.path;
+    const path = location ? relative(location, this.workspace()) : undefined;
     const diff: FileDiff | undefined = diffBlock
       ? { path: relative(diffBlock.path, this.workspace()), oldText: diffBlock.oldText ?? '', newText: diffBlock.newText ?? '', created: diffBlock.oldText == null }
       : undefined;
@@ -881,6 +960,8 @@ export class AgentStore {
         status: toolStatus(status),
         toolKind: update.kind ?? previous?.toolKind,
         diff: diff ?? previous?.diff,
+        data: { ...previous?.data, ...(path ? { path } : {}) },
+        raw: [...(previous?.raw ?? []), update],
         at: previous?.at ?? Date.now(),
       };
       if (index < 0) return [...entries, next];
@@ -904,7 +985,7 @@ export class AgentStore {
   }
 
   /** The whole answer at a turn's end: settle the streamed copy, or add it. */
-  private finalMessage(text: string): void {
+  private finalMessage(text: string, update?: unknown): void {
     if (!text.trim()) return;
     if (/^Checkpoint after \d+ action/.test(text)) {
       this.notice('Checkpoint', text, 'info');
@@ -917,28 +998,36 @@ export class AgentStore {
       return;
     }
     this.settleLive();
-    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', at: Date.now() });
+    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', raw: update ? [update] : undefined, at: Date.now() });
   }
 
   private finish(reply: any): void {
-    const meta = reply?._meta?.pwr ?? {};
-    const goal = meta.goal;
-    const actions = meta.totalActions ?? meta.actions ?? 0;
-    const lines: string[] = [];
-    if (goal?.verified) lines.push(`Goal verified by the declared acceptance checks after ${actions} actions.`);
-    else if (goal?.guardReached) lines.push(`Goal mode paused after ${actions} actions without a verified completion.`);
-    else if (goal?.needsAcceptance) lines.push('Technical checks passed; no acceptance contract was declared, so the goal is not verified.');
-    else if (meta.terminal === 'budget') lines.push(`Paused after ${actions} actions to check in. Send "carry on" to continue.`);
-    else if (reply?.stopReason === 'cancelled' || meta.terminal === 'interrupted') lines.push('Stopped.');
-    else if (meta.terminal === 'protocol')
-      lines.push(`Stopped after ${actions} actions: the model's last replies could not be read as actions. Send "carry on" to retry.`);
-    else if (meta.terminal === 'provider')
-      lines.push(`Stopped after ${actions} actions: the engine failed. Send "carry on" once it is serving again.`);
-    else if (meta.terminal === 'recovery')
-      lines.push(`Stopped after ${actions} actions: the work was not moving (repeated steps or a full context).`);
-    else if (meta.terminal === 'declined') lines.push('The model declined the task.');
-    else lines.push(`Finished after ${actions} action${actions === 1 ? '' : 's'}.`);
-    this.outcome.set(lines.join(' '));
+    const outcome = runOutcome(reply, false);
+    // The core ends the answer with its own reason for stopping. It becomes
+    // the run's stop state -- Compact says it in its own words, Detailed and
+    // Raw Trace keep the core's -- instead of prose from the model.
+    if (outcome.detail) {
+      const said = outcome.detail.trim();
+      const at = Date.now();
+      this.timeline.update((entries) => {
+        let index = entries.length - 1;
+        while (index >= 0 && entries[index].kind !== 'reply') index--;
+        const copy = entries.map((entry) =>
+          entry.kind === 'retry' && entry.status === 'running' ? { ...entry, status: 'failed' as const } : entry,
+        );
+        if (index >= 0 && copy[index].text.trimEnd().endsWith(said)) {
+          const rest = copy[index].text.trimEnd().slice(0, -said.length).trimEnd();
+          if (rest) copy[index] = { ...copy[index], text: rest };
+          else copy.splice(index, 1);
+        }
+        return [
+          ...copy,
+          { key: `stop-${at}`, kind: 'stop', title: outcome.terminal ?? 'stopped', text: said, status: 'error', data: { terminal: outcome.terminal }, raw: [reply], at },
+        ];
+      });
+    }
+    this.runOutcome.set(outcome);
+    this.outcome.set(outcome.text);
   }
 
   private notice(title: string, text: string, status: 'info' | 'error'): void {
@@ -957,6 +1046,16 @@ export class AgentStore {
   private push(entry: Entry): void {
     this.timeline.update((entries) => [...entries, entry]);
   }
+}
+
+function readVisibility(): TraceVisibility {
+  try {
+    const saved = localStorage.getItem(VISIBILITY_KEY);
+    if (saved === 'compact' || saved === 'detailed' || saved === 'raw') return saved;
+  } catch {
+    /* storage unavailable */
+  }
+  return 'compact';
 }
 
 function ownWords(text: string): string {

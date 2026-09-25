@@ -1640,6 +1640,7 @@ dependencies = [
  "pwr-verify",
  "serde",
  "serde_json",
+ "shell-words",
  "tempfile",
  "tokio",
 ]

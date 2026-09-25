@@ -104,6 +104,15 @@ fn a_denial_is_environmental_however_it_is_worded() {
     }
 }
 
+#[test]
+fn dotnet_sandbox_tmp_denial_is_not_a_compiler_error() {
+    let stderr = "Unhandled exception. System.TypeInitializationException: The type initializer for 'NuGet.Common.Migrations' threw an exception.\n ---> System.IO.IOException: The system cannot open the device or file specified. : '/tmp/.dotnet'\n   at NuGet.Common.Migrations..cctor()\nmkdtemp(\"/tmp/.dotnetXXXXXX\") == nullptr; errno == EPERM\n";
+    assert_eq!(
+        classify(&failed(stderr, "", None)),
+        FailureClass::Environment
+    );
+}
+
 /// A real compiler error keeps its class. The fix moved an ordering; it did not
 /// make compilation unreachable, and a change that cured one misclassification
 /// by causing another would not be a fix.

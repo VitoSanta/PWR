@@ -11,7 +11,7 @@
 
 use crate::catalog::Format;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 /// A model on disk, as the Model Manager lists it.
@@ -92,6 +92,15 @@ fn list_mlx(root: &Path) -> Vec<LocalModel> {
 /// the index is the authoritative list of required files for sharded models.
 /// Models without an index use the usual single-file safetensors layout.
 pub fn mlx_weights_complete(dir: &Path) -> bool {
+    // The index can arrive after the weights. Until then, a completed shard
+    // must not make an interrupted multi-file download look usable.
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let files: Vec<_> = entries.flatten().collect();
+    if files.iter().any(|entry| extension(&entry.path()) == "part") {
+        return false;
+    }
     let index = dir.join("model.safetensors.index.json");
     if index.exists() {
         let Ok(bytes) = std::fs::read(index) else {
@@ -125,15 +134,45 @@ pub fn mlx_weights_complete(dir: &Path) -> bool {
         });
     }
 
-    std::fs::read_dir(dir).is_ok_and(|entries| {
-        entries.flatten().any(|entry| {
-            let path = entry.path();
-            extension(&path) == "safetensors"
-                && entry
-                    .metadata()
-                    .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
-        })
-    })
+    let mut weights = false;
+    let mut shards: BTreeMap<(String, usize), BTreeSet<usize>> = BTreeMap::new();
+    for entry in files {
+        let path = entry.path();
+        if extension(&path) != "safetensors" {
+            continue;
+        }
+        if !entry
+            .metadata()
+            .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+        {
+            return false;
+        }
+        weights = true;
+        if let Some((name, number, total)) = safetensors_shard(&path) {
+            shards.entry((name, total)).or_default().insert(number);
+        }
+    }
+    weights
+        && shards
+            .iter()
+            .all(|((_, total), found)| found.len() == *total)
+}
+
+fn safetensors_shard(path: &Path) -> Option<(String, usize, usize)> {
+    let stem = path.file_name()?.to_str()?.strip_suffix(".safetensors")?;
+    let (prefix, total) = stem.rsplit_once("-of-")?;
+    let (name, number) = prefix.rsplit_once('-')?;
+    if name.is_empty()
+        || number.len() != 5
+        || total.len() != 5
+        || !number.bytes().all(|byte| byte.is_ascii_digit())
+        || !total.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let number: usize = number.parse().ok()?;
+    let total: usize = total.parse().ok()?;
+    (number > 0 && total > 0 && number <= total).then(|| (name.to_owned(), number, total))
 }
 
 fn list_gguf(root: &Path) -> Vec<LocalModel> {
@@ -160,7 +199,8 @@ fn list_gguf(root: &Path) -> Vec<LocalModel> {
         .filter_map(|(_, mut members)| {
             members.sort();
             let first = members.first()?;
-            let partial = members.iter().all(|path| extension(path) == "part");
+            let partial = members.iter().any(|path| extension(path) == "part")
+                || gguf_shards_missing(&members);
             let model_ref = relative_ref(root, &gguf_final(first))?;
             Some(LocalModel {
                 model_ref,
@@ -220,6 +260,26 @@ fn shard_key(path: &Path) -> String {
         }
         _ => stem.to_owned(),
     }
+}
+
+fn gguf_shards_missing(members: &[PathBuf]) -> bool {
+    let Some(first) = members.first() else {
+        return true;
+    };
+    let final_path = gguf_final(first);
+    let Some(stem) = final_path.file_name().and_then(|name| name.to_str()) else {
+        return true;
+    };
+    let Some(stem) = stem.strip_suffix(".gguf") else {
+        return true;
+    };
+    let Some((_, total)) = stem.rsplit_once("-of-") else {
+        return false;
+    };
+    let Ok(total) = total.parse::<usize>() else {
+        return false;
+    };
+    total == 0 || members.len() != total
 }
 
 /// Deletes the model `model_ref` of `format` from `root`, and only it.

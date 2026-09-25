@@ -67,6 +67,7 @@ import traceback
 import base64
 import hashlib
 import io
+from collections import deque
 
 # Models are local folders PWR has already checked. The Hub is never asked
 # for anything from here: a path that is not there fails, it is not fetched.
@@ -76,7 +77,7 @@ import mlx.core as mx
 import mlx.nn as nn
 from mlx_lm import load, stream_generate
 from mlx_lm.models.cache import make_prompt_cache
-from mlx_lm.sample_utils import make_sampler
+from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.utils import load_tokenizer
 
 # Larger steps, and the allocator cleared once rather than after every step:
@@ -135,6 +136,7 @@ def vlm_available() -> bool:
 
 def trace(record: dict) -> None:
     if TRACE:
+        record = {"at_ms": int(time.time() * 1000), **record}
         with open(TRACE, "a") as handle:
             handle.write(json.dumps(record) + "\n")
 
@@ -159,6 +161,45 @@ def looping(text: str) -> bool:
     if period * REPEAT_LIMIT > len(text):
         return False
     return text[-period * REPEAT_LIMIT:] == text[-period:] * REPEAT_LIMIT
+
+
+class RepetitionSignals:
+    """Small, content-free diagnostics for repeated generated token windows.
+
+    This is observational: repeated code and tables must not become a new
+    stop condition without a measured false-positive rate. Only aggregate
+    counts leave the sidecar; token text and window hashes stay in memory.
+    """
+
+    WINDOW = 8
+
+    def __init__(self):
+        self.recent = {channel: deque(maxlen=self.WINDOW)
+                       for channel in ("reasoning", "answer")}
+        self.seen = {channel: set() for channel in self.recent}
+        self.total = {channel: 0 for channel in self.recent}
+        self.repeated = {channel: 0 for channel in self.recent}
+
+    def feed(self, channel: str, token_text: str) -> None:
+        if not token_text:
+            return
+        recent = self.recent[channel]
+        recent.append(hashlib.blake2b(token_text.encode("utf-8"), digest_size=8).digest())
+        if len(recent) < self.WINDOW:
+            return
+        window = tuple(recent)
+        self.total[channel] += 1
+        if window in self.seen[channel]:
+            self.repeated[channel] += 1
+        self.seen[channel].add(window)
+
+    def summary(self) -> dict:
+        return {channel: {
+            "windows": self.total[channel],
+            "repeated_windows": self.repeated[channel],
+            "ratio_bps": 10_000 * self.repeated[channel] // self.total[channel]
+                         if self.total[channel] else 0,
+        } for channel in self.recent}
 
 
 def think_delimiters(template: str):
@@ -638,6 +679,11 @@ class Engine:
             temp=float(request.get("temperature") or 0.0),
             top_p=float(request.get("top_p") or 0.0),
             top_k=int(request.get("top_k") or 0),
+            min_p=float(request.get("min_p") or 0.0),
+        )
+        logits_processors = make_logits_processors(
+            presence_penalty=request.get("presence_penalty"),
+            repetition_penalty=request.get("repetition_penalty"),
         )
 
         started = time.perf_counter()
@@ -674,12 +720,14 @@ class Engine:
         finalizations = 0
         written = []          # everything generated, both channels, for the loop check
         written_len = 0
+        repetition = RepetitionSignals()
 
         def stream(prompt_tokens, limit):
             nonlocal generated, finish, written_len
             for response in stream_generate(
                 self.model, self.tokenizer, mx.array(prompt_tokens), max_tokens=limit,
-                sampler=sampler, prompt_cache=self.cache,
+                sampler=sampler, logits_processors=logits_processors,
+                prompt_cache=self.cache,
                 # A long prefill says it is alive, so PWR can tell one
                 # from an engine stuck in an evaluation.
                 prompt_progress_callback=lambda done, total: reply(
@@ -697,7 +745,11 @@ class Engine:
                     if looping("".join(written)):
                         finish = "repetition"
                         return finish
-                for channel, piece in tracker.feed(text):
+                was_reasoning = tracker.in_reasoning
+                pieces = tracker.feed(text)
+                repetition.feed("reasoning" if was_reasoning and tracker.in_reasoning
+                                else "answer", text)
+                for channel, piece in pieces:
                     reply({"event": "delta", "channel": channel, "text": piece})
                 if tracker.reopened:
                     return "reopened"
@@ -735,6 +787,7 @@ class Engine:
             "finish_reason": finish if finish in (
                 "stop", "repetition", "cancelled", "reasoning_unfinished") else "length",
             "budget_forced": finalizations > 0,
+            "repetition_signals": repetition.summary(),
             # Whether the reasoning counts below are the engine's own: only
             # where the template's delimiters let it see the phase.
             "reasoning_tracked": delimiters is not None,

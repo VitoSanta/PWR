@@ -50,6 +50,130 @@ use tokio::sync::Mutex;
 /// never ends.
 pub const DEFAULT_MAX_TOKENS: u64 = 16_384;
 
+/// Sampling fields the MLX wire protocol and sidecar actually apply. Values
+/// from other generation-config fields are never presented as effective.
+pub const MLX_SAMPLING_FIELDS: [&str; 6] = [
+    "temperature",
+    "top_p",
+    "top_k",
+    "min_p",
+    "presence_penalty",
+    "repetition_penalty",
+];
+
+/// Resolve a request against the artifact's structured generation settings.
+/// Explicit request values (including a packaged profile) win. The private
+/// provenance entry is consumed by the audit; `chat_body` never sends it as a
+/// sampler option.
+pub fn resolve_generation_sampling(
+    sampling: &mut BTreeMap<String, serde_json::Value>,
+    generation_config: Option<&serde_json::Value>,
+) -> Result<(), ProviderError> {
+    // Older packaged profiles call this repeat_penalty. Normalize it before
+    // resolution so the audit and the sidecar describe the same parameter.
+    if let Some(legacy) = sampling.remove("repeat_penalty") {
+        if let Some(current) = sampling.get("repetition_penalty") {
+            if current != &legacy {
+                return Err(ProviderError::Protocol {
+                    safe_context: "conflicting repetition penalty values".into(),
+                });
+            }
+        } else {
+            sampling.insert("repetition_penalty".into(), legacy);
+        }
+    }
+    let mut sources = sampling
+        .get("_pwr_sampling_sources")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(legacy) = sources.remove("repeat_penalty") {
+        sources.entry("repetition_penalty").or_insert(legacy);
+    }
+    for name in MLX_SAMPLING_FIELDS {
+        if let Some(value) = sampling.get(name) {
+            validate_sampling(name, value)?;
+            sources
+                .entry(name)
+                .or_insert_with(|| serde_json::json!("request"));
+            continue;
+        }
+        // A generation config with sampling disabled asks for greedy decoding
+        // even when it carries dormant temperature/top-p values. An explicit
+        // PWR profile still wins over that artifact instruction.
+        if name == "temperature"
+            && generation_config.and_then(|config| config.get("do_sample"))
+                == Some(&serde_json::Value::Bool(false))
+        {
+            sampling.insert(name.into(), serde_json::json!(0.0));
+            sources.insert(name.into(), serde_json::json!("artifact_do_sample_false"));
+        } else if let Some(value) = generation_config
+            .and_then(|config| config.get(name))
+            .filter(|value| !value.is_null())
+        {
+            validate_sampling(name, value)?;
+            sampling.insert(name.into(), value.clone());
+            sources.insert(name.into(), serde_json::json!("artifact_generation_config"));
+        } else if !matches!(name, "presence_penalty" | "repetition_penalty") {
+            let fallback = if name == "top_k" {
+                serde_json::json!(0)
+            } else {
+                serde_json::json!(0.0)
+            };
+            sampling.insert(name.into(), fallback);
+            sources.insert(name.into(), serde_json::json!("mlx_sidecar_default"));
+        }
+    }
+    sampling.insert(
+        "_pwr_sampling_sources".into(),
+        serde_json::Value::Object(sources),
+    );
+    Ok(())
+}
+
+pub fn validate_sampling(name: &str, value: &serde_json::Value) -> Result<(), ProviderError> {
+    let valid = match name {
+        "temperature" => value.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0),
+        "top_p" | "min_p" => value
+            .as_f64()
+            .is_some_and(|n| n.is_finite() && (0.0..=1.0).contains(&n)),
+        "top_k" => value.as_u64().is_some_and(|n| n <= i32::MAX as u64),
+        "presence_penalty" => value.as_f64().is_some_and(f64::is_finite),
+        "repetition_penalty" => value.as_f64().is_some_and(|n| n.is_finite() && n > 0.0),
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(ProviderError::Protocol {
+            safe_context: format!("invalid MLX sampling value for {name}"),
+        })
+    }
+}
+
+fn generation_config(dir: &Path) -> Result<Option<serde_json::Value>, ProviderError> {
+    let path = dir.join("generation_config.json");
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(ProviderError::Protocol {
+                safe_context: format!("cannot read generation_config.json: {error}"),
+            });
+        }
+    };
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| ProviderError::Protocol {
+            safe_context: "generation_config.json is not valid JSON".into(),
+        })?;
+    if !value.is_object() {
+        return Err(ProviderError::Protocol {
+            safe_context: "generation_config.json must be an object".into(),
+        });
+    }
+    Ok(Some(value))
+}
+
 /// Where the sidecar and its models are.
 #[derive(Debug, Clone)]
 pub struct MlxConfig {
@@ -262,7 +386,7 @@ impl MlxProvider {
     /// resolves when the stream ends or is dropped.
     async fn reply(
         &self,
-        request: ModelRequest,
+        mut request: ModelRequest,
     ) -> Result<
         (
             ModelStream,
@@ -273,6 +397,7 @@ impl MlxProvider {
         ProviderError,
     > {
         let dir = self.config.model_dir(&request.deployment.model_ref)?;
+        resolve_generation_sampling(&mut request.sampling, generation_config(&dir)?.as_ref())?;
         let family = Self::read_config(&dir)
             .and_then(|config| config["model_type"].as_str().map(str::to_owned));
         let adapter: Arc<dyn pwr_compat::ModelBehaviorAdapter> = Arc::from(
@@ -555,6 +680,18 @@ impl MlxProvider {
     }
 
     fn model_weights_complete(dir: &Path) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        let files: Vec<_> = entries.flatten().collect();
+        if files.iter().any(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "part")
+        }) {
+            return false;
+        }
         let index = dir.join("model.safetensors.index.json");
         if index.exists() {
             let Ok(bytes) = std::fs::read(index) else {
@@ -588,17 +725,49 @@ impl MlxProvider {
             });
         }
 
-        std::fs::read_dir(dir).is_ok_and(|entries| {
-            entries.flatten().any(|entry| {
-                let path = entry.path();
-                path.extension()
-                    .is_some_and(|extension| extension == "safetensors")
-                    && entry
-                        .metadata()
-                        .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
-            })
-        })
+        let mut weights = false;
+        let mut shards: BTreeMap<(String, usize), BTreeSet<usize>> = BTreeMap::new();
+        for entry in files {
+            let path = entry.path();
+            if !path
+                .extension()
+                .is_some_and(|extension| extension == "safetensors")
+            {
+                continue;
+            }
+            if !entry
+                .metadata()
+                .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+            {
+                return false;
+            }
+            weights = true;
+            if let Some((name, number, total)) = safetensors_shard(&path) {
+                shards.entry((name, total)).or_default().insert(number);
+            }
+        }
+        weights
+            && shards
+                .iter()
+                .all(|((_, total), found)| found.len() == *total)
     }
+}
+
+fn safetensors_shard(path: &Path) -> Option<(String, usize, usize)> {
+    let stem = path.file_name()?.to_str()?.strip_suffix(".safetensors")?;
+    let (prefix, total) = stem.rsplit_once("-of-")?;
+    let (name, number) = prefix.rsplit_once('-')?;
+    if name.is_empty()
+        || number.len() != 5
+        || total.len() != 5
+        || !number.bytes().all(|byte| byte.is_ascii_digit())
+        || !total.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let number: usize = number.parse().ok()?;
+    let total: usize = total.parse().ok()?;
+    (number > 0 && total > 0 && number <= total).then(|| (name.to_owned(), number, total))
 }
 
 /// A message in the shape Qwen-style chat templates read.
@@ -767,6 +936,9 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
         "temperature": number("temperature"),
         "top_p": number("top_p"),
         "top_k": number("top_k"),
+        "min_p": number("min_p"),
+        "presence_penalty": number("presence_penalty"),
+        "repetition_penalty": number("repetition_penalty"),
         "seed": request.seed,
     })
 }
@@ -981,6 +1153,17 @@ fn step_of(
                     chunks: 0,
                     metrics: None,
                 });
+                if canonical.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.kind == "qwen_unterminated_tool_call"
+                        || diagnostic.kind == "glm_unterminated_tool_call"
+                        || diagnostic.kind == "harmony_unterminated_tool_call"
+                }) {
+                    return Step::Finish(Err(ProviderError::Truncated {
+                        safe_context:
+                            "the model stopped inside an unfinished tool call; no call was executed"
+                                .into(),
+                    }));
+                }
                 chunk.content = canonical.narrative;
                 chunk.tool_calls = canonical.tool_calls;
                 if !canonical.thinking.is_empty() {
@@ -1015,9 +1198,22 @@ fn terminal_of(event: &serde_json::Value) -> Result<ModelChunk, ProviderError> {
     if finish != "stop" {
         // The same fault LM Studio's truncated replies raise, so the
         // loop records a runaway reply the way it always has.
+        let repetition = if finish == "repetition" {
+            format!(
+                "; repeated-window ratios: reasoning={}bp, answer={}bp",
+                event["repetition_signals"]["reasoning"]["ratio_bps"]
+                    .as_u64()
+                    .unwrap_or(0),
+                event["repetition_signals"]["answer"]["ratio_bps"]
+                    .as_u64()
+                    .unwrap_or(0),
+            )
+        } else {
+            String::new()
+        };
         return Err(ProviderError::Truncated {
             safe_context: format!(
-                "the MLX engine stopped the reply ({finish}) after {} tokens",
+                "the MLX engine stopped the reply ({finish}) after {} tokens{repetition}",
                 event["usage"]["completion_tokens"].as_u64().unwrap_or(0)
             ),
         });
@@ -1037,6 +1233,12 @@ fn terminal_of(event: &serde_json::Value) -> Result<ModelChunk, ProviderError> {
             answer_tokens: usage["answer_tokens"].as_u64(),
             token_accounting: Some(pwr_domain::TokenAccounting::EngineTokenizer),
             reasoning_budget_reached: event["budget_forced"].as_bool(),
+            reasoning_repetition_bps: event["repetition_signals"]["reasoning"]["ratio_bps"]
+                .as_u64()
+                .and_then(|value| u16::try_from(value).ok()),
+            answer_repetition_bps: event["repetition_signals"]["answer"]["ratio_bps"]
+                .as_u64()
+                .and_then(|value| u16::try_from(value).ok()),
             prompt_tokens: usage["prompt_tokens"].as_u64(),
             generated_tokens: usage["completion_tokens"].as_u64(),
             total_duration_ns: nanos("prefill_secs")
@@ -1073,12 +1275,29 @@ impl ModelProvider for MlxProvider {
             serde_json::from_slice(&config_bytes).map_err(|_| ProviderError::Protocol {
                 safe_context: format!("{} has a config.json that is not JSON", dir.display()),
             })?;
-        // The artifact's identity: its config and its weight index, which
-        // together change whenever the weights do.
+        let generation_config = generation_config(&dir)?;
+        // The artifact's identity includes the structured generation settings
+        // now that they affect runtime behavior. Changing them invalidates
+        // digest-scoped calibration/profile evidence.
         let index = std::fs::read(dir.join("model.safetensors.index.json")).unwrap_or_default();
+        let generation_bytes = generation_config
+            .as_ref()
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(|_| ProviderError::Protocol {
+                safe_context: "cannot encode generation_config.json".into(),
+            })?
+            .unwrap_or_default();
         let digest = format!(
             "mlx:{}",
-            pwr_domain::hash_bytes([config_bytes.as_slice(), index.as_slice()].concat())
+            pwr_domain::hash_bytes(
+                [
+                    config_bytes.as_slice(),
+                    index.as_slice(),
+                    generation_bytes.as_slice()
+                ]
+                .concat()
+            )
         );
         let quantization = config["quantization"]["bits"]
             .as_u64()
@@ -1135,6 +1354,7 @@ impl ModelProvider for MlxProvider {
                     "has_chat_template": template.is_some(),
                     "reasoning_template": reasoning,
                     "reasoning_capability": reasoning.capability(true),
+                    "generation_config": generation_config,
                     "revision": revision,
                     "format": "mlx",
                 }),
@@ -1562,6 +1782,98 @@ mod tests {
     }
 
     #[test]
+    fn artifact_sampling_fills_only_missing_supported_values() {
+        let mut sampling = BTreeMap::from([
+            ("temperature".into(), serde_json::json!(0.6)),
+            ("min_p".into(), serde_json::json!(0.1)),
+        ]);
+        resolve_generation_sampling(
+            &mut sampling,
+            Some(&serde_json::json!({
+                "temperature": 1.0, "top_p": 0.95, "top_k": 20,
+                "min_p": 0.2, "do_sample": true
+            })),
+        )
+        .unwrap();
+        assert_eq!(sampling["temperature"], 0.6);
+        assert_eq!(sampling["top_p"], 0.95);
+        assert_eq!(sampling["top_k"], 20);
+        assert_eq!(sampling["min_p"], 0.1);
+        assert_eq!(sampling["_pwr_sampling_sources"]["temperature"], "request");
+        assert_eq!(
+            sampling["_pwr_sampling_sources"]["top_p"],
+            "artifact_generation_config"
+        );
+        assert_eq!(sampling["_pwr_sampling_sources"]["min_p"], "request");
+    }
+
+    #[test]
+    fn missing_or_invalid_artifact_sampling_is_explicit() {
+        let mut sampling = BTreeMap::new();
+        resolve_generation_sampling(&mut sampling, None).unwrap();
+        assert_eq!(sampling["temperature"], 0.0);
+        assert_eq!(sampling["top_p"], 0.0);
+        assert_eq!(sampling["top_k"], 0);
+        assert_eq!(sampling["min_p"], 0.0);
+        assert!(!sampling.contains_key("presence_penalty"));
+        assert!(!sampling.contains_key("repetition_penalty"));
+        assert_eq!(
+            sampling["_pwr_sampling_sources"]["top_k"],
+            "mlx_sidecar_default"
+        );
+
+        let mut invalid = BTreeMap::new();
+        assert!(
+            resolve_generation_sampling(&mut invalid, Some(&serde_json::json!({"top_p": 1.5})),)
+                .is_err()
+        );
+
+        let mut greedy = BTreeMap::new();
+        resolve_generation_sampling(
+            &mut greedy,
+            Some(&serde_json::json!({"do_sample": false, "temperature": 1.0})),
+        )
+        .unwrap();
+        assert_eq!(greedy["temperature"], 0.0);
+        assert_eq!(
+            greedy["_pwr_sampling_sources"]["temperature"],
+            "artifact_do_sample_false"
+        );
+    }
+
+    #[test]
+    fn legacy_repetition_penalty_is_normalized_and_conflicts_fail() {
+        let mut sampling = BTreeMap::from([
+            ("repeat_penalty".into(), serde_json::json!(1.05)),
+            (
+                "_pwr_sampling_sources".into(),
+                serde_json::json!({"repeat_penalty": {"kind": "declared_profile"}}),
+            ),
+        ]);
+        resolve_generation_sampling(&mut sampling, None).unwrap();
+        assert_eq!(sampling["repetition_penalty"], 1.05);
+        assert!(!sampling.contains_key("repeat_penalty"));
+        assert_eq!(
+            sampling["_pwr_sampling_sources"]["repetition_penalty"]["kind"],
+            "declared_profile"
+        );
+
+        let mut conflict = BTreeMap::from([
+            ("repeat_penalty".into(), serde_json::json!(1.05)),
+            ("repetition_penalty".into(), serde_json::json!(1.1)),
+        ]);
+        assert!(resolve_generation_sampling(&mut conflict, None).is_err());
+    }
+
+    #[test]
+    fn malformed_generation_config_is_a_visible_error() {
+        let model = tempfile::tempdir().unwrap();
+        assert!(generation_config(model.path()).unwrap().is_none());
+        std::fs::write(model.path().join("generation_config.json"), "{bad").unwrap();
+        assert!(generation_config(model.path()).is_err());
+    }
+
+    #[test]
     fn a_failed_forced_close_is_its_own_fault_not_a_truncation() {
         let event = serde_json::json!({
             "event": "done", "finish_reason": "reasoning_unfinished", "budget_forced": true,
@@ -1570,6 +1882,37 @@ mod tests {
         assert!(matches!(
             step_of(&event, "", &pwr_compat::QwenFamilyAdapter),
             Step::Finish(Err(ProviderError::ReasoningUnfinished { .. }))
+        ));
+    }
+
+    #[test]
+    fn an_eos_inside_a_tool_call_is_not_a_successful_generation() {
+        let event = serde_json::json!({
+            "event": "done", "finish_reason": "stop", "usage": {}, "timings": {}
+        });
+        assert!(matches!(
+            step_of(
+                &event,
+                "<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"a",
+                &pwr_compat::QwenFamilyAdapter,
+            ),
+            Step::Finish(Err(ProviderError::Truncated { .. }))
+        ));
+        assert!(matches!(
+            step_of(
+                &event,
+                "<tool_call>read_file<arg_key>path</arg_key><arg_value>a.txt</arg_value>",
+                &pwr_compat::GlmFamilyAdapter,
+            ),
+            Step::Finish(Err(ProviderError::Truncated { .. }))
+        ));
+        assert!(matches!(
+            step_of(
+                &event,
+                "<|channel|>commentary to=functions.read_file<|message|>{\"path\":\"a.txt\"}",
+                &pwr_compat::HarmonyAdapter,
+            ),
+            Step::Finish(Err(ProviderError::Truncated { .. }))
         ));
     }
 
@@ -1710,5 +2053,33 @@ mod tests {
         assert!(config.model_dir("pub/model").is_err());
         std::fs::write(model.join("config.json"), "{}").unwrap();
         assert_eq!(config.model_dir("pub/model").unwrap(), model);
+    }
+
+    #[test]
+    fn discovery_and_loading_reject_an_interrupted_sharded_model() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("publisher/model");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.json"), "{}").unwrap();
+        for number in 1..=4 {
+            std::fs::write(
+                dir.join(format!("model-{number:05}-of-00008.safetensors")),
+                [1_u8],
+            )
+            .unwrap();
+        }
+        std::fs::write(dir.join("model-00005-of-00008.safetensors.part"), [1_u8]).unwrap();
+        assert!(!MlxProvider::model_weights_complete(&dir));
+
+        std::fs::remove_file(dir.join("model-00005-of-00008.safetensors.part")).unwrap();
+        assert!(!MlxProvider::model_weights_complete(&dir));
+        for number in 5..=8 {
+            std::fs::write(
+                dir.join(format!("model-{number:05}-of-00008.safetensors")),
+                [1_u8],
+            )
+            .unwrap();
+        }
+        assert!(MlxProvider::model_weights_complete(&dir));
     }
 }

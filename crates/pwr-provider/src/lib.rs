@@ -332,8 +332,19 @@ pub async fn collect_reply(stream: ModelStream) -> Result<ModelReply, ProviderEr
 /// The same, showing each chunk to `observe` as it arrives, so a front end can
 /// render a reply while it is being generated rather than minutes later.
 pub async fn collect_reply_with(
+    stream: ModelStream,
+    observe: impl FnMut(&pwr_domain::ModelChunk),
+) -> Result<ModelReply, ProviderError> {
+    collect_reply_with_guard(stream, observe, None).await
+}
+
+/// Bound an agent reply that has already spent substantial reasoning and then
+/// keeps emitting plain answer text without a tool call. Tool-call bodies are
+/// held back by the MLX adapter and remain free to be as long as needed.
+pub async fn collect_reply_with_guard(
     mut stream: ModelStream,
     mut observe: impl FnMut(&pwr_domain::ModelChunk),
+    unstructured_limit: Option<(usize, usize)>,
 ) -> Result<ModelReply, ProviderError> {
     let mut reply = ModelReply::default();
     let mut done = false;
@@ -371,6 +382,19 @@ pub async fn collect_reply_with(
             reply.thinking.push_str(thinking);
         }
         reply.tool_calls.extend(chunk.tool_calls);
+        if let Some((min_thinking, max_content)) = unstructured_limit
+            && reply.thinking.len() >= min_thinking
+            && reply.content.len() >= max_content
+            && reply.tool_calls.is_empty()
+            && !chunk.done
+        {
+            return Err(ProviderError::Truncated {
+                safe_context: format!(
+                    "the model kept writing unstructured answer text after reasoning \
+                     ({max_content} bytes) without a tool call"
+                ),
+            });
+        }
         if chunk.metrics.is_some() {
             reply.metrics = chunk.metrics;
         }
