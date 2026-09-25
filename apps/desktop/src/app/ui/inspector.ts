@@ -13,7 +13,7 @@ import { KnowledgeCard } from './workbench/knowledge';
 
 /**
  * The workbench: the right-hand column, where the tools live as cards --
- * Review, Terminal, Browser, Files, Knowledge, Plan & checks, Activity --
+ * Review, Terminal, Web preview, Files, Knowledge, Plan & checks, Activity --
  * stacked, each collapsible, movable, maximisable and closable.
  */
 @Component({

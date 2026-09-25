@@ -547,6 +547,43 @@ const HISTORY_REWRITE_ARGS: [&str; 6] = [
     "--amend",
 ];
 
+/// See [`ToolPolicy::refuse_if_protected`]: the paths a model may read but
+/// never write, because something outside the sandbox acts on them.
+fn refuse_if_runs_outside(normalized: &Path) -> Result<(), ToolError> {
+    let parts: Vec<String> = normalized
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => Some(name.to_string_lossy().to_lowercase()),
+            _ => None,
+        })
+        .collect();
+    if parts.first().is_some_and(|first| first == STATE_DIRECTORY) {
+        return Err(ToolError::Denied(format!(
+            "{} is PWR's own state -- its records, and the checks and protections this run is \
+             held to -- so it can be read but not changed. Put the work in the project's own files.",
+            normalized.display()
+        )));
+    }
+    let in_git = parts
+        .iter()
+        .position(|part| part == ".git")
+        .is_some_and(|git| {
+            let inside = &parts[git + 1..];
+            inside.iter().any(|part| part == "hooks")
+                || inside.last().is_some_and(|last| last == "config")
+        });
+    if in_git {
+        return Err(ToolError::Denied(format!(
+            "{} is run by git itself, with the person's rights and outside the sandbox, the next \
+             time anyone uses git here, and it never shows in the changes they review -- so it \
+             cannot be changed. Commits, branches and the rest of git work as usual through \
+             run_command.",
+            normalized.display()
+        )));
+    }
+    Ok(())
+}
+
 /// Returns the approval a proposed command requires, if any.
 pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
     let name = Path::new(executable)
@@ -934,6 +971,7 @@ impl ToolPolicy {
             .filter(|c| !matches!(c, Component::CurDir))
             .collect();
         self.refuse_if_installed_dependency(&normalized)?;
+        refuse_if_runs_outside(&normalized)?;
         if !self
             .protected
             .iter()
@@ -963,6 +1001,19 @@ impl ToolPolicy {
     ///
     /// Reading stays open: the installed source is evidence, and searching it
     /// is the point of `in_dependencies`.
+    /// Refuses a write to what runs, or decides, outside the sandbox: PWR's
+    /// own state, and a git repository's hooks and configuration.
+    ///
+    /// `.git/hooks/*` and `.git/config` (a `core.fsmonitor`, a filter, an
+    /// alias, a `core.hooksPath`) are executed by the next `git` anyone runs
+    /// -- the person in their terminal, their editor -- with the person's
+    /// rights and no sandbox, and neither shows in a diff the person reviews.
+    /// Everything else in `.git` stays writable, so commits, branches and
+    /// stashes work as before. `.pwr` holds the event store and the files
+    /// that decide how a run is checked (`checks.json`) and what it may not
+    /// touch (`protected.json`); the sandbox already denies it to commands.
+    /// Compared without case: macOS's file system is case-insensitive, so
+    /// `.GIT/HOOKS` is the same folder.
     fn refuse_if_installed_dependency(&self, normalized: &Path) -> Result<(), ToolError> {
         if self.approvals.contains(&Approval::DependencyChange) {
             return Ok(());
@@ -1145,9 +1196,28 @@ impl ToolPolicy {
         // the event store mid-run, where edit capabilities are refused by
         // `refuse_if_protected`. `subpath` matches whole path components, so
         // `.pwr-scratch`, the child's HOME and TMPDIR, stays writable.
-        let harness_state_writes = quotable(&state)
+        let mut harness_state_writes = quotable(&state)
             .map(|state| format!("(deny file-write* {state})"))
             .unwrap_or_default();
+        // A repository's hooks and configuration, for the reason
+        // `refuse_if_runs_outside` gives: git runs them later, unconfined.
+        // Only once `.git` exists: `git init` writes both, and a repository
+        // the model creates starts with git's own, not the model's.
+        let git = std::path::Path::new(root).join(".git");
+        if git.is_dir() {
+            for (path, rule) in [
+                (git.join("hooks"), "subpath"),
+                (git.join("config"), "literal"),
+            ] {
+                if let Some(path) = path
+                    .to_str()
+                    .filter(|path| !path.contains('"') && !path.contains('\\'))
+                {
+                    harness_state_writes
+                        .push_str(&format!("(deny file-write* ({rule} \"{path}\"))"));
+                }
+            }
+        }
         let reads = format!(
             "(deny file-read-data)(allow file-read-data {}){harness_state}",
             readable.join("")
@@ -3182,6 +3252,7 @@ pub fn extract_document(
         .map_err(|failure| ToolError::Denied(format!("{}: {failure}", relative.display())))?;
 
     let target = PathBuf::from(format!("{}.txt", relative.display()));
+    policy.refuse_if_protected(&target)?;
     let target_path = policy.resolve(&target)?;
     let mut body = String::new();
     body.push_str(&format!("# text extracted from {}\n", relative.display()));
@@ -5038,6 +5109,60 @@ mod tests {
         };
         assert!(policy.resolve(Path::new("escape/secret.txt")).is_err());
     }
+    #[test]
+    fn what_runs_outside_the_sandbox_can_be_read_but_not_written() {
+        let root = tempfile::tempdir().unwrap();
+        for dir in [".pwr", ".git/hooks", ".git/refs/heads", "sub/.git"] {
+            std::fs::create_dir_all(root.path().join(dir)).unwrap();
+        }
+        std::fs::write(root.path().join(".pwr/checks.json"), "{}").unwrap();
+        std::fs::write(root.path().join(".git/config"), "[core]\n").unwrap();
+        let policy = PolicyProfile::Development.build(root.path().to_path_buf());
+        for path in [
+            ".pwr/checks.json",
+            ".pwr/protected.json",
+            ".git/hooks/pre-commit",
+            ".git/config",
+            "./.git/config",
+            ".GIT/Hooks/post-checkout",
+            "sub/.git/config",
+            ".git/modules/lib/hooks/pre-push",
+        ] {
+            assert!(
+                write_file(&policy, Path::new(path), "x").is_err(),
+                "{path} was writable"
+            );
+        }
+        assert!(delete_path(&policy, Path::new(".pwr/checks.json"), None, false).is_err());
+        assert!(move_path(&policy, Path::new(".pwr/checks.json"), Path::new("c.json")).is_err());
+        assert!(move_path(&policy, Path::new(".git/config"), Path::new("config.bak")).is_err());
+        let config_hash = hash_bytes(b"[core]\n");
+        assert!(
+            apply_replace(
+                &policy,
+                Path::new(".git/config"),
+                &config_hash,
+                "[core]\nfsmonitor = x\n"
+            )
+            .is_err()
+        );
+        // Reading stays open, and so does everything else.
+        assert!(read_file(&policy, Path::new(".pwr/checks.json")).is_ok());
+        for path in [
+            ".pwr-scratch/notes.txt",
+            ".github/workflows/ci.yml",
+            ".gitignore",
+            "src/config",
+            "hooks/useThing.ts",
+            ".git/info/exclude",
+        ] {
+            assert!(
+                write_file(&policy, Path::new(path), "x").is_ok(),
+                "{path} was refused"
+            );
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_dangling_link_cannot_write_outside_the_workspace() {

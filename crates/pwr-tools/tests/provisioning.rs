@@ -102,6 +102,40 @@ async fn the_grant_does_not_widen_where_a_command_may_write() {
     );
 }
 
+/// A command may commit, but not plant what git later runs unconfined: a hook,
+/// or a `core.fsmonitor` in the repository's configuration.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_command_cannot_plant_what_git_runs_outside_the_sandbox() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join(".git/hooks")).unwrap();
+    std::fs::write(root.path().join(".git/config"), "[core]\n").unwrap();
+    let policy = policy(root.path(), vec![Approval::ToolchainInstall]);
+    let result = run_command(
+        &policy,
+        "sh",
+        &[
+            "-c".into(),
+            "echo planted > .git/hooks/pre-commit; echo '[core] fsmonitor = x' >> .git/config; \
+             echo ok > .git/description"
+                .into(),
+        ],
+    )
+    .await
+    .unwrap();
+    assert!(result.sandboxed);
+    assert!(!root.path().join(".git/hooks/pre-commit").exists());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join(".git/config")).unwrap(),
+        "[core]\n"
+    );
+    // The rest of the repository stays writable, so git itself still works.
+    assert_eq!(
+        std::fs::read_to_string(root.path().join(".git/description")).unwrap(),
+        "ok\n"
+    );
+}
+
 /// A sandbox that confines writes while leaving every read open is one half of
 /// an exfiltration. Nothing a run legitimately does needs the host's
 /// credentials, so they are denied to every sandboxed run rather than only
