@@ -76,6 +76,13 @@ pub enum ActionProposal {
         #[serde(default)]
         scope: Option<String>,
     },
+    /// What PWR knows about a workspace it worked in before, by name, from
+    /// that workspace's wiki (`pwr_orchestrator::wiki`); every known project
+    /// when the name is empty. Reads the wiki only. Conversations only.
+    RecallProject {
+        #[serde(default)]
+        name: Option<String>,
+    },
     /// Several replacements in one file, under one hash guard.
     ///
     /// Named for the schema, not for the variant. The tool has always been
@@ -295,14 +302,11 @@ impl ActionProposal {
             Self::Remember { text, .. } if text.trim().is_empty() => Err(ToolError::Denied(
                 "remember needs the fact to remember, in one short sentence".into(),
             )),
-            Self::Remember { scope: Some(scope), .. }
-                if !matches!(scope.as_str(), "workspace" | "global") =>
-            {
-                Err(ToolError::Denied(
-                    "remember's scope is `workspace` (this project) or `global` (the person)"
-                        .into(),
-                ))
-            }
+            Self::Remember {
+                scope: Some(scope), ..
+            } if !matches!(scope.as_str(), "workspace" | "global") => Err(ToolError::Denied(
+                "remember's scope is `workspace` (this project) or `global` (the person)".into(),
+            )),
             Self::ProposeVerifier {
                 executable,
                 rationale,
@@ -2762,8 +2766,22 @@ fn html_to_text(html: &str) -> String {
             .unwrap_or("");
         if matches!(
             name,
-            "p" | "br" | "div" | "li" | "tr" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-                | "table" | "section" | "article" | "pre" | "dd" | "dt"
+            "p" | "br"
+                | "div"
+                | "li"
+                | "tr"
+                | "h1"
+                | "h2"
+                | "h3"
+                | "h4"
+                | "h5"
+                | "h6"
+                | "table"
+                | "section"
+                | "article"
+                | "pre"
+                | "dd"
+                | "dt"
         ) {
             out.push('\n');
         } else if matches!(name, "td" | "th") {

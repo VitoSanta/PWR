@@ -11,6 +11,7 @@ pub mod repetition;
 mod run_state;
 pub mod session;
 pub mod stall;
+pub mod wiki;
 pub mod window;
 use run_state::{ProgressTracker, bounded_result, json_bytes};
 
@@ -1154,9 +1155,11 @@ async fn attempt_action(
         }
         // A conversation takes it before execution and shows it to the person;
         // anything else has nobody to confirm it.
-        ActionProposal::Remember { .. } => Err(ActionExecutionError::Invalid(
-            "remember is available only in a conversation with a person".into(),
-        )),
+        ActionProposal::Remember { .. } | ActionProposal::RecallProject { .. } => {
+            Err(ActionExecutionError::Invalid(
+                "remember and recall_project are available only in a conversation".into(),
+            ))
+        }
         // Reaching here means a person approved it: the approval gate runs
         // before execution. Adopting it is the loop's job, not the tool's,
         // because a check outlives the action that proposed it.
@@ -2015,6 +2018,9 @@ fn remember_verification(
 fn action_fingerprint(action: &ActionProposal) -> String {
     match action {
         ActionProposal::Remember { text, .. } => format!("remember:{text}"),
+        ActionProposal::RecallProject { name } => {
+            format!("recall_project:{}", name.as_deref().unwrap_or_default())
+        }
         ActionProposal::RecordProgress { step, .. } => format!("record_progress:{step}"),
         ActionProposal::ReadFile {
             path, first_line, ..
@@ -5850,7 +5856,8 @@ mod tests {
 
     #[test]
     fn a_program_sent_as_executables_is_read_as_the_executable() {
-        let mut arguments = serde_json::json!({"executables": "[\"python3\"]", "stdin": "print(1)"});
+        let mut arguments =
+            serde_json::json!({"executables": "[\"python3\"]", "stdin": "print(1)"});
         assert_eq!(repair_form("run_command", &mut arguments), "run_command");
         assert_eq!(arguments["executable"], "python3");
         assert!(arguments.get("executables").is_none());

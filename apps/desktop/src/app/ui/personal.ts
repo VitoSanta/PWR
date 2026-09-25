@@ -114,6 +114,30 @@ type ProfileField = 'name' | 'role' | 'language' | 'style' | 'about';
           </form>
         </div>
       }
+      <div class="memory-group">
+        <div class="memory-group-head">
+          <span class="field-label">Projects</span>
+          <span class="t-meta">recalled by name from any conversation</span>
+        </div>
+        <ul class="memory-list">
+          @for (project of personal.projects(); track project.path) {
+            <li class="memory-item">
+              <span class="memory-text">
+                <strong>{{ project.name }}</strong>
+                @if (project.summary) { · {{ project.summary }} }
+                <span class="t-meta project-path">{{ project.path }}</span>
+              </span>
+              <span class="memory-actions">
+                <button class="icon-btn icon-btn-sm" (click)="personal.forget(project)" aria-label="Forget" paTooltip="Forget this project (its folder and wiki stay)">
+                  <pa-icon name="x" [size]="14" />
+                </button>
+              </span>
+            </li>
+          } @empty {
+            <li class="memory-empty t-meta">A workspace is added after PWR's first reply in it.</li>
+          }
+        </ul>
+      </div>
       @if (personal.memories().instructions; as instructions) {
         <p class="fine">
           This workspace's instructions are read from <code>{{ instructions.path }}</code>

@@ -1479,3 +1479,10 @@ pa-memory-proposals:empty {
     flex-wrap: wrap;
   }
 }
+
+.project-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -169,7 +169,12 @@ pub fn load_memories(home: &Home, scope: Scope, root: &Path) -> Result<Vec<Memor
         .unwrap_or_default())
 }
 
-fn save_memories(home: &Home, scope: Scope, root: &Path, memories: &[Memory]) -> Result<(), String> {
+fn save_memories(
+    home: &Home,
+    scope: Scope,
+    root: &Path,
+    memories: &[Memory],
+) -> Result<(), String> {
     write_json(
         &home.memories(scope, root),
         &MemoryFile {
@@ -214,7 +219,13 @@ pub fn add_memory(
     Ok(memory)
 }
 
-pub fn update_memory(home: &Home, scope: Scope, root: &Path, id: &str, text: &str) -> Result<(), String> {
+pub fn update_memory(
+    home: &Home,
+    scope: Scope,
+    root: &Path,
+    id: &str,
+    text: &str,
+) -> Result<(), String> {
     let text = bounded(text.trim());
     if text.is_empty() {
         return delete_memory(home, scope, root, id);
@@ -316,6 +327,26 @@ pub fn prompt_block(home: &Home, root: &Path, workspace: bool) -> Option<String>
             }
         }
     }
+    let known: Vec<crate::wiki::Project> = crate::wiki::projects(home)
+        .into_iter()
+        .filter(|project| project.path != root)
+        .take(15)
+        .collect();
+    if !known.is_empty() {
+        block.push_str(
+            "\n## Projects you have worked on with them\n\
+             Other folders, each with a wiki PWR keeps. When they mention one, call \
+             `recall_project` with its name before answering from memory.\n",
+        );
+        for project in known {
+            let summary = if project.summary.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", truncate(&project.summary, 100))
+            };
+            block.push_str(&format!("- {}{summary}\n", project.name));
+        }
+    }
     if workspace && let Some((path, text)) = project_instructions(root) {
         let room = PROMPT_BLOCK_CHARS.saturating_sub(block.len() + 200);
         if room > 200 {
@@ -332,9 +363,10 @@ pub fn prompt_block(home: &Home, root: &Path, workspace: bool) -> Option<String>
 
 /// The headings [`prompt_block`] opens its sections with. The block always
 /// begins with one of them, which is how [`split_system`] finds it.
-const HEADINGS: [&str; 3] = [
+const HEADINGS: [&str; 4] = [
     "\n\n## The person you are working with\n",
     "\n\n## What the person asked you to remember\n",
+    "\n\n## Projects you have worked on with them\n",
     "\n\n## The project's instructions (",
 ];
 
@@ -400,24 +432,52 @@ mod tests {
 
         assert_eq!(prompt_block(home, workspace.path(), true), None);
 
-        save_profile(home, &Profile {
-            name: "  Vito ".into(),
-            role: "developer".into(),
-            language: "italiano".into(),
-            memory_enabled: true,
-            ..Profile::default()
-        })
+        save_profile(
+            home,
+            &Profile {
+                name: "  Vito ".into(),
+                role: "developer".into(),
+                language: "italiano".into(),
+                memory_enabled: true,
+                ..Profile::default()
+            },
+        )
         .unwrap();
         assert_eq!(load_profile(home).unwrap().name, "Vito");
 
-        let kept = add_memory(home, Scope::Global, workspace.path(), "Prefers Angular signals", None).unwrap();
+        let kept = add_memory(
+            home,
+            Scope::Global,
+            workspace.path(),
+            "Prefers Angular signals",
+            None,
+        )
+        .unwrap();
         // The same text is kept once.
         assert_eq!(
-            add_memory(home, Scope::Global, workspace.path(), "prefers angular signals", None).unwrap(),
+            add_memory(
+                home,
+                Scope::Global,
+                workspace.path(),
+                "prefers angular signals",
+                None
+            )
+            .unwrap(),
             kept
         );
-        add_memory(home, Scope::Workspace, workspace.path(), "Uses pnpm", Some("s1".into())).unwrap();
-        std::fs::write(workspace.path().join("AGENTS.md"), "Run `pnpm test` before finishing.").unwrap();
+        add_memory(
+            home,
+            Scope::Workspace,
+            workspace.path(),
+            "Uses pnpm",
+            Some("s1".into()),
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.path().join("AGENTS.md"),
+            "Run `pnpm test` before finishing.",
+        )
+        .unwrap();
 
         let block = prompt_block(home, workspace.path(), true).unwrap();
         let system = format!("You are PWR.{block}");
@@ -433,23 +493,45 @@ mod tests {
         assert!(!chat.contains("Uses pnpm"));
         assert!(!chat.contains("AGENTS.md"));
 
-        update_memory(home, Scope::Global, workspace.path(), &kept.id, "Prefers signals over RxJS").unwrap();
+        update_memory(
+            home,
+            Scope::Global,
+            workspace.path(),
+            &kept.id,
+            "Prefers signals over RxJS",
+        )
+        .unwrap();
         assert_eq!(
             load_memories(home, Scope::Global, workspace.path()).unwrap()[0].text,
             "Prefers signals over RxJS"
         );
         delete_memory(home, Scope::Global, workspace.path(), &kept.id).unwrap();
-        assert!(load_memories(home, Scope::Global, workspace.path()).unwrap().is_empty());
+        assert!(
+            load_memories(home, Scope::Global, workspace.path())
+                .unwrap()
+                .is_empty()
+        );
 
         // Memory switched off: kept on disk, left out of the prompt.
         let mut profile = load_profile(home).unwrap();
         profile.memory_enabled = false;
         save_profile(home, &profile).unwrap();
-        assert!(!prompt_block(home, workspace.path(), true).unwrap().contains("Uses pnpm"));
-        assert_eq!(load_memories(home, Scope::Workspace, workspace.path()).unwrap().len(), 1);
+        assert!(
+            !prompt_block(home, workspace.path(), true)
+                .unwrap()
+                .contains("Uses pnpm")
+        );
+        assert_eq!(
+            load_memories(home, Scope::Workspace, workspace.path())
+                .unwrap()
+                .len(),
+            1
+        );
 
         // Bounded, however much is saved.
         std::fs::write(workspace.path().join("AGENTS.md"), "x".repeat(50_000)).unwrap();
-        assert!(prompt_block(home, workspace.path(), true).unwrap().len() <= PROMPT_BLOCK_CHARS + 200);
+        assert!(
+            prompt_block(home, workspace.path(), true).unwrap().len() <= PROMPT_BLOCK_CHARS + 200
+        );
     }
 }
