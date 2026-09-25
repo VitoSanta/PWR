@@ -15,7 +15,7 @@ export function playDemo(store: AgentStore): void {
     { sessionId: 'b', title: 'Fix the router and navigation', updatedAt: new Date(Date.now() - 86400000).toISOString() },
   ]);
   store.sessionId.set('a');
-  store.usage.set({ used: 58_000, window: 262_144 });
+  store.usage.set({ used: 58_000, window: 262_144, estimated: false });
   store.attachments.set(['/Users/you/Documents/CV.pdf', '/Users/you/projects/PWR']);
   const now = Date.now();
   store.timeline.set([
