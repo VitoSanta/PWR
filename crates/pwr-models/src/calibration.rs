@@ -507,6 +507,7 @@ pub async fn quick_calibrate<P: ModelProvider + ?Sized>(
                     tool_call_id: None,
                     purpose: None,
                     images: Vec::new(),
+                    reasoning: None,
                 },
                 ChatMessage {
                     role: "tool".into(),
@@ -515,6 +516,7 @@ pub async fn quick_calibrate<P: ModelProvider + ?Sized>(
                     tool_call_id: Some("call_1".into()),
                     purpose: None,
                     images: Vec::new(),
+                    reasoning: None,
                 },
             ],
             Some(tools),

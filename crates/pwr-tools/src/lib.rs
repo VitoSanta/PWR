@@ -66,6 +66,16 @@ pub enum ActionProposal {
     Decline {
         rationale: String,
     },
+    /// Something worth remembering across conversations, proposed to the
+    /// person. Conversations only; nothing is written until they confirm it
+    /// (`pwr_orchestrator::personal`).
+    Remember {
+        text: String,
+        /// `workspace` for this project, `global` for the person; the
+        /// workspace when omitted.
+        #[serde(default)]
+        scope: Option<String>,
+    },
     /// Several replacements in one file, under one hash guard.
     ///
     /// Named for the schema, not for the variant. The tool has always been
@@ -281,6 +291,17 @@ impl ActionProposal {
             }
             Self::Complete { rationale } if rationale.is_empty() => {
                 Err(ToolError::Denied("completion rationale is required".into()))
+            }
+            Self::Remember { text, .. } if text.trim().is_empty() => Err(ToolError::Denied(
+                "remember needs the fact to remember, in one short sentence".into(),
+            )),
+            Self::Remember { scope: Some(scope), .. }
+                if !matches!(scope.as_str(), "workspace" | "global") =>
+            {
+                Err(ToolError::Denied(
+                    "remember's scope is `workspace` (this project) or `global` (the person)"
+                        .into(),
+                ))
             }
             Self::ProposeVerifier {
                 executable,
@@ -2591,6 +2612,8 @@ pub struct FetchResult {
 /// Schemes a fetch may use. Anything else can reach the filesystem or a local
 /// service without crossing the network the grant was given for.
 const FETCH_SCHEMES: [&str; 2] = ["http", "https"];
+/// Redirects a fetch follows, each re-checked against `FETCH_SCHEMES`.
+const FETCH_REDIRECTS: usize = 5;
 
 /// Fetches one URL as text.
 ///
@@ -2614,9 +2637,27 @@ pub async fn fetch_url(policy: &ToolPolicy, url: &str) -> Result<FetchResult, To
     }
     let client = reqwest::Client::builder()
         .timeout(policy.timeout)
-        // A redirect can change scheme or host after the check above, so the
-        // check would be advisory rather than binding.
-        .redirect(reqwest::redirect::Policy::none())
+        // Sites refuse an anonymous client: measured 2026-09-25, Wikipedia
+        // answered 403 "Please set a user-agent" to the one page a model had
+        // asked for to settle a question it then reasoned about for twenty
+        // minutes.
+        .user_agent(concat!(
+            "PWR/",
+            env!("CARGO_PKG_VERSION"),
+            " (local coding agent; +https://github.com/VitoSanta/PWR)"
+        ))
+        // A redirect can change scheme or host after the check above, so each
+        // hop is checked again rather than followed blindly; refusing them
+        // all left a model with a bare 301 for an http link to an https site.
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= FETCH_REDIRECTS {
+                attempt.stop()
+            } else if FETCH_SCHEMES.contains(&attempt.url().scheme()) {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        }))
         .build()
         .map_err(|_| ToolError::Denied("could not build a fetch client".into()))?;
     let response = client.get(parsed.clone()).send().await.map_err(|error| {
@@ -2627,8 +2668,20 @@ pub async fn fetch_url(policy: &ToolPolicy, url: &str) -> Result<FetchResult, To
         }
     })?;
     let status = response.status().as_u16();
+    let html = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|kind| kind.to_ascii_lowercase().contains("html"));
+    // A page is mostly markup: its text is read from more of it than the
+    // limit, which then bounds the text rather than the markup.
+    let raw_limit = if html {
+        policy.output_limit.saturating_mul(8).min(FETCH_HTML_BYTES)
+    } else {
+        policy.output_limit
+    };
     let mut body = response.bytes_stream();
-    let mut retained = Vec::with_capacity(policy.output_limit.min(64 * 1024));
+    let mut retained = Vec::with_capacity(raw_limit.min(64 * 1024));
     let mut hasher = blake3::Hasher::new();
     let mut observed = 0usize;
     use futures_util::StreamExt as _;
@@ -2642,11 +2695,22 @@ pub async fn fetch_url(policy: &ToolPolicy, url: &str) -> Result<FetchResult, To
         })?;
         observed = observed.saturating_add(chunk.len());
         hasher.update(&chunk);
-        let remaining = policy.output_limit.saturating_sub(retained.len());
+        let remaining = raw_limit.saturating_sub(retained.len());
         retained.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
     }
-    let truncated = observed > retained.len();
-    let bounded = String::from_utf8_lossy(&retained);
+    let mut truncated = observed > retained.len();
+    let mut bounded = String::from_utf8_lossy(&retained).into_owned();
+    if html {
+        bounded = html_to_text(&bounded);
+        if bounded.len() > policy.output_limit {
+            let mut end = policy.output_limit;
+            while !bounded.is_char_boundary(end) {
+                end -= 1;
+            }
+            bounded.truncate(end);
+            truncated = true;
+        }
+    }
     let (content, redacted) = policy.redact(&bounded);
     Ok(FetchResult {
         url: parsed.to_string(),
@@ -2656,6 +2720,81 @@ pub async fn fetch_url(policy: &ToolPolicy, url: &str) -> Result<FetchResult, To
         truncated,
         redacted,
     })
+}
+
+/// The most of an HTML page read to find its text.
+const FETCH_HTML_BYTES: usize = 2 * 1024 * 1024;
+
+/// A page's readable text: scripts, styles and markup removed, block
+/// elements as line breaks, the common entities decoded. Deliberately small --
+/// not a browser -- so a model reads the article rather than its `<head>`.
+fn html_to_text(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let mut out = String::with_capacity(html.len() / 3);
+    let mut index = 0;
+    while index < html.len() {
+        let Some(offset) = html[index..].find('<') else {
+            out.push_str(&html[index..]);
+            break;
+        };
+        out.push_str(&html[index..index + offset]);
+        let open = index + offset;
+        let skip_to = ["script", "style", "noscript", "svg", "head"]
+            .iter()
+            .find(|name| {
+                lower[open + 1..].starts_with(*name)
+                    && lower[open + 1 + name.len()..]
+                        .starts_with(|c: char| c == '>' || c.is_ascii_whitespace())
+            })
+            .and_then(|name| {
+                let close = format!("</{name}");
+                lower[open..].find(&close).map(|at| open + at + close.len())
+            });
+        let from = skip_to.unwrap_or(open);
+        let Some(end) = html[from..].find('>') else {
+            break;
+        };
+        let tag = &lower[open + 1..(from + end).min(lower.len())];
+        let name = tag
+            .trim_start_matches('/')
+            .split(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
+            .next()
+            .unwrap_or("");
+        if matches!(
+            name,
+            "p" | "br" | "div" | "li" | "tr" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+                | "table" | "section" | "article" | "pre" | "dd" | "dt"
+        ) {
+            out.push('\n');
+        } else if matches!(name, "td" | "th") {
+            out.push_str(" | ");
+        }
+        index = from + end + 1;
+    }
+    let decoded = out
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&");
+    let mut text = String::with_capacity(decoded.len());
+    let mut blank = 0;
+    for line in decoded.lines() {
+        let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        if line.is_empty() {
+            blank += 1;
+            if blank == 1 && !text.is_empty() {
+                text.push('\n');
+            }
+            continue;
+        }
+        blank = 0;
+        text.push_str(&line);
+        text.push('\n');
+    }
+    text
 }
 
 /// Creates a new file. Refuses to overwrite an existing one.
@@ -4551,6 +4690,21 @@ async fn read_bounded_pipe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_page_is_read_as_its_text() {
+        let page = "<html><head><title>t</title><style>p{color:red}</style></head>\
+            <body><script>var x = '<p>no</p>';</script><h1>Codice fiscale</h1>\
+            <p>Il carattere di controllo &egrave; calcolato &amp; verificato.</p>\
+            <table><tr><td>A</td><td>1</td></tr></table></body></html>";
+        let text = html_to_text(page);
+        assert!(text.contains("Codice fiscale\n"));
+        assert!(text.contains("calcolato & verificato."));
+        assert!(text.contains("| A | 1"));
+        assert!(!text.contains("color:red"));
+        assert!(!text.contains("var x"));
+        assert!(!text.contains('<'));
+    }
+
     #[test]
     fn traversal_denied() {
         let p = ToolPolicy {

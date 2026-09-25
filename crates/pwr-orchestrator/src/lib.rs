@@ -5,6 +5,7 @@ pub mod context;
 pub mod conversation;
 pub mod converse;
 pub mod evidence;
+pub mod personal;
 pub mod plan;
 pub mod repetition;
 mod run_state;
@@ -1151,6 +1152,11 @@ async fn attempt_action(
         ActionProposal::Decline { rationale } => {
             Ok(serde_json::json!({"declined":true,"rationale":rationale}))
         }
+        // A conversation takes it before execution and shows it to the person;
+        // anything else has nobody to confirm it.
+        ActionProposal::Remember { .. } => Err(ActionExecutionError::Invalid(
+            "remember is available only in a conversation with a person".into(),
+        )),
         // Reaching here means a person approved it: the approval gate runs
         // before execution. Adopting it is the loop's job, not the tool's,
         // because a check outlives the action that proposed it.
@@ -2008,6 +2014,7 @@ fn remember_verification(
 /// the same wrong edit proposed twice is.
 fn action_fingerprint(action: &ActionProposal) -> String {
     match action {
+        ActionProposal::Remember { text, .. } => format!("remember:{text}"),
         ActionProposal::RecordProgress { step, .. } => format!("record_progress:{step}"),
         ActionProposal::ReadFile {
             path, first_line, ..
@@ -3260,6 +3267,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             tool_call_id: None,
             purpose: None,
             images: Vec::new(),
+            reasoning: None,
         });
         // The id the next tool message answers, where the deployment gave one.
         let answering = reply.tool_calls.first().and_then(|call| call.id.clone());
@@ -4350,7 +4358,7 @@ pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
         ),
         function(
             "run_command",
-            "Run one command directly. `executable` is the program alone and `args` is a list of what follows it: `cargo test` is executable \"cargo\" with args [\"test\"]; `npm run build` is executable \"npm\" with args [\"run\", \"build\"]. Never repeat the program inside args. There is no shell, so no `cd`, no `&&`, no pipes, no redirection and no globs: args are arguments, not syntax, and each call runs one program. To run in a subdirectory, set cwd to its workspace-relative path (`cd web && npm run build` is executable \"npm\", args [\"run\", \"build\"], cwd \"web\"). To give the program input, put it in stdin rather than trying to pipe into it.",
+            "Run one command directly. `executable` is the program alone and `args` is a list of what follows it: `cargo test` is executable \"cargo\" with args [\"test\"]; `npm run build` is executable \"npm\" with args [\"run\", \"build\"]. Never repeat the program inside args. args are arguments, not syntax: `cd`, `&&`, pipes, redirection and globs written into them do nothing. To run in a subdirectory, set cwd to its workspace-relative path (`cd web && npm run build` is executable \"npm\", args [\"run\", \"build\"], cwd \"web\"). To give the program input, put it in stdin. When you do need shell syntax -- a pipeline, `&&`, a glob -- run executable \"sh\" with args [\"-c\", \"the whole command line\"]; it runs in the same sandbox as any other command.",
             serde_json::json!({
                 "executable": {"type": "string"},
                 "args": {"type": "array", "items": {"type": "string"}},
@@ -4928,6 +4936,44 @@ fn repair_form(name: &str, arguments: &mut serde_json::Value) -> String {
     let Some(object) = arguments.as_object_mut() else {
         return name.to_owned();
     };
+    // `executables: ["python3"]` for `executable: "python3"`: the program and,
+    // after it, any arguments. Measured 2026-09-25 on Ornith 1.5 35B, five
+    // calls refused in one conversation, each written in markup, so the list
+    // arrives as JSON text.
+    if name == "run_command"
+        && !object.contains_key("executable")
+        && let Some(value) = object.remove("executables")
+    {
+        let listed = match &value {
+            serde_json::Value::String(text) if text.trim_start().starts_with('[') => {
+                serde_json::from_str::<Vec<String>>(text.trim()).ok()
+            }
+            serde_json::Value::String(text) => Some(vec![text.trim().to_owned()]),
+            serde_json::Value::Array(items) => items
+                .iter()
+                .map(|item| item.as_str().map(str::to_owned))
+                .collect(),
+            _ => None,
+        };
+        match listed.filter(|items| items.first().is_some_and(|first| !first.is_empty())) {
+            Some(mut items) => {
+                let program = items.remove(0);
+                object.insert("executable".into(), serde_json::Value::String(program));
+                if !items.is_empty() {
+                    let mut args: Vec<serde_json::Value> =
+                        items.into_iter().map(serde_json::Value::String).collect();
+                    if let Some(serde_json::Value::Array(given)) = object.remove("args") {
+                        args.extend(given);
+                    }
+                    object.insert("args".into(), serde_json::Value::Array(args));
+                }
+            }
+            // Not one reading: put it back, and the refusal names it.
+            None => {
+                object.insert("executables".into(), value);
+            }
+        }
+    }
     match name {
         "apply_replace"
             if !object.contains_key("replacement")
@@ -5801,6 +5847,26 @@ pub fn calibration_invalidations(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_program_sent_as_executables_is_read_as_the_executable() {
+        let mut arguments = serde_json::json!({"executables": "[\"python3\"]", "stdin": "print(1)"});
+        assert_eq!(repair_form("run_command", &mut arguments), "run_command");
+        assert_eq!(arguments["executable"], "python3");
+        assert!(arguments.get("executables").is_none());
+        assert_eq!(arguments["args"], serde_json::json!([]));
+
+        let mut arguments = serde_json::json!({"executables": ["cargo", "test"], "args": ["-q"]});
+        repair_form("run_command", &mut arguments);
+        assert_eq!(arguments["executable"], "cargo");
+        assert_eq!(arguments["args"], serde_json::json!(["test", "-q"]));
+
+        // More than one reading is left for the refusal to name.
+        let mut arguments = serde_json::json!({"executables": 3});
+        repair_form("run_command", &mut arguments);
+        assert_eq!(arguments["executables"], 3);
+        assert!(arguments.get("executable").is_none());
+    }
     use async_trait::async_trait;
     use futures_util::stream;
     use pwr_domain::{BackendState, ModelChunk, ModelInspection, ModelRequest, Provenance};

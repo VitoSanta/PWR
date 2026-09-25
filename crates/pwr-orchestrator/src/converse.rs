@@ -304,6 +304,13 @@ pub enum TurnStep {
         thinking: String,
         content: String,
     },
+    /// A fact the model proposed to remember, for the person to confirm or
+    /// dismiss. Nothing is saved by the model.
+    MemoryProposed {
+        text: String,
+        /// `workspace` or `global`.
+        scope: String,
+    },
     /// Tokens the conversation occupies, and the window: the backend's count
     /// after a reply, or -- `estimated` -- the prompt about to be sent, the
     /// last count plus an estimate of what was appended since (tool results,
@@ -477,6 +484,9 @@ pub struct Continuity {
     /// The share of the window at which the conversation compacts itself, in
     /// percent, when the workspace chose one; [`COMPACT_AT`] otherwise.
     pub compact_at_percent: Option<u8>,
+    /// Files this conversation wrote, by workspace path, with the hash each
+    /// had when it last wrote it. See [`own_overwrite`].
+    pub written: std::sync::Arc<std::sync::Mutex<BTreeMap<String, String>>>,
 }
 
 impl Continuity {
@@ -506,12 +516,41 @@ const RUN_ONLY: [&str; 2] = ["record_progress", "propose_verifier"];
 
 /// Every capability, because the conversation is where the work happens now.
 pub fn chat_tool_catalog() -> ToolCatalog {
-    let tools: Vec<ToolDefinition> = crate::action_tool_catalog()
+    let mut tools: Vec<ToolDefinition> = crate::action_tool_catalog()
         .tools
         .into_iter()
         .filter(|tool| !RUN_ONLY.contains(&tool.name.as_str()))
         .collect();
+    // Conversations only: a scripted run has no person to confirm it, and its
+    // catalogue is part of what a campaign measures.
+    tools.push(remember_tool());
     ToolCatalog::new(tools).expect("a filtered catalogue is valid")
+}
+
+/// `remember`: proposes a fact to keep across conversations. The person
+/// confirms it before anything is saved (`crate::personal`).
+pub fn remember_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "remember".into(),
+        description: "Propose one short fact worth keeping for future conversations: \
+                      something the person told you about themselves, how they like to work, \
+                      or a decision about this project. Only when they ask you to remember \
+                      something, or state a lasting preference -- never facts you can read \
+                      from the files. The person confirms it before it is saved."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "The fact, in one sentence."},
+                "scope": {
+                    "type": "string",
+                    "enum": ["workspace", "global"],
+                    "description": "workspace: this project only; global: the person, everywhere."
+                },
+            },
+            "required": ["text"],
+        }),
+    }
 }
 
 /// What chat mode offers: reading, and nothing that changes anything.
@@ -525,7 +564,9 @@ pub fn chat_only_tool_catalog() -> ToolCatalog {
     let tools: Vec<ToolDefinition> = chat_tool_catalog()
         .tools
         .into_iter()
-        .filter(|tool| CHAT_ONLY_TOOLS.contains(&tool.name.as_str()))
+        .filter(|tool| {
+            CHAT_ONLY_TOOLS.contains(&tool.name.as_str()) || tool.name == "remember"
+        })
         .collect();
     ToolCatalog::new(tools).expect("a filtered catalogue is valid")
 }
@@ -1278,6 +1319,7 @@ async fn take_turn_inner<P: ModelProvider>(
             tool_call_id: None,
             purpose: None,
             images: Vec::new(),
+            reasoning: kept_reasoning(&reply.thinking),
         });
         if reply.tool_calls.is_empty() {
             // A turn with neither an answer nor an action produced nothing,
@@ -1427,6 +1469,27 @@ async fn take_turn_inner<P: ModelProvider>(
                     declined: false,
                 });
             }
+            // Proposed, not performed: the person decides. The model is told
+            // so, and the turn goes on.
+            if let ActionProposal::Remember { text, scope } = &action {
+                let scope = scope.clone().unwrap_or_else(|| {
+                    if continuity.chat_only { "global" } else { "workspace" }.to_owned()
+                });
+                on_step(TurnStep::MemoryProposed {
+                    text: text.trim().to_owned(),
+                    scope: scope.clone(),
+                });
+                messages.push(tool_message(
+                    call,
+                    crate::action_outcome(Ok(serde_json::json!({
+                        "proposed": true,
+                        "scope": scope,
+                        "note": "shown to the person; it is saved only if they confirm it",
+                    }))),
+                ));
+                continue;
+            }
+            let action = own_overwrite(action, &policy.root, &continuity.written);
             // Whether it mutates is decided here, while the typed action is
             // still in hand; whether it *did* is decided below, by whether it
             // ran. A denied edit marked the turn as having changed the
@@ -1546,6 +1609,13 @@ async fn take_turn_inner<P: ModelProvider>(
             }
             match outcome {
                 Ok(value) => {
+                    if edits_a_file
+                        && let Some(path) = &path
+                        && let Ok(bytes) = std::fs::read(policy.root.join(path))
+                        && let Ok(mut written) = continuity.written.lock()
+                    {
+                        written.insert(path.clone(), pwr_domain::hash_bytes(&bytes));
+                    }
                     refused_streak.observe(&fingerprint, &value);
                     // The checks half of the signature is constant within a
                     // turn: a conversation runs the repository's checks after
@@ -1856,9 +1926,80 @@ fn conservative_prompt_tokens(
     let since: usize = messages
         .iter()
         .skip(from)
-        .map(|message| message.content.len().div_ceil(3) + 4)
+        .map(|message| {
+            message.content.len().div_ceil(3)
+                + message.reasoning.as_ref().map_or(0, |r| r.len().div_ceil(3))
+                + 4
+        })
         .sum();
     base.saturating_add(since)
+}
+
+/// A `write_file` onto a file this conversation wrote itself, and that nobody
+/// has changed since, as the whole-file replacement it means.
+///
+/// `write_file` refuses an existing file so that a blind overwrite of the
+/// person's work is never one missing argument away, and the refusal names
+/// `apply_replace` and the hash. Measured 2026-09-25 on Ornith 1.5 35B: six
+/// refusals in one conversation, every one on a file it had itself created
+/// minutes earlier (a scratch `_check.py`, its own module), each costing a
+/// whole regenerated file. The file's current hash matching the one this
+/// conversation left is the same guarantee `apply_replace` asks for, so the
+/// person's work stays protected: a file they touched no longer matches.
+fn own_overwrite(
+    action: ActionProposal,
+    root: &std::path::Path,
+    written: &std::sync::Mutex<BTreeMap<String, String>>,
+) -> ActionProposal {
+    let ActionProposal::WriteFile { path, content } = action else {
+        return action;
+    };
+    let current = std::fs::read(root.join(&path))
+        .ok()
+        .map(pwr_domain::hash_bytes);
+    let ours = written
+        .lock()
+        .ok()
+        .and_then(|written| written.get(&path).cloned());
+    match (current, ours) {
+        (Some(current), Some(ours)) if current == ours => ActionProposal::ApplyReplace {
+            path,
+            expected_hash: current,
+            replacement: content,
+        },
+        _ => ActionProposal::WriteFile { path, content },
+    }
+}
+
+/// The most reasoning one assistant step hands to the next, in characters:
+/// about four thousand tokens, the Low budget. A reply that ran past it keeps
+/// its end, which is where a model writes what it concluded.
+const REASONING_KEPT_CHARS: usize = 16_000;
+
+/// The reasoning an assistant step carries to the next steps of its exchange.
+fn kept_reasoning(thinking: &str) -> Option<String> {
+    let thinking = thinking.trim();
+    if thinking.is_empty() {
+        return None;
+    }
+    if thinking.len() <= REASONING_KEPT_CHARS {
+        return Some(thinking.to_owned());
+    }
+    let mut start = thinking.len() - REASONING_KEPT_CHARS;
+    while !thinking.is_char_boundary(start) {
+        start += 1;
+    }
+    Some(format!("[earlier reasoning omitted]\n{}", &thinking[start..]))
+}
+
+/// Clears the reasoning earlier exchanges carried, called when the person
+/// sends a new message. Reasoning is handed back only for the steps of one
+/// exchange -- a goal's check-ins included -- as reasoning templates were
+/// trained on multi-step tool use; a new request starts a new exchange.
+pub fn forget_reasoning(messages: &mut [ChatMessage]) {
+    for message in messages.iter_mut() {
+        message.reasoning = None;
+    }
 }
 
 fn prompt_tokens_now(
@@ -1872,7 +2013,13 @@ fn prompt_tokens_now(
     let since: usize = messages
         .iter()
         .skip(measured_upto)
-        .map(|message| crate::context::estimate_tokens(&message.content))
+        .map(|message| {
+            crate::context::estimate_tokens(&message.content)
+                + message
+                    .reasoning
+                    .as_deref()
+                    .map_or(0, crate::context::estimate_tokens)
+        })
         .sum();
     // The measured count is of a whole request, tool schemas and template
     // included, so what it is missing is only what was appended after it.
@@ -2027,6 +2174,58 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_file_this_conversation_wrote_and_nobody_changed_may_be_rewritten_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("_check.py"), "print(1)\n").unwrap();
+        std::fs::write(dir.path().join("mine.py"), "the person's\n").unwrap();
+        let written = std::sync::Mutex::new(BTreeMap::from([(
+            "_check.py".to_owned(),
+            pwr_domain::hash_bytes(b"print(1)\n"),
+        )]));
+        let write = |path: &str| ActionProposal::WriteFile {
+            path: path.into(),
+            content: "print(2)\n".into(),
+        };
+        assert!(matches!(
+            own_overwrite(write("_check.py"), dir.path(), &written),
+            ActionProposal::ApplyReplace { ref expected_hash, .. }
+                if *expected_hash == pwr_domain::hash_bytes(b"print(1)\n")
+        ));
+        // Never written by it: still refused by write_file.
+        assert!(matches!(
+            own_overwrite(write("mine.py"), dir.path(), &written),
+            ActionProposal::WriteFile { .. }
+        ));
+        // Written by it, then changed by someone else: refused too.
+        std::fs::write(dir.path().join("_check.py"), "edited by hand\n").unwrap();
+        assert!(matches!(
+            own_overwrite(write("_check.py"), dir.path(), &written),
+            ActionProposal::WriteFile { .. }
+        ));
+    }
+
+    #[test]
+    fn a_steps_reasoning_is_kept_to_its_conclusion_and_forgotten_when_the_person_speaks() {
+        assert_eq!(kept_reasoning("  \n "), None);
+        assert_eq!(kept_reasoning(" short ").as_deref(), Some("short"));
+        // A runaway keeps its end, on a character boundary.
+        let long = format!("{}é{}CONCLUSION", "x".repeat(REASONING_KEPT_CHARS), "y".repeat(10));
+        let kept = kept_reasoning(&long).unwrap();
+        assert!(kept.starts_with("[earlier reasoning omitted]"));
+        assert!(kept.ends_with("CONCLUSION"));
+        assert!(kept.len() <= REASONING_KEPT_CHARS + 40);
+
+        let mut step = ChatMessage::text("assistant", "");
+        step.reasoning = Some("r".repeat(3_000));
+        let mut messages = vec![ChatMessage::text("system", "s"), step];
+        // Counted while it is carried, since the prompt carries it.
+        assert!(prompt_tokens_now(&messages, Some(100), 1) > 100 + 500);
+        forget_reasoning(&mut messages);
+        assert!(messages.iter().all(|message| message.reasoning.is_none()));
+        assert_eq!(prompt_tokens_now(&messages, Some(100), 1), 100);
+    }
+
+    #[test]
     fn the_conversation_is_offered_the_work_and_not_only_the_reading() {
         let catalog = chat_tool_catalog();
         let names: Vec<&str> = catalog
@@ -2094,6 +2293,7 @@ mod tests {
             tool_call_id: None,
             purpose: None,
             images: Vec::new(),
+            reasoning: None,
         }
     }
 

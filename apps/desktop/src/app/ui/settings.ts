@@ -5,11 +5,12 @@ import { ThemeMode, ThemeService } from '../core/theme';
 import { SHORTCUTS, UiStore, roveFocus, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
+import { PersonalSettings } from './personal';
 
 /** Preferences: kept out of the main screen. */
 @Component({
   selector: 'pa-settings',
-  imports: [Dialog, Icon],
+  imports: [Dialog, Icon, PersonalSettings],
   template: `
     @if (ui.settingsOpen()) {
       <pa-dialog
@@ -28,6 +29,8 @@ import { Icon, IconName } from './kit/icon';
           </button>
         </header>
         <div class="dialog-body settings-body">
+          <pa-personal-settings />
+
           <section class="settings-group" aria-labelledby="appearance-label">
             <h3 class="section-label" id="appearance-label">Appearance</h3>
             <div

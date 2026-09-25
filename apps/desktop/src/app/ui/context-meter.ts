@@ -256,6 +256,7 @@ export class ContextMeter {
       { key: 'tools', label: 'Tool results', tokens: c.toolResults },
       { key: 'state', label: 'Task state', tokens: c.taskState },
       { key: 'memory', label: 'Compacted memory', tokens: c.compactedMemory },
+      { key: 'personal', label: 'Profile and memory', tokens: c.personal ?? 0 },
     ]
       .filter((part) => part.tokens > 0)
       .map((part) => ({ ...part, share: (part.tokens / whole) * 100 }));

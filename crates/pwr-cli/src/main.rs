@@ -1199,6 +1199,20 @@ fn reference_roots(root: &Path, config: &ChatConfig) -> Vec<PathBuf> {
 /// named and their documents listed: a folder the model is not told about is
 /// one it will not look in.
 fn chat_system_prompt_for(root: &Path) -> String {
+    let mut prompt = chat_system_prompt_without_person(root);
+    // The person, what they asked to be remembered and the project's own
+    // instructions, re-read every turn (see `refresh_system_prompt`'s caller),
+    // so a change in Settings reaches the next reply.
+    if let Ok(home) = pwr_orchestrator::personal::Home::from_env()
+        && let Some(block) =
+            pwr_orchestrator::personal::prompt_block(&home, root, !is_chat_home(root))
+    {
+        prompt.push_str(&block);
+    }
+    prompt
+}
+
+fn chat_system_prompt_without_person(root: &Path) -> String {
     let chat_only = is_chat_home(root);
     let mut prompt = if chat_only {
         converse::chat_only_system_prompt()
@@ -3696,6 +3710,11 @@ fn console_line(step: converse::TurnStep) -> Option<String> {
         converse::TurnStep::Compacted(note) => format!("⤢ context {note}"),
         converse::TurnStep::Steered(text) => format!("↳ read your message: {text}"),
         converse::TurnStep::Note(text) => text,
+        // Nothing is saved from the console: the desktop app asks, and a
+        // person can add it there or in `~/.pwr/memory.json` themselves.
+        converse::TurnStep::MemoryProposed { text, scope } => {
+            format!("✎ worth remembering ({scope}), not saved: {text}")
+        }
         // The console shows actions as lines, from `Acted` and `Refused`, and
         // the answer once it is whole.
         converse::TurnStep::ToolCall(_)
@@ -4987,6 +5006,7 @@ async fn run_tui_inner(
                                 let said = task_with_tui_attachments(text, &state.attachments);
                                 state.attachments.clear();
                                 push_tui_transcript(&mut state, format!("you: {said}"));
+                                converse::forget_reasoning(&mut messages);
                                 messages.push(ChatMessage::text("user", said));
                                 state.thinking = true;
                                 // A fresh flag per turn, so a stop pressed for

@@ -1583,6 +1583,19 @@ pub struct ChatMessage {
     /// deployment that reads images is sent any (backlog C.25).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<std::path::PathBuf>,
+    /// What an assistant turn reasoned before it answered, handed back to the
+    /// model on the next steps of the same exchange -- the way reasoning
+    /// templates (Qwen 3.x and the models built on it) were trained to see
+    /// multi-step tool use. Without it every step re-derived what the one
+    /// before had concluded: measured 2026-09-25 on Ornith 1.5 35B, seven of
+    /// thirty-four generations opened by re-deriving the same two facts and
+    /// ran to the 4,096-token reasoning budget.
+    ///
+    /// Never serialized: it is not stored, audited or replayed, and a loaded
+    /// conversation has none. The harness clears it when the person speaks
+    /// again and when a conversation compacts.
+    #[serde(skip)]
+    pub reasoning: Option<String>,
 }
 
 impl ChatMessage {
@@ -1595,6 +1608,7 @@ impl ChatMessage {
             tool_calls: Vec::new(),
             tool_call_id: None,
             images: Vec::new(),
+            reasoning: None,
         }
     }
 }

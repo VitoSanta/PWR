@@ -464,6 +464,7 @@ async fn an_assistant_turn_carries_its_calls_structurally() {
         tool_call_id: None,
         purpose: None,
         images: Vec::new(),
+        reasoning: None,
     };
     let wire = serde_json::to_value(&message).unwrap();
     assert_eq!(wire["tool_calls"][0]["name"], "read_file");
@@ -486,6 +487,7 @@ async fn a_tool_result_names_the_call_it_answers() {
         tool_call_id: Some("call-1".into()),
         purpose: None,
         images: Vec::new(),
+        reasoning: None,
     };
     let wire = serde_json::to_value(&answer).unwrap();
     assert_eq!(wire["tool_call_id"], "call-1");

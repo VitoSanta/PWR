@@ -394,6 +394,7 @@ fn drive_chat_under<P: Recording>(
                     converse::TurnStep::Compacted(note) => format!("compacted {note}"),
                     converse::TurnStep::Steered(text) => format!("steered {text}"),
                     converse::TurnStep::Note(text) => format!("note {text}"),
+                    converse::TurnStep::MemoryProposed { text, .. } => format!("remember {text}"),
                     converse::TurnStep::ToolCall(_)
                     | converse::TurnStep::Streaming { .. }
                     | converse::TurnStep::Usage { .. }
