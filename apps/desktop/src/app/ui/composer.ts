@@ -40,7 +40,7 @@ const MAX_HEIGHT = 260;
       @if (store.queue().length) {
         <ol class="queue" aria-label="Queued messages">
           @for (queued of store.queue(); track $index; let index = $index) {
-            <li class="queued" animate.enter="anim-pop-in">
+            <li class="queued" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
               <span class="queued-badge num">{{ index + 1 }}</span>
               @if (editingQueued() === index) {
                 <input

@@ -271,7 +271,7 @@ export class ProjectsSettings {
   imports: [Icon, Tooltip],
   template: `
     @for (proposal of personal.proposals(); track proposal.key) {
-      <div class="memory-proposal" role="status">
+      <div class="memory-proposal" role="status" animate.enter="anim-rise-in" animate.leave="anim-pop-out">
         <pa-icon name="sparkles" [size]="16" />
         <div class="memory-proposal-text">
           <span class="t-meta">Remember this?</span>

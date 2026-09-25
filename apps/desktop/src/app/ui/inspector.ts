@@ -48,7 +48,7 @@ import { KnowledgeCard } from './workbench/knowledge';
           <pa-icon name="plus" [size]="16" />
         </button>
         @if (launcher()) {
-          <pa-popover [anchor]="addTrigger" anchorAlign="end" width="300px" ariaLabel="Tools" panelRole="menu" [focusFirst]="true" (closed)="launcher.set(false)">
+          <pa-popover [anchor]="addTrigger" anchorAlign="end" width="300px" ariaLabel="Tools" panelRole="menu" [focusFirst]="true" (closed)="launcher.set(false)" animate.leave="anim-pop-out">
             <div class="tool-menu" role="none">
               @for (card of cards; track card.id) {
                 <button class="tool-menu-item" role="menuitem" (click)="open(card.id)">
@@ -82,7 +82,7 @@ import { KnowledgeCard } from './workbench/knowledge';
             [class.collapsed]="card.collapsed"
             [class.fills]="!card.collapsed"
             [attr.aria-label]="info(card.id).label"
-            animate.enter="anim-pop-in"
+            [style.view-transition-name]="'wb-' + card.id"
           >
             <header class="wb-card-head" (dblclick)="work.maximize(card.id)">
               <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
@@ -117,7 +117,7 @@ import { KnowledgeCard } from './workbench/knowledge';
               </span>
             </header>
             @if (!card.collapsed) {
-              <div class="wb-card-body">
+              <div class="wb-card-body" animate.enter="card-body-in">
                 @switch (card.id) {
                   @case ('review') { <pa-review-card /> }
                   @case ('knowledge') { <pa-knowledge-card /> }
@@ -131,7 +131,7 @@ import { KnowledgeCard } from './workbench/knowledge';
             }
           </section>
         } @empty {
-          <div class="launcher" role="list" aria-label="Tools">
+          <div class="launcher" role="list" aria-label="Tools" animate.enter="anim-fade-in">
             @for (card of cards; track card.id) {
               <button class="launcher-card" role="listitem" (click)="open(card.id)">
                 <pa-icon [name]="icon(card)" [size]="18" />

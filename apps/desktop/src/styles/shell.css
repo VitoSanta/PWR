@@ -1173,3 +1173,69 @@ pa-inspector {
 .knowledge-name:hover {
   text-decoration: underline;
 }
+
+/* A card's body appearing as it opens. */
+.card-body-in {
+  animation: pa-card-in var(--dur-slow) var(--ease-out) backwards;
+}
+
+@keyframes pa-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.knowledge-view,
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.knowledge-view {
+  flex: 1;
+}
+
+.settings-page {
+  gap: var(--space-4);
+}
+
+/*
+ * The workbench's layout changes run as view transitions (WorkbenchStore):
+ * only the named cards move, the rest of the page updates in place, and a
+ * card that changes height keeps its content anchored to the top rather
+ * than stretched.
+ */
+:root {
+  view-transition-name: none;
+}
+
+::view-transition-group(*) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease-out);
+  overflow: clip;
+  border-radius: var(--radius-card);
+}
+
+::view-transition-old(*),
+::view-transition-new(*) {
+  height: 100%;
+  object-fit: none;
+  object-position: top;
+  animation-duration: var(--dur);
+}
+
+/* Hover states ease in, as every other control's do. */
+.settings-nav-item,
+.tool-menu-item,
+.file-entry,
+.rewind-option,
+.chip,
+.wb-card-title,
+.knowledge-name {
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}

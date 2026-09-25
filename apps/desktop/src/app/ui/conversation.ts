@@ -105,7 +105,7 @@ type Item =
                       <pa-icon name="history" [size]="14" />
                     </button>
                     @if (rewindMenu() === item.key) {
-                      <pa-popover [anchor]="rewindTrigger" anchorAlign="end" width="300px" ariaLabel="Rewind" (closed)="rewindMenu.set(null)">
+                      <pa-popover [anchor]="rewindTrigger" anchorAlign="end" width="300px" ariaLabel="Rewind" (closed)="rewindMenu.set(null)" animate.leave="anim-pop-out">
                         <div class="rewind-menu" role="menu">
                           <button class="rewind-option" role="menuitem" (click)="rewind(item.entry, true)">
                             <span class="settings-row-title">Conversation and files</span>
