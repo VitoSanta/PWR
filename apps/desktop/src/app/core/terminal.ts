@@ -1,4 +1,5 @@
-import { Injectable, OnDestroy, inject, signal } from '@angular/core';
+import { Injectable, OnDestroy, effect, inject, signal } from '@angular/core';
+import { ThemeService } from './theme';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import { AgentStore } from './agent.store';
@@ -21,6 +22,17 @@ export class TerminalService implements OnDestroy {
   private readonly element = document.createElement('div');
   readonly state = signal<'idle' | 'starting' | 'running' | 'exited' | 'unavailable'>('idle');
   readonly error = signal('');
+
+  constructor() {
+    // The terminal's colours follow the app's theme, read once it is applied.
+    const theme = inject(ThemeService);
+    effect(() => {
+      theme.theme();
+      requestAnimationFrame(() => {
+        if (this.term) this.term.options.theme = palette();
+      });
+    });
+  }
 
   /** Shows the terminal inside `host`, starting the shell the first time. */
   async attach(host: HTMLElement): Promise<void> {
@@ -84,20 +96,13 @@ export class TerminalService implements OnDestroy {
     this.error.set('');
     this.workspace = workspace;
     const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
-    const style = getComputedStyle(document.documentElement);
-    const color = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: color('--mono', 'ui-monospace, Menlo, monospace'),
+      fontFamily: token('--mono', 'ui-monospace, Menlo, monospace'),
       fontSize: 12.5,
       lineHeight: 1.25,
       scrollback: 5000,
-      theme: {
-        background: color('--surface-primary', '#111'),
-        foreground: color('--text-primary', '#eee'),
-        cursor: color('--accent-solid', '#8174ff'),
-        selectionBackground: color('--accent-border', '#8174ff66'),
-      },
+      theme: palette(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -131,4 +136,19 @@ export class TerminalService implements OnDestroy {
       this.error.set(String(error).replace(/^Error: /, ''));
     }
   }
+}
+
+function token(name: string, fallback: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+/** xterm's colours, from the app's theme tokens. */
+function palette() {
+  return {
+    background: token('--surface-primary', '#101621'),
+    foreground: token('--text-primary', '#e6ebf5'),
+    cursor: token('--accent-solid', '#6e5ff0'),
+    cursorAccent: token('--surface-primary', '#101621'),
+    selectionBackground: token('--accent-border', 'rgba(110, 95, 240, 0.4)'),
+  };
 }
