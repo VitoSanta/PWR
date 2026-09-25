@@ -17,6 +17,17 @@ class SelectHost {
 }
 
 @Component({
+  imports: [Select],
+  template: `
+    <pa-select ariaLabel="Size" [options]="options" />
+    <pa-select ariaLabel="Context" [options]="options" />
+  `,
+})
+class TwoSelects {
+  readonly options: SelectOption<string>[] = [{ value: 'a', label: 'A' }];
+}
+
+@Component({
   imports: [Dialog],
   template: `
     <button id="opener">Open</button>
@@ -84,6 +95,26 @@ describe('Select', () => {
     expect(escape.defaultPrevented).toBe(true);
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     expect(fixture.componentInstance.value()).toBe('medium');
+  });
+
+  it('closes when something else is pressed, even when focus did not move', async () => {
+    const fixture = TestBed.createComponent(TwoSelects);
+    await settle(fixture);
+    const [first, second] = fixture.nativeElement.querySelectorAll('[role=combobox]') as NodeListOf<HTMLButtonElement>;
+    first.click();
+    await settle(fixture);
+    expect(first.getAttribute('aria-expanded')).toBe('true');
+    // WebKit: pressing another button does not move focus, so no blur comes.
+    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    second.click();
+    await settle(fixture);
+    expect(first.getAttribute('aria-expanded')).toBe('false');
+    expect(second.getAttribute('aria-expanded')).toBe('true');
+    expect(fixture.nativeElement.querySelectorAll('[role=listbox]').length).toBe(1);
+    // A press on the page itself, which takes no focus, closes it too.
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    await settle(fixture);
+    expect(second.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('selects by typing the start of an option', async () => {

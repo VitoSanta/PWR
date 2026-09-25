@@ -143,6 +143,9 @@ export class Select {
     const current = this.options().findIndex((option) => option.value === this.value());
     this.active.set(current >= 0 ? current : this.firstEnabled(0, 1));
     this.open.set(true);
+    // WebKit does not focus a button that is clicked, and the arrow keys and
+    // Escape are the trigger's.
+    this.trigger().nativeElement.focus();
     queueMicrotask(() => this.revealActive());
   }
 
@@ -234,6 +237,17 @@ export class Select {
   @HostListener('window:blur')
   protected dismiss(): void {
     this.close();
+  }
+
+  /**
+   * A press anywhere else closes the list. Blur alone did not: WebKit -- the
+   * app's engine on macOS -- does not move focus to a button that is clicked,
+   * so opening another select left this one open, and several lists showed
+   * at once.
+   */
+  @HostListener('document:pointerdown', ['$event'])
+  protected pressed(event: PointerEvent): void {
+    if (this.open() && !this.host.nativeElement.contains(event.target as Node)) this.close();
   }
 
   @HostListener('document:scroll', ['$event'])
