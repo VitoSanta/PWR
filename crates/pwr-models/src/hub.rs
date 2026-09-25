@@ -79,6 +79,31 @@ mod pagination_tests {
     }
 }
 
+/// A repository's files and config at a commit never change, so they are
+/// read once per process: the catalogue re-reads the same models whenever
+/// the person changes a filter or an order, and every read counts against
+/// the Hub's rate limit. Keyed by Hub, repository and full commit id.
+static TREES: CacheMap<Vec<HubFile>> = std::sync::OnceLock::new();
+static CONFIGS: CacheMap<Option<serde_json::Value>> = std::sync::OnceLock::new();
+/// Entries kept per cache: a few thousand models' listings is a few MB.
+const CACHED: usize = 4_000;
+
+type CacheMap<T> = std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, T>>>;
+
+fn cached<T: Clone>(cache: &CacheMap<T>, key: &str) -> Option<T> {
+    cache.get()?.lock().ok()?.get(key).cloned()
+}
+
+fn remember<T>(cache: &CacheMap<T>, key: String, value: T) {
+    let map = cache.get_or_init(Default::default);
+    if let Ok(mut map) = map.lock() {
+        if map.len() >= CACHED {
+            map.clear();
+        }
+        map.insert(key, value);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HubErrorKind {
@@ -358,10 +383,21 @@ impl HubClient {
     pub async fn tree(&self, repository: &str, revision: &str) -> Result<Vec<HubFile>, HubError> {
         check_repository(repository)?;
         check_revision(revision)?;
+        let key = self.cache_key(repository, revision);
+        if let Some(files) = cached(&TREES, &key) {
+            return Ok(files);
+        }
         let mut url = self.url(&["api", "models", repository, "tree", revision]);
         url.query_pairs_mut().append_pair("recursive", "true");
         let value = self.get_json(url).await?;
-        Ok(catalog::parse_tree(&value))
+        let files = catalog::parse_tree(&value);
+        remember(&TREES, key, files.clone());
+        Ok(files)
+    }
+
+    /// A repository at a commit, for the caches below.
+    fn cache_key(&self, repository: &str, revision: &str) -> String {
+        format!("{}|{repository}|{revision}", self.base)
     }
 
     /// The repository's `config.json` at a commit; `None` if it has none.
@@ -372,6 +408,20 @@ impl HubClient {
     ) -> Result<Option<serde_json::Value>, HubError> {
         check_repository(repository)?;
         check_revision(revision)?;
+        let key = self.cache_key(repository, revision);
+        if let Some(config) = cached(&CONFIGS, &key) {
+            return Ok(config);
+        }
+        let config = self.fetch_config(repository, revision).await?;
+        remember(&CONFIGS, key, config.clone());
+        Ok(config)
+    }
+
+    async fn fetch_config(
+        &self,
+        repository: &str,
+        revision: &str,
+    ) -> Result<Option<serde_json::Value>, HubError> {
         let url = self.url(&[repository, "resolve", revision, "config.json"]);
         let mut request = self.http.get(url);
         if let Some(token) = &self.token {
@@ -385,6 +435,14 @@ impl HubClient {
         })?;
         if response.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
+        }
+        // Not "no config": read as one, a rate-limited answer rated the model
+        // without its context cost, and the rating was kept.
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(HubError::new(
+                HubErrorKind::RateLimited,
+                "The Hub is rate-limiting requests from this address. Wait a minute and retry.",
+            ));
         }
         if !response.status().is_success() {
             return Ok(None);

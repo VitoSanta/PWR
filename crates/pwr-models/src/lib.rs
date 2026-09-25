@@ -437,7 +437,7 @@ pub fn entry(input: EntryInput<'_>) -> CatalogEntry {
 type Enriched = (
     HubModel,
     Result<Vec<HubFile>, hub::HubError>,
-    Option<serde_json::Value>,
+    Result<Option<serde_json::Value>, hub::HubError>,
 );
 
 /// A search, enriched: each result's file tree and config are fetched so its
@@ -480,15 +480,16 @@ pub async fn search(
 }
 
 /// The most parameters a model that fits this machine could have, when only
-/// fitting models are asked for: at the lowest precision weights are stored
-/// at, in all the memory a model may take. A walk from the largest down
-/// starts there rather than walking through models that could never load.
+/// fitting models are asked for: at two bits a weight, the lowest precision
+/// models are published at in any number, in all the memory a model may
+/// take. A walk from the largest down starts there rather than walking
+/// through models that could never load.
 fn walk_limit(budget: Option<u64>, filters: &Filters) -> Option<u64> {
     if !filters.compatible_only {
         return None;
     }
     let room = budget?.saturating_sub(fit::RUNTIME_OVERHEAD_BYTES);
-    Some(room.saturating_mul(8) / 3 * 2)
+    Some(room.saturating_mul(4))
 }
 
 /// The Hub, for one search: its listings, and the enrichment and exact
@@ -564,7 +565,7 @@ impl loader::Catalogue for HubCatalogue<'_> {
         ))
     }
 
-    async fn enrich(&self, models: Vec<HubModel>) -> Vec<CatalogEntry> {
+    async fn enrich(&self, models: Vec<HubModel>) -> Result<Vec<CatalogEntry>, hub::HubError> {
         let entries = enrich(
             self.hub,
             models,
@@ -573,14 +574,16 @@ impl loader::Catalogue for HubCatalogue<'_> {
             self.models_root,
             self.installed,
         )
-        .await;
-        apply_filters(entries, self.filters)
+        .await?;
+        Ok(apply_filters(entries, self.filters))
     }
 }
 
 /// Each listing with its file tree and config, so its variants carry exact
 /// sizes and a fit. Results whose tree cannot be read are kept with no
-/// variants and a note, rather than silently dropped.
+/// variants and a note, rather than silently dropped -- except when the Hub
+/// is rate-limiting: that is the Hub's answer to every request, not a fact
+/// about these models, and is returned as it is.
 async fn enrich(
     hub: &hub::HubClient,
     models: Vec<HubModel>,
@@ -588,7 +591,7 @@ async fn enrich(
     capacity: &Capacity,
     models_root: &Path,
     installed: &[String],
-) -> Vec<CatalogEntry> {
+) -> Result<Vec<CatalogEntry>, hub::HubError> {
     use futures_util::StreamExt;
     // GGUF repositories carry no config.json; their base model's describes
     // the same architecture, so it is read once per base model.
@@ -618,26 +621,33 @@ async fn enrich(
     let enriched: Vec<Enriched> = futures_util::stream::iter(models)
         .map(|model| async move {
             let Some(revision) = model.revision.clone() else {
-                return (model, Ok(Vec::new()), None);
+                return (model, Ok(Vec::new()), Ok(None));
             };
             let files = hub.tree(&model.repository, &revision).await;
             let config = if format == Format::Mlx {
-                hub.config(&model.repository, &revision)
-                    .await
-                    .ok()
-                    .flatten()
+                hub.config(&model.repository, &revision).await
             } else {
-                None
+                Ok(None)
             };
             (model, files, config)
         })
         .buffered(CONCURRENT_REQUESTS)
         .collect()
         .await;
-    enriched
+    let limited = enriched.iter().find_map(|(_, files, config)| {
+        [files.as_ref().err(), config.as_ref().err()]
+            .into_iter()
+            .flatten()
+            .find(|error| error.kind == hub::HubErrorKind::RateLimited)
+            .cloned()
+    });
+    if let Some(error) = limited {
+        return Err(error);
+    }
+    Ok(enriched
         .into_iter()
         .map(|(model, files, config)| {
-            let config = config.or_else(|| {
+            let config = config.ok().flatten().or_else(|| {
                 model
                     .base_models
                     .first()
@@ -665,7 +675,7 @@ async fn enrich(
             }
             entry
         })
-        .collect()
+        .collect())
 }
 
 /// The plan for one variant, re-read from the Hub at the pinned revision: a

@@ -431,10 +431,7 @@ fn resolve_import(from: &str, import: &str, paths: &BTreeSet<&str>) -> Option<St
         .or_else(|| import.strip_prefix("super::"))
     {
         // The crate's `src/`: the nearest `src` above the file.
-        let src = match dir.rfind("src") {
-            Some(at) => &dir[..at + 3],
-            None => return None,
-        };
+        let src = &dir[..dir.rfind("src")? + 3];
         let base = if import.starts_with("super::") {
             dir.rsplit_once('/').map_or(dir, |(parent, _)| parent)
         } else {
