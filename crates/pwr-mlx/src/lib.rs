@@ -729,9 +729,9 @@ impl MlxProvider {
         let mut shards: BTreeMap<(String, usize), BTreeSet<usize>> = BTreeMap::new();
         for entry in files {
             let path = entry.path();
-            if !path
+            if path
                 .extension()
-                .is_some_and(|extension| extension == "safetensors")
+                .is_none_or(|extension| extension != "safetensors")
             {
                 continue;
             }

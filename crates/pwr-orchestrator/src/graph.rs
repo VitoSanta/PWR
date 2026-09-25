@@ -754,7 +754,7 @@ impl Graph {
         let packages: Vec<&str> = self
             .nodes
             .iter()
-            .filter(|node| node.kind == NodeKind::Package && node.attrs.get("builtin").is_none())
+            .filter(|node| node.kind == NodeKind::Package && !node.attrs.contains_key("builtin"))
             .map(|node| node.label.as_str())
             .take(30)
             .collect();

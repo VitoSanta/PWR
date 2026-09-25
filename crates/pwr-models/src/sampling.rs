@@ -91,13 +91,11 @@ pub async fn for_installed(
         && let Ok(cache) = serde_json::from_slice::<Cached>(&bytes)
         && cache.schema_version == 1
         && cache.artifact_revision == revision
-    {
-        if cache
+        && cache
             .retry_after_unix
             .is_none_or(|retry| chrono::Utc::now().timestamp() < retry)
-        {
-            return cache.recommendation;
-        }
+    {
+        return cache.recommendation;
     }
     let found = tokio::time::timeout(FETCH_BUDGET, fetch(hub, repository, revision)).await;
     let (recommendation, retry_after_unix) = match found {

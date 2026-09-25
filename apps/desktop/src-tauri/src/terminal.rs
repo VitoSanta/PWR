@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 struct Session {
     master: Box<dyn MasterPty + Send>,
@@ -30,12 +30,23 @@ pub struct Terminals {
 impl Terminals {
     /// Ends every shell: the terminals must not outlive the window.
     pub fn close_all(&self) {
-        if let Ok(mut sessions) = self.sessions.lock() {
-            for (_, mut session) in sessions.drain() {
-                let _ = session.child.kill();
-            }
+        let ending: Vec<Session> = match self.sessions.lock() {
+            Ok(mut sessions) => sessions.drain().map(|(_, session)| session).collect(),
+            Err(_) => return,
+        };
+        for session in ending {
+            end(session);
         }
     }
+}
+
+/// Ends a shell and reaps it: killed and never waited for, it stayed a
+/// zombie until the app quit.
+fn end(mut session: Session) {
+    if !matches!(session.child.try_wait(), Ok(Some(_))) {
+        let _ = session.child.kill();
+    }
+    let _ = session.child.wait();
 }
 
 #[derive(Clone, Serialize)]
@@ -125,7 +136,13 @@ pub fn term_open(
         let mut pending: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
+                Ok(0) | Err(_) => {
+                    if !pending.is_empty() {
+                        let data = String::from_utf8_lossy(&pending).into_owned();
+                        let _ = app.emit("term-output", Output { id, data });
+                    }
+                    break;
+                }
                 Ok(read) => {
                     pending.extend_from_slice(&buffer[..read]);
                     let whole = complete_utf8(&pending);
@@ -137,6 +154,17 @@ pub fn term_open(
                     let _ = app.emit("term-output", Output { id, data });
                 }
             }
+        }
+        // The shell ended on its own (exit, or the card closed it): let go of
+        // the pseudo-terminal and reap the process rather than keep both.
+        let session = app
+            .state::<Terminals>()
+            .sessions
+            .lock()
+            .ok()
+            .and_then(|mut sessions| sessions.remove(&id));
+        if let Some(session) = session {
+            end(session);
         }
         let _ = app.emit("term-exit", id);
     });
@@ -176,10 +204,15 @@ pub fn term_resize(
 
 #[tauri::command]
 pub fn term_close(terminals: State<'_, Terminals>, id: u32) {
-    if let Ok(mut sessions) = terminals.sessions.lock() {
-        if let Some(mut session) = sessions.remove(&id) {
-            let _ = session.child.kill();
-        }
+    let session = terminals
+        .sessions
+        .lock()
+        .ok()
+        .and_then(|mut sessions| sessions.remove(&id));
+    // Off the interface's thread: a shell is given a moment to end on its own
+    // before it is killed.
+    if let Some(session) = session {
+        std::thread::spawn(move || end(session));
     }
 }
 

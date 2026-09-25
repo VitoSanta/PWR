@@ -2025,15 +2025,20 @@ impl<R: TurnRunner + 'static> Server<R> {
                 ));
             }
             for (path, before) in &plan {
-                let target = session.root.join(path);
-                let outcome = match before {
-                    Some(text) => target
-                        .parent()
-                        .map_or(Ok(()), std::fs::create_dir_all)
-                        .and_then(|()| std::fs::write(&target, text)),
-                    None => match std::fs::remove_file(&target) {
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                        other => other,
+                let outcome = match rewind_target(&session.root, path) {
+                    Err(error) => Err(error),
+                    Ok(target) => match before {
+                        converse::Before::Content(bytes) => target
+                            .parent()
+                            .map_or(Ok(()), std::fs::create_dir_all)
+                            .and_then(|()| std::fs::write(&target, bytes)),
+                        converse::Before::Created => match std::fs::remove_file(&target) {
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                            other => other,
+                        },
+                        converse::Before::NotKept => Err(std::io::Error::other(
+                            "its earlier content was too large to keep, so it was left as it is",
+                        )),
                     },
                 };
                 match outcome {
@@ -2048,9 +2053,11 @@ impl<R: TurnRunner + 'static> Server<R> {
                         .iter()
                         .any(|edit| edit.turn < turn && &edit.path == path);
                     match before {
-                        Some(text) if earlier => {
-                            written.insert(path.clone(), pwr_domain::hash_bytes(text));
+                        converse::Before::Content(bytes) if earlier => {
+                            written.insert(path.clone(), pwr_domain::hash_bytes(bytes));
                         }
+                        // Left as PWR wrote it: still PWR's.
+                        converse::Before::NotKept => {}
                         _ => {
                             written.remove(path);
                         }
@@ -3069,6 +3076,34 @@ fn inside(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Where a rewind puts a file back: inside `root`, even when a folder on the
+/// way was replaced by a link since the edit (the file need not exist).
+fn rewind_target(root: &Path, relative: &str) -> std::io::Result<PathBuf> {
+    let outside = || std::io::Error::other("it is no longer inside the workspace");
+    let relative = Path::new(relative);
+    if relative.is_absolute()
+        || relative.components().any(|part| {
+            !matches!(
+                part,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    {
+        return Err(outside());
+    }
+    let root = root.canonicalize()?;
+    let target = root.join(relative);
+    // The nearest part of the path that exists, resolved, decides.
+    let mut existing = target.as_path();
+    while std::fs::symlink_metadata(existing).is_err() {
+        existing = existing.parent().ok_or_else(outside)?;
+    }
+    if !existing.canonicalize()?.starts_with(&root) {
+        return Err(outside());
+    }
+    Ok(target)
+}
+
 /// `_pwr/files`: one folder of the workspace `cwd` (`path`, the root when
 /// omitted), folders first. For the person to look at; the model reads files
 /// through its own tools and policy.
@@ -3260,6 +3295,28 @@ fn memory_request(id: Value, params: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rewind_writes_only_inside_the_workspace() {
+        let workspace = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        std::fs::create_dir(workspace.path().join("src")).unwrap();
+        assert!(rewind_target(workspace.path(), "src/new/a.py").is_ok());
+        assert!(rewind_target(workspace.path(), "../a.py").is_err());
+        assert!(rewind_target(workspace.path(), "/etc/hosts").is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(elsewhere.path(), workspace.path().join("out")).unwrap();
+            assert!(rewind_target(workspace.path(), "out/a.py").is_err());
+            std::os::unix::fs::symlink(
+                elsewhere.path().join("x.py"),
+                workspace.path().join("x.py"),
+            )
+            .unwrap();
+            std::fs::write(elsewhere.path().join("x.py"), "").unwrap();
+            assert!(rewind_target(workspace.path(), "x.py").is_err());
+        }
+    }
 
     #[test]
     fn the_files_card_reads_only_inside_the_workspace() {
@@ -3586,6 +3643,9 @@ mod tests {
         /// The method of each request sent, so its response can be checked
         /// against the schema for that method.
         asked: HashMap<i64, String>,
+        /// The turns `_pwr/turn_started` announced, set aside by `receive`:
+        /// the tests read what a turn says, not the numbering around it.
+        turns_started: Vec<u64>,
     }
 
     /// The published ACP schema, one validator per type a server sends.
@@ -3635,7 +3695,16 @@ mod tests {
                 }
                 // PWR's own notifications: `_`-prefixed, as ACP reserves
                 // for implementations, and with no ACP schema to check.
-                "_pwr/usage" | "_pwr/compacted" | "_pwr/download_progress" | "_pwr/turn_event" => {
+                "_pwr/usage"
+                | "_pwr/compacted"
+                | "_pwr/download_progress"
+                | "_pwr/turn_event"
+                | "_pwr/turn_started"
+                | "_pwr/model_progress"
+                | "_pwr/calibration_progress"
+                | "_pwr/memory_proposed"
+                | "_pwr/wiki_updated"
+                | "_pwr/wiki_summarising" => {
                     assert!(
                         message.get("id").is_none(),
                         "an extension notification with an id"
@@ -3688,7 +3757,19 @@ mod tests {
                 .expect("the server is still talking");
             let message: Value = serde_json::from_str(&line).unwrap();
             check_against_schema(&message, &self.asked);
-            message
+            match message["method"].as_str() {
+                Some("_pwr/turn_started") => {
+                    self.turns_started
+                        .push(message["params"]["turn"].as_u64().expect("a turn"));
+                    Box::pin(self.receive()).await
+                }
+                // The wiki is refreshed in the background once a turn ends,
+                // so when these arrive depends on timing, not on the turn.
+                Some("_pwr/wiki_summarising" | "_pwr/wiki_updated") => {
+                    Box::pin(self.receive()).await
+                }
+                _ => message,
+            }
         }
 
         /// Every message up to and including the response to `id`.
@@ -3753,6 +3834,7 @@ mod tests {
             to_server,
             from_server: BufReader::new(from_server).lines(),
             asked: HashMap::new(),
+            turns_started: Vec::new(),
         };
         tokio::task::LocalSet::new()
             .run_until(async move {
@@ -4382,6 +4464,8 @@ mod tests {
             client.prompt(3, &session, "again").await;
             let second = client.until_response(3).await;
             assert_eq!(updates(&second)[0]["content"]["text"], "you said again");
+            // Each message the person sends is numbered, for rewinding to it.
+            assert_eq!(client.turns_started, [1, 2]);
         })
         .await;
     }
