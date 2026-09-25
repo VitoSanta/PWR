@@ -251,14 +251,15 @@ export interface CatalogFilters {
   maxBytes?: number;
   /** The Hub's own order, across every page; most downloaded when unset. */
   sort?: 'likes' | 'lastModified';
+  /** By parameters, walked across the whole catalogue by the core. */
+  order?: 'smallestFirst' | 'largestFirst';
 }
 
 /**
- * How the Model Manager lists results. The first three are the Hub's, over
- * the whole catalogue; the rest the Hub cannot sort by, so they order the
- * results loaded so far.
+ * How the Model Manager lists results, every one over the whole catalogue:
+ * the Hub's own orders, and by parameters, which the core walks the Hub for.
  */
-export type ModelOrder = 'downloads' | 'likes' | 'lastModified' | 'params-desc' | 'params-asc' | 'size-asc' | 'name';
+export type ModelOrder = 'downloads' | 'likes' | 'lastModified' | 'smallestFirst' | 'largestFirst';
 
 /** A download as the core's state machine reports it. */
 export type DownloadState =

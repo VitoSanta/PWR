@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { AgentStore } from './agent.store';
 import { CatalogEntry, CatalogVariant } from './model';
-import { ModelsStore, isTerminal, sortEntries } from './models.store';
+import { ModelsStore, isTerminal } from './models.store';
 
 const variant: CatalogVariant = {
   id: 'mlx',
@@ -207,36 +207,27 @@ describe('ModelsStore downloads', () => {
 });
 
 describe('ordering the catalogue', () => {
-  const model = (name: string, parameters: number | null, bytes: number[]) =>
-    ({ ...entry, repository: `x/${name}`, name, parameters, variants: bytes.map((size) => ({ ...variant, bytes: size })) }) as CatalogEntry;
-  const list = [model('Qwen3-8B', 8e9, [5e9]), model('Mystery', null, [9e9]), model('Qwen3-32B', 32e9, [18e9, 34e9]), model('gemma-4b', 4e9, [3e9])];
-  const names = (entries: CatalogEntry[]) => entries.map((item) => item.name);
-
-  it('sorts what is loaded by parameters, download and name, unknown sizes last', () => {
-    expect(names(sortEntries(list, 'params-desc'))).toEqual(['Qwen3-32B', 'Qwen3-8B', 'gemma-4b', 'Mystery']);
-    expect(names(sortEntries(list, 'params-asc'))).toEqual(['gemma-4b', 'Qwen3-8B', 'Qwen3-32B', 'Mystery']);
-    // The lightest variant of each: the 32B's 18 GB, not its 34 GB.
-    expect(names(sortEntries(list, 'size-asc'))).toEqual(['gemma-4b', 'Qwen3-8B', 'Mystery', 'Qwen3-32B']);
-    expect(names(sortEntries(list, 'name'))).toEqual(['gemma-4b', 'Mystery', 'Qwen3-8B', 'Qwen3-32B']);
-    // The Hub's orders are the Hub's: kept as they came.
-    expect(names(sortEntries(list, 'likes'))).toEqual(names(list));
-  });
-
-  it('asks the Hub for its own orders, and orders the others itself', async () => {
+  it('asks the core for every order, the sizes included, as a new search', async () => {
     TestBed.configureTestingModule({});
     const agent = TestBed.inject(AgentStore);
     const models = TestBed.inject(ModelsStore);
-    const asked: unknown[] = [];
+    const asked: { sort?: string; order?: string }[] = [];
     agent.useDemo((method, params) => {
-      if (method === '_pwr/catalog') asked.push(params.filters.sort);
+      if (method === '_pwr/catalog') asked.push({ sort: params.filters.sort, order: params.filters.order });
       return { format: 'mlx', results: [], nextCursor: null, error: null };
     });
-    models.setOrder('likes');
-    models.setOrder('params-desc');
-    models.setOrder('downloads');
-    // The demo core answers after a moment.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    // Largest first searches nothing again: it orders the results in hand.
-    expect(asked).toEqual(['likes', undefined]);
+    for (const order of ['likes', 'smallestFirst', 'largestFirst', 'downloads'] as const) {
+      models.setOrder(order);
+      // The demo core answers after a moment.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    // By size, the Hub's own order is dropped: the core walks the whole
+    // catalogue instead of ordering the page in hand.
+    expect(asked).toEqual([
+      { sort: 'likes', order: undefined },
+      { sort: undefined, order: 'smallestFirst' },
+      { sort: undefined, order: 'largestFirst' },
+      { sort: undefined, order: undefined },
+    ]);
   });
 });
