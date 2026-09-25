@@ -285,9 +285,10 @@ export interface LocalModel {
 
 export interface ModelSamplingField {
   name: string;
-  value: number;
+  /** Null when nothing sets it and the engine applies none (the penalties). */
+  value: number | null;
   source: string | { kind: string; url?: string; revision?: string; declared_source?: string };
-  automatic: number;
+  automatic: number | null;
   automaticSource: string | { kind: string; url?: string; revision?: string; declared_source?: string };
   override: number | null;
 }

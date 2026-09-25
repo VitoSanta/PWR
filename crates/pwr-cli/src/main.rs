@@ -3388,18 +3388,28 @@ impl serve::TurnRunner for ConsoleTurns {
         )
         .await?;
         let overrides = pwr_models::sampling::user_overrides(&dir)?;
+        // Every parameter the sidecar applies, set or not: the penalties have
+        // no engine default, and a field left out of the panel could never be
+        // given a value from it.
+        let unset = serde_json::json!("unset");
         let fields = pwr_mlx::MLX_SAMPLING_FIELDS
             .into_iter()
-            .filter_map(|name| {
-                let value = sampling.get(name)?;
-                Some(serde_json::json!({
+            .map(|name| {
+                let source = |values: &BTreeMap<String, serde_json::Value>| {
+                    if values.contains_key(name) {
+                        values["_pwr_sampling_sources"][name].clone()
+                    } else {
+                        unset.clone()
+                    }
+                };
+                serde_json::json!({
                     "name": name,
-                    "value": value,
-                    "source": sampling["_pwr_sampling_sources"][name],
-                    "automatic": automatic[name],
-                    "automaticSource": automatic["_pwr_sampling_sources"][name],
+                    "value": sampling.get(name),
+                    "source": source(&sampling),
+                    "automatic": automatic.get(name),
+                    "automaticSource": source(&automatic),
                     "override": overrides.get(name),
-                }))
+                })
             })
             .collect::<Vec<_>>();
         Ok(serde_json::json!({
@@ -6988,7 +6998,11 @@ fn resolved_mlx_sampling_for(
     .into_iter()
     .filter_map(|name| {
         let value = sampling.get(name)?.clone();
+        // A value the person saved replaces the declared one in
+        // `enrich_mlx_sampling`, so it is what the audit must name.
+        let user = sampling["_pwr_sampling_sources"][name]["kind"] == "user_profile";
         let source = profile
+            .filter(|_| !user)
             .and_then(|profile| {
                 profile.sampling.get(name).or_else(|| {
                     (name == "repetition_penalty")
@@ -12576,6 +12590,32 @@ mod profile_tests {
         let report = resolved_mlx_sampling_for(Some(ornith), &options);
         assert_eq!(
             report["temperature"].source,
+            pwr_domain::ParameterSource::OfficialModelCard
+        );
+    }
+
+    #[test]
+    fn a_saved_user_value_is_reported_as_the_users_over_a_declared_profile() {
+        let profiles = declared();
+        let ornith =
+            pwr_domain::ModelProfile::select(&profiles, "ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit")
+                .expect("the MLX artifact needs its own exact profile");
+        let mut options = ornith.sampling_options();
+        // What `enrich_mlx_sampling` does with a saved profile.
+        options.insert("temperature".into(), serde_json::json!(0.3));
+        options.insert(
+            "_pwr_sampling_sources".into(),
+            serde_json::json!({"temperature": {"kind": "user_profile"}}),
+        );
+        pwr_mlx::resolve_generation_sampling(&mut options, None).unwrap();
+        let report = resolved_mlx_sampling_for(Some(ornith), &options);
+        assert_eq!(report["temperature"].value, serde_json::json!(0.3));
+        assert_eq!(
+            report["temperature"].source,
+            pwr_domain::ParameterSource::PwrOverride
+        );
+        assert_eq!(
+            report["top_p"].source,
             pwr_domain::ParameterSource::OfficialModelCard
         );
     }
