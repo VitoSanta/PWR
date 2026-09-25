@@ -264,33 +264,31 @@ impl ModelArtifact {
                 repository,
                 revision,
                 files,
-            } => {
-                if !repository.contains('/')
-                    || revision.len() != 40
-                    || !revision.bytes().all(|byte| byte.is_ascii_hexdigit())
-                    || files.is_empty()
-                    || files.iter().any(|file| file.path().trim().is_empty())
-                    || files
-                        .iter()
-                        .any(|file| !safe_relative_artifact_file(file.path()))
-                    || files.iter().any(|file| {
-                        file.blake3().is_some_and(|hash| {
-                            hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-                        })
+            } if (!repository.contains('/')
+                || revision.len() != 40
+                || !revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+                || files.is_empty()
+                || files.iter().any(|file| file.path().trim().is_empty())
+                || files
+                    .iter()
+                    .any(|file| !safe_relative_artifact_file(file.path()))
+                || files.iter().any(|file| {
+                    file.blake3().is_some_and(|hash| {
+                        hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
                     })
-                    || files.iter().any(|file| {
-                        file.sha256().is_some_and(|hash| {
-                            hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-                        })
+                })
+                || files.iter().any(|file| {
+                    file.sha256().is_some_and(|hash| {
+                        hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
                     })
-                {
-                    return Err(DomainError::Invalid {
+                })) =>
+            {
+                return Err(DomainError::Invalid {
                         field: "model_artifact",
                         reason:
                             "Hugging Face artifacts require repo, full commit revision, safe relative files, and valid hashes when present"
                                 .into(),
                     });
-                }
             }
             ArtifactSource::LocalPath { path } if path.trim().is_empty() => {
                 return Err(DomainError::Invalid {

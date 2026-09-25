@@ -560,7 +560,7 @@ pub fn template_reasoning(
     // so -- the engine would send `low` and the app would claim thinking was
     // off. Its three native levels are what the setting controls.
     let disabled_by_profile = disabled_by_profile
-        && !(capability == ReasoningCapability::TemplateControlled && !template.switchable);
+        && (capability != ReasoningCapability::TemplateControlled || template.switchable);
     ReasoningProfile {
         capability,
         evidence: if declared_budgets.is_some() {

@@ -2330,14 +2330,12 @@ pub fn session_ledger(
                             touched.retain(|(p, _, _)| p != path);
                             touched.push((path.to_string(), hash, true));
                         }
-                        "read_file" => {
-                            if !touched.iter().any(|(p, _, _)| p == path) {
-                                let hash = event.payload["outcome"]["artifact_hash"]
-                                    .as_str()
-                                    .unwrap_or_default()
-                                    .to_string();
-                                touched.push((path.to_string(), hash, false));
-                            }
+                        "read_file" if !touched.iter().any(|(p, _, _)| p == path) => {
+                            let hash = event.payload["outcome"]["artifact_hash"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_string();
+                            touched.push((path.to_string(), hash, false));
                         }
                         "run_command" => {
                             let executable = action["executable"].as_str().unwrap_or_default();

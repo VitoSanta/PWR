@@ -503,26 +503,70 @@ pub struct FileEdit {
     /// The person's message the edit answered.
     pub turn: u32,
     pub path: String,
-    /// `None` when the edit created the file.
-    pub before: Option<String>,
+    pub before: Before,
 }
 
-/// The most file edits a session keeps for rewinding, and the largest file
-/// whose earlier content it keeps: past either, a rewind says what it could
-/// not restore.
+/// What a rewind knows about a file before an edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Before {
+    /// The edit created the file.
+    Created,
+    /// The file's bytes, as they were: not text, which would lose a file
+    /// that is not UTF-8 (and a rewind would then delete it).
+    Content(Vec<u8>),
+    /// The file existed but its content was not kept -- too large, past what
+    /// a session keeps, or unreadable -- so a rewind leaves it as it is and
+    /// says so rather than guessing.
+    NotKept,
+}
+
+impl Before {
+    /// The file as it is now, before an edit, within what a session keeps.
+    pub fn capture(file: &std::path::Path, kept: &[FileEdit]) -> Self {
+        match std::fs::read(file) {
+            Ok(bytes) => {
+                let held: usize = kept
+                    .iter()
+                    .map(|edit| match &edit.before {
+                        Before::Content(bytes) => bytes.len(),
+                        _ => 0,
+                    })
+                    .sum();
+                if bytes.len() <= EDIT_BYTES_KEPT
+                    && kept.len() < EDITS_KEPT
+                    && held + bytes.len() <= EDIT_BYTES_HELD
+                {
+                    Before::Content(bytes)
+                } else {
+                    Before::NotKept
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Before::Created,
+            Err(_) => Before::NotKept,
+        }
+    }
+}
+
+/// The most file edits whose earlier content a session keeps for rewinding,
+/// the largest file it keeps, and the most it holds in all: past any of
+/// them, the edit is still recorded and a rewind says what it could not
+/// restore.
 pub const EDITS_KEPT: usize = 5_000;
 pub const EDIT_BYTES_KEPT: usize = 2 * 1024 * 1024;
+pub const EDIT_BYTES_HELD: usize = 256 * 1024 * 1024;
 
-/// How a rewind would put the files back: each path's content before the
+/// How a rewind would put the files back: each path as it was before the
 /// first edit made at or after `turn`, and the files changed since by
-/// someone other than PWR (their hash no longer the one it left).
+/// someone other than PWR (their hash no longer the one it left). A file
+/// whose earlier content was not kept is in the plan, to be reported, but
+/// never a conflict: the rewind leaves it alone.
 pub fn rewind_plan(
     root: &std::path::Path,
     edits: &[FileEdit],
     written: &BTreeMap<String, String>,
     turn: u32,
-) -> (Vec<(String, Option<String>)>, Vec<String>) {
-    let mut restore: Vec<(String, Option<String>)> = Vec::new();
+) -> (Vec<(String, Before)>, Vec<String>) {
+    let mut restore: Vec<(String, Before)> = Vec::new();
     for edit in edits.iter().filter(|edit| edit.turn >= turn) {
         if !restore.iter().any(|(path, _)| path == &edit.path) {
             restore.push((edit.path.clone(), edit.before.clone()));
@@ -530,7 +574,10 @@ pub fn rewind_plan(
     }
     let conflicts = restore
         .iter()
-        .filter(|(path, _)| {
+        .filter(|(path, before)| {
+            if *before == Before::NotKept {
+                return false;
+            }
             let current = std::fs::read(root.join(path))
                 .ok()
                 .map(pwr_domain::hash_bytes);
@@ -1687,12 +1734,24 @@ async fn take_turn_inner<P: ModelProvider>(
                     | ActionProposal::ApplyPatchHunks { .. }
                     | ActionProposal::WriteFile { .. }
             );
-            let before = edits_a_file
+            let kept = edits_a_file
                 .then(|| {
-                    path.as_ref()
-                        .and_then(|path| std::fs::read_to_string(policy.root.join(path)).ok())
+                    path.as_ref().map(|path| {
+                        let file = policy.root.join(path);
+                        match continuity.edits.lock() {
+                            Ok(edits) => Before::capture(&file, &edits),
+                            Err(_) => Before::capture(&file, &[]),
+                        }
+                    })
                 })
                 .flatten();
+            let before = match &kept {
+                Some(Before::Content(bytes)) => String::from_utf8(bytes.clone()).ok(),
+                Some(Before::NotKept) => path
+                    .as_ref()
+                    .and_then(|path| std::fs::read_to_string(policy.root.join(path)).ok()),
+                _ => None,
+            };
             let fingerprint = crate::repetition::action_fingerprint(&action);
             on_step(TurnStep::ToolCall(ToolCallStep {
                 id: call_id,
@@ -1785,20 +1844,16 @@ async fn take_turn_inner<P: ModelProvider>(
             }
             match outcome {
                 Ok(value) => {
-                    if edits_a_file
-                        && let Some(path) = &path
+                    if let Some(path) = &path
+                        && let Some(kept) = &kept
                         && let Ok(mut edits) = continuity.edits.lock()
-                        && edits.len() < EDITS_KEPT
-                        && before
-                            .as_ref()
-                            .is_none_or(|text| text.len() <= EDIT_BYTES_KEPT)
                     {
                         edits.push(FileEdit {
                             turn: continuity
                                 .person_turn
                                 .load(std::sync::atomic::Ordering::Relaxed),
                             path: path.clone(),
-                            before: before.clone(),
+                            before: kept.clone(),
                         });
                     }
                     if edits_a_file
@@ -2370,7 +2425,7 @@ mod tests {
         let edit = |turn, path: &str, before: Option<&str>| FileEdit {
             turn,
             path: path.into(),
-            before: before.map(str::to_owned),
+            before: before.map_or(Before::Created, |text| Before::Content(text.into())),
         };
         let edits = vec![
             edit(1, "a.py", Some("v1\n")),
@@ -2392,14 +2447,60 @@ mod tests {
         assert_eq!(
             plan,
             vec![
-                ("a.py".to_owned(), Some("v2\n".to_owned())),
-                ("new.py".to_owned(), None),
-                ("mine.py".to_owned(), Some("original\n".to_owned())),
+                ("a.py".to_owned(), Before::Content(b"v2\n".to_vec())),
+                ("new.py".to_owned(), Before::Created),
+                (
+                    "mine.py".to_owned(),
+                    Before::Content(b"original\n".to_vec())
+                ),
             ]
         );
         assert_eq!(conflicts, vec!["mine.py".to_owned()]);
         // Nothing at or after turn 4: nothing to restore.
         assert!(rewind_plan(dir.path(), &edits, &written, 4).0.is_empty());
+    }
+
+    #[test]
+    fn a_file_that_is_not_text_is_kept_as_bytes_and_one_not_kept_is_never_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        // Latin-1, not UTF-8: read as text it looked absent, and a rewind
+        // then deleted it as a file the edit had created.
+        let latin1 = b"caf\xe9\n".to_vec();
+        std::fs::write(dir.path().join("notes.txt"), &latin1).unwrap();
+        assert_eq!(
+            Before::capture(&dir.path().join("notes.txt"), &[]),
+            Before::Content(latin1)
+        );
+        assert_eq!(
+            Before::capture(&dir.path().join("absent.txt"), &[]),
+            Before::Created
+        );
+        // Past what a session keeps: recorded, never restored or deleted.
+        let big = vec![b'x'; EDIT_BYTES_KEPT + 1];
+        std::fs::write(dir.path().join("big.bin"), &big).unwrap();
+        assert_eq!(
+            Before::capture(&dir.path().join("big.bin"), &[]),
+            Before::NotKept
+        );
+        let full: Vec<FileEdit> = (0..EDITS_KEPT)
+            .map(|n| FileEdit {
+                turn: 1,
+                path: format!("f{n}"),
+                before: Before::Created,
+            })
+            .collect();
+        assert_eq!(
+            Before::capture(&dir.path().join("notes.txt"), &full),
+            Before::NotKept
+        );
+        let edits = vec![FileEdit {
+            turn: 1,
+            path: "big.bin".into(),
+            before: Before::NotKept,
+        }];
+        let (plan, conflicts) = rewind_plan(dir.path(), &edits, &BTreeMap::new(), 1);
+        assert_eq!(plan, vec![("big.bin".to_owned(), Before::NotKept)]);
+        assert!(conflicts.is_empty());
     }
 
     #[test]

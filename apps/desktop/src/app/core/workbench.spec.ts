@@ -50,5 +50,8 @@ describe('the Browser card', () => {
     expect(normalize('file:///etc/passwd')).toBeNull();
     expect(normalize('javascript:alert(1)')).toBeNull();
     expect(normalize('')).toBeNull();
+    // The app's own origin is never framed: same-origin scripts would reach it.
+    expect(normalize('localhost:4200', 'http://localhost:4200')).toBeNull();
+    expect(normalize('localhost:4201', 'http://localhost:4200')).toBe('http://localhost:4201/');
   });
 });

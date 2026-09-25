@@ -807,9 +807,13 @@ impl ToolPolicy {
             // which is where any symlink could redirect the path, and rebuild
             // the rest onto it. `..` and absolute paths were already refused,
             // so the remainder cannot climb back out.
+            // `symlink_metadata`, not `exists`: a link whose target is missing
+            // "does not exist", and writing through it created the file
+            // wherever it pointed -- outside the workspace. Stopping at the
+            // link makes it the part that is resolved, and refused.
             let mut existing = result.as_path();
             let mut trailing = Vec::new();
-            while !existing.exists() {
+            while std::fs::symlink_metadata(existing).is_err() {
                 trailing.push(
                     existing
                         .file_name()
@@ -5033,6 +5037,35 @@ mod tests {
             approvals: Vec::new(),
         };
         assert!(policy.resolve(Path::new("escape/secret.txt")).is_err());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_link_cannot_write_outside_the_workspace() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        symlink(
+            outside.path().join("planted.sh"),
+            root.path().join("run.sh"),
+        )
+        .unwrap();
+        symlink(outside.path().join("missing"), root.path().join("gone")).unwrap();
+        let policy = ToolPolicy {
+            root: root.path().to_path_buf(),
+            extra_readable: Vec::new(),
+            protected: Vec::new(),
+            allow_commands: vec![],
+            output_limit: 100,
+            timeout: Duration::from_secs(1),
+            sandbox: SandboxPolicy::Disabled,
+            approvals: Vec::new(),
+        };
+        assert!(policy.resolve(Path::new("run.sh")).is_err());
+        assert!(policy.resolve(Path::new("gone/inner.txt")).is_err());
+        assert!(write_file(&policy, Path::new("run.sh"), "echo planted").is_err());
+        assert!(!outside.path().join("planted.sh").exists());
+        // A path that simply does not exist yet is still fine.
+        assert!(policy.resolve(Path::new("src/new/file.rs")).is_ok());
     }
     #[cfg(unix)]
     #[test]

@@ -221,7 +221,7 @@ pub fn summary_prompt(
                 .map_or(folder.is_empty(), |(parent, _)| parent == folder)
         })
         .collect();
-    files.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+    files.sort_by_key(|file| std::cmp::Reverse(file.bytes));
     let shown = if folder.is_empty() {
         name_of(root)
     } else {

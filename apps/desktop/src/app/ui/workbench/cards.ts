@@ -547,13 +547,16 @@ export class BrowserCard {
 }
 
 /** A local address, or null: the preview shows only this machine's pages. */
-export function normalize(raw: string): string | null {
+export function normalize(raw: string, own: string = globalThis.location?.origin ?? ''): string | null {
   let text = raw.trim();
   if (!text) return null;
   if (!/^https?:\/\//i.test(text)) text = `http://${text}`;
   try {
     const url = new URL(text);
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    // Never PWR itself (the development server): the frame may run scripts
+    // as its own origin, which would then be the app's, with its bridge.
+    if (url.origin === own) return null;
     return local && (url.protocol === 'http:' || url.protocol === 'https:') ? url.toString() : null;
   } catch {
     return null;
