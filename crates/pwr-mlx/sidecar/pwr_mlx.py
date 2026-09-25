@@ -76,7 +76,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 import mlx.core as mx
 import mlx.nn as nn
 from mlx_lm import load, stream_generate
-from mlx_lm.models.cache import make_prompt_cache
+from mlx_lm.models.cache import can_trim_prompt_cache, make_prompt_cache, trim_prompt_cache
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.utils import load_tokenizer
 
@@ -660,6 +660,63 @@ class Engine:
         progress(len(tokens), len(tokens))
         mx.clear_cache()
 
+    def settle(self, prompt_length: int) -> None:
+        """After a generation, a cache that can be cut back keeps only the
+        prompt: what was generated is sent back as history, rendered by the
+        template, and matched against it from there. One that cannot keeps
+        its copy (`checkpoint`), taken before generating."""
+        if self.checkpoint is not None or self.cache is None:
+            return
+        try:
+            extra = self.cache[0].offset - prompt_length
+            if extra > 0:
+                trim_prompt_cache(self.cache, extra)
+        except Exception:
+            # Unsure what the cache holds: start the next prompt from nothing
+            # rather than from a state that may not match it.
+            self.cache = None
+            self.checkpoint_tokens = []
+
+    def resume(self, base: list[int], progress) -> int:
+        """Brings the cache to the end of `base`, reusing what it can of the
+        last prompt, and returns how many tokens were reused."""
+        reused = 0
+        trimmable = (self.cache is not None and not isinstance(self.model, VisionText)
+                     and can_trim_prompt_cache(self.cache))
+        if trimmable and self.checkpoint is None:
+            # A cache that can be cut back is cut back to what the new prompt
+            # shares with the last one, wherever they part -- no copy held
+            # beside it. The copy doubled the memory a dense model's cache
+            # takes, and a prompt that differed anywhere was prefilled whole.
+            reused = common_prefix(self.checkpoint_tokens, base)
+            if reused:
+                trim_prompt_cache(self.cache, self.cache[0].offset - reused)
+            else:
+                self.cache = make_prompt_cache(self.model)
+        elif self.checkpoint is not None and base[:len(self.checkpoint_tokens)] == self.checkpoint_tokens:
+            restore(self.cache, self.checkpoint)
+            reused = len(self.checkpoint_tokens)
+        else:
+            self.cache = make_prompt_cache(self.model)
+            self.checkpoint = None
+        try:
+            self.prefill(base[reused:], reused, progress)
+        except BaseException:
+            # Half a prefill matches no prompt: the next one starts clean.
+            self.cache = None
+            self.checkpoint = None
+            self.checkpoint_tokens = []
+            raise
+        # Qwen 3.5/3.6's linear-attention layers, and a model reading images,
+        # cannot be cut back: for them the prompt's state is copied, to be
+        # restored when the next prompt extends this one.
+        if isinstance(self.model, VisionText) or not can_trim_prompt_cache(self.cache):
+            self.checkpoint = snapshot(self.cache)
+        else:
+            self.checkpoint = None
+        self.checkpoint_tokens = base
+        return reused
+
     def chat(self, request: dict, reply, cancelled=lambda: False) -> dict:
         if self.model is None:
             raise RuntimeError("no model loaded")
@@ -695,17 +752,9 @@ class Engine:
             # The template does not render the history the same way with and
             # without a generation prompt; checkpoint just before the last token.
             base = full[:-1]
-        reused = 0
-        if self.checkpoint is not None and base[:len(self.checkpoint_tokens)] == self.checkpoint_tokens:
-            restore(self.cache, self.checkpoint)
-            reused = len(self.checkpoint_tokens)
-        else:
-            self.cache = make_prompt_cache(self.model)
-        self.prefill(base[reused:], reused, lambda done, total: reply(
+        reused = self.resume(base, lambda done, total: reply(
             {"event": "prefill", "processed": int(done), "total": int(total)}
         ))
-        self.checkpoint = snapshot(self.cache)
-        self.checkpoint_tokens = base
         prefilled = time.perf_counter()
 
         # Where generation starts: inside a think block if the template opened
@@ -760,18 +809,21 @@ class Engine:
                     return finish
             return finish
 
-        outcome = stream(full[len(base):], max_tokens)
-        while outcome == "budget" and finalizations < FINALIZATION_ATTEMPTS:
-            # Close the reasoning with the template's own delimiter and let the
-            # answer follow, inside what is left of the cap.
-            finalizations += 1
-            for channel, piece in tracker.force_close():
-                reply({"event": "delta", "channel": channel, "text": piece})
-            reply({"event": "finalizing", "reasoning_tokens": tracker.reasoning_tokens})
-            forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,
-                                                add_special_tokens=False))
-            finish = "length"
-            outcome = stream(forced, max(1, max_tokens - generated))
+        try:
+            outcome = stream(full[len(base):], max_tokens)
+            while outcome == "budget" and finalizations < FINALIZATION_ATTEMPTS:
+                # Close the reasoning with the template's own delimiter and let
+                # the answer follow, inside what is left of the cap.
+                finalizations += 1
+                for channel, piece in tracker.force_close():
+                    reply({"event": "delta", "channel": channel, "text": piece})
+                reply({"event": "finalizing", "reasoning_tokens": tracker.reasoning_tokens})
+                forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,
+                                                    add_special_tokens=False))
+                finish = "length"
+                outcome = stream(forced, max(1, max_tokens - generated))
+        finally:
+            self.settle(len(base))
         for channel, piece in tracker.flush():
             reply({"event": "delta", "channel": channel, "text": piece})
         if finalizations and finish not in ("cancelled", "repetition") and (
@@ -780,8 +832,15 @@ class Engine:
             # holds only private reasoning or half a tool call.
             finish = "reasoning_unfinished"
         done = time.perf_counter()
+        # What the prompt cache saved, per request: the measure of whether a
+        # history stayed a prefix of the next (D.E2E-21).
         trace({"messages": messages[-2:], "thinking": thinking,
-               "raw": "".join(written), "finish": finish})
+               "raw": "".join(written), "finish": finish,
+               "prompt_tokens": len(full), "cached_tokens": reused,
+               "prefilled_tokens": len(base) - reused,
+               "prefill_s": round(prefilled - started, 3),
+               "copied_cache": self.checkpoint is not None,
+               "peak_memory_gb": round(mx.get_peak_memory() / 1e9, 2)})
         return {
             "event": "done",
             "finish_reason": finish if finish in (

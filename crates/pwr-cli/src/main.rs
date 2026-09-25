@@ -5076,7 +5076,6 @@ async fn run_tui_inner(
                                 let said = task_with_tui_attachments(text, &state.attachments);
                                 state.attachments.clear();
                                 push_tui_transcript(&mut state, format!("you: {said}"));
-                                converse::forget_reasoning(&mut messages);
                                 messages.push(ChatMessage::text("user", said));
                                 state.thinking = true;
                                 // A fresh flag per turn, so a stop pressed for
