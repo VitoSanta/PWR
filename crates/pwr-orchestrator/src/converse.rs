@@ -304,10 +304,15 @@ pub enum TurnStep {
         thinking: String,
         content: String,
     },
-    /// Tokens the conversation occupies after a reply, and the window.
+    /// Tokens the conversation occupies, and the window: the backend's count
+    /// after a reply, or -- `estimated` -- the prompt about to be sent, the
+    /// last count plus an estimate of what was appended since (tool results,
+    /// steering). The second lets a front end follow the window between
+    /// generations instead of only when a reply has finished.
     Usage {
         used: u64,
         window: u64,
+        estimated: bool,
     },
     /// A generation or call the turn could not use and is asking for again,
     /// automatically, within its own bound. Emitted beside the `Refused` that
@@ -853,6 +858,17 @@ async fn take_turn_inner<P: ModelProvider>(
         };
         // The prompt as sent: what the count that comes back is a count of.
         let sent_upto = messages.len();
+        // What this request is about to occupy, said before a generation that
+        // can take minutes. Only once a count exists: an estimate from the
+        // messages alone leaves out the instructions and the tool schemas,
+        // and would show the window emptying as the turn began.
+        if measured_prompt.is_some() {
+            on_step(TurnStep::Usage {
+                used: prompt_tokens_now(messages, measured_prompt, measured_upto) as u64,
+                window: u64::from(context_tokens),
+                estimated: true,
+            });
+        }
         // A backend that refuses the request and one that drops the reply
         // half-way are the same event to this turn -- the turn has nothing to
         // work with -- so both arrive here and are judged by the same match
@@ -1224,6 +1240,7 @@ async fn take_turn_inner<P: ModelProvider>(
             on_step(TurnStep::Usage {
                 used: prompt.saturating_add(generated),
                 window: u64::from(context_tokens),
+                estimated: false,
             });
         }
         // The audit records what the deployment did and, from here, what the

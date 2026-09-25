@@ -42,9 +42,32 @@ describe('AgentStore context', () => {
       method: '_pwr/usage',
       params: { used: 54_000, window: 128_000 },
     });
-    expect(store.usage()).toEqual({ used: 54_000, window: 128_000 });
+    expect(store.usage()).toEqual({ used: 54_000, window: 128_000, estimated: false });
     store.receive({ jsonrpc: '2.0', method: '_pwr/usage', params: { used: 1, window: 0 } });
-    expect(store.usage()).toEqual({ used: 54_000, window: 128_000 });
+    expect(store.usage()).toEqual({ used: 54_000, window: 128_000, estimated: false });
+  });
+
+  it('follows the window while a reply streams, until the engine counts it', () => {
+    store.receive({
+      jsonrpc: '2.0',
+      method: '_pwr/usage',
+      params: { used: 20_000, window: 262_144, estimated: true },
+    });
+    expect(store.usage()?.estimated).toBe(true);
+    const chunk = (sessionUpdate: string, text: string, live = false) =>
+      store.receive({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          update: { sessionUpdate, content: { text }, ...(live ? { _meta: { pwr: { live: true } } } : {}) },
+        },
+      });
+    chunk('agent_thought_chunk', 'x'.repeat(400));
+    chunk('agent_message_chunk', 'y'.repeat(400), true);
+    expect(store.streamedTokens()).toBe(200);
+    store.receive({ jsonrpc: '2.0', method: '_pwr/usage', params: { used: 20_190, window: 262_144 } });
+    expect(store.streamedTokens()).toBe(0);
+    expect(store.usage()).toEqual({ used: 20_190, window: 262_144, estimated: false });
   });
 
   it('routes extension notifications to their listeners only', () => {

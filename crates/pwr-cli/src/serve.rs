@@ -2094,14 +2094,28 @@ impl<R: TurnRunner + 'static> Server<R> {
                         ));
                         return;
                     }
-                    if let TurnStep::Usage { used, window } = &step {
-                        server
-                            .usage
-                            .borrow_mut()
-                            .insert(session_id.clone(), (*used, *window));
+                    if let TurnStep::Usage {
+                        used,
+                        window,
+                        estimated,
+                    } = &step
+                    {
+                        // Only the engine's own count answers `_pwr/context`'s
+                        // "counted by engine"; an estimate is for the meter.
+                        if !estimated {
+                            server
+                                .usage
+                                .borrow_mut()
+                                .insert(session_id.clone(), (*used, *window));
+                        }
                         server.send(notification(
                             "_pwr/usage",
-                            json!({"sessionId": session_id, "used": used, "window": window}),
+                            json!({
+                                "sessionId": session_id,
+                                "used": used,
+                                "window": window,
+                                "estimated": estimated,
+                            }),
                         ));
                         return;
                     }

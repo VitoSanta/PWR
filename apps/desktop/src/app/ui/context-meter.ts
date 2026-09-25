@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { fullness, percent, tokens, when } from '../core/format';
 import { Icon } from './kit/icon';
@@ -29,7 +29,7 @@ import { Tooltip } from './kit/tooltip';
         <circle class="fill" cx="18" cy="18" r="14" [style.stroke-dasharray]="dash()" />
       </svg>
       @if (usage(); as usage) {
-        <span class="num"><strong>{{ used() }}%</strong><span class="meter-detail"> · {{ t(usage.used) }} / {{ t(usage.window) }}</span></span>
+        <span class="num"><strong>{{ used() }}%</strong><span class="meter-detail"> · {{ usage.estimated ? '~' : '' }}{{ t(usage.used) }} / {{ t(usage.window) }}</span></span>
       } @else {
         <span class="num">{{ t(window()) }}<span class="meter-detail"> window</span></span>
       }
@@ -57,8 +57,8 @@ import { Tooltip } from './kit/tooltip';
               <dl class="figures">
                 <div>
                   <dt>Used</dt>
-                  <dd class="figure-value num">{{ t(info.used) }}</dd>
-                  <dd class="figure-note">{{ info.usedSource === 'engine' ? 'counted by engine' : 'estimated' }}</dd>
+                  <dd class="figure-value num">{{ t(now(info).used) }}</dd>
+                  <dd class="figure-note">{{ now(info).note }}</dd>
                 </div>
                 <div>
                   <dt>Window</dt>
@@ -67,11 +67,11 @@ import { Tooltip } from './kit/tooltip';
                 </div>
                 <div>
                   <dt>Remaining</dt>
-                  <dd class="figure-value num">{{ t(max(0, info.window - info.used)) }}</dd>
-                  <dd class="figure-note num">{{ 100 - pct(info.used, info.window) }}% free</dd>
+                  <dd class="figure-value num">{{ t(max(0, info.window - now(info).used)) }}</dd>
+                  <dd class="figure-note num">{{ 100 - pct(now(info).used, info.window) }}% free</dd>
                 </div>
               </dl>
-              <div class="bar" role="img" [attr.aria-label]="pct(info.used, info.window) + '% of the window used'">
+              <div class="bar" role="img" [attr.aria-label]="pct(now(info).used, info.window) + '% of the window used'">
                 @for (part of parts(); track part.key) {
                   <span [class]="'seg k-' + part.key" [style.width.%]="part.share" [attr.title]="part.label + ': ~' + t(part.tokens)"></span>
                 }
@@ -88,7 +88,9 @@ import { Tooltip } from './kit/tooltip';
               </ul>
               <p class="fine">
                 Composition is an estimate ({{ info.estimateBasis }}), ~{{ t(info.estimatedTokens) }} in all.
-                @if (info.usedSource === 'engine') {
+                @if (usage()?.estimated) {
+                  “Used” follows the turn as it works: the engine’s last count plus an estimate of what was added since.
+                } @else if (info.usedSource === 'engine') {
                   “Used” is the engine’s own count after the last reply.
                 }
               </p>
@@ -199,13 +201,37 @@ export class ContextMeter {
   protected readonly ago = when;
 
   protected readonly info = this.store.contextInfo;
-  /** The engine's count when there is one, else what the panel last read. */
+  /**
+   * The engine's count when there is one, else what the panel last read, plus
+   * what the generation in flight has streamed since: live, not only after
+   * the reply.
+   */
   protected readonly usage = computed(() => {
-    const reported = this.store.usage();
-    if (reported) return reported;
     const info = this.info();
-    return info && info.window > 0 ? { used: info.used, window: info.window } : null;
+    const base =
+      this.store.usage() ??
+      (info && info.window > 0 ? { used: info.used, window: info.window, estimated: info.usedSource !== 'engine' } : null);
+    if (!base) return null;
+    const streamed = this.store.streamedTokens();
+    return { used: base.used + streamed, window: base.window, estimated: base.estimated || streamed > 0 };
   });
+
+  /** "Used" in the panel: the live figure, and where it comes from. */
+  protected now(info: { used: number; usedSource: string }): { used: number; note: string } {
+    const live = this.usage();
+    if (!live) return { used: info.used, note: info.usedSource === 'engine' ? 'counted by engine' : 'estimated' };
+    return { used: live.used, note: live.estimated ? 'estimated, live' : 'counted by engine' };
+  }
+
+  constructor() {
+    // An open panel follows the turn: each count the engine reports re-reads
+    // what fills the window, so the composition does not wait to be reopened.
+    effect(() => {
+      const reported = this.store.usage();
+      if (!reported || reported.estimated || !untracked(this.open)) return;
+      untracked(() => void this.reload());
+    });
+  }
   protected readonly window = computed(() => this.store.context()?.tokens ?? 0);
   protected readonly used = computed(() => {
     const usage = this.usage();
