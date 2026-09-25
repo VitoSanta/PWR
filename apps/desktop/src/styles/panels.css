@@ -814,8 +814,17 @@ pa-model-picker {
   white-space: nowrap;
 }
 
-.local-model .variant-action > .btn:first-child {
-  min-width: 64px;
+/* Fixed columns, not a flex row: a row without Settings or Use keeps an empty
+   slot, so every button sits in the same column as the ones above it. */
+.local-model .local-actions {
+  display: grid;
+  grid-template-columns: 84px 84px 100px;
+  justify-content: end;
+}
+
+.local-model .local-actions > .btn {
+  width: 100%;
+  justify-content: center;
 }
 
 .local-download-progress {

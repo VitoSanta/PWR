@@ -160,17 +160,23 @@ import { Tooltip } from './kit/tooltip';
                           <small class="t-caption num">{{ phase(model.download) }}</small>
                         </div>
                       }
-                      <div class="variant-action">
+                      <!-- Three fixed slots -- settings, the one action that moves the
+                           model forward, delete -- so the buttons line up down the list
+                           whichever of them a row has. -->
+                      <div class="variant-action local-actions">
                         @if (model.usable && model.format === 'mlx') {
                           <button class="btn btn-sm" (click)="models.openProfile(model.modelRef)" [paTooltip]="'Sampling settings for ' + name(model.modelRef)">Settings</button>
+                        } @else {
+                          <span class="action-slot" aria-hidden="true"></span>
                         }
                         @if (model.download && ['preparing', 'downloading', 'verifying'].includes(model.download.state.state)) {
                           <button class="btn btn-sm" (click)="models.pause(model.modelRef, model.format)">Pause</button>
                         } @else if (model.partial && !model.inUse) {
                           <button class="btn btn-sm" (click)="models.resume(model.modelRef, model.format)">Resume</button>
-                        }
-                        @if (model.usable && !model.inUse) {
+                        } @else if (model.usable && !model.inUse) {
                           <button class="btn btn-sm" (click)="models.use(model.modelRef)" [disabled]="agent.turnActive()">Use</button>
+                        } @else {
+                          <span class="action-slot" aria-hidden="true"></span>
                         }
                         <button
                           class="btn btn-sm btn-danger-quiet"
