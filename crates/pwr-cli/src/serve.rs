@@ -841,14 +841,13 @@ impl<R: TurnRunner + 'static> Server<R> {
             Ok(messages) => {
                 let conversation_id = pwr_domain::new_id();
                 let session_id = conversation_id.to_string();
+                let continuity = converse::Continuity {
+                    chat_only: self.is_chat_home(&root),
+                    ..Default::default()
+                };
                 self.sessions.borrow_mut().insert(
                     session_id.clone(),
-                    Session::new(
-                        root,
-                        conversation_id,
-                        messages,
-                        converse::Continuity::default(),
-                    ),
+                    Session::new(root, conversation_id, messages, continuity),
                 );
                 self.send(result(id, json!({"sessionId": session_id})));
                 self.send(available_commands(&session_id));
@@ -905,7 +904,10 @@ impl<R: TurnRunner + 'static> Server<R> {
         if let Some(note) = &resumed.note {
             self.update(&session_id, message_chunk("agent_message_chunk", note));
         }
-        let continuity = converse::Continuity::default();
+        let continuity = converse::Continuity {
+            chat_only: self.is_chat_home(&root),
+            ..Default::default()
+        };
         if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
             *checkpoint = resumed.checkpoint;
         }
@@ -1975,12 +1977,11 @@ impl<R: TurnRunner + 'static> Server<R> {
             ));
         };
         let point = session.rewind_points[position].clone();
-        if session
-            .messages
-            .get(point.at)
-            .map(|message| message.content.as_str())
-            != Some(point.text.as_str())
-        {
+        // Starts with, not equals: a goal appends the checks already failing
+        // to the message it answers.
+        if !session.messages.get(point.at).is_some_and(|message| {
+            message.role == "user" && message.content.starts_with(&point.text)
+        }) {
             return self.send(error_response(
                 id,
                 -32000,
@@ -2070,6 +2071,15 @@ impl<R: TurnRunner + 'static> Server<R> {
             id,
             json!({"rewound": true, "turn": turn, "restored": restored, "failed": failed}),
         ));
+    }
+
+    /// Whether `root` is chat mode's folder rather than a workspace: it has
+    /// no wiki, no project entry and no summaries.
+    fn is_chat_home(&self, root: &Path) -> bool {
+        match (self.runner.chat_home(), root.canonicalize()) {
+            (Some(home), Ok(root)) => home == root,
+            _ => false,
+        }
     }
 
     /// Brings the workspace's wiki up to date after a turn, and logs the turn
@@ -2738,7 +2748,8 @@ fn prompt_parts(params: &Value) -> Result<PromptParts, String> {
 pub fn tool_kind(capability: &str) -> &'static str {
     match capability {
         "read_file" => "read",
-        "search" | "find_definition" | "list_tree" => "search",
+        "search" | "find_definition" | "list_tree" | "recall_project" | "wiki_query" => "search",
+        "remember" => "think",
         "replace_text" | "apply_patch" | "apply_replace" | "write_file" | "make_directory"
         | "restore_file" => "edit",
         "delete_path" => "delete",
