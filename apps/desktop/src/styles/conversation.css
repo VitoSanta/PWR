@@ -136,9 +136,18 @@ pa-composer {
 }
 
 /* ------------------------------------------------------- your message */
-.message-user {
+/* The bubble, and under it -- outside it -- its actions. */
+.message-user-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   align-self: flex-end;
+  gap: 2px;
   max-width: min(78%, 640px);
+}
+
+.message-user {
+  max-width: 100%;
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
@@ -1333,13 +1342,12 @@ pa-trace-raw {
   display: flex;
   justify-content: flex-end;
   gap: 2px;
-  margin: var(--space-2) calc(-1 * var(--space-2)) calc(-1 * var(--space-2));
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
 }
 
-.message-user:hover .message-actions,
-.message-user:focus-within .message-actions,
+.message-user-group:hover .message-actions,
+.message-user-group:focus-within .message-actions,
 .turn:hover .turn-actions,
 .turn:focus-within .turn-actions {
   opacity: 1;

@@ -70,7 +70,8 @@ type Item =
         @for (item of items(); track item.key) {
           @switch (item.type) {
             @case ('user') {
-              <article class="message-user" aria-label="Your message">
+              <article class="message-user-group" aria-label="Your message">
+                <div class="message-user">
                 <div class="message-user-text selectable">{{ item.entry.text }}</div>
                 @if (item.entry.attachments?.length) {
                   <div class="attachment-chips">
@@ -82,6 +83,7 @@ type Item =
                     }
                   </div>
                 }
+                </div>
                 <div class="message-actions">
                   <button class="icon-btn icon-btn-sm" (click)="copy(item.entry.text)" aria-label="Copy message" paTooltip="Copy">
                     <pa-icon name="copy" [size]="14" />
