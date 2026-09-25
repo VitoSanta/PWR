@@ -525,7 +525,30 @@ pub fn chat_tool_catalog() -> ToolCatalog {
     // catalogue is part of what a campaign measures.
     tools.push(remember_tool());
     tools.push(recall_project_tool());
+    tools.push(wiki_query_tool());
     ToolCatalog::new(tools).expect("a filtered catalogue is valid")
+}
+
+/// `wiki_query`: a node of a workspace's knowledge graph and its neighbours.
+pub fn wiki_query_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "wiki_query".into(),
+        description: "Ask the workspace's knowledge graph about a file, folder, symbol or \
+                      package: what it contains or defines, what it imports and what imports it, \
+                      what tests it, which past requests changed it, and decisions about it. \
+                      Each link says how it is known. Faster than reading files to find how \
+                      things connect; read the files before changing them. Give project to ask \
+                      about another project you know. An empty query gives an outline."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "A path, folder, symbol or package name."},
+                "project": {"type": "string", "description": "Another project's name; this workspace when omitted."},
+            },
+            "required": ["query"],
+        }),
+    }
 }
 
 /// `recall_project`: what PWR knows about a workspace it worked in before,
@@ -589,6 +612,7 @@ pub fn chat_only_tool_catalog() -> ToolCatalog {
             CHAT_ONLY_TOOLS.contains(&tool.name.as_str())
                 || tool.name == "remember"
                 || tool.name == "recall_project"
+                || tool.name == "wiki_query"
         })
         .collect();
     ToolCatalog::new(tools).expect("a filtered catalogue is valid")
@@ -1529,6 +1553,24 @@ async fn take_turn_inner<P: ModelProvider>(
                     call,
                     crate::action_outcome(match recalled {
                         Ok(text) => Ok(serde_json::json!({"recalled": text})),
+                        Err(why) => Err(crate::ActionExecutionError::Invalid(why)),
+                    }),
+                ));
+                continue;
+            }
+            if let ActionProposal::WikiQuery { query, project } = &action {
+                let root = (!continuity.chat_only).then_some(policy.root.as_path());
+                let answered = crate::personal::Home::from_env().map(|home| {
+                    crate::wiki::query(&home, root, project.as_deref().unwrap_or_default(), query)
+                });
+                on_step(TurnStep::Acted {
+                    capability: "wiki_query".into(),
+                    detail: query.clone(),
+                });
+                messages.push(tool_message(
+                    call,
+                    crate::action_outcome(match answered {
+                        Ok(text) => Ok(serde_json::json!({"graph": text})),
                         Err(why) => Err(crate::ActionExecutionError::Invalid(why)),
                     }),
                 ));

@@ -5,6 +5,7 @@ pub mod context;
 pub mod conversation;
 pub mod converse;
 pub mod evidence;
+pub mod graph;
 pub mod personal;
 pub mod plan;
 pub mod repetition;
@@ -1155,11 +1156,11 @@ async fn attempt_action(
         }
         // A conversation takes it before execution and shows it to the person;
         // anything else has nobody to confirm it.
-        ActionProposal::Remember { .. } | ActionProposal::RecallProject { .. } => {
-            Err(ActionExecutionError::Invalid(
-                "remember and recall_project are available only in a conversation".into(),
-            ))
-        }
+        ActionProposal::Remember { .. }
+        | ActionProposal::RecallProject { .. }
+        | ActionProposal::WikiQuery { .. } => Err(ActionExecutionError::Invalid(
+            "remember and recall_project are available only in a conversation".into(),
+        )),
         // Reaching here means a person approved it: the approval gate runs
         // before execution. Adopting it is the loop's job, not the tool's,
         // because a check outlives the action that proposed it.
@@ -2021,6 +2022,10 @@ fn action_fingerprint(action: &ActionProposal) -> String {
         ActionProposal::RecallProject { name } => {
             format!("recall_project:{}", name.as_deref().unwrap_or_default())
         }
+        ActionProposal::WikiQuery { query, project } => format!(
+            "wiki_query:{}:{query}",
+            project.as_deref().unwrap_or_default()
+        ),
         ActionProposal::RecordProgress { step, .. } => format!("record_progress:{step}"),
         ActionProposal::ReadFile {
             path, first_line, ..

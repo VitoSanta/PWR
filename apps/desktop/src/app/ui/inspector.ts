@@ -7,13 +7,14 @@ import { Diff, diffStats } from './diff';
 import { Icon, IconName } from './kit/icon';
 import { ResizeHandle } from './kit/resize-handle';
 import { Tooltip } from './kit/tooltip';
+import { Wiki } from './wiki';
 
-type Tab = 'changes' | 'evidence' | 'log';
+type Tab = 'changes' | 'evidence' | 'wiki' | 'log';
 type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
 
 @Component({
   selector: 'pa-inspector',
-  imports: [Diff, Icon, Tooltip, ResizeHandle],
+  imports: [Diff, Icon, Tooltip, ResizeHandle, Wiki],
   template: `
     <aside class="inspector" aria-label="Inspector">
       <header class="inspector-head titlebar-row" data-tauri-drag-region="deep">
@@ -126,6 +127,9 @@ type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
               }
             </div>
           }
+          @case ('wiki') {
+            <pa-wiki />
+          }
           @case ('log') {
             <section class="output-block log-block">
               <header class="output-head">
@@ -172,6 +176,7 @@ export class Inspector {
   protected readonly tabs: { id: Tab; label: string }[] = [
     { id: 'changes', label: 'Changes' },
     { id: 'evidence', label: 'Evidence' },
+    { id: 'wiki', label: 'Wiki' },
     { id: 'log', label: 'Core log' },
   ];
   protected readonly commands: { id: Command; label: string; icon: IconName; help: string }[] = [

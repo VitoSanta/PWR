@@ -21,6 +21,7 @@
 
 use crate::personal::Home;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The most of a log a recall returns, newest first, in entries.
@@ -81,11 +82,27 @@ fn name_of(root: &Path) -> String {
 pub fn refresh(home: &Home, root: &Path, worked: Option<Worked<'_>>) -> Result<(), String> {
     let dir = wiki_dir(root);
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    let (overview, summary) = overview(root);
-    write(&dir.join("overview.md"), &overview)?;
     if let Some(worked) = worked {
         append_log(&dir.join("log.md"), &worked)?;
     }
+    let graph = rebuild_graph(home, root)?;
+    let (mut overview, summary) = overview(root);
+    overview.push_str(&format!(
+        "\n## Knowledge graph\n{}\nAsk it about a file, folder, symbol or package with \
+         `wiki_query`.\n",
+        graph.outline()
+    ));
+    for id in crate::graph::summary_candidates_in(&graph).iter().take(12) {
+        if let Some(node) = graph.nodes.iter().find(|node| &node.id == id)
+            && let Some(text) = node.attrs.get("summary").and_then(|value| value.as_str())
+        {
+            overview.push_str(&format!(
+                "\n### {}\n{text} *(written by a model, unverified)*\n",
+                node.label
+            ));
+        }
+    }
+    write(&dir.join("overview.md"), &overview)?;
     register(
         home,
         Project {
@@ -95,6 +112,171 @@ pub fn refresh(home: &Home, root: &Path, worked: Option<Worked<'_>>) -> Result<(
             summary,
         },
     )
+}
+
+/// The workspace's index, as the graph reads it: incremental, so a workspace
+/// that did not change is not read again.
+pub fn index(root: &Path) -> Result<pwr_repo::RepositoryIndex, String> {
+    pwr_repo::index_incremental(root, Some(&root.join(".pwr")))
+        .map(|(index, _)| index)
+        .map_err(|error| error.to_string())
+}
+
+/// Rebuilds `graph.json` from the index, the log, the workspace's memories
+/// and the summaries written so far.
+pub fn rebuild_graph(home: &Home, root: &Path) -> Result<crate::graph::Graph, String> {
+    let index = index(root)?;
+    let decisions: Vec<crate::graph::DecisionEntry> =
+        crate::personal::load_memories(home, crate::personal::Scope::Workspace, root)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|memory| crate::graph::DecisionEntry {
+                id: memory.id,
+                text: memory.text,
+            })
+            .collect();
+    let graph = crate::graph::build(
+        &name_of(root),
+        &index,
+        &work_entries(root),
+        &decisions,
+        &summaries(root),
+    );
+    let bytes = serde_json::to_vec(&graph).map_err(|error| error.to_string())?;
+    write(
+        &wiki_dir(root).join("graph.json"),
+        &String::from_utf8_lossy(&bytes),
+    )?;
+    Ok(graph)
+}
+
+/// The graph as last built, if there is one.
+pub fn load_graph(root: &Path) -> Option<crate::graph::Graph> {
+    std::fs::read(wiki_dir(root).join("graph.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+}
+
+/// A question to a workspace's graph: this one, or a known project by name.
+pub fn query(home: &Home, root: Option<&Path>, project: &str, question: &str) -> String {
+    let path = if project.trim().is_empty() {
+        root.map(Path::to_path_buf)
+    } else {
+        let wanted = project.trim().to_lowercase();
+        projects(home)
+            .into_iter()
+            .find(|known| known.name.to_lowercase() == wanted)
+            .map(|known| known.path)
+    };
+    let Some(path) = path else {
+        return format!(
+            "No project named `{project}` has a wiki; call recall_project with no name to list them."
+        );
+    };
+    match load_graph(&path) {
+        Some(graph) => graph.neighbourhood(question),
+        None => {
+            "This workspace has no graph yet: it is built after PWR's first reply in it.".into()
+        }
+    }
+}
+
+/// Model-written summaries, by node id (`summaries.json`).
+pub fn summaries(root: &Path) -> BTreeMap<String, crate::graph::Summary> {
+    std::fs::read(wiki_dir(root).join("summaries.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Records a summary of `id`, written against `source_hash`.
+pub fn save_summary(root: &Path, id: &str, summary: crate::graph::Summary) -> Result<(), String> {
+    let mut all = summaries(root);
+    all.insert(id.to_owned(), summary);
+    let bytes = serde_json::to_vec_pretty(&all).map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(wiki_dir(root)).map_err(|error| error.to_string())?;
+    write(
+        &wiki_dir(root).join("summaries.json"),
+        &String::from_utf8_lossy(&bytes),
+    )
+}
+
+/// What a model is asked to summarise one module from: the files directly in
+/// it, what each defines, and the opening of the largest -- bounded, read by
+/// the harness, never by the model.
+pub fn summary_prompt(
+    root: &Path,
+    index: &pwr_repo::RepositoryIndex,
+    id: &str,
+    language: &str,
+) -> String {
+    const EXCERPT_CHARS: usize = 6_000;
+    let folder = id.strip_prefix("dir:").unwrap_or_default();
+    let mut files: Vec<&pwr_repo::FileRecord> = index
+        .files
+        .iter()
+        .filter(|file| {
+            file.path
+                .rsplit_once('/')
+                .map_or(folder.is_empty(), |(parent, _)| parent == folder)
+        })
+        .collect();
+    files.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+    let shown = if folder.is_empty() {
+        name_of(root)
+    } else {
+        format!("{folder}/")
+    };
+    let mut prompt = format!(
+        "Summarise the module `{shown}` of the project `{}` for its wiki, in two or three \
+         sentences: what it is for and how it fits the project. Say only what the code below \
+         shows; if it does not show something, leave it out. No lists, no headings, no preamble.\n",
+        name_of(root)
+    );
+    if !language.trim().is_empty() {
+        prompt.push_str(&format!("Write it in {}.\n", language.trim()));
+    }
+    prompt.push_str("\nFiles and what they define:\n");
+    for file in files.iter().take(30) {
+        let symbols: Vec<&str> = file.symbols.iter().map(String::as_str).take(15).collect();
+        prompt.push_str(&format!("- {}: {}\n", file.path, symbols.join(", ")));
+    }
+    let mut room = EXCERPT_CHARS;
+    for file in files.iter().take(3) {
+        let Ok(text) = std::fs::read_to_string(root.join(&file.path)) else {
+            continue;
+        };
+        let excerpt: String = text.lines().take(60).collect::<Vec<_>>().join("\n");
+        let excerpt = clip(&excerpt, room.min(2_500));
+        room = room.saturating_sub(excerpt.len());
+        prompt.push_str(&format!("\n`{}`:\n```\n{excerpt}\n```\n", file.path));
+        if room < 200 {
+            break;
+        }
+    }
+    prompt
+}
+
+/// The work log as the graph links it.
+pub fn work_entries(root: &Path) -> Vec<crate::graph::WorkEntry> {
+    let log = std::fs::read_to_string(wiki_dir(root).join("log.md")).unwrap_or_default();
+    log.split(ENTRY)
+        .skip(1)
+        .map(|entry| {
+            let head = entry.lines().next().unwrap_or_default();
+            let (when, request) = head.split_once(" -- ").unwrap_or((head, ""));
+            let files = entry
+                .lines()
+                .find_map(|line| line.strip_prefix("Files written: "))
+                .map(|files| files.split(", ").map(str::to_owned).collect())
+                .unwrap_or_default();
+            crate::graph::WorkEntry {
+                when: when.to_owned(),
+                request: request.to_owned(),
+                files,
+            }
+        })
+        .collect()
 }
 
 /// The projects PWR knows, most recently worked on first.

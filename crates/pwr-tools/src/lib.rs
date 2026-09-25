@@ -83,6 +83,14 @@ pub enum ActionProposal {
         #[serde(default)]
         name: Option<String>,
     },
+    /// A question to a workspace's knowledge graph (`pwr_orchestrator::graph`):
+    /// a file, folder, symbol or package and its neighbours. This workspace,
+    /// or a known project by name. Conversations only.
+    WikiQuery {
+        query: String,
+        #[serde(default)]
+        project: Option<String>,
+    },
     /// Several replacements in one file, under one hash guard.
     ///
     /// Named for the schema, not for the variant. The tool has always been
