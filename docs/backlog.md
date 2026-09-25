@@ -25,6 +25,7 @@ a **Status** line. The order of work is in [`roadmap.md`](roadmap.md), "Update
 | Long documents read as an outline | built, not measured | D.E2E-15 |
 | Local context filter (embedding, offline) | built, opt-in; modest measured gain; needs a discriminating task with repeats | C.22 |
 | "System One" decider in the Jev shape | tried with a 1.5B and with Rizzo Flow (4B): both lower precision behind the fused ranking; set aside for context selection | C.22, C.22a |
+| Encoder-ranked evidence after compaction | future experiment; deferred while the current runtime and context work is consolidated | C.22b |
 | Search over installed dependencies | done, used unprompted | C.12 |
 | Installed dependencies read-only | done | D.E2E-29 |
 | Permission modes Ask / Auto | done | R.2 |
@@ -1259,6 +1260,29 @@ Ordered by what they protect, not by size.
       copy of the tree at the labelling revision; the encoder and fusion
       numbers reproduce exactly on it. Details:
       `experiments/jev-context-filter-20260922/results-rizzo-flow.md`.
+- [ ] **C.22b Encoder-ranked evidence after compaction -- future experiment,
+      proposed 2026-09-25.** Inspired by
+      [fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction):
+      decide separately whether an older tool call and its full result still
+      help the current task, while preserving any retained bytes verbatim.
+      Jev is a hosted reference, not a proposed dependency. Test whether
+      PWR's existing offline `multilingual-e5-small` encoder can rank
+      provenance-linked evidence windows for a fixed post-compaction token
+      budget. The encoder supplies a ranking, never an authorization or a
+      calibrated keep/drop verdict. Keep user requests and revisions, recent
+      call/result pairs, changed-file state, open failures and the latest check
+      verdict under deterministic rules; re-read selected file windows from
+      disk and validate their hashes before delivery. A low similarity score
+      alone must not erase evidence. Compare three policies at equal delivered
+      token budget: current compaction, recency fill, and encoder-ranked
+      evidence. Measure verified completion, unchanged-file re-reads after
+      compaction, stale evidence delivered, prompt tokens, wall time and peak
+      memory. Use multiple compactions and external edits in the tasks; freeze
+      the treatment, baselines and acceptance criteria before confirmation.
+      The earlier 1.5B and Rizzo Flow failures (C.22/C.22a) rule out assuming a
+      Jev-like classifier will improve ranking. **Status: documented only;
+      no implementation or campaign until the existing runtime and context
+      paths are consolidated.**
 - [ ] **C.23 Single-agent adaptive harness -- idea, proposed 2026-09-22 by the
       maintainer.** No planner/coder/reviewer sub-agents: one local model whose
       operating mode (explore, plan, implement, test, debug, review) the
