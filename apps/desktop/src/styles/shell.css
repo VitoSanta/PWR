@@ -613,37 +613,537 @@ pa-inspector {
   font-weight: inherit;
 }
 
-/* ------------------------------------------------------------- wiki tab */
-.wiki {
+/* ------------------------------------------------------------ workbench */
+.workbench {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.wiki-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.wiki-search {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.wiki-search > .input {
   flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workbench-head {
+  gap: var(--space-1);
+  padding: 0 var(--space-2) 0 var(--space-4);
+}
+
+.workbench-title {
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.workbench-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  overflow-y: auto;
+}
+
+/* A card: a header always, a body when open. Open cards share the column. */
+.wb-card {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-primary);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.wb-card.fills {
+  flex: 1 1 0;
+  min-height: 260px;
+}
+
+.workbench-body.maximized .wb-card.fills {
+  min-height: 0;
+}
+
+.wb-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 40px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+}
+
+.wb-card.collapsed .wb-card-head {
+  border-bottom: 0;
+}
+
+.wb-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-2) 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.wb-card-title:hover {
+  background: var(--surface-hover);
+}
+
+.wb-card-chevron {
+  color: var(--text-muted);
+  transition: transform var(--dur) var(--ease);
+}
+
+.wb-card-title[aria-expanded='true'] .wb-card-chevron {
+  transform: rotate(90deg);
+}
+
+.wb-card-actions {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0.55;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.wb-card-head:hover .wb-card-actions,
+.wb-card-head:focus-within .wb-card-actions {
+  opacity: 1;
+}
+
+.wb-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.wb-card-body > * {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.card-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}
+
+.card-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.card-pad {
+  padding: var(--space-3);
+}
+
+.card-empty {
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--fs-body-sm);
+  line-height: 1.5;
+  list-style: none;
+}
+
+.card-banner {
+  margin: var(--space-2) var(--space-3) 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--accent-border);
+  color: var(--text-primary);
+}
+
+/* The launcher: what an empty workbench offers, and the + menu. */
+.launcher {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: auto 0;
+}
+
+.launcher-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-primary);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+
+.launcher-card:hover,
+.launcher-card:focus-visible {
+  border-color: var(--accent-border);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.launcher-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
-.wiki-answer {
-  max-height: 360px;
-  overflow: auto;
-  white-space: pre-wrap;
+.launcher-label {
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-medium);
 }
 
-.wiki-module,
-.wiki-work {
+.tool-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+}
+
+.tool-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-h);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--fs-body-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-menu-item:hover,
+.tool-menu-item:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.tool-menu-label {
+  flex: 1;
+}
+
+.tool-menu-open {
+  color: var(--accent-text);
+}
+
+/* Plan & checks, Activity */
+.plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-body-sm);
+}
+
+.activity-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+/* Files */
+.files-path .mono {
+  color: var(--text-secondary);
+}
+
+.file-list {
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+}
+
+.file-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--fs-body-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-entry:hover,
+.file-entry:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.file-entry > .truncate {
+  flex: 1;
+}
+
+.file-view {
+  padding: var(--space-2) 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.file-line {
+  display: flex;
+  min-width: max-content;
+}
+
+.file-number {
+  flex: none;
+  width: 4ch;
+  padding-right: var(--space-3);
+  color: var(--text-muted);
+  text-align: right;
+  user-select: none;
+  opacity: 0.7;
+}
+
+.file-text {
+  padding-right: var(--space-3);
+  color: var(--text-primary);
+  white-space: pre;
+  user-select: text;
+}
+
+/* Terminal */
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-2) 0 0 var(--space-2);
+  background: var(--surface-primary);
+}
+
+.terminal-surface {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-surface .xterm {
+  height: 100%;
+}
+
+/* Browser */
+.browser-bar {
+  padding-left: var(--space-2);
+}
+
+.browser-address {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+}
+
+.browser-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+
+.browser-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Knowledge */
+.graph-controls {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.graph-search {
+  flex: 1;
+  min-width: 160px;
+}
+
+.graph-search > .input {
+  width: 100%;
+}
+
+.graph-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.graph-stage {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+  overflow: hidden;
+}
+
+.graph-stage > pa-graph3d,
+.graph3d-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.graph-legend {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  max-width: calc(100% - var(--space-4));
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--surface-primary) 80%, transparent);
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+  list-style: none;
+  pointer-events: none;
+}
+
+.graph-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.graph-detail {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  left: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 55%;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--fs-body-sm);
+}
+
+.graph-detail > header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.graph-summary {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.graph-links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.graph-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.knowledge-list,
+.work-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  list-style: none;
+}
+
+.knowledge-item,
+.work-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -654,12 +1154,13 @@ pa-inspector {
   font-size: var(--fs-body-sm);
 }
 
-.wiki-module > p {
+.knowledge-item > p {
   margin: 0;
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
-.wiki-module-name {
+.knowledge-name {
   padding: 0;
   border: 0;
   background: none;
@@ -668,10 +1169,6 @@ pa-inspector {
   cursor: pointer;
 }
 
-.wiki-module-name:hover {
+.knowledge-name:hover {
   text-decoration: underline;
-}
-
-details.wiki-section > summary {
-  cursor: pointer;
 }

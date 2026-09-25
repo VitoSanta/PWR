@@ -7,6 +7,7 @@ export const isMac =
 export function shortcut(keys: string): string {
   if (isMac)
     return keys
+      .replace(/Ctrl\+/g, '⌃')
       .replace(/Mod\+/g, '⌘')
       .replace(/Shift\+/g, '⇧')
       .replace(/Alt\+/g, '⌥');
@@ -20,6 +21,10 @@ export const SHORTCUTS = {
   toggleSidebar: 'Mod+B',
   toggleInspector: 'Mod+Alt+B',
   settings: 'Mod+,',
+  review: 'Ctrl+Shift+G',
+  terminal: 'Ctrl+`',
+  browser: 'Mod+Shift+T',
+  files: 'Mod+P',
 } as const;
 
 /** Application-level surfaces that are not owned by one feature. */
@@ -27,8 +32,6 @@ export const SHORTCUTS = {
 export class UiStore {
   readonly settingsOpen = signal(false);
   readonly paletteOpen = signal(false);
-  /** Kept here so the tab survives the inspector docking and undocking. */
-  readonly inspectorTab = signal<'changes' | 'evidence' | 'wiki' | 'log'>('changes');
 }
 
 /**
