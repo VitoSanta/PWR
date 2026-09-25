@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { CARDS, WorkbenchStore } from '../core/workbench';
 import { AgentStore } from '../core/agent.store';
 import { LayoutService } from '../core/layout';
 import { modelLabel } from '../core/model';
@@ -93,6 +94,7 @@ export class CommandPalette {
   protected readonly ui = inject(UiStore);
   private readonly store = inject(AgentStore);
   private readonly layout = inject(LayoutService);
+  private readonly work = inject(WorkbenchStore);
   private readonly models = inject(ModelsStore);
   private readonly theme = inject(ThemeService);
   protected readonly shortcut = shortcut;
@@ -219,12 +221,20 @@ export class CommandPalette {
       },
       {
         id: 'inspector',
-        label: 'Toggle inspector',
+        label: 'Toggle workbench',
         group: 'View',
         icon: 'panel-right',
         keys: SHORTCUTS.toggleInspector,
         run: () => this.layout.toggleRight(),
       },
+      ...CARDS.map((card) => ({
+        id: `card-${card.id}`,
+        label: `Open ${card.label}`,
+        group: 'View',
+        icon: card.icon as IconName,
+        keys: card.keys,
+        run: () => this.work.show(card.id),
+      })),
       {
         id: 'theme-system',
         label: 'Appearance: System',
@@ -304,7 +314,6 @@ export class CommandPalette {
   private evidence(name: 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor'): void {
     void this.store.runCommand(name);
     // Show the output where it appears.
-    this.ui.inspectorTab.set('evidence');
-    if (this.layout.right() === 'hidden') this.layout.toggleRight();
+    this.work.show('plan');
   }
 }

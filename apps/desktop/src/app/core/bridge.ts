@@ -53,6 +53,14 @@ export const bridge = {
     const picked = await open({ multiple: true, directory: false, title: 'Attach images', filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
     return picked === null ? [] : Array.isArray(picked) ? picked : [picked];
   },
+  termOpen: (cwd: string, cols: number, rows: number) => invoke<number>('term_open', { cwd, cols, rows }),
+  termWrite: (id: number, data: string) => invoke<void>('term_write', { id, data }),
+  termResize: (id: number, cols: number, rows: number) => invoke<void>('term_resize', { id, cols, rows }),
+  termClose: (id: number) => invoke<void>('term_close', { id }),
+  onTermOutput: (handler: (output: { id: number; data: string }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; data: string }>('term-output', (event) => handler(event.payload)),
+  onTermExit: (handler: (id: number) => void): Promise<UnlistenFn> =>
+    listen<number>('term-exit', (event) => handler(event.payload)),
   pickFolder: async (title: string): Promise<string | null> => {
     const picked = await open({ multiple: false, directory: true, title });
     return typeof picked === 'string' ? picked : null;

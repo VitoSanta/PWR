@@ -1,160 +1,157 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ActivityStore } from '../core/activity';
 import { AgentStore } from '../core/agent.store';
 import { LayoutService, RIGHT } from '../core/layout';
-import { FileDiff } from '../core/model';
-import { ConfirmService, SHORTCUTS, ToastService, UiStore, roveFocus } from '../core/ui';
-import { Diff, diffStats } from './diff';
+import { SHORTCUTS, shortcut } from '../core/ui';
+import { CARDS, CardId, CardInfo, WorkbenchStore } from '../core/workbench';
 import { Icon, IconName } from './kit/icon';
+import { Popover } from './kit/popover';
 import { ResizeHandle } from './kit/resize-handle';
 import { Tooltip } from './kit/tooltip';
-import { Wiki } from './wiki';
+import { ActivityCard, BrowserCard, FilesCard, PlanCard, ReviewCard, TerminalCard } from './workbench/cards';
+import { KnowledgeCard } from './workbench/knowledge';
 
-type Tab = 'changes' | 'evidence' | 'wiki' | 'log';
-type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
-
+/**
+ * The workbench: the right-hand column, where the tools live as cards --
+ * Review, Terminal, Browser, Files, Knowledge, Plan & checks, Activity --
+ * stacked, each collapsible, movable, maximisable and closable.
+ */
 @Component({
   selector: 'pa-inspector',
-  imports: [Diff, Icon, Tooltip, ResizeHandle, Wiki],
+  imports: [
+    Icon,
+    Popover,
+    Tooltip,
+    ResizeHandle,
+    ReviewCard,
+    PlanCard,
+    ActivityCard,
+    FilesCard,
+    TerminalCard,
+    BrowserCard,
+    KnowledgeCard,
+  ],
   template: `
-    <aside class="inspector" aria-label="Inspector">
-      <header class="inspector-head titlebar-row" data-tauri-drag-region="deep">
-        <div class="tabs" role="tablist" aria-label="Inspector" (keydown)="tabKeys($event)">
-          @for (tab of tabs; track tab.id) {
-            <button
-              class="tab"
-              role="tab"
-              [id]="'inspector-tab-' + tab.id"
-              [attr.aria-selected]="active() === tab.id"
-              aria-controls="inspector-panel"
-              [attr.tabindex]="active() === tab.id ? 0 : -1"
-              (click)="active.set(tab.id)"
-            >
-              {{ tab.label }}
-              @if (tab.id === 'changes' && store.changes().length) {
-                <span class="count" [attr.aria-label]="store.changes().length + ' changed files'">{{ store.changes().length }}</span>
+    <aside class="workbench" aria-label="Workbench">
+      <header class="workbench-head titlebar-row" data-tauri-drag-region="deep">
+        <span class="workbench-title">Workbench</span>
+        <span class="spacer" data-tauri-drag-region="deep"></span>
+        <button
+          #addTrigger
+          class="icon-btn icon-btn-sm"
+          (click)="launcher.set(!launcher())"
+          aria-label="Open a tool"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="launcher()"
+          paTooltip="Open a tool"
+        >
+          <pa-icon name="plus" [size]="16" />
+        </button>
+        @if (launcher()) {
+          <pa-popover [anchor]="addTrigger" anchorAlign="end" width="300px" ariaLabel="Tools" panelRole="menu" [focusFirst]="true" (closed)="launcher.set(false)">
+            <div class="tool-menu" role="none">
+              @for (card of cards; track card.id) {
+                <button class="tool-menu-item" role="menuitem" (click)="open(card.id)">
+                  <pa-icon [name]="icon(card)" [size]="16" />
+                  <span class="tool-menu-label">{{ card.label }}</span>
+                  @if (work.isOpen(card.id)) {
+                    <pa-icon class="tool-menu-open" name="check" [size]="14" />
+                  } @else if (card.keys) {
+                    <span class="kbd">{{ keys(card.keys) }}</span>
+                  }
+                </button>
               }
-            </button>
-          }
-        </div>
+            </div>
+          </pa-popover>
+        }
         <button
           class="icon-btn icon-btn-sm"
           (click)="layout.toggleRight()"
-          aria-label="Hide inspector"
-          paTooltip="Hide inspector"
-          [paTooltipKeys]="keys.toggleInspector"
+          aria-label="Hide the workbench"
+          paTooltip="Hide the workbench"
+          [paTooltipKeys]="shortcuts.toggleInspector"
         >
           <pa-icon name="x" [size]="16" />
         </button>
       </header>
 
-      <div class="inspector-body" role="tabpanel" id="inspector-panel" [attr.aria-labelledby]="'inspector-tab-' + active()">
-        @switch (active()) {
-          @case ('changes') {
-            @if (store.changes().length) {
-              <div class="inspector-toolbar">
-                <span class="num">{{ store.changes().length }} file{{ store.changes().length === 1 ? '' : 's' }} changed</span>
-                <span class="num text-success">+{{ totals().added }}</span>
-                <span class="num text-danger">−{{ totals().removed }}</span>
-                <span class="spacer"></span>
-                <button class="btn btn-sm btn-ghost" (click)="revertAll()" [disabled]="store.turnActive()">
-                  <pa-icon name="undo" [size]="14" /> Revert all
-                </button>
-              </div>
-              <div class="inspector-pad">
-                @for (change of store.changes(); track change.path; let first = $first) {
-                  <details class="change" [open]="first">
-                    <summary>
-                      <pa-icon class="chevron" name="chevron-right" [size]="14" />
-                      <span class="change-path truncate" [attr.title]="change.path">{{ change.path }}</span>
-                      <span class="delta">
-                        <span class="add">+{{ stats(change).added }}</span>
-                        <span class="del">−{{ stats(change).removed }}</span>
-                      </span>
-                      <button
-                        class="icon-btn icon-btn-sm"
-                        (click)="$event.preventDefault(); $event.stopPropagation(); revert(change)"
-                        [disabled]="store.turnActive()"
-                        [attr.aria-label]="'Revert ' + change.path"
-                        paTooltip="Revert this file"
-                      >
-                        <pa-icon name="undo" [size]="14" />
-                      </button>
-                    </summary>
-                    <pa-diff [diff]="change" />
-                  </details>
+      <div class="workbench-body" [class.maximized]="!!work.maximized()">
+        @for (card of work.visible(); track card.id; let first = $first; let last = $last) {
+          <section
+            class="wb-card"
+            [class.collapsed]="card.collapsed"
+            [class.fills]="!card.collapsed"
+            [attr.aria-label]="info(card.id).label"
+            animate.enter="anim-pop-in"
+          >
+            <header class="wb-card-head" (dblclick)="work.maximize(card.id)">
+              <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
+                <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
+                <pa-icon [name]="icon(info(card.id))" [size]="15" />
+                <span>{{ info(card.id).label }}</span>
+                @if (badge(card.id); as count) {
+                  <span class="count num">{{ count }}</span>
                 }
-              </div>
-            } @else {
-              <div class="empty-state">
-                <span class="empty-state-icon"><pa-icon name="git-compare" /></span>
-                <p class="empty-state-title">No changes yet</p>
-                <p class="empty-state-text">Files PWR edits in this conversation appear here, with their diffs.</p>
-              </div>
-            }
-          }
-          @case ('evidence') {
-            <div class="inspector-pad">
-              <div class="evidence-actions">
-                @for (command of commands; track command.id) {
-                  <button
-                    [class]="command.id === 'verify' ? 'btn btn-primary' : 'btn'"
-                    (click)="store.runCommand(command.id)"
-                    [disabled]="!!store.commandRunning()"
-                    [attr.aria-busy]="store.commandRunning() === command.id"
-                    [paTooltip]="command.help"
-                  >
-                    <pa-icon [name]="command.icon" [size]="16" />
-                    {{ command.label }}
+              </button>
+              <span class="spacer"></span>
+              <span class="wb-card-actions">
+                @if (!work.maximized() && work.visible().length > 1) {
+                  <button class="icon-btn icon-btn-sm" (click)="work.move(card.id, -1)" [disabled]="first" aria-label="Move up" paTooltip="Move up">
+                    <pa-icon name="chevron-up" [size]="14" />
+                  </button>
+                  <button class="icon-btn icon-btn-sm" (click)="work.move(card.id, 1)" [disabled]="last" aria-label="Move down" paTooltip="Move down">
+                    <pa-icon name="chevron-down" [size]="14" />
                   </button>
                 }
-              </div>
-              @if (store.commandOutput(); as output) {
-                <section class="output-block" [attr.aria-busy]="!!store.commandRunning()">
-                  <header class="output-head">
-                    {{ output.name }}
-                    @if (store.commandRunning()) {
-                      <span class="spinner spinner-sm" aria-hidden="true"></span>
-                    }
-                    <span class="spacer"></span>
-                    <button class="icon-btn icon-btn-sm" (click)="copy(output.text)" aria-label="Copy output" paTooltip="Copy">
-                      <pa-icon name="copy" [size]="14" />
-                    </button>
-                  </header>
-                  <pre class="output">{{ output.text }}</pre>
-                </section>
-              } @else {
-                <p class="fine">Run the repository's checks, list the changes, or read the session's report.</p>
-              }
-            </div>
-          }
-          @case ('wiki') {
-            <pa-wiki />
-          }
-          @case ('log') {
-            <section class="output-block log-block">
-              <header class="output-head">
-                <span class="truncate mono" [attr.title]="store.corePath()">{{ store.corePath() || 'Core log' }}</span>
-                <span class="spacer"></span>
                 <button
                   class="icon-btn icon-btn-sm"
-                  (click)="copy(store.logs().join('\\n'))"
-                  [disabled]="!store.logs().length"
-                  aria-label="Copy log"
-                  paTooltip="Copy log"
+                  (click)="work.maximize(card.id)"
+                  [attr.aria-label]="work.maximized() === card.id ? 'Restore' : 'Maximise'"
+                  [paTooltip]="work.maximized() === card.id ? 'Show the other cards' : 'Fill the column'"
                 >
-                  <pa-icon name="copy" [size]="14" />
+                  <pa-icon [name]="work.maximized() === card.id ? 'minus' : 'panel-right'" [size]="14" />
                 </button>
-              </header>
-              <pre class="output">{{ store.logs().join('\\n') || 'The core has written nothing to its log.' }}</pre>
-            </section>
-          }
+                <button class="icon-btn icon-btn-sm" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + info(card.id).label" paTooltip="Close">
+                  <pa-icon name="x" [size]="14" />
+                </button>
+              </span>
+            </header>
+            @if (!card.collapsed) {
+              <div class="wb-card-body">
+                @switch (card.id) {
+                  @case ('review') { <pa-review-card /> }
+                  @case ('knowledge') { <pa-knowledge-card /> }
+                  @case ('files') { <pa-files-card /> }
+                  @case ('terminal') { <pa-terminal-card /> }
+                  @case ('browser') { <pa-browser-card /> }
+                  @case ('activity') { <pa-activity-card /> }
+                  @case ('plan') { <pa-plan-card /> }
+                }
+              </div>
+            }
+          </section>
+        } @empty {
+          <div class="launcher" role="list" aria-label="Tools">
+            @for (card of cards; track card.id) {
+              <button class="launcher-card" role="listitem" (click)="open(card.id)">
+                <pa-icon [name]="icon(card)" [size]="18" />
+                <span class="launcher-text">
+                  <span class="launcher-label">{{ card.label }}</span>
+                  <span class="t-meta">{{ card.description }}</span>
+                </span>
+                @if (card.keys) {
+                  <span class="kbd">{{ keys(card.keys) }}</span>
+                }
+              </button>
+            }
+          </div>
         }
       </div>
     </aside>
     @if (layout.right() === 'docked') {
       <pa-resize-handle
         edge="left"
-        label="Resize inspector"
+        label="Resize the workbench"
         [width]="layout.rightWidth()"
         [min]="bounds.min"
         [max]="bounds.max"
@@ -168,75 +165,34 @@ type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
 export class Inspector {
   protected readonly store = inject(AgentStore);
   protected readonly layout = inject(LayoutService);
-  private readonly confirm = inject(ConfirmService);
-  private readonly toast = inject(ToastService);
-  protected readonly keys = SHORTCUTS;
+  protected readonly work = inject(WorkbenchStore);
+  private readonly activity = inject(ActivityStore);
+  protected readonly shortcuts = SHORTCUTS;
   protected readonly bounds = RIGHT;
-  protected readonly active = inject(UiStore).inspectorTab;
-  protected readonly tabs: { id: Tab; label: string }[] = [
-    { id: 'changes', label: 'Changes' },
-    { id: 'evidence', label: 'Evidence' },
-    { id: 'wiki', label: 'Wiki' },
-    { id: 'log', label: 'Core log' },
-  ];
-  protected readonly commands: { id: Command; label: string; icon: IconName; help: string }[] = [
-    { id: 'verify', label: 'Verify', icon: 'shield-check', help: "Run the workspace's own checks" },
-    { id: 'changes', label: 'Changes', icon: 'git-compare', help: 'List the files this session changed' },
-    { id: 'report', label: 'Report', icon: 'file-text', help: 'Read what happened in this session' },
-    { id: 'diagnose', label: 'Diagnose', icon: 'activity', help: 'What happened, including failed generations' },
-    { id: 'doctor', label: 'Doctor', icon: 'stethoscope', help: 'Check this machine and the engine' },
-  ];
+  protected readonly cards = CARDS;
+  protected readonly launcher = signal(false);
+  protected readonly keys = shortcut;
 
-  protected readonly totals = computed(() =>
-    this.store.changes().reduce(
-      (sum, change) => {
-        const stats = diffStats(change.oldText, change.newText);
-        return { added: sum.added + stats.added, removed: sum.removed + stats.removed };
-      },
-      { added: 0, removed: 0 },
-    ),
-  );
+  private readonly byId = new Map(CARDS.map((card) => [card.id, card]));
+  private readonly badges = computed<Partial<Record<CardId, number>>>(() => ({
+    review: this.store.changes().length,
+    activity: this.activity.running(),
+  }));
 
-  protected stats(change: { oldText: string; newText: string }) {
-    return diffStats(change.oldText, change.newText);
+  protected info(id: CardId): CardInfo {
+    return this.byId.get(id)!;
   }
 
-  protected tabKeys(event: KeyboardEvent): void {
-    if (roveFocus(event, event.currentTarget as HTMLElement, '[role=tab]', 'horizontal')) {
-      (document.activeElement as HTMLElement | null)?.click();
-    }
+  protected icon(card: CardInfo): IconName {
+    return card.icon as IconName;
   }
 
-  protected async copy(text: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(text);
-      this.toast.show('Copied to clipboard', 'success', 1800);
-    } catch {
-      this.toast.show('Could not copy to the clipboard', 'danger');
-    }
+  protected badge(id: CardId): number {
+    return this.badges()[id] ?? 0;
   }
 
-  protected async revert(change: FileDiff): Promise<void> {
-    const reverted = await this.confirm.ask({
-      title: 'Revert this file?',
-      message: 'It is restored to how it was before this conversation changed it.',
-      subject: change.path,
-      confirmLabel: 'Revert file',
-      tone: 'danger',
-      action: () => this.store.revertChange(change),
-    });
-    if (reverted) this.toast.show(`Reverted ${change.path.split('/').pop()}`, 'success');
-  }
-
-  protected async revertAll(): Promise<void> {
-    const count = this.store.changes().length;
-    const reverted = await this.confirm.ask({
-      title: `Revert all ${count} changed file${count === 1 ? '' : 's'}?`,
-      message: 'Each file is restored to its contents before this conversation changed it.',
-      confirmLabel: 'Revert all',
-      tone: 'danger',
-      action: () => this.store.revertAllChanges(),
-    });
-    if (reverted) this.toast.show('All changes reverted', 'success');
+  protected open(id: CardId): void {
+    this.launcher.set(false);
+    this.work.show(id);
   }
 }

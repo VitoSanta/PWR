@@ -3,6 +3,8 @@ import { AgentStore } from './core/agent.store';
 import { bridge, inTauri } from './core/bridge';
 import { LayoutService, RAIL } from './core/layout';
 import { ThemeService } from './core/theme';
+import { ActivityStore } from './core/activity';
+import { WorkbenchStore } from './core/workbench';
 import { DialogStack, SHORTCUTS, ToastService, UiStore, isMac } from './core/ui';
 import { CommandPalette } from './ui/command-palette';
 import { Composer } from './ui/composer';
@@ -56,6 +58,7 @@ export class App implements OnInit {
   private readonly ui = inject(UiStore);
   private readonly dialogs = inject(DialogStack);
   private readonly toast = inject(ToastService);
+  private readonly work = inject(WorkbenchStore);
   protected readonly isMac = isMac;
   protected readonly developmentExport = isDevMode() && inTauri();
   protected readonly rail = RAIL;
@@ -73,6 +76,9 @@ export class App implements OnInit {
   constructor() {
     // Created now so the theme is applied and followed from the first frame.
     inject(ThemeService);
+    // Listening from the start, so background work begun before the
+    // Activity card opens is still shown in it.
+    inject(ActivityStore);
   }
 
   ngOnInit(): void {
@@ -136,6 +142,19 @@ export class App implements OnInit {
       if (this.layout.closeOverlays()) event.preventDefault();
       return;
     }
+    // The workbench's Control shortcuts, as Codex has them: ⌃` and ⌃⇧G.
+    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.repeat && !this.dialogs.open) {
+      if (event.code === 'Backquote' && !event.shiftKey) {
+        event.preventDefault();
+        this.work.toggle('terminal');
+        return;
+      }
+      if (event.code === 'KeyG' && event.shiftKey) {
+        event.preventDefault();
+        this.work.toggle('review');
+        return;
+      }
+    }
     const mod = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
     if (!mod || event.repeat) return;
     const key = event.key.toLowerCase();
@@ -147,6 +166,8 @@ export class App implements OnInit {
     else if (code === 'KeyB' && event.altKey) this.layout.toggleRight();
     else if (code === 'KeyB' && !event.shiftKey) this.layout.toggleLeft();
     else if (key === ',') this.ui.settingsOpen.set(true);
+    else if (code === 'KeyT' && event.shiftKey && !event.altKey) this.work.toggle('browser');
+    else if (code === 'KeyP' && !event.shiftKey && !event.altKey) this.work.toggle('files');
     else handled = false;
     if (handled) event.preventDefault();
   }
