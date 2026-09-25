@@ -17,9 +17,10 @@ import {
 import { ActivityStore } from '../../core/activity';
 import { ThemeService } from '../../core/theme';
 import { AgentStore } from '../../core/agent.store';
-import { CORE_TOO_OLD } from '../../core/personal.store';
+import { CORE_TOO_OLD, PersonalStore } from '../../core/personal.store';
 import { WorkbenchStore } from '../../core/workbench';
 import { Icon } from '../kit/icon';
+import { Select, SelectOption } from '../kit/select';
 import { Tooltip } from '../kit/tooltip';
 import { Markdown } from '../markdown';
 
@@ -236,8 +237,20 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
 /** Knowledge: the project as a graph, its modules, the work done, its overview. */
 @Component({
   selector: 'pa-knowledge-card',
-  imports: [Graph3d, Icon, Tooltip, Markdown],
+  imports: [Graph3d, Icon, Tooltip, Markdown, Select],
   template: `
+    @if (agent.chatMode() && projectOptions().length) {
+      <div class="card-toolbar">
+        <pa-select
+          size="sm"
+          ariaLabel="Project"
+          [options]="projectOptions()"
+          [value]="source()"
+          (valueChange)="choose($any($event))"
+        />
+        <span class="t-meta truncate">Read only</span>
+      </div>
+    }
     <div class="card-toolbar">
       <div class="segmented" role="radiogroup" aria-label="Knowledge view">
         @for (item of views; track item.id) {
@@ -252,8 +265,12 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
     @if (error()) {
       <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ error() }}</p>
     }
-    @if (!agent.workspace() || agent.chatMode()) {
-      <p class="card-empty card-pad">Open a workspace to see what PWR knows about it.</p>
+    @if (!source()) {
+      <p class="card-empty card-pad">
+        {{ agent.chatMode()
+          ? 'No projects yet. A workspace appears here after PWR’s first reply in it, and any conversation can then look at what PWR knows about it.'
+          : 'Open a workspace to see what PWR knows about it.' }}
+      </p>
     } @else if (wiki(); as data) {
       @switch (view()) {
         @case ('graph') {
@@ -278,7 +295,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
                   <span class="badge">{{ kindLabel(node.kind) }}</span>
                   <strong class="truncate" [attr.title]="node.label">{{ node.label }}</strong>
                   <span class="spacer"></span>
-                  @if (node.kind === 'file') {
+                  @if (node.kind === 'file' && !agent.chatMode()) {
                     <button class="icon-btn icon-btn-sm" (click)="work.openFile(node.label)" aria-label="Open in Files" paTooltip="Open in Files"><pa-icon name="file" [size]="14" /></button>
                   }
                   <button class="icon-btn icon-btn-sm" (click)="selected.set(null)" aria-label="Close"><pa-icon name="x" [size]="14" /></button>
@@ -306,9 +323,11 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
           <div class="card-toolbar">
             <span class="t-meta">{{ summaryStatus() }}</span>
             <span class="spacer"></span>
-            <button class="btn btn-sm" (click)="summarise()" [disabled]="writing()">
-              <pa-icon name="sparkles" [size]="14" /> Write summaries
-            </button>
+            @if (!agent.chatMode()) {
+              <button class="btn btn-sm" (click)="summarise()" [disabled]="writing()">
+                <pa-icon name="sparkles" [size]="14" /> Write summaries
+              </button>
+            }
           </div>
           <div class="card-scroll card-pad knowledge-list">
             @for (module of data.modules; track module.id) {
@@ -336,7 +355,11 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
                 @if (entry.files.length) {
                   <div class="graph-chips">
                     @for (file of entry.files; track file) {
-                      <button class="chip mono" (click)="work.openFile(file)">{{ file }}</button>
+                      @if (agent.chatMode()) {
+                        <span class="chip mono">{{ file }}</span>
+                      } @else {
+                        <button class="chip mono" (click)="work.openFile(file)">{{ file }}</button>
+                      }
                     }
                   </div>
                 }
@@ -361,6 +384,26 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
 export class KnowledgeCard {
   protected readonly agent = inject(AgentStore);
   protected readonly work = inject(WorkbenchStore);
+  private readonly personal = inject(PersonalStore);
+  /** Whose wiki `wiki` holds, or is being loaded for. */
+  private shown: string | null = null;
+  /** In chat mode, the project chosen to look at; `null` is the most recent. */
+  private readonly chosen = signal<string | null>(null);
+
+  protected readonly projectOptions = computed<SelectOption[]>(() =>
+    this.personal.projects().map((project) => ({ value: project.path, label: project.name, hint: project.path })),
+  );
+
+  /**
+   * Whose knowledge the card shows: the workspace; in chat mode, which has
+   * none, a project PWR has worked in, read only.
+   */
+  protected readonly source = computed(() => {
+    if (!this.agent.chatMode()) return this.agent.workspace() || null;
+    const known = this.personal.projects().map((project) => project.path);
+    const chosen = this.chosen();
+    return chosen && known.includes(chosen) ? chosen : (known[0] ?? null);
+  });
   private readonly activity = inject(ActivityStore);
   protected readonly wiki = signal<WikiView | null>(null);
   protected readonly loading = signal(false);
@@ -427,14 +470,22 @@ export class KnowledgeCard {
 
   constructor() {
     const stop = this.agent.on('_pwr/wiki_updated', (params) => {
-      if (params.cwd === this.agent.workspace()) void this.load();
+      if (params.cwd === this.source()) void this.load();
     });
     inject(DestroyRef).onDestroy(stop);
-    // A new workspace, or a turn that just ended: the wiki was rebuilt.
+    if (this.agent.chatMode()) void this.personal.load();
+    // A new workspace or project, or a turn that just ended: the wiki was
+    // rebuilt.
     effect(() => {
-      this.agent.workspace();
+      const source = this.source();
       const turn = this.agent.turnActive();
       untracked(() => {
+        // Another project's graph is not left showing while this one loads.
+        if (source !== this.shown) {
+          this.shown = source;
+          this.wiki.set(null);
+          this.selected.set(null);
+        }
         if (!turn) void this.load();
       });
     });
@@ -475,14 +526,27 @@ export class KnowledgeCard {
     }
   }
 
+  protected choose(path: string): void {
+    this.chosen.set(path);
+  }
+
   async load(): Promise<void> {
-    const cwd = this.agent.workspace();
-    if (!cwd || this.agent.chatMode()) return;
+    const cwd = this.source();
+    if (!cwd) {
+      this.wiki.set(null);
+      return;
+    }
+    const readOnly = this.agent.chatMode();
     this.loading.set(true);
     try {
-      this.wiki.set(await this.agent.call('_pwr/wiki', { cwd, includeSymbols: this.symbols() }));
+      const wiki = await this.agent.call('_pwr/wiki', { cwd, includeSymbols: this.symbols(), readOnly });
+      // A reply for a project since left behind is not shown.
+      if (cwd !== this.source()) return;
+      this.wiki.set(wiki);
       this.error.set('');
     } catch (error) {
+      if (cwd !== this.source()) return;
+      this.wiki.set(null);
       this.error.set(describe(error));
     } finally {
       this.loading.set(false);

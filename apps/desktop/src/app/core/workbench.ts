@@ -22,7 +22,7 @@ export const CARDS: CardInfo[] = [
   { id: 'terminal', label: 'Terminal', icon: 'terminal', description: 'Your shell, in this workspace', keys: 'Ctrl+`', workspace: true },
   { id: 'browser', label: 'Web preview', icon: 'globe', description: 'The app this machine serves, on localhost', keys: 'Mod+Shift+T' },
   { id: 'files', label: 'Files', icon: 'folder', description: 'Browse and read the workspace', keys: 'Mod+P', workspace: true },
-  { id: 'knowledge', label: 'Knowledge', icon: 'target', description: 'The project as a graph, with what was done', workspace: true },
+  { id: 'knowledge', label: 'Knowledge', icon: 'target', description: 'The project as a graph, with what was done' },
   { id: 'plan', label: 'Plan & checks', icon: 'shield-check', description: 'Verify, report, diagnose', workspace: true },
   { id: 'activity', label: 'Activity', icon: 'activity', description: 'Background work and the core log' },
 ];
