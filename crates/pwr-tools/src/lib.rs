@@ -2792,7 +2792,7 @@ fn html_to_text(html: &str) -> String {
                 | "dt"
         ) {
             out.push('\n');
-        } else if matches!(name, "td" | "th") {
+        } else if matches!(name, "td" | "th") && !tag.starts_with('/') {
             out.push_str(" | ");
         }
         index = from + end + 1;
