@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { normalize } from '../ui/workbench/cards';
+import { AgentStore } from './agent.store';
 import { WorkbenchStore } from './workbench';
 
 describe('WorkbenchStore', () => {
@@ -32,6 +33,24 @@ describe('WorkbenchStore', () => {
       'knowledge',
       'terminal',
     ]);
+  });
+
+  it('offers only what needs no workspace in chat mode, and keeps the rest for later', () => {
+    const work = TestBed.inject(WorkbenchStore);
+    const agent = TestBed.inject(AgentStore);
+    work.show('terminal');
+    work.show('activity');
+    work.maximize('terminal');
+    agent.chatHome.set('/home/chat');
+    agent.workspace.set('/home/chat');
+    expect(work.available().map((card) => card.id)).toEqual(['browser', 'activity']);
+    expect(work.visible().map((card) => card.id)).toEqual(['activity']);
+    expect(work.focused()).toBeNull();
+    work.show('files');
+    expect(work.isOpen('files')).toBe(false);
+    // Back in a workspace, the column is as it was left.
+    agent.workspace.set('/projects/app');
+    expect(work.visible().map((card) => card.id)).toEqual(['terminal']);
   });
 
   it('asks the Files card for a file and opens it', () => {

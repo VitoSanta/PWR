@@ -1,4 +1,5 @@
 import { ApplicationRef, Injectable, computed, inject, signal } from '@angular/core';
+import { AgentStore } from './agent.store';
 import { LayoutService } from './layout';
 
 /** The tools the workbench can show, each as a card. */
@@ -11,16 +12,18 @@ export interface CardInfo {
   description: string;
   /** A shortcut, as `SHORTCUTS` spells them. */
   keys?: string;
+  /** About a workspace, so not offered in chat mode, which has none. */
+  workspace?: true;
 }
 
 /** In the order the launcher offers them. */
 export const CARDS: CardInfo[] = [
-  { id: 'review', label: 'Review', icon: 'git-compare', description: 'What PWR changed, file by file', keys: 'Ctrl+Shift+G' },
-  { id: 'terminal', label: 'Terminal', icon: 'terminal', description: 'Your shell, in this workspace', keys: 'Ctrl+`' },
+  { id: 'review', label: 'Review', icon: 'git-compare', description: 'What PWR changed, file by file', keys: 'Ctrl+Shift+G', workspace: true },
+  { id: 'terminal', label: 'Terminal', icon: 'terminal', description: 'Your shell, in this workspace', keys: 'Ctrl+`', workspace: true },
   { id: 'browser', label: 'Browser', icon: 'globe', description: 'Preview the app on localhost', keys: 'Mod+Shift+T' },
-  { id: 'files', label: 'Files', icon: 'folder', description: 'Browse and read the workspace', keys: 'Mod+P' },
-  { id: 'knowledge', label: 'Knowledge', icon: 'target', description: 'The project as a graph, with what was done' },
-  { id: 'plan', label: 'Plan & checks', icon: 'shield-check', description: 'Verify, report, diagnose' },
+  { id: 'files', label: 'Files', icon: 'folder', description: 'Browse and read the workspace', keys: 'Mod+P', workspace: true },
+  { id: 'knowledge', label: 'Knowledge', icon: 'target', description: 'The project as a graph, with what was done', workspace: true },
+  { id: 'plan', label: 'Plan & checks', icon: 'shield-check', description: 'Verify, report, diagnose', workspace: true },
   { id: 'activity', label: 'Activity', icon: 'activity', description: 'Background work and the core log' },
 ];
 
@@ -44,6 +47,7 @@ const KEY = 'pwr:workbench';
 @Injectable({ providedIn: 'root' })
 export class WorkbenchStore {
   private readonly layout = inject(LayoutService);
+  private readonly agent = inject(AgentStore);
   private readonly app = inject(ApplicationRef);
   private readonly saved = load();
 
@@ -52,18 +56,36 @@ export class WorkbenchStore {
   /** The file the Files card should show, when another card asks for one. */
   readonly fileRequest = signal<string | null>(null);
 
-  readonly visible = computed(() => {
+  /**
+   * The cards this conversation can use: in chat mode, only those that need
+   * no workspace. The others stay where they were, for the next workspace.
+   */
+  readonly available = computed(() => (this.agent.chatMode() ? CARDS.filter((card) => !card.workspace) : CARDS));
+
+  /** The maximised card, when this conversation can use it. */
+  readonly focused = computed(() => {
     const maximized = this.maximized();
-    const open = this.open();
-    return maximized ? open.filter((card) => card.id === maximized) : open;
+    return maximized && this.available().some((card) => card.id === maximized) ? maximized : null;
+  });
+
+  readonly visible = computed(() => {
+    const usable = new Set(this.available().map((card) => card.id));
+    const focused = this.focused();
+    const open = this.open().filter((card) => usable.has(card.id));
+    return focused ? open.filter((card) => card.id === focused) : open;
   });
 
   isOpen(id: CardId): boolean {
-    return this.open().some((card) => card.id === id);
+    return this.visible().some((card) => card.id === id);
+  }
+
+  private usable(id: CardId): boolean {
+    return this.available().some((card) => card.id === id);
   }
 
   /** Opens a card, or brings it back if collapsed, and shows the column. */
   show(id: CardId): void {
+    if (!this.usable(id)) return;
     this.animate(() => this.showNow(id));
   }
 
@@ -80,6 +102,7 @@ export class WorkbenchStore {
 
   /** A shortcut's toggle: shows a card, or closes it when it is showing. */
   toggle(id: CardId): void {
+    if (!this.usable(id)) return;
     const card = this.open().find((item) => item.id === id);
     if (card && !card.collapsed && this.layout.right() !== 'hidden') this.close(id);
     else this.show(id);

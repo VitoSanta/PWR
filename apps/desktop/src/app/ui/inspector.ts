@@ -50,7 +50,7 @@ import { KnowledgeCard } from './workbench/knowledge';
         @if (launcher()) {
           <pa-popover [anchor]="addTrigger" anchorAlign="end" width="300px" ariaLabel="Tools" panelRole="menu" [focusFirst]="true" (closed)="launcher.set(false)" animate.leave="anim-pop-out">
             <div class="tool-menu" role="none">
-              @for (card of cards; track card.id) {
+              @for (card of work.available(); track card.id) {
                 <button class="tool-menu-item" role="menuitem" (click)="open(card.id)">
                   <pa-icon [name]="icon(card)" [size]="16" />
                   <span class="tool-menu-label">{{ card.label }}</span>
@@ -75,7 +75,7 @@ import { KnowledgeCard } from './workbench/knowledge';
         </button>
       </header>
 
-      <div class="workbench-body" [class.maximized]="!!work.maximized()">
+      <div class="workbench-body" [class.maximized]="!!work.focused()">
         @for (card of work.visible(); track card.id; let first = $first; let last = $last) {
           <section
             class="wb-card"
@@ -95,7 +95,7 @@ import { KnowledgeCard } from './workbench/knowledge';
               </button>
               <span class="spacer"></span>
               <span class="wb-card-actions">
-                @if (!work.maximized() && work.visible().length > 1) {
+                @if (!work.focused() && work.visible().length > 1) {
                   <button class="icon-btn icon-btn-sm" (click)="work.move(card.id, -1)" [disabled]="first" aria-label="Move up" paTooltip="Move up">
                     <pa-icon name="chevron-up" [size]="14" />
                   </button>
@@ -106,10 +106,10 @@ import { KnowledgeCard } from './workbench/knowledge';
                 <button
                   class="icon-btn icon-btn-sm"
                   (click)="work.maximize(card.id)"
-                  [attr.aria-label]="work.maximized() === card.id ? 'Restore' : 'Maximise'"
-                  [paTooltip]="work.maximized() === card.id ? 'Show the other cards' : 'Fill the column'"
+                  [attr.aria-label]="work.focused() === card.id ? 'Restore' : 'Maximise'"
+                  [paTooltip]="work.focused() === card.id ? 'Show the other cards' : 'Fill the column'"
                 >
-                  <pa-icon [name]="work.maximized() === card.id ? 'minus' : 'panel-right'" [size]="14" />
+                  <pa-icon [name]="work.focused() === card.id ? 'minus' : 'panel-right'" [size]="14" />
                 </button>
                 <button class="icon-btn icon-btn-sm" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + info(card.id).label" paTooltip="Close">
                   <pa-icon name="x" [size]="14" />
@@ -132,7 +132,7 @@ import { KnowledgeCard } from './workbench/knowledge';
           </section>
         } @empty {
           <div class="launcher" role="list" aria-label="Tools" animate.enter="anim-fade-in">
-            @for (card of cards; track card.id) {
+            @for (card of work.available(); track card.id) {
               <button class="launcher-card" role="listitem" (click)="open(card.id)">
                 <pa-icon [name]="icon(card)" [size]="18" />
                 <span class="launcher-text">
@@ -169,7 +169,6 @@ export class Inspector {
   private readonly activity = inject(ActivityStore);
   protected readonly shortcuts = SHORTCUTS;
   protected readonly bounds = RIGHT;
-  protected readonly cards = CARDS;
   protected readonly launcher = signal(false);
   protected readonly keys = shortcut;
 
