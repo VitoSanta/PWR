@@ -13,6 +13,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod engine;
+mod terminal;
 
 #[derive(Default)]
 struct Core(Mutex<Option<Running>>);
@@ -507,6 +508,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(Core::default())
         .manage(engine::Setup::default())
+        .manage(terminal::Terminals::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -523,6 +525,7 @@ pub fn run() {
         default_workspace, chat_home_path, workspace_is_trusted, trust_workspace,
         core_start, core_send, core_stop, open_external,
         engine::engine_status, engine::engine_install, engine::engine_cancel,
+        terminal::term_open, terminal::term_write, terminal::term_resize, terminal::term_close,
         debug_export_chat,
     ]);
     #[cfg(not(debug_assertions))]
@@ -530,6 +533,7 @@ pub fn run() {
         default_workspace, chat_home_path, workspace_is_trusted, trust_workspace,
         core_start, core_send, core_stop, open_external,
         engine::engine_status, engine::engine_install, engine::engine_cancel,
+        terminal::term_open, terminal::term_write, terminal::term_resize, terminal::term_close,
     ]);
     builder
         .build(tauri::generate_context!())
@@ -537,6 +541,8 @@ pub fn run() {
         .run(|app, event| {
             // The core must not outlive the window: it holds a model.
             if let RunEvent::Exit = event {
+                // Nor may the person's shells.
+                app.state::<terminal::Terminals>().close_all();
                 if let Ok(mut guard) = app.state::<Core>().0.lock() {
                     if let Some(running) = guard.take() {
                         running.stop();
