@@ -316,8 +316,9 @@ pub async fn backend_status(active: BackendKind) -> Vec<BackendStatus> {
             None => (
                 false,
                 format!(
-                    "The MLX engine is not set up: {} cannot import mlx_lm. Run scripts/setup-mlx.sh, \
-                     or set PWR_MLX_PYTHON to a Python with mlx-lm installed.",
+                    "The MLX engine is not set up: {} cannot import mlx_lm. The app installs it \
+                     when PWR_MLX_PYTHON is not set; from a checkout, run scripts/setup-mlx.sh, or \
+                     set PWR_MLX_PYTHON to a Python with mlx-lm installed.",
                     mlx.python.display()
                 ),
             ),
