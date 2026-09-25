@@ -15,9 +15,9 @@
 //! be placed, and the Hub leaves it out of any range: these orders do not
 //! show it.
 
+use crate::CatalogOrder;
 use crate::catalog::HubModel;
 use crate::hub::HubError;
-use crate::{CatalogOrder, SEARCH_LIMIT};
 use serde::{Deserialize, Serialize};
 
 /// Repositories one listing asks for.
@@ -52,7 +52,7 @@ pub trait Listing {
 /// Where a walk stands, carried in the page cursor. Stateless on the core's
 /// side: a restarted core carries on from the cursor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Walk {
+pub struct Walk {
     order: CatalogOrder,
     /// The next unread bound: the lowest count not yet listed going up, the
     /// highest going down.
@@ -65,58 +65,44 @@ struct Walk {
     done: bool,
 }
 
-const PREFIX: &str = "pwr-order:";
+impl Walk {
+    /// A walk in `order` within the filters' bounds, and below `limit` --
+    /// the most parameters a model that could fit this machine may have.
+    pub fn start(
+        order: CatalogOrder,
+        limit: Option<u64>,
+        (min, max): (Option<u64>, Option<u64>),
+    ) -> Self {
+        let low = min.unwrap_or(0);
+        let high = [max, limit].into_iter().flatten().min().unwrap_or(LARGEST);
+        let (edge, end) = match order {
+            CatalogOrder::SmallestFirst => (low, high),
+            CatalogOrder::LargestFirst => (high, low),
+        };
+        Walk {
+            order,
+            edge,
+            end,
+            width: FIRST_WIDTH,
+            listed: Vec::new(),
+            done: low > high,
+        }
+    }
 
-/// One page in `order`: the next models to show, and the cursor for the
-/// page after, if any. `limit` narrows the walk to the parameter counts a
-/// model that could fit this machine may have.
-pub async fn page(
-    listing: &impl Listing,
-    order: CatalogOrder,
-    limit: Option<u64>,
-    cursor: Option<&str>,
-    bounds: (Option<u64>, Option<u64>),
-) -> Result<(Vec<HubModel>, Option<String>), HubError> {
-    let mut walk = match cursor.and_then(|cursor| cursor.strip_prefix(PREFIX)) {
-        Some(state) => serde_json::from_str::<Walk>(state)
-            .ok()
-            .filter(|walk| walk.order == order)
-            .ok_or_else(|| {
-                HubError::new(
-                    crate::hub::HubErrorKind::Invalid,
-                    "The ordered list could not be continued; search again.",
-                )
-            })?,
-        None => start(order, limit, bounds),
-    };
-    fill(&mut walk, listing, SEARCH_LIMIT).await?;
-    let shown: Vec<HubModel> = walk
-        .listed
-        .drain(..walk.listed.len().min(SEARCH_LIMIT))
-        .collect();
-    let next = (!walk.done || !walk.listed.is_empty()).then(|| {
-        format!(
-            "{PREFIX}{}",
-            serde_json::to_string(&walk).unwrap_or_default()
-        )
-    });
-    Ok((shown, next))
-}
+    /// Whether every model in its bounds has been handed out.
+    pub fn finished(&self) -> bool {
+        self.done && self.listed.is_empty()
+    }
 
-fn start(order: CatalogOrder, limit: Option<u64>, (min, max): (Option<u64>, Option<u64>)) -> Walk {
-    let low = min.unwrap_or(0);
-    let high = [max, limit].into_iter().flatten().min().unwrap_or(LARGEST);
-    let (edge, end) = match order {
-        CatalogOrder::SmallestFirst => (low, high),
-        CatalogOrder::LargestFirst => (high, low),
-    };
-    Walk {
-        order,
-        edge,
-        end,
-        width: FIRST_WIDTH,
-        listed: Vec::new(),
-        done: low > high,
+    /// The next models in order, up to `wanted`: fewer only when the walk
+    /// ends, or when a page's listings ran out and it goes on next time.
+    pub async fn next(
+        &mut self,
+        listing: &impl Listing,
+        wanted: usize,
+    ) -> Result<Vec<HubModel>, HubError> {
+        fill(self, listing, wanted).await?;
+        Ok(self.listed.drain(..self.listed.len().min(wanted)).collect())
     }
 }
 
@@ -255,18 +241,15 @@ mod tests {
     }
 
     async fn walk(hub: &Hub, order: CatalogOrder, limit: Option<u64>) -> Vec<String> {
+        let mut walk = Walk::start(order, limit, (None, None));
         let mut all = Vec::new();
-        let mut cursor = None;
-        loop {
-            let (page, next) = page(hub, order, limit, cursor.as_deref(), (None, None))
-                .await
-                .unwrap();
-            all.extend(names(&page));
-            match next {
-                Some(next) => cursor = Some(next),
-                None => return all,
-            }
+        while !walk.finished() {
+            // Carried between pages as the cursor carries it.
+            let text = serde_json::to_string(&walk).unwrap();
+            walk = serde_json::from_str(&text).unwrap();
+            all.extend(names(&walk.next(hub, 20).await.unwrap()));
         }
+        all
     }
 
     const B: u64 = 1_000_000_000;
@@ -351,26 +334,6 @@ mod tests {
         assert!(
             serde_json::from_value::<crate::Filters>(serde_json::json!({ "order": "name" }))
                 .is_err()
-        );
-    }
-
-    #[tokio::test]
-    async fn a_cursor_for_another_order_is_refused() {
-        let hub = Hub::new(&[("a", B, 1)]);
-        let (_, next) = page(&hub, CatalogOrder::SmallestFirst, None, None, (None, None))
-            .await
-            .unwrap();
-        assert!(next.is_none(), "one model: one page");
-        assert!(
-            page(
-                &hub,
-                CatalogOrder::LargestFirst,
-                None,
-                Some("pwr-order:{}"),
-                (None, None)
-            )
-            .await
-            .is_err()
         );
     }
 }

@@ -149,6 +149,18 @@ pub struct FitEstimate {
     pub assumptions: Vec<String>,
 }
 
+/// The memory a model of `format` may take on this host, after the reserve
+/// the host keeps: what [`estimate`] measures a model against.
+pub fn budget(capacity: &Capacity, format: Format) -> Option<u64> {
+    let total = capacity.total_memory_bytes?;
+    let vram = if format == Format::Gguf {
+        capacity.vram_bytes.unwrap_or(0)
+    } else {
+        0
+    };
+    Some((total + vram).saturating_sub(window::default_reserve_bytes(total)))
+}
+
 pub fn estimate(capacity: &Capacity, model: &Footprint) -> FitEstimate {
     let overhead = RUNTIME_OVERHEAD_BYTES;
     let reference = model
