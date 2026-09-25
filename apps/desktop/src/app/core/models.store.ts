@@ -3,6 +3,7 @@ import { AgentStore } from './agent.store';
 import {
   CatalogEntry,
   CatalogFilters,
+  ModelOrder,
   CatalogVariant,
   DownloadView,
   HardwareInfo,
@@ -30,6 +31,9 @@ export class ModelsStore {
 
   readonly status = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
   readonly results = signal<CatalogEntry[]>([]);
+  readonly order = signal<ModelOrder>('downloads');
+  /** The results in the order chosen. */
+  readonly sorted = computed(() => sortEntries(this.results(), this.order()));
   readonly nextCursor = signal<string | null>(null);
   readonly loadingMore = signal(false);
   readonly loadMoreError = signal('');
@@ -268,6 +272,13 @@ export class ModelsStore {
     if (this.format() === format) return;
     this.format.set(format);
     void this.search();
+  }
+
+  /** An order the Hub keeps is asked of it; another orders what is loaded. */
+  setOrder(order: ModelOrder): void {
+    this.order.set(order);
+    if (order === 'downloads') this.setFilters({ sort: undefined });
+    else if (order === 'likes' || order === 'lastModified') this.setFilters({ sort: order });
   }
 
   setFilters(change: Partial<CatalogFilters>): void {
@@ -551,4 +562,32 @@ function clean(filters: CatalogFilters): Record<string, unknown> {
       ([, value]) => value !== undefined && value !== null && value !== '',
     ),
   );
+}
+
+/** Whether an order is applied to the loaded results rather than by the Hub. */
+export function ordersLoaded(order: ModelOrder): boolean {
+  return order !== 'downloads' && order !== 'likes' && order !== 'lastModified';
+}
+
+/**
+ * The results in `order`. The Hub's orders keep the Hub's; the others sort,
+ * unknown values last (a model whose size the Hub does not give is neither
+ * the largest nor the smallest).
+ */
+export function sortEntries(entries: CatalogEntry[], order: ModelOrder): CatalogEntry[] {
+  if (!ordersLoaded(order)) return entries;
+  const smallest = (entry: CatalogEntry) =>
+    entry.variants.length ? Math.min(...entry.variants.map((variant) => variant.bytes)) : null;
+  const by = (value: (entry: CatalogEntry) => number | null, direction: 1 | -1) => (a: CatalogEntry, b: CatalogEntry) => {
+    const [x, y] = [value(a), value(b)];
+    if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
+    return (x - y) * direction || a.name.localeCompare(b.name);
+  };
+  const compare: Record<string, (a: CatalogEntry, b: CatalogEntry) => number> = {
+    'params-desc': by((entry) => entry.parameters, -1),
+    'params-asc': by((entry) => entry.parameters, 1),
+    'size-asc': by(smallest, 1),
+    name: (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
+  };
+  return [...entries].sort(compare[order]);
 }

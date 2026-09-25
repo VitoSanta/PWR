@@ -1,11 +1,12 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { bytes, fitTone, parameters, percent, tokens } from '../core/format';
-import { CatalogEntry, CatalogVariant, DownloadView } from '../core/model';
-import { ModelsStore } from '../core/models.store';
+import { CatalogEntry, CatalogVariant, DownloadView, ModelOrder } from '../core/model';
+import { ModelsStore, ordersLoaded } from '../core/models.store';
 import { roveFocus } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon } from './kit/icon';
+import { Popover } from './kit/popover';
 import { Select, SelectOption } from './kit/select';
 import { Tooltip } from './kit/tooltip';
 
@@ -15,7 +16,7 @@ import { Tooltip } from './kit/tooltip';
  */
 @Component({
   selector: 'pa-model-manager',
-  imports: [Dialog, Icon, Select, Tooltip],
+  imports: [Dialog, Icon, Popover, Select, Tooltip],
   template: `
     @if (models.open()) {
       <pa-dialog
@@ -241,7 +242,55 @@ import { Tooltip } from './kit/tooltip';
                   Fits this machine
                 </label>
                 <span class="mm-filter-sep" aria-hidden="true"></span>
-                <pa-select size="sm" ariaLabel="Parameters" [options]="sizeOptions" [value]="sizeValue()" (valueChange)="setSize($any($event))" />
+                <button
+                  #paramsTrigger
+                  type="button"
+                  class="select-trigger select-sm mm-params-trigger"
+                  aria-haspopup="dialog"
+                  [attr.aria-expanded]="paramsOpen()"
+                  (click)="toggleParams()"
+                >
+                  <span class="select-value truncate">{{ paramsLabel() }}</span>
+                  <pa-icon name="chevron-down" [size]="16" />
+                </button>
+                @if (paramsOpen()) {
+                  <pa-popover [anchor]="paramsTrigger" anchorAlign="start" width="300px" ariaLabel="Parameters" (closed)="closeParams()" animate.leave="anim-pop-out">
+                    <div class="params-range">
+                      <div class="params-range-head">
+                        <span class="settings-row-title">Parameters</span>
+                        <span class="num">{{ rangeLabel(low(), high()) }}</span>
+                      </div>
+                      <div class="params-range-track" [style.--from.%]="low() / (stops.length - 1) * 100" [style.--to.%]="high() / (stops.length - 1) * 100">
+                        <input
+                          type="range"
+                          min="0"
+                          [max]="stops.length - 1"
+                          step="1"
+                          [value]="low()"
+                          aria-label="Fewest parameters"
+                          [attr.aria-valuetext]="stopLabel(low(), 'low')"
+                          (input)="setLow(+$any($event.target).value)"
+                          (change)="applyParams()"
+                        />
+                        <input
+                          type="range"
+                          min="0"
+                          [max]="stops.length - 1"
+                          step="1"
+                          [value]="high()"
+                          aria-label="Most parameters"
+                          [attr.aria-valuetext]="stopLabel(high(), 'high')"
+                          (input)="setHigh(+$any($event.target).value)"
+                          (change)="applyParams()"
+                        />
+                      </div>
+                      <div class="params-range-foot">
+                        <span class="t-meta">Total parameters; a mixture of experts counts all of them.</span>
+                        <button type="button" class="btn btn-sm" (click)="clearParams()" [disabled]="low() === 0 && high() === stops.length - 1">Clear</button>
+                      </div>
+                    </div>
+                  </pa-popover>
+                }
                 <pa-select size="sm" ariaLabel="Context length" [options]="contextOptions" [value]="models.filters().minContext" (valueChange)="models.setFilters({ minContext: $any($event) })" />
                 <pa-select size="sm" ariaLabel="Download size" [options]="downloadOptions" [value]="models.filters().maxBytes" (valueChange)="models.setFilters({ maxBytes: $any($event) })" />
                 <input
@@ -277,23 +326,28 @@ import { Tooltip } from './kit/tooltip';
                 }
               }
 
-              <p class="result-status" aria-live="polite">
-                @switch (models.status()) {
-                  @case ('loading') {
-                    <span class="spinner spinner-sm" aria-hidden="true"></span> Searching Hugging Face…
+              <div class="mm-result-bar">
+                <p class="result-status" aria-live="polite">
+                  @switch (models.status()) {
+                    @case ('loading') {
+                      <span class="spinner spinner-sm" aria-hidden="true"></span> Searching Hugging Face…
+                    }
+                    @case ('ready') {
+                      <span>
+                        {{ models.results().length }} model{{ models.results().length === 1 ? '' : 's' }}
+                        · {{ (models.format() ?? '').toUpperCase() }}{{ models.query() ? ' · “' + models.query() + '”' : ''
+                        }}{{ models.filters().compatibleOnly ? ' · fits this machine' : '' }}{{
+                          loadedOrder() ? ' · ' + loadedOrder() + (models.nextCursor() ? ', among those loaded' : '') : ''
+                        }}
+                      </span>
+                    }
+                    @case ('error') {
+                      Search failed
+                    }
                   }
-                  @case ('ready') {
-                    <span>
-                      {{ models.results().length }} model{{ models.results().length === 1 ? '' : 's' }}
-                      · {{ (models.format() ?? '').toUpperCase() }}{{ models.query() ? ' · “' + models.query() + '”' : ''
-                      }}{{ models.filters().compatibleOnly ? ' · fits this machine' : '' }}
-                    </span>
-                  }
-                  @case ('error') {
-                    Search failed
-                  }
-                }
-              </p>
+                </p>
+                <pa-select size="sm" class="mm-sort" ariaLabel="Sort" [options]="orderOptions" [value]="models.order()" (valueChange)="models.setOrder($any($event))" />
+              </div>
             </div>
 
             <div class="mm-results mm-discover-results" [class.stale]="models.status() === 'loading' && models.results().length > 0">
@@ -318,7 +372,7 @@ import { Tooltip } from './kit/tooltip';
                   </div>
                 }
                 @default {
-                  @for (entry of models.results(); track entry.repository) {
+                  @for (entry of models.sorted(); track entry.repository) {
                     <article class="model-card" [attr.aria-labelledby]="'model-' + $index">
                       <header class="model-card-head">
                         <div class="model-card-title">
@@ -602,14 +656,36 @@ export class ModelManager {
   protected readonly params = parameters;
   protected readonly tone = fitTone;
   protected readonly gib = 1024 ** 3;
-  protected readonly sizeOptions: SelectOption<string>[] = [
-    { value: '', label: 'Any size' },
-    { value: '0-4', label: 'Up to 4B' },
-    { value: '4-9', label: '4–9B' },
-    { value: '9-16', label: '9–16B' },
-    { value: '16-40', label: '16–40B' },
-    { value: '40-', label: 'Over 40B' },
+  /**
+   * Where the parameter range can stop, in billions: the sizes models are
+   * actually released at, so a range lands on 27B or 35B rather than on a
+   * bucket's edge. The ends mean no bound.
+   */
+  protected readonly stops = [0, 1, 2, 3, 4, 7, 8, 12, 14, 20, 24, 27, 32, 35, 49, 70, 120, 235, 480, Infinity];
+  protected readonly paramsOpen = signal(false);
+  protected readonly low = signal(0);
+  protected readonly high = signal(this.stops.length - 1);
+  protected readonly paramsLabel = computed(() => {
+    const { minParameters, maxParameters } = this.models.filters();
+    return minParameters == null && maxParameters == null
+      ? 'Any size'
+      : this.rangeLabel(this.indexOf(minParameters, 0), this.indexOf(maxParameters, this.stops.length - 1));
+  });
+  protected readonly orderOptions: SelectOption<ModelOrder>[] = [
+    { value: 'downloads', label: 'Most downloaded' },
+    { value: 'likes', label: 'Most liked' },
+    { value: 'lastModified', label: 'Recently updated' },
+    { value: 'params-desc', label: 'Largest first', hint: 'parameters' },
+    { value: 'params-asc', label: 'Smallest first', hint: 'parameters' },
+    { value: 'size-asc', label: 'Lightest download' },
+    { value: 'name', label: 'Name' },
   ];
+  /** The order, when it is one applied to the loaded results. */
+  protected readonly loadedOrder = computed(() => {
+    const order = this.models.order();
+    return ordersLoaded(order) ? this.orderOptions.find((option) => option.value === order)?.label.toLowerCase() : '';
+  });
+
 
   protected samplingLabel(name: string): string {
     return name.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase());
@@ -650,12 +726,6 @@ export class ModelManager {
     { value: 10 * this.gib, label: '≤ 10 GB' },
     { value: 20 * this.gib, label: '≤ 20 GB' },
   ];
-
-  protected sizeValue(): string {
-    const { minParameters, maxParameters } = this.models.filters();
-    if (minParameters == null && maxParameters == null) return '';
-    return `${minParameters == null ? '0' : minParameters / 1e9}-${maxParameters == null ? '' : maxParameters / 1e9}`;
-  }
 
   protected discreteGpus() {
     return this.models.hardware()?.host.gpus.filter((gpu) => !gpu.unifiedMemory) ?? [];
@@ -776,12 +846,59 @@ export class ModelManager {
     this.explained.set(this.explained() === key ? null : key);
   }
 
-  protected setSize(value: string): void {
-    const [min, max] = value ? value.split('-') : ['', ''];
+  protected toggleParams(): void {
+    if (this.paramsOpen()) return this.closeParams();
+    const { minParameters, maxParameters } = this.models.filters();
+    this.low.set(this.indexOf(minParameters, 0));
+    this.high.set(this.indexOf(maxParameters, this.stops.length - 1));
+    this.paramsOpen.set(true);
+  }
+
+  protected closeParams(): void {
+    this.paramsOpen.set(false);
+  }
+
+  /** The stop a bound in the filters sits at, or `fallback` when unbounded. */
+  private indexOf(value: number | undefined, fallback: number): number {
+    if (value == null) return fallback;
+    const index = this.stops.findIndex((stop) => stop * 1e9 >= value);
+    return index < 0 ? fallback : index;
+  }
+
+  protected setLow(index: number): void {
+    this.low.set(Math.min(index, this.high()));
+  }
+
+  protected setHigh(index: number): void {
+    this.high.set(Math.max(index, this.low()));
+  }
+
+  /** Searches once a handle is let go, not at every step it passes. */
+  protected applyParams(): void {
+    const [low, high] = [this.low(), this.high()];
     this.models.setFilters({
-      minParameters: min ? Number(min) * 1e9 : undefined,
-      maxParameters: max ? Number(max) * 1e9 : undefined,
+      minParameters: low === 0 ? undefined : this.stops[low] * 1e9,
+      maxParameters: high === this.stops.length - 1 ? undefined : this.stops[high] * 1e9,
     });
+  }
+
+  protected clearParams(): void {
+    this.low.set(0);
+    this.high.set(this.stops.length - 1);
+    this.applyParams();
+  }
+
+  protected stopLabel(index: number, end: 'low' | 'high'): string {
+    if (end === 'low' ? index === 0 : index === this.stops.length - 1) return 'any';
+    return `${this.stops[index]}B`;
+  }
+
+  protected rangeLabel(low: number, high: number): string {
+    const last = this.stops.length - 1;
+    if (low === 0 && high === last) return 'Any size';
+    if (low === 0) return `Up to ${this.stops[high]}B`;
+    if (high === last) return `${this.stops[low]}B or more`;
+    return low === high ? `${this.stops[low]}B` : `${this.stops[low]}–${this.stops[high]}B`;
   }
 
   protected fitBadge(level: string): string {

@@ -50,6 +50,33 @@ mod pagination_tests {
             None
         );
     }
+
+    #[test]
+    fn a_search_asks_the_hub_for_the_order_chosen() {
+        let hub = super::HubClient::new("https://huggingface.co", None).unwrap();
+        let sort_of = |filters: &crate::Filters| {
+            let url = hub.search_url("qwen", super::Format::Mlx, filters, None, 20);
+            url.query_pairs()
+                .find(|(key, _)| key == "sort")
+                .map(|(_, value)| value.into_owned())
+        };
+        assert_eq!(
+            sort_of(&crate::Filters::default()).as_deref(),
+            Some("downloads")
+        );
+        let liked = crate::Filters {
+            sort: Some(crate::HubSort::Likes),
+            ..Default::default()
+        };
+        assert_eq!(sort_of(&liked).as_deref(), Some("likes"));
+        let recent: crate::Filters =
+            serde_json::from_value(serde_json::json!({"sort": "lastModified"})).unwrap();
+        assert_eq!(sort_of(&recent).as_deref(), Some("lastModified"));
+        // Anything else is refused, not passed to the Hub.
+        assert!(
+            serde_json::from_value::<crate::Filters>(serde_json::json!({"sort": "size"})).is_err()
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,7 +270,8 @@ impl HubClient {
         Ok((value, next_cursor))
     }
 
-    /// Repositories in `format` matching `query`, most downloaded first.
+    /// Repositories in `format` matching `query`, in the order `filters`
+    /// asks for (most downloaded first by default).
     pub async fn search_page(
         &self,
         query: &str,
@@ -252,6 +280,29 @@ impl HubClient {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<ModelPage, HubError> {
+        let url = self.search_url(query, format, filters, cursor, limit);
+        let (value, next_cursor) = self.get_json_page(url).await?;
+        let models = value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(catalog::parse_model)
+            .filter(|model| catalog::is_repository(&model.repository))
+            .collect();
+        Ok(ModelPage {
+            models,
+            next_cursor,
+        })
+    }
+
+    fn search_url(
+        &self,
+        query: &str,
+        format: Format,
+        filters: &Filters,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> url::Url {
         let mut url = self.url(&["api", "models"]);
         {
             let mut pairs = url.query_pairs_mut();
@@ -260,7 +311,10 @@ impl HubClient {
             }
             pairs
                 .append_pair("filter", format.hub_filter())
-                .append_pair("sort", "downloads")
+                .append_pair(
+                    "sort",
+                    filters.sort.unwrap_or(crate::HubSort::Downloads).as_str(),
+                )
                 .append_pair("direction", "-1")
                 .append_pair("limit", &limit.clamp(1, 50).to_string());
             let parameter_range = [
@@ -281,18 +335,7 @@ impl HubClient {
                 pairs.append_pair("cursor", cursor);
             }
         }
-        let (value, next_cursor) = self.get_json_page(url).await?;
-        let models = value
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(catalog::parse_model)
-            .filter(|model| catalog::is_repository(&model.repository))
-            .collect();
-        Ok(ModelPage {
-            models,
-            next_cursor,
-        })
+        url
     }
 
     /// One repository's listing, at its current commit.
