@@ -1,5 +1,13 @@
 # Research roadmap
 
+**Decision — 2026-09-25: defer encoder-ranked compaction.** The possible use
+of the existing local encoder to select verbatim evidence after compaction is
+recorded as the future experiment [C.22b](backlog.md). It needs a controlled
+comparison with current compaction and recency fill at the same token budget;
+there is no implementation or default-policy change now. Consolidate the
+existing runtime and context paths first, including the still separate
+conversation and scripted compaction paths (C.1/R.11).
+
 **Update — 2026-09-24: first public alpha preparation.** Work resumed on 2026-09-18 and the pause below ended with it. PWR v0.1.0-alpha is prepared for a public alpha release for Apple-silicon Macs; the GitHub release has not yet been published. The desktop app bundles the core, the MLX engine's scripts and an installer for the engine's Python; Revert goes through the core (`_pwr/revert`); the webview has a Content Security Policy; models live in `~/.pwr/models`; the app runs MLX only on a Mac, with llama.cpp kept for Windows and bound to loopback. The order of work after the release is the 2026-09-23 update's, below. The current description of the product is [PWR_PRODUCT_SOURCE_OF_TRUTH.md](PWR_PRODUCT_SOURCE_OF_TRUTH.md).
 
 **PAUSED, 2026-09-17 (ended 2026-09-18).** PWR is paused while the maintainer follows a study plan. Where it stands: [the redesign](redesign-2026-09-17.md) is proposed with its first decisions taken (six evaluation areas, the host's largest window for end-to-end tests, MLX first, a hardware catalogue of models) and six decisions open; R3 is shelved; the MLX engine spike is done (`experiments/engine-spike-mlx-20260917/analysis.md`) and found LM Studio's MLX path as fast as in-process MLX. **First step on resuming is the outside reference, not a build** — see "Where we are and what is left" immediately below, which is the current statement of order and supersedes the sequencing in the milestone sections.
