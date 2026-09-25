@@ -1,16 +1,9 @@
-// The execution trace of a run, read three ways. Everything here is derived
-// from the timeline the store already keeps -- one stream of protocol events --
-// so Compact, Detailed and Raw Trace never disagree about what happened.
+// The execution trace of a run, as the conversation shows it: phases of work
+// that open onto their steps. Everything here is derived from the timeline the
+// store already keeps -- one stream of protocol events -- so the phases and
+// the steps inside them never disagree about what happened.
 
 import { Entry } from './model';
-
-export type TraceVisibility = 'compact' | 'detailed' | 'raw';
-
-export const TRACE_VISIBILITIES: { value: TraceVisibility; label: string; help: string }[] = [
-  { value: 'compact', label: 'Compact', help: 'What PWR is doing, by phase, and the result' },
-  { value: 'detailed', label: 'Detailed', help: 'Reasoning, each tool call, files, commands, checks and retries' },
-  { value: 'raw', label: 'Raw Trace', help: 'Every event with its payload, and the core log' },
-];
 
 /** What a tool call was, for counting and for choosing its phase. */
 export type ToolCategory =
@@ -26,7 +19,7 @@ export type ToolCategory =
 
 export type PhaseName = 'Inspecting workspace' | 'Planning' | 'Implementing' | 'Verifying' | 'Fixing' | 'Finalizing';
 
-/** A step of a turn as Detailed shows it: one entry, or consecutive actions folded together. */
+/** A step of a turn as a phase shows it when opened: one entry, or consecutive actions folded together. */
 export type Step =
   | { type: 'entry'; key: string; entry: Entry }
   | { type: 'actions'; key: string; entries: Entry[]; last: boolean };
@@ -86,9 +79,9 @@ export function toolPath(entry: Entry): string | null {
 }
 
 /**
- * Detailed's steps: consecutive actions fold into one group, and a retry or
+ * A phase's steps: consecutive actions fold into one group, and a retry or
  * a recovery between them stays inside it. Generation figures and the core's
- * own notes are Raw Trace's; they would repeat what the rows already say.
+ * own notes would repeat what the steps already say.
  */
 export function groupSteps(entries: Entry[]): Step[] {
   const steps: Step[] = [];
@@ -249,7 +242,7 @@ export interface RunOutcome {
   text: string;
   /** What the person can do about it: offered only once the core's own retries are spent. */
   action: 'retry' | 'continue' | null;
-  /** The core's own words for why it stopped, for Detailed and Raw Trace. */
+  /** The core's own words for why it stopped, shown in a phase's steps. */
   detail: string | null;
   tone: 'done' | 'paused' | 'stopped' | 'failed';
 }

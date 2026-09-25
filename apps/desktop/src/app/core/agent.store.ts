@@ -16,9 +16,8 @@ import {
   SessionSummary,
   modelLabel,
 } from './model';
-import { RunOutcome, TraceVisibility, runOutcome } from './trace';
+import { RunOutcome, runOutcome } from './trace';
 
-const VISIBILITY_KEY = 'pwr:trace-visibility';
 
 type Pending = { resolve: (value: any) => void; reject: (error: Error) => void };
 
@@ -48,7 +47,7 @@ export class AgentStore {
   readonly trustingWorkspace = signal(false);
   readonly workspaceTrustError = signal('');
   readonly logs = signal<string[]>([]);
-  /** The same lines with when they arrived, so Raw Trace can place them in a run. */
+  /** The same lines with when they arrived, so a diagnostic export can place them in a run. */
   readonly logLines = signal<{ at: number; line: string }[]>([]);
 
   // --------------------------------------------------------- the engine
@@ -98,7 +97,6 @@ export class AgentStore {
    * How much of the run the conversation shows. Presentation only: it is not
    * Reasoning Effort, and changes nothing the model does.
    */
-  readonly traceVisibility = signal<TraceVisibility>(readVisibility());
   readonly changes = signal<FileDiff[]>([]);
   readonly commandOutput = signal<{ name: string; text: string } | null>(null);
   /** The Evidence command that is running, if any. */
@@ -435,15 +433,6 @@ export class AgentStore {
 
   selectModel(ref: string): Promise<void> {
     return this.refreshModels({ model: ref });
-  }
-
-  setTraceVisibility(visibility: TraceVisibility): void {
-    this.traceVisibility.set(visibility);
-    try {
-      localStorage.setItem(VISIBILITY_KEY, visibility);
-    } catch {
-      /* storage unavailable: the choice lasts for this run */
-    }
   }
 
   setReasoningEffort(effort: ReasoningEffort): Promise<void> {
@@ -1100,8 +1089,8 @@ export class AgentStore {
   private finish(reply: any): void {
     const outcome = runOutcome(reply, false);
     // The core ends the answer with its own reason for stopping. It becomes
-    // the run's stop state -- Compact says it in its own words, Detailed and
-    // Raw Trace keep the core's -- instead of prose from the model.
+    // the run's stop state -- the phases say it in their own words, the steps
+    // keep the core's -- instead of prose from the model.
     if (outcome.detail) {
       const said = outcome.detail.trim();
       const at = Date.now();
@@ -1142,16 +1131,6 @@ export class AgentStore {
   private push(entry: Entry): void {
     this.timeline.update((entries) => [...entries, entry]);
   }
-}
-
-function readVisibility(): TraceVisibility {
-  try {
-    const saved = localStorage.getItem(VISIBILITY_KEY);
-    if (saved === 'compact' || saved === 'detailed' || saved === 'raw') return saved;
-  } catch {
-    /* storage unavailable */
-  }
-  return 'compact';
 }
 
 function ownWords(text: string): string {

@@ -4,8 +4,6 @@ import { Entry } from '../core/model';
 import {
   PhaseName,
   Step,
-  TRACE_VISIBILITIES,
-  TraceVisibility,
   compactTurn,
   duration,
   groupSteps,
@@ -15,12 +13,9 @@ import {
   summarizePhase,
   toolCategory,
 } from '../core/trace';
-import { roveFocus } from '../core/ui';
 import { Diff, diffStats } from './diff';
 import { Follow } from './kit/follow';
 import { Icon, IconName } from './kit/icon';
-import { Popover } from './kit/popover';
-import { Tooltip } from './kit/tooltip';
 import { Markdown } from './markdown';
 
 const TOOL_ICONS: Record<string, IconName> = {
@@ -60,7 +55,7 @@ abstract class Foldable {
 }
 
 /**
- * Detailed: each step as it happened -- the reasoning (a one-line summary,
+ * A phase's steps, as they happened -- the reasoning (a one-line summary,
  * opened for the whole), every tool call with its file, command or diff,
  * checks marked as checks, and each retry with the core's own reason.
  */
@@ -215,7 +210,7 @@ export class TraceSteps extends Foldable {
     return `${tools.length} action${tools.length === 1 ? '' : 's'}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
   }
 
-  /** Detailed says the core's own reason beside the plain one. */
+  /** The steps say the core's own reason beside the plain one. */
   protected eventText(entry: Entry): string {
     if (entry.kind === 'recovery') return recoveredLabel(Number(entry.data?.['retries'] ?? 1));
     const attempt = entry.data?.['attempt'];
@@ -260,7 +255,7 @@ export class TraceSteps extends Foldable {
 /**
  * Compact: the run as phases of work -- inspecting, planning, implementing,
  * verifying, fixing, finalizing -- each with what it touched, and the result.
- * No reasoning text; retries in plain words. Each phase opens to its Detailed
+ * No reasoning text; retries in plain words. Each phase opens to its
  * steps.
  */
 @Component({
@@ -358,212 +353,5 @@ export class TraceCompact extends Foldable {
 
   protected icon(name: PhaseName): IconName {
     return PHASE_ICONS[name];
-  }
-}
-
-/** One row of Raw Trace: the event, its typed name, and everything it carried. */
-interface RawRow {
-  key: string;
-  offset: string;
-  event: string;
-  title: string;
-  status: string;
-  text: string;
-  payload: unknown[];
-}
-
-/**
- * Raw Trace: every event of the run in order with its typed name, full text
- * and the protocol payloads it came from, then the core's log for the run.
- */
-@Component({
-  selector: 'pa-trace-raw',
-  imports: [Icon, Follow],
-  template: `
-    <ol class="step raw-trace">
-      @for (row of rows(); track row.key) {
-        <li class="raw-row">
-          <div class="raw-head">
-            <span class="raw-time num">{{ row.offset }}</span>
-            <span class="raw-event mono">{{ row.event }}</span>
-            <span class="raw-title truncate mono" [attr.title]="row.title">{{ row.title }}</span>
-            <span class="raw-status">{{ row.status }}</span>
-            @if (row.payload.length) {
-              <button class="icon-btn icon-btn-sm" (click)="toggle(row.key)" [attr.aria-expanded]="!!open()[row.key]" aria-label="Payload">
-                <pa-icon name="scroll-text" [size]="14" />
-              </button>
-            }
-          </div>
-          @if (row.text) {
-            <pre class="raw-text selectable" paFollow>{{ row.text }}</pre>
-          }
-          @if (open()[row.key]) {
-            <pre class="raw-payload selectable">{{ json(row.payload) }}</pre>
-          }
-        </li>
-      }
-      <li class="raw-row">
-        <button class="raw-log-head" (click)="toggle('log')" [attr.aria-expanded]="!!open()['log']">
-          <pa-icon class="chevron" [class.open]="!!open()['log']" name="chevron-right" [size]="14" />
-          Core log during this run · <span class="num">{{ log().length }}</span> line{{ log().length === 1 ? '' : 's' }}
-        </button>
-        @if (open()['log']) {
-          <pre class="raw-payload selectable">{{ log().join('\\n') || 'The core wrote nothing to its log during this run.' }}</pre>
-        }
-      </li>
-    </ol>
-  `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-})
-export class TraceRaw {
-  private readonly store = inject(AgentStore);
-  readonly entries = input.required<Entry[]>();
-  readonly startedAt = input(0);
-  readonly endedAt = input(0);
-  readonly live = input(false);
-  protected readonly open = signal<Record<string, boolean>>({});
-
-  protected readonly rows = computed<RawRow[]>(() => {
-    const start = this.startedAt();
-    return this.entries().map((entry) => ({
-      key: entry.key,
-      offset: `+${((entry.at - start) / 1000).toFixed(2)}s`,
-      event: eventName(entry),
-      title: entry.kind === 'generation' ? generationLine(entry) : entry.title,
-      status: entry.status,
-      text: entry.kind === 'generation' ? '' : entry.text,
-      payload: entry.raw ?? (entry.data ? [entry.data] : []),
-    }));
-  });
-
-  protected readonly log = computed(() => {
-    const from = this.startedAt() - 500;
-    const to = this.live() ? Infinity : this.endedAt() + 2000;
-    return this.store
-      .logLines()
-      .filter((line) => line.at >= from && line.at <= to)
-      .map((line) => line.line);
-  });
-
-  protected toggle(key: string): void {
-    this.open.update((state) => ({ ...state, [key]: !state[key] }));
-  }
-
-  protected json(value: unknown[]): string {
-    try {
-      return JSON.stringify(value.length === 1 ? value[0] : value, null, 2);
-    } catch {
-      return String(value);
-    }
-  }
-}
-
-/** The typed event name an entry is, as Raw Trace labels it. */
-export function eventName(entry: Entry): string {
-  switch (entry.kind) {
-    case 'thought':
-      return 'reasoning';
-    case 'reply':
-      return entry.status === 'live' ? 'message' : 'message.final';
-    case 'tool': {
-      const category = toolCategory(entry);
-      const phase = entry.status === 'done' || entry.status === 'failed' ? 'tool_result' : 'tool_call';
-      return `${phase}.${category}`;
-    }
-    case 'stop':
-      return 'error';
-    case 'notice':
-      return entry.status === 'error' ? 'error' : 'notice';
-    default:
-      return entry.kind;
-  }
-}
-
-function generationLine(entry: Entry): string {
-  const d = entry.data ?? {};
-  const parts = [
-    `prompt ${d['promptTokens'] ?? '?'}`,
-    `generated ${d['generatedTokens'] ?? '?'}`,
-    d['reasoningTokens'] != null ? `reasoning ${d['reasoningTokens']}` : null,
-    d['promptEvalMs'] != null ? `prefill ${d['promptEvalMs']}ms` : null,
-    d['generationMs'] != null ? `gen ${d['generationMs']}ms` : null,
-    d['firstChunkMs'] != null ? `first chunk ${d['firstChunkMs']}ms` : null,
-  ];
-  return parts.filter(Boolean).join(' · ');
-}
-
-/**
- * Compact / Detailed / Raw Trace: how much of the run the conversation shows.
- * A top-bar chip, so it stays within reach when the inspector narrows the bar.
- */
-@Component({
-  selector: 'pa-trace-visibility',
-  imports: [Icon, Popover, Tooltip],
-  template: `
-    <button
-      #trigger
-      class="topbar-chip trace-visibility"
-      (click)="open.update((open) => !open)"
-      [attr.aria-expanded]="open()"
-      aria-haspopup="menu"
-      [attr.aria-label]="'Trace visibility: ' + current().label"
-      paTooltip="How much of the run to show. Not Reasoning Effort: the model does the same work."
-    >
-      <pa-icon [name]="icon(current().value)" [size]="14" />
-      <span class="meter-detail">{{ current().label }}</span>
-    </button>
-    @if (open()) {
-      <pa-popover
-        [anchor]="trigger"
-        anchorAlign="end"
-        panelRole="menu"
-        ariaLabel="Trace visibility"
-        width="300px"
-        [focusFirst]="true"
-        (closed)="open.set(false)"
-        (keydown)="keys($event)"
-        class="menu"
-        animate.leave="anim-pop-out"
-      >
-        @for (option of options; track option.value) {
-          <button
-            type="button"
-            class="menu-item trace-option"
-            role="menuitemradio"
-            [attr.aria-checked]="store.traceVisibility() === option.value"
-            (click)="choose(option.value)"
-          >
-            <pa-icon [name]="icon(option.value)" [size]="16" />
-            <span class="trace-option-text">
-              <strong>{{ option.label }}</strong>
-              <small>{{ option.help }}</small>
-            </span>
-            <pa-icon class="menu-check" name="check" [size]="14" />
-          </button>
-        }
-      </pa-popover>
-    }
-  `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-})
-export class TraceVisibilityControl {
-  protected readonly store = inject(AgentStore);
-  protected readonly open = signal(false);
-  protected readonly options = TRACE_VISIBILITIES;
-  protected readonly current = computed(
-    () => TRACE_VISIBILITIES.find((option) => option.value === this.store.traceVisibility()) ?? TRACE_VISIBILITIES[0],
-  );
-
-  protected icon(value: TraceVisibility): IconName {
-    return value === 'compact' ? 'eye' : value === 'detailed' ? 'list-plus' : 'scroll-text';
-  }
-
-  protected choose(value: TraceVisibility): void {
-    this.store.setTraceVisibility(value);
-    this.open.set(false);
-  }
-
-  protected keys(event: KeyboardEvent): void {
-    roveFocus(event, event.currentTarget as HTMLElement, '[role=menuitemradio]');
   }
 }
