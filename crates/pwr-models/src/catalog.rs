@@ -85,6 +85,19 @@ pub struct HubModel {
 }
 
 impl HubModel {
+    /// The parameter count the Hub lists, when it is believable. The Hub
+    /// counts the tensors in the safetensors files, and for packed quantized
+    /// weights that undercounts: a 19B model at 2 bits was listed at a few
+    /// million. When the name states a size and the count is under a
+    /// quarter of it, the count is not believed.
+    pub fn listed_parameters(&self) -> Option<u64> {
+        let listed = self.gguf_parameters.or(self.safetensors_parameters)?;
+        match named_parameters(&self.repository) {
+            Some(named) if listed < named / 4 => None,
+            _ => Some(listed),
+        }
+    }
+
     pub fn is_gated(&self) -> bool {
         self.gated.is_some()
     }
@@ -502,4 +515,70 @@ fn string_list(value: Option<&Value>) -> Vec<String> {
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect()
+}
+
+/// The size a repository's name states, in parameters: `Qwen3-8B`, `0.5B`,
+/// `8x22b` (experts times size). An active (`A3B`) or effective (`E4B`) size
+/// is not the model's size and is not read. The largest stated is taken.
+pub fn named_parameters(repository: &str) -> Option<u64> {
+    let name = repository.rsplit('/').next()?.to_ascii_lowercase();
+    let billions = |text: &str| -> Option<f64> {
+        let number = text.strip_suffix('b')?;
+        if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit() || c == '.') {
+            return None;
+        }
+        number.parse::<f64>().ok()
+    };
+    name.split(['-', '_'])
+        .filter_map(|token| match token.split_once('x') {
+            Some((experts, size)) => Some(experts.parse::<f64>().ok()? * billions(size)?),
+            None => billions(token),
+        })
+        .filter(|size| *size > 0.0)
+        .max_by(f64::total_cmp)
+        .map(|size| (size * 1e9) as u64)
+}
+
+#[cfg(test)]
+mod named_tests {
+    use super::*;
+
+    #[test]
+    fn a_name_states_the_size_and_contradicts_a_packed_count() {
+        const B: u64 = 1_000_000_000;
+        assert_eq!(
+            named_parameters("neopolita/Qwen3.6-19B-A3B-Niwaki-v2-2bit-mlx"),
+            Some(19 * B)
+        );
+        assert_eq!(
+            named_parameters("mlx-community/SorcererLM-8x22b-2bit"),
+            Some(176 * B)
+        );
+        assert_eq!(named_parameters("Qwen/Qwen2.5-0.5B-Instruct"), Some(B / 2));
+        assert_eq!(
+            named_parameters("lmstudio-community/gemma-4-E4B-it-MLX-4bit"),
+            None
+        );
+        assert_eq!(named_parameters("rishabhguptajs/tinystories-10m-mlx"), None);
+        let listed = |name: &str, count| HubModel {
+            repository: name.into(),
+            safetensors_parameters: Some(count),
+            ..Default::default()
+        };
+        // Packed 2-bit weights counted as a few million: not believed.
+        assert_eq!(
+            listed("n/Qwen3.6-19B-A3B-2bit-mlx", 30_000_000).listed_parameters(),
+            None
+        );
+        // A believable count is the Hub's, even where it differs a little.
+        assert_eq!(
+            listed("n/Qwen3-8B-4bit", 8_190_000_000).listed_parameters(),
+            Some(8_190_000_000)
+        );
+        // No size in the name: nothing to contradict it.
+        assert_eq!(
+            listed("r/tinystories-10m-mlx", 10_000_000).listed_parameters(),
+            Some(10_000_000)
+        );
+    }
 }

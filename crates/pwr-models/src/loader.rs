@@ -23,11 +23,15 @@ use serde::{Deserialize, Serialize};
 /// how many an address makes (measured on the Mac: seven searches in a row
 /// were rate-limited at sixty a page).
 const ENRICHED_PER_PAGE: usize = 40;
-/// Listings of the Hub's own order one page may read.
-const PAGES_READ: usize = 6;
-/// Walk batches one page may take (each a few range listings): enough to
-/// walk down past the largest models when none of them can load here.
-const WALK_BATCHES: usize = 8;
+/// Listings (of the Hub's order, or walk batches) one page may read.
+const READS_PER_PAGE: usize = 24;
+/// A page that has something stops reading after this long; one that has
+/// nothing yet goes on to [`LONGEST`]. A walk down past models too large
+/// for this Mac read for four batches and returned an empty page (measured
+/// on the Mac): a page that says nothing was found while more exists is the
+/// wrong answer, so the budget is time, not a count of batches.
+const ENOUGH: std::time::Duration = std::time::Duration::from_secs(6);
+const LONGEST: std::time::Duration = std::time::Duration::from_secs(20);
 /// Bits per weight below which no model is stored: the floor a listing's
 /// size is estimated at when its name does not say its quantization.
 const FLOOR_BITS: f64 = 1.5;
@@ -101,12 +105,17 @@ pub async fn fill<C: Catalogue>(
     let mut shown = Vec::new();
     let mut enriched = 0;
     let mut reads = 0;
+    let started = std::time::Instant::now();
+    let out_of_time = |shown: usize| {
+        let spent = started.elapsed();
+        spent >= LONGEST || (shown > 0 && spent >= ENOUGH)
+    };
     while shown.len() < SEARCH_LIMIT && enriched < ENRICHED_PER_PAGE {
         if state.pending.is_empty() {
             let (listed, exhausted) = match &mut state.source {
                 Source::Hub { done: true, .. } => (Vec::new(), true),
                 Source::Hub { cursor, done } => {
-                    if reads >= PAGES_READ {
+                    if reads >= READS_PER_PAGE || out_of_time(shown.len()) {
                         break;
                     }
                     reads += 1;
@@ -125,7 +134,7 @@ pub async fn fill<C: Catalogue>(
                     if walk.finished() {
                         (Vec::new(), true)
                     } else {
-                        if reads >= WALK_BATCHES {
+                        if reads >= READS_PER_PAGE || out_of_time(shown.len()) {
                             break;
                         }
                         reads += 1;
@@ -206,7 +215,7 @@ pub fn could_pass(
     {
         return false;
     }
-    let Some(parameters) = model.gguf_parameters.or(model.safetensors_parameters) else {
+    let Some(parameters) = model.listed_parameters() else {
         return true;
     };
     // GGUF repositories hold several quantizations: the lightest decides.
@@ -452,6 +461,31 @@ mod tests {
             .collect();
         assert!(order.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(next.is_none(), "the Hub had no more");
+    }
+
+    #[tokio::test]
+    async fn a_page_is_not_left_empty_while_more_could_fit() {
+        // Three hundred of the Hub's most downloaded cannot load here: the
+        // page reads on until it finds the ones that can.
+        let mut models: Vec<HubModel> = (0..300u64)
+            .map(|n| model(&format!("big{n}-480B-4bit"), 480 * B, 10_000 - n))
+            .collect();
+        models.push(model("small-8B-4bit", 8 * B, 1));
+        let fake = Fake::new(models, vec!["small-8B-4bit"]);
+        let filters = Filters {
+            compatible_only: true,
+            ..Default::default()
+        };
+        let (page, _) = fill(&fake, None, None, (None, None), None, keep(&filters))
+            .await
+            .unwrap();
+        assert_eq!(page, ["small-8B-4bit"]);
+        assert!(
+            fake.enriched
+                .borrow()
+                .iter()
+                .all(|name| !name.contains("480B"))
+        );
     }
 
     #[tokio::test]

@@ -148,8 +148,9 @@ async fn fill(walk: &mut Walk, listing: &impl Listing, wanted: usize) -> Result<
             }
         }
         // The Hub counts a model it has no parameter count for as having
-        // none, so it lands in the lowest range: "smallest first" opened on
-        // a 19B model listed as 0. It cannot be placed, so it is not shown.
+        // none, and undercounts packed quantized weights, so both land in
+        // the lowest ranges: "smallest first" opened on a 19B model listed
+        // as 0. Neither can be placed, so neither is shown.
         models.retain(|model| count(model) > 0);
         models.sort_by(|a, b| {
             let (x, y) = (count(a), count(b));
@@ -185,11 +186,10 @@ async fn fill(walk: &mut Walk, listing: &impl Listing, wanted: usize) -> Result<
     Ok(())
 }
 
+/// The count a model is placed by: 0, and so not placed, when the Hub has
+/// none or one its name contradicts (see [`HubModel::listed_parameters`]).
 fn count(model: &HubModel) -> u64 {
-    model
-        .gguf_parameters
-        .or(model.safetensors_parameters)
-        .unwrap_or(0)
+    model.listed_parameters().unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -274,6 +274,8 @@ mod tests {
             ("tiny", B / 2, 1),
             // No parameter count on the Hub: listed in the lowest range as 0.
             ("unknown", 0, 5_000),
+            // Packed quantized weights counted as a few million.
+            ("Qwen3.6-19B-A3B-2bit", 20_000_000, 4_000),
         ];
         let filler: Vec<(String, u64, u64)> = (0..120)
             .map(|n| (format!("m{n}"), 3 * B + n * 10_000_000, 100 + n))
@@ -283,6 +285,7 @@ mod tests {
         let order = walk(&hub, CatalogOrder::SmallestFirst, None).await;
         assert_eq!(order.len(), 123, "every model with a size, once");
         assert!(!order.contains(&"unknown".to_owned()));
+        assert!(!order.contains(&"Qwen3.6-19B-A3B-2bit".to_owned()));
         assert_eq!(order[0], "tiny");
         assert_eq!(order.last().unwrap(), "big");
         let counts: Vec<u64> = order
