@@ -230,7 +230,13 @@ pub fn build(
                         continue;
                     }
                     let package_id = format!("pkg:{package}");
+                    let builtin = is_builtin(&package);
                     add(&mut nodes, package_id.clone(), NodeKind::Package, package);
+                    if builtin && let Some(entry) = nodes.get_mut(&package_id) {
+                        entry
+                            .attrs
+                            .insert("builtin".into(), serde_json::json!(true));
+                    }
                     edges.insert(Edge {
                         from: id.clone(),
                         to: package_id,
@@ -449,15 +455,148 @@ fn resolve_import(from: &str, import: &str, paths: &BTreeSet<&str>) -> Option<St
         }
         return None;
     }
-    if import.contains('.') && !import.contains('/') && !import.starts_with('.') {
-        let module = import.replace('.', "/");
-        for candidate in [format!("{module}.py"), format!("{module}/__init__.py")] {
-            if let Some(found) = exists(&candidate) {
-                return Some(found);
+    if from.ends_with(".py") && !import.contains('/') {
+        // `from .exc import X` and `import exc` alike: a module beside the
+        // file first, then from the project's root.
+        let dotted = import.trim_start_matches('.');
+        let module = dotted.replace('.', "/");
+        if module.is_empty() {
+            return None;
+        }
+        let beside = if dir.is_empty() {
+            module.clone()
+        } else {
+            format!("{dir}/{module}")
+        };
+        for base in [beside, module] {
+            for candidate in [format!("{base}.py"), format!("{base}/__init__.py")] {
+                if let Some(found) = exists(&candidate) {
+                    return Some(found);
+                }
             }
         }
     }
     None
+}
+
+/// A language's own library rather than a dependency: Python's standard
+/// library, Node's built-in modules, Rust's `std`/`core`/`alloc`. Kept as
+/// nodes, marked, and left out of the outline's packages.
+pub fn is_builtin(package: &str) -> bool {
+    const BUILTIN: [&str; 110] = [
+        "__future__",
+        "abc",
+        "argparse",
+        "array",
+        "ast",
+        "asyncio",
+        "base64",
+        "bisect",
+        "builtins",
+        "calendar",
+        "cmath",
+        "collections",
+        "concurrent",
+        "configparser",
+        "contextlib",
+        "copy",
+        "csv",
+        "ctypes",
+        "dataclasses",
+        "datetime",
+        "decimal",
+        "difflib",
+        "doctest",
+        "email",
+        "enum",
+        "errno",
+        "fnmatch",
+        "fractions",
+        "functools",
+        "gc",
+        "getpass",
+        "gettext",
+        "glob",
+        "gzip",
+        "hashlib",
+        "heapq",
+        "hmac",
+        "html",
+        "http",
+        "importlib",
+        "inspect",
+        "io",
+        "ipaddress",
+        "itertools",
+        "json",
+        "locale",
+        "logging",
+        "math",
+        "mimetypes",
+        "multiprocessing",
+        "numbers",
+        "operator",
+        "os",
+        "pathlib",
+        "pickle",
+        "platform",
+        "pprint",
+        "queue",
+        "random",
+        "re",
+        "secrets",
+        "select",
+        "shlex",
+        "shutil",
+        "signal",
+        "socket",
+        "sqlite3",
+        "ssl",
+        "stat",
+        "statistics",
+        "string",
+        "struct",
+        "subprocess",
+        "sys",
+        "tarfile",
+        "tempfile",
+        "textwrap",
+        "threading",
+        "time",
+        "timeit",
+        "tkinter",
+        "traceback",
+        "types",
+        "typing",
+        "unicodedata",
+        "unittest",
+        "urllib",
+        "uuid",
+        "warnings",
+        "weakref",
+        "xml",
+        "zipfile",
+        "zlib",
+        "zoneinfo",
+        "assert",
+        "buffer",
+        "child_process",
+        "crypto",
+        "events",
+        "fs",
+        "net",
+        "path",
+        "process",
+        "readline",
+        "stream",
+        "url",
+        "util",
+        "std",
+        "core",
+        "alloc",
+    ];
+    let package = package.strip_prefix("node:").unwrap_or(package);
+    BUILTIN.contains(&package)
 }
 
 fn normalize(path: &str) -> Option<String> {
@@ -478,7 +617,12 @@ fn normalize(path: &str) -> Option<String> {
 /// `serde` for `serde::Deserialize`, `os` for `os.path`.
 fn package_name(import: &str) -> String {
     let import = import.trim();
-    if import.starts_with('.') || import.starts_with("super::") || import.starts_with("self::") {
+    if import.starts_with('.')
+        || import.starts_with("super::")
+        || import.starts_with("self::")
+        || import.starts_with("crate::")
+        || matches!(import, "crate" | "self" | "super")
+    {
         return String::new();
     }
     if let Some(scoped) = import.strip_prefix('@') {
@@ -610,7 +754,7 @@ impl Graph {
         let packages: Vec<&str> = self
             .nodes
             .iter()
-            .filter(|node| node.kind == NodeKind::Package)
+            .filter(|node| node.kind == NodeKind::Package && node.attrs.get("builtin").is_none())
             .map(|node| node.label.as_str())
             .take(30)
             .collect();
@@ -809,6 +953,35 @@ mod tests {
         let text = with.neighbourhood("src/app/cart.ts");
         assert!(text.contains("written by a model, unverified): The shopping cart."));
         assert!(!text.contains("changed since"));
+        let python = pwr_repo::RepositoryIndex {
+            files: vec![
+                record("cf/main.py", &["main"], &["exc", "os", "requests", "crate"]),
+                record("cf/exc.py", &["InvalidInput"], &[]),
+            ],
+            ..index.clone()
+        };
+        let graph = build("cf", &python, &[], &[], &BTreeMap::new());
+        let edge = |to: &str, certainty| Edge {
+            from: "file:cf/main.py".into(),
+            to: to.into(),
+            kind: EdgeKind::Imports,
+            certainty,
+        };
+        assert!(
+            graph
+                .edges
+                .contains(&edge("file:cf/exc.py", Certainty::Resolved))
+        );
+        assert!(
+            graph
+                .edges
+                .contains(&edge("pkg:requests", Certainty::Named))
+        );
+        let os = graph.nodes.iter().find(|node| node.id == "pkg:os").unwrap();
+        assert_eq!(os.attrs.get("builtin"), Some(&serde_json::json!(true)));
+        assert!(graph.nodes.iter().all(|node| node.id != "pkg:crate"));
+        assert!(graph.outline().contains("Packages: requests"));
+
         let candidates = summary_candidates(&index);
         assert!(candidates.contains(&"dir:src/app".to_owned()));
         assert!(candidates.contains(&"dir:crate/src".to_owned()));

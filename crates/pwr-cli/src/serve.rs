@@ -781,6 +781,20 @@ impl<R: TurnRunner + 'static> Server<R> {
             "_pwr/projects" => self.send(projects_request(id, &params)),
             "_pwr/wiki" => self.send(wiki_request(id, &params)),
             "_pwr/rewind" => self.rewind(id, &params),
+            "_pwr/files" => self.send(files_request(id, &params)),
+            "_pwr/file" => self.send(file_request(id, &params)),
+            "_pwr/wiki_summarise" => {
+                let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from)
+                else {
+                    return self.send(error_response(id, -32602, "name the workspace with cwd"));
+                };
+                if self.is_chat_home(&root) {
+                    return self.send(error_response(id, -32000, "chat mode has no wiki"));
+                }
+                let started = !self.summarising.get();
+                self.summarise_while_idle(root);
+                self.send(result(id, json!({"started": started})));
+            }
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/compact" => self.compact(id, &params).await,
@@ -2470,6 +2484,11 @@ impl<R: TurnRunner + 'static> Server<R> {
             .map(|profile| profile.language)
             .unwrap_or_default();
         let mut written = 0;
+        let cwd = root.display().to_string();
+        self.send(notification(
+            "_pwr/wiki_summarising",
+            json!({"cwd": cwd, "state": "started"}),
+        ));
         for id in graph::summary_candidates(&index).into_iter().take(40) {
             if written >= PER_IDLE || self.sessions.borrow().values().any(|session| session.busy) {
                 break;
@@ -2484,6 +2503,10 @@ impl<R: TurnRunner + 'static> Server<R> {
                 continue;
             }
             let prompt = wiki::summary_prompt(root, &index, &id, &language);
+            self.send(notification(
+                "_pwr/wiki_summarising",
+                json!({"cwd": cwd, "state": "writing", "module": id, "written": written}),
+            ));
             match self.runner.summarise(root, prompt).await {
                 Ok((text, model)) if !text.trim().is_empty() => {
                     let summary = graph::Summary {
@@ -2508,6 +2531,10 @@ impl<R: TurnRunner + 'static> Server<R> {
                 json!({"cwd": root, "summaries": written}),
             ));
         }
+        self.send(notification(
+            "_pwr/wiki_summarising",
+            json!({"cwd": cwd, "state": "finished", "written": written}),
+        ));
     }
 
     /// Frees the session for its next prompt, then answers the one that ran.
@@ -2961,9 +2988,40 @@ fn wiki_request(id: Value, params: &Value) -> Value {
         .get("query")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    // For the 3D view: symbols only when asked for, since a large project has
+    // thousands and they bury the structure.
+    let symbols = params.get("includeSymbols").and_then(Value::as_bool) == Some(true);
+    let shown: std::collections::HashSet<&str> = graph
+        .nodes
+        .iter()
+        .filter(|node| symbols || node.kind != NodeKind::Symbol)
+        .take(4_000)
+        .map(|node| node.id.as_str())
+        .collect();
+    let view_nodes: Vec<Value> = graph
+        .nodes
+        .iter()
+        .filter(|node| shown.contains(node.id.as_str()))
+        .map(|node| {
+            json!({
+                "id": node.id,
+                "kind": node.kind,
+                "label": node.label,
+                "summary": node.attrs.get("summary"),
+                "stale": node.attrs.get("summaryStale"),
+                "builtin": node.attrs.get("builtin"),
+            })
+        })
+        .collect();
+    let view_edges: Vec<&pwr_orchestrator::graph::Edge> = graph
+        .edges
+        .iter()
+        .filter(|edge| shown.contains(edge.from.as_str()) && shown.contains(edge.to.as_str()))
+        .collect();
     result(
         id,
         json!({
+            "graph": {"nodes": view_nodes, "edges": view_edges},
             "overview": std::fs::read_to_string(dir.join("overview.md")).unwrap_or_default(),
             "outline": graph.outline(),
             "generatedAt": graph.generated_at,
@@ -2972,6 +3030,125 @@ fn wiki_request(id: Value, params: &Value) -> Value {
             "modules": modules,
             "work": work,
             "answer": (!query.trim().is_empty()).then(|| graph.neighbourhood(query)),
+        }),
+    )
+}
+
+/// Folders the Files card does not list: dependencies, builds, VCS internals.
+const FILES_SKIPPED: [&str; 10] = [
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pwr-scratch",
+    ".angular",
+];
+
+/// A workspace-relative path inside `root`, or why not.
+fn inside(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(relative.trim_start_matches("./"));
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err("the path must be inside the workspace".into());
+    }
+    let root = root.canonicalize().map_err(|error| error.to_string())?;
+    let path = root
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if !path.starts_with(&root) {
+        return Err("the path must be inside the workspace".into());
+    }
+    Ok(path)
+}
+
+/// `_pwr/files`: one folder of the workspace `cwd` (`path`, the root when
+/// omitted), folders first. For the person to look at; the model reads files
+/// through its own tools and policy.
+fn files_request(id: Value, params: &Value) -> Value {
+    let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
+        return error_response(id, -32602, "name the workspace with cwd");
+    };
+    let relative = params
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let dir = match inside(&root, relative) {
+        Ok(dir) => dir,
+        Err(why) => return error_response(id, -32602, &why),
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return error_response(id, -32000, "the folder could not be read");
+    };
+    let base = relative.trim_start_matches("./").trim_end_matches('/');
+    let mut listed: Vec<(bool, String, u64)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if FILES_SKIPPED.contains(&name.as_str()) || name == ".DS_Store" {
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            Some((metadata.is_dir(), name, metadata.len()))
+        })
+        .collect();
+    listed.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
+    listed.truncate(2_000);
+    let entries: Vec<Value> = listed
+        .into_iter()
+        .map(|(dir, name, bytes)| {
+            let path = if base.is_empty() {
+                name.clone()
+            } else {
+                format!("{base}/{name}")
+            };
+            json!({"name": name, "path": path, "dir": dir, "bytes": bytes})
+        })
+        .collect();
+    result(id, json!({ "path": base, "entries": entries }))
+}
+
+/// `_pwr/file`: one text file of the workspace `cwd`, up to 1 MB.
+fn file_request(id: Value, params: &Value) -> Value {
+    const LIMIT: usize = 1024 * 1024;
+    let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
+        return error_response(id, -32602, "name the workspace with cwd");
+    };
+    let relative = params
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let path = match inside(&root, relative) {
+        Ok(path) if path.is_file() => path,
+        Ok(_) => return error_response(id, -32602, "not a file"),
+        Err(why) => return error_response(id, -32602, &why),
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return error_response(id, -32000, "the file could not be read");
+    };
+    let size = bytes.len();
+    let head = &bytes[..size.min(LIMIT)];
+    if head.iter().take(8_000).any(|byte| *byte == 0) {
+        return result(id, json!({"path": relative, "bytes": size, "binary": true}));
+    }
+    result(
+        id,
+        json!({
+            "path": relative,
+            "bytes": size,
+            "binary": false,
+            "truncated": size > LIMIT,
+            "text": String::from_utf8_lossy(head),
         }),
     )
 }
@@ -3083,6 +3260,27 @@ fn memory_request(id: Value, params: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_files_card_reads_only_inside_the_workspace() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "x").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("src")).unwrap();
+        std::fs::write(root.path().join("src/a.py"), "print(1)").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), root.path().join("link")).unwrap();
+        assert!(inside(root.path(), "src/a.py").is_ok());
+        assert!(inside(root.path(), "").is_ok());
+        assert!(inside(root.path(), "../secret.txt").is_err());
+        assert!(inside(root.path(), "/etc/passwd").is_err());
+        #[cfg(unix)]
+        assert!(inside(root.path(), "link/secret.txt").is_err());
+        let listed = files_request(json!(1), &json!({"cwd": root.path()}));
+        assert_eq!(listed["result"]["entries"][0]["path"], "src");
+        let read = file_request(json!(2), &json!({"cwd": root.path(), "path": "src/a.py"}));
+        assert_eq!(read["result"]["text"], "print(1)");
+    }
     use converse::{FileDiff, StopReason, ToolCallStep};
     use std::time::Duration;
     use tokio::io::{BufReader, DuplexStream, Lines};
