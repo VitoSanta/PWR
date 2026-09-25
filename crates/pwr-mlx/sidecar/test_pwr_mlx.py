@@ -4,13 +4,30 @@
 """
 import json
 import pathlib
+import tempfile
 import unittest
 
-from pwr_mlx import (REPEAT_LIMIT, REPEAT_SPAN, ReasoningStream, fused_attention, looping,
+from pwr_mlx import (REPEAT_LIMIT, REPEAT_SPAN, ReasoningStream, RepetitionSignals, fused_attention, looping,
                         think_delimiters)
 
 HERE = pathlib.Path(__file__).resolve()
 ROOT = HERE.parents[3]
+
+
+class Trace(unittest.TestCase):
+    def test_record_has_a_timestamp_for_chat_scoped_export(self):
+        import pwr_mlx
+        original = pwr_mlx.TRACE
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                path = pathlib.Path(directory) / "trace.jsonl"
+                pwr_mlx.TRACE = str(path)
+                pwr_mlx.trace({"raw": "model output"})
+                record = json.loads(path.read_text().strip())
+                self.assertIsInstance(record["at_ms"], int)
+                self.assertEqual(record["raw"], "model output")
+        finally:
+            pwr_mlx.TRACE = original
 
 
 class Looping(unittest.TestCase):
@@ -48,6 +65,17 @@ class Looping(unittest.TestCase):
                 self.skipTest(f"{path} is not in this checkout")
             raw = json.loads(file.read_text().splitlines()[line])["raw"]
             self.assertFalse(looping(raw), path)
+
+    def test_repeated_reasoning_windows_are_observed_without_stopping_output(self):
+        signal = RepetitionSignals()
+        for token in (["step", "one", "two", "three", "four", "five", "six", "seven"] * 4):
+            signal.feed("reasoning", token)
+        for token in (f"answer-{index}" for index in range(24)):
+            signal.feed("answer", token)
+        summary = signal.summary()
+        self.assertGreater(summary["reasoning"]["ratio_bps"], 5000)
+        self.assertEqual(summary["answer"]["ratio_bps"], 0)
+        self.assertNotIn("step", json.dumps(summary))
 
 
 class FusedAttention(unittest.TestCase):
@@ -230,7 +258,8 @@ class Chat(unittest.TestCase):
         import pwr_mlx
         self.module = pwr_mlx
         self.saved = (pwr_mlx.stream_generate, pwr_mlx.make_prompt_cache,
-                      pwr_mlx.snapshot, pwr_mlx.restore)
+                      pwr_mlx.snapshot, pwr_mlx.restore,
+                      pwr_mlx.make_sampler, pwr_mlx.make_logits_processors)
         pwr_mlx.make_prompt_cache = lambda model: []
         pwr_mlx.snapshot = lambda cache: None
         pwr_mlx.restore = lambda cache, states: None
@@ -242,7 +271,8 @@ class Chat(unittest.TestCase):
 
     def tearDown(self):
         m = self.module
-        m.stream_generate, m.make_prompt_cache, m.snapshot, m.restore = self.saved
+        (m.stream_generate, m.make_prompt_cache, m.snapshot, m.restore,
+         m.make_sampler, m.make_logits_processors) = self.saved
 
     def chat(self, generate, cancelled=lambda: False, **request):
         self.module.stream_generate = generate
@@ -252,6 +282,29 @@ class Chat(unittest.TestCase):
         text = lambda channel: "".join(e["text"] for e in events
                                        if e.get("event") == "delta" and e["channel"] == channel)
         return done, text("reasoning"), text("content"), events
+
+    def test_sampling_values_reach_the_stream(self):
+        seen = {}
+        self.module.make_sampler = lambda **kwargs: seen.setdefault("sampler", kwargs)
+        self.module.make_logits_processors = lambda **kwargs: seen.setdefault("processors", kwargs)
+
+        def generate(model, tokenizer, prompt, max_tokens, **kwargs):
+            seen["stream"] = kwargs
+            yield FakeResponse("ok", "stop")
+
+        done, _, _, _ = self.chat(
+            generate, temperature=1.0, top_p=0.95, top_k=20,
+            min_p=0.1, presence_penalty=0.2, repetition_penalty=1.05,
+        )
+        self.assertEqual(done["finish_reason"], "stop")
+        self.assertEqual(seen["sampler"], {
+            "temp": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.1,
+        })
+        self.assertEqual(seen["processors"], {
+            "presence_penalty": 0.2, "repetition_penalty": 1.05,
+        })
+        self.assertIs(seen["stream"]["sampler"], seen["sampler"])
+        self.assertIs(seen["stream"]["logits_processors"], seen["processors"])
 
     def test_a_budget_closes_the_reasoning_and_the_answer_follows(self):
         generate = scripted(list("abcdefghij"), list("\n42"))

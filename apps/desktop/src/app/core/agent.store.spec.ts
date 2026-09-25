@@ -96,3 +96,47 @@ describe('AgentStore context', () => {
     expect(asked).toEqual([]);
   });
 });
+
+describe('AgentStore turn events', () => {
+  let store: AgentStore;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+    store = TestBed.inject(AgentStore);
+    store.sessionId.set('s1');
+  });
+
+  const event = (params: any) => store.receive({ jsonrpc: '2.0', method: '_pwr/turn_event', params: { sessionId: 's1', ...params } });
+
+  it('keeps a retry running until the turn recovers', () => {
+    event({ event: 'retry', cause: 'reply_fault', attempt: 1, limit: 2, detail: 'tool calls were not valid JSON' });
+    expect(store.timeline()[0]).toMatchObject({ kind: 'retry', status: 'running', data: { cause: 'reply_fault', attempt: 1 } });
+    event({ event: 'recovered', retries: 1 });
+    expect(store.timeline().map((entry) => [entry.kind, entry.status])).toEqual([
+      ['retry', 'done'],
+      ['recovery', 'done'],
+    ]);
+  });
+
+  it('records a generation for the runtime figures', () => {
+    event({ event: 'generation', promptTokens: 10, generatedTokens: 5, generationMs: 100 });
+    expect(store.timeline()[0]).toMatchObject({ kind: 'generation', data: { generatedTokens: 5 } });
+  });
+
+  it("turns the core's stop reason into the run's state, not the answer's prose", () => {
+    const said = 'three turns running produced nothing this backend could use';
+    event({ event: 'retry', cause: 'reply_fault', attempt: 2, limit: 2, detail: 'x' });
+    store.receive({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Read the files.\n\n${said}` } } },
+    });
+    (store as any).finish({ stopReason: 'end_turn', _meta: { pwr: { terminal: 'protocol', actions: 2, stoppedBecause: said } } });
+    const kinds = store.timeline().map((entry) => entry.kind);
+    expect(kinds).toEqual(['retry', 'reply', 'stop']);
+    expect(store.timeline()[0].status).toBe('failed');
+    expect(store.timeline()[1].text).toBe('Read the files.');
+    expect(store.timeline()[2].text).toBe(said);
+    expect(store.runOutcome()?.action).toBe('retry');
+  });
+});

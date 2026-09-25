@@ -7,6 +7,7 @@ import {
   DownloadView,
   HardwareInfo,
   LocalModel,
+  ModelSamplingView,
 } from './model';
 
 /**
@@ -52,7 +53,10 @@ export class ModelsStore {
       if (row) {
         row.download = view;
         row.partial = true;
-        row.bytes = downloadBytes(view.state);
+        // Weights still arriving are not a model to use, whatever the files
+        // already on disk look like.
+        row.usable = false;
+        row.bytes = Math.max(row.bytes, downloadBytes(view.state));
       } else {
         rows.set(key, {
           modelRef: view.modelRef,
@@ -81,6 +85,12 @@ export class ModelsStore {
   } | null>(null);
   readonly deleting = signal(false);
   readonly deleteError = signal('');
+  readonly profileTarget = signal<string | null>(null);
+  readonly profile = signal<ModelSamplingView | null>(null);
+  readonly profileDraft = signal<Record<string, string>>({});
+  readonly profileLoading = signal(false);
+  readonly profileSaving = signal(false);
+  readonly profileError = signal('');
 
   /** Downloads by `repository@variant`. */
   readonly downloads = signal<Record<string, DownloadView>>({});
@@ -106,6 +116,69 @@ export class ModelsStore {
   close(): void {
     this.open.set(false);
     this.pendingDelete.set(null);
+    this.closeProfile();
+  }
+
+  async openProfile(modelRef: string): Promise<void> {
+    this.profileTarget.set(modelRef);
+    this.profile.set(null);
+    this.profileError.set('');
+    this.profileLoading.set(true);
+    try {
+      const profile = await this.agent.call('_pwr/model_sampling', {
+        cwd: this.agent.workspace(), modelRef,
+      }) as ModelSamplingView;
+      if (this.profileTarget() !== modelRef) return;
+      this.profile.set(profile);
+      this.profileDraft.set(Object.fromEntries(profile.fields.map((field) =>
+        [field.name, field.override == null ? '' : String(field.override)])));
+    } catch (error) {
+      if (this.profileTarget() === modelRef) this.profileError.set(String(error));
+    } finally {
+      if (this.profileTarget() === modelRef) this.profileLoading.set(false);
+    }
+  }
+
+  closeProfile(): void {
+    if (this.profileSaving()) return;
+    this.profileTarget.set(null);
+    this.profile.set(null);
+    this.profileError.set('');
+  }
+
+  setProfileValue(name: string, value: string): void {
+    this.profileDraft.update((draft) => ({ ...draft, [name]: value }));
+  }
+
+  async saveProfile(reset = false): Promise<void> {
+    const modelRef = this.profileTarget();
+    if (!modelRef || this.profileSaving()) return;
+    const values: Record<string, number> = {};
+    if (!reset) {
+      for (const [name, raw] of Object.entries(this.profileDraft())) {
+        if (!raw.trim()) continue;
+        const value = Number(raw);
+        if (!Number.isFinite(value)) {
+          this.profileError.set(`${name} must be a number`);
+          return;
+        }
+        values[name] = value;
+      }
+    }
+    this.profileSaving.set(true);
+    this.profileError.set('');
+    try {
+      const profile = await this.agent.call('_pwr/model_sampling', {
+        cwd: this.agent.workspace(), modelRef, values,
+      }) as ModelSamplingView;
+      this.profile.set(profile);
+      this.profileDraft.set(Object.fromEntries(profile.fields.map((field) =>
+        [field.name, field.override == null ? '' : String(field.override)])));
+    } catch (error) {
+      this.profileError.set(String(error));
+    } finally {
+      this.profileSaving.set(false);
+    }
   }
 
   showTab(tab: 'discover' | 'local'): void {
@@ -360,8 +433,8 @@ export class ModelsStore {
 
   /** Resume a live or persisted partial download from either tab. */
   async resume(modelRef: string, format?: 'mlx' | 'gguf'): Promise<void> {
-    const locate = () =>
-      this.results()
+    const locate = (entries: CatalogEntry[]) =>
+      entries
         .map((entry) => ({
           entry,
           variant: entry.variants.find(
@@ -370,14 +443,31 @@ export class ModelsStore {
         }))
         .find((match) => match.variant);
 
-    let match = locate();
+    this.localError.set('');
+    let match = locate(this.results());
     if (!match) {
-      this.query.set(modelRef);
-      this.tab.set('discover');
-      await this.search();
-      match = locate();
+      // A restarted app has no catalog in memory. Search without the user's
+      // size/compatibility filters: those must not hide an unfinished model.
+      const repository = modelRef.split('/').slice(0, 2).join('/');
+      try {
+        const reply = await this.agent.call('_pwr/catalog', {
+          cwd: this.agent.workspace(),
+          query: repository,
+          format,
+          filters: { compatibleOnly: false },
+        });
+        if (reply.error) throw new Error(reply.error.message);
+        match = locate(reply.results ?? []);
+      } catch (error) {
+        this.localError.set(`Could not resume ${modelRef}: ${String(error).replace(/^Error: /, '')}`);
+        return;
+      }
     }
-    if (match?.variant) await this.download(match.entry, match.variant);
+    if (!match?.variant || !match.entry.revision) {
+      this.localError.set(`Could not find a downloadable version of ${modelRef} on the Hub.`);
+      return;
+    }
+    await this.download(match.entry, match.variant);
   }
 
   /** Chooses a downloaded model for this workspace and closes the manager. */

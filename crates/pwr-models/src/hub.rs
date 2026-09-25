@@ -21,6 +21,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// `config.json` is read into memory; anything larger is not a config.
 const CONFIG_LIMIT_BYTES: usize = 2 * 1024 * 1024;
+const CARD_LIMIT_BYTES: usize = 1024 * 1024;
 
 fn next_cursor(link: &str) -> Option<String> {
     link.split(',').find_map(|part| {
@@ -361,6 +362,50 @@ impl HubClient {
             return Ok(None);
         }
         Ok(serde_json::from_slice(&bytes).ok())
+    }
+
+    /// A model card at an exact commit. Only its bounded text is read; model
+    /// repositories cannot supply code or instructions to the agent through
+    /// this path.
+    pub async fn card(&self, repository: &str, revision: &str) -> Result<Option<String>, HubError> {
+        check_repository(repository)?;
+        check_revision(revision)?;
+        let url = self.url(&[repository, "resolve", revision, "README.md"]);
+        let mut request = self.http.get(url);
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().await.map_err(|error| {
+            HubError::new(
+                HubErrorKind::Offline,
+                format!("model card could not be fetched: {error}"),
+            )
+        })?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err(HubError::new(
+                HubErrorKind::Unexpected,
+                format!("model card request returned HTTP {}", response.status()),
+            ));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > CARD_LIMIT_BYTES as u64)
+        {
+            return Ok(None);
+        }
+        let bytes = response.bytes().await.map_err(|error| {
+            HubError::new(
+                HubErrorKind::Offline,
+                format!("model card could not be read: {error}"),
+            )
+        })?;
+        if bytes.len() > CARD_LIMIT_BYTES {
+            return Ok(None);
+        }
+        Ok(String::from_utf8(bytes.to_vec()).ok())
     }
 }
 

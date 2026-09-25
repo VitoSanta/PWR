@@ -122,6 +122,7 @@ pub struct CatalogRequest {
 struct DownloadHandle {
     stop: Arc<AtomicBool>,
     session_id: Option<String>,
+    model: Option<(pwr_models::catalog::Format, String)>,
 }
 
 /// What the server needs from PWR: the console's own turn and commands in
@@ -187,6 +188,16 @@ pub trait TurnRunner {
     /// The models on this machine, for every engine, with the one in use.
     async fn local_models(&self, _root: &Path) -> Result<Value, String> {
         Err("listing local models is not available for this runner".into())
+    }
+    /// Effective backend sampler, plus a replaceable user profile for one
+    /// installed model. The core validates values before saving them.
+    async fn model_sampling(
+        &self,
+        _root: &Path,
+        _model_ref: &str,
+        _values: Option<BTreeMap<String, Value>>,
+    ) -> Result<Value, String> {
+        Err("model sampling profiles are not available for this runner".into())
     }
     /// Deletes one model from its engine's folder, refusing the one in use.
     async fn delete_model(
@@ -727,6 +738,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             }
             "_pwr/catalog" => self.catalog(id, &params),
             "_pwr/local_models" | "_pwr/model_delete" => self.local(id, method, &params),
+            "_pwr/model_sampling" => self.model_sampling(id, &params),
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/compact" => self.compact(id, &params).await,
@@ -1084,11 +1096,28 @@ impl<R: TurnRunner + 'static> Server<R> {
             },
         };
         let stop = Arc::new(AtomicBool::new(false));
+        let model = match &request {
+            DownloadRequest::Hub {
+                repository,
+                variant,
+                format,
+                ..
+            } => Some((
+                *format,
+                if *format == pwr_models::catalog::Format::Mlx {
+                    repository.clone()
+                } else {
+                    format!("{repository}/{variant}")
+                },
+            )),
+            DownloadRequest::Artifact(_) => None,
+        };
         self.downloads.borrow_mut().insert(
             download_id.clone(),
             DownloadHandle {
                 stop: Arc::clone(&stop),
                 session_id: session_id.clone(),
+                model,
             },
         );
         let server = Rc::clone(self);
@@ -1238,6 +1267,22 @@ impl<R: TurnRunner + 'static> Server<R> {
             None
         };
         let server = Rc::clone(self);
+        if let Some((format, model_ref)) = &delete
+            && self.downloads.borrow().values().any(|handle| {
+                handle
+                    .model
+                    .as_ref()
+                    .is_some_and(|(running_format, running_ref)| {
+                        running_format == format && running_ref == model_ref
+                    })
+            })
+        {
+            return self.send(error_response(
+                id,
+                -32000,
+                "Pause this download before discarding its files",
+            ));
+        }
         tokio::task::spawn_local(async move {
             let outcome = match delete {
                 Some((format, model_ref)) => {
@@ -1245,6 +1290,51 @@ impl<R: TurnRunner + 'static> Server<R> {
                 }
                 None => server.runner.local_models(&root).await,
             };
+            server.send(match outcome {
+                Ok(value) => result(id, value),
+                Err(why) => error_response(id, -32000, &why),
+            });
+        });
+    }
+
+    fn model_sampling(self: &Rc<Self>, id: Value, params: &Value) {
+        let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
+            return self.send(error_response(id, -32602, "name the workspace with cwd"));
+        };
+        let Some(model_ref) = params
+            .get("modelRef")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        else {
+            return self.send(error_response(
+                id,
+                -32602,
+                "name an installed model with modelRef",
+            ));
+        };
+        let values = match params.get("values") {
+            None => None,
+            Some(Value::Object(values)) => Some(
+                values
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ),
+            Some(_) => {
+                return self.send(error_response(
+                    id,
+                    -32602,
+                    "values must be an object of sampling parameters",
+                ));
+            }
+        };
+        let model_ref = model_ref.to_owned();
+        let server = Rc::clone(self);
+        tokio::task::spawn_local(async move {
+            let outcome = server
+                .runner
+                .model_sampling(&root, &model_ref, values)
+                .await;
             server.send(match outcome {
                 Ok(value) => result(id, value),
                 Err(why) => error_response(id, -32000, &why),
@@ -1834,7 +1924,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             self.update(session_id, message_chunk("agent_message_chunk", &answer));
         }
         let (stop_reason, terminal) = stop_reason(&report);
-        let meta = if goal_mode {
+        let mut meta = if goal_mode {
             json!({
                 "terminal": terminal,
                 "actions": report.actions,
@@ -1858,6 +1948,11 @@ impl<R: TurnRunner + 'static> Server<R> {
                 "edited": report.edited,
             })
         };
+        // The stop's own words, which the answer above ends with, so a client
+        // can show them as the run's state instead of as the model's prose.
+        if let Some(reason) = report.stopped {
+            meta["stoppedBecause"] = json!(reason.said());
+        }
         result(
             id,
             json!({
@@ -2033,6 +2128,11 @@ impl<R: TurnRunner + 'static> Server<R> {
                             update["_meta"] = json!({"pwr": {"live": true}});
                             server.update(&session_id, update);
                         }
+                        return;
+                    }
+                    if let Some(mut event) = turn_event(&step) {
+                        event["sessionId"] = json!(session_id);
+                        server.send(notification("_pwr/turn_event", event));
                         return;
                     }
                     if let Some(update) = tool_update(&root, number, step) {
@@ -2399,6 +2499,50 @@ fn tool_update(root: &Path, turn: u32, step: TurnStep) -> Option<Value> {
     })
 }
 
+/// `_pwr/turn_event`: what a turn did that ACP has no update for -- an
+/// automatic retry, the recovery after one, a generation's counts and timings,
+/// a note the console prints -- so a client can show the run as state rather
+/// than parse prose. Figures the backend did not report are `null`.
+fn turn_event(step: &TurnStep) -> Option<Value> {
+    let millis = |duration: Option<std::time::Duration>| {
+        duration.map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+    };
+    let from_nanos = |nanos: Option<u64>| nanos.map(|nanos| nanos / 1_000_000);
+    Some(match step {
+        TurnStep::Retry {
+            cause,
+            attempt,
+            limit,
+            detail,
+        } => json!({
+            "event": "retry",
+            "cause": cause,
+            "attempt": attempt,
+            "limit": limit,
+            "detail": detail,
+        }),
+        TurnStep::Recovered { retries } => json!({"event": "recovered", "retries": retries}),
+        TurnStep::Generation(stats) => {
+            let metrics = stats.metrics.clone().unwrap_or_default();
+            json!({
+                "event": "generation",
+                "promptTokens": metrics.prompt_tokens,
+                "generatedTokens": metrics.generated_tokens,
+                "reasoningTokens": metrics.reasoning_tokens,
+                "answerTokens": metrics.answer_tokens,
+                "tokenAccounting": metrics.token_accounting,
+                "promptEvalMs": from_nanos(metrics.prompt_eval_duration_ns),
+                "generationMs": from_nanos(metrics.generation_duration_ns),
+                "elapsedMs": millis(Some(stats.elapsed)),
+                "firstChunkMs": millis(stats.first_chunk),
+            })
+        }
+        TurnStep::Refused(text) => json!({"event": "note", "level": "warning", "text": text}),
+        TurnStep::Note(text) => json!({"event": "note", "level": "info", "text": text}),
+        _ => return None,
+    })
+}
+
 /// ACP's stop reason for a turn, and PWR's terminal class beside it.
 pub fn stop_reason(report: &TurnReport) -> (&'static str, Option<pwr_domain::TerminalClass>) {
     use converse::StopReason;
@@ -2411,6 +2555,7 @@ pub fn stop_reason(report: &TurnReport) -> (&'static str, Option<pwr_domain::Ter
                 StopReason::BudgetSpent => "max_turn_requests",
                 StopReason::ContextFull | StopReason::Looping => "max_tokens",
                 StopReason::Silent
+                | StopReason::ToolCallInReasoning
                 | StopReason::Unparseable
                 | StopReason::BackendFailing
                 | StopReason::NoProgress
@@ -2790,7 +2935,7 @@ mod tests {
                 }
                 // PWR's own notifications: `_`-prefixed, as ACP reserves
                 // for implementations, and with no ACP schema to check.
-                "_pwr/usage" | "_pwr/compacted" | "_pwr/download_progress" => {
+                "_pwr/usage" | "_pwr/compacted" | "_pwr/download_progress" | "_pwr/turn_event" => {
                     assert!(
                         message.get("id").is_none(),
                         "an extension notification with an id"
@@ -3200,6 +3345,30 @@ mod tests {
                     .unwrap()
                     .contains("not available")
             );
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn sampling_profile_request_requires_a_model_and_numeric_value_object() {
+        with_server(|mut client| async move {
+            for (id, params) in [
+                (1, json!({"cwd": "/workspace"})),
+                (
+                    2,
+                    json!({"cwd": "/workspace", "modelRef": "a/b", "values": []}),
+                ),
+                (
+                    3,
+                    json!({"modelRef": "a/b", "values": {"temperature": 0.7}}),
+                ),
+            ] {
+                client.request(id, "_pwr/model_sampling", params).await;
+                assert_eq!(
+                    client.until_response(id).await.pop().unwrap()["error"]["code"],
+                    -32602
+                );
+            }
         })
         .await;
     }
@@ -3890,6 +4059,39 @@ mod tests {
     }
 
     #[test]
+    fn turn_events_carry_retries_and_what_a_generation_cost() {
+        let retry = turn_event(&TurnStep::Retry {
+            cause: "reply_fault",
+            attempt: 1,
+            limit: 2,
+            detail: "tool calls were not valid JSON".into(),
+        })
+        .unwrap();
+        assert_eq!(retry["event"], "retry");
+        assert_eq!(retry["cause"], "reply_fault");
+        assert_eq!(retry["attempt"], 1);
+        let generation = turn_event(&TurnStep::Generation(converse::GenerationStats {
+            metrics: Some(pwr_domain::GenerationMetrics {
+                prompt_tokens: Some(1200),
+                generated_tokens: Some(300),
+                generation_duration_ns: Some(6_000_000_000),
+                ..Default::default()
+            }),
+            elapsed: std::time::Duration::from_millis(6500),
+            first_chunk: None,
+        }))
+        .unwrap();
+        assert_eq!(generation["generatedTokens"], 300);
+        assert_eq!(generation["generationMs"], 6000);
+        assert_eq!(generation["elapsedMs"], 6500);
+        // Not measured is null, never zero.
+        assert!(generation["firstChunkMs"].is_null());
+        assert!(generation["promptEvalMs"].is_null());
+        // What ACP already carries is not repeated.
+        assert!(turn_event(&TurnStep::Usage { used: 1, window: 2 }).is_none());
+    }
+
+    #[test]
     fn the_schema_check_refuses_what_acp_does_not_define() {
         let valid = |name: &str, instance: Value| acp_type(name).is_valid(&instance);
         let update = |update: Value| json!({"sessionId": "s", "update": update});
@@ -4200,6 +4402,16 @@ mod tests {
                 let normalized: Vec<String> = transcript
                     .iter()
                     .map(|message| {
+                        // Wall-clock timings differ run to run; their presence
+                        // is the contract, not their value.
+                        let mut message = message.clone();
+                        if message["method"] == "_pwr/turn_event" {
+                            for timing in ["elapsedMs", "firstChunkMs"] {
+                                if message["params"][timing].is_u64() {
+                                    message["params"][timing] = json!("<ms>");
+                                }
+                            }
+                        }
                         message
                             .to_string()
                             .replace(&session, "<session>")

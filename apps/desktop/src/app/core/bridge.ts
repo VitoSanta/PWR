@@ -2,7 +2,7 @@
 // `src-tauri/src/lib.rs`, which owns the `pwr serve --stdio` process.
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import type { EngineProgress, EngineStatus } from './model';
 
 export interface Started {
@@ -27,6 +27,16 @@ export const bridge = {
   engineStatus: () => invoke<EngineStatus>('engine_status'),
   engineInstall: () => invoke<void>('engine_install'),
   engineCancel: () => invoke<void>('engine_cancel'),
+  debugExportChat: (destination: string, conversation: unknown) =>
+    invoke<void>('debug_export_chat', { destination, conversation }),
+  pickDebugExport: async (): Promise<string | null> => {
+    const picked = await save({
+      title: 'Export development chat diagnostic',
+      defaultPath: 'pwr-chat-diagnostic.json',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    return typeof picked === 'string' ? picked : null;
+  },
   onEngineSetup: (handler: (progress: EngineProgress) => void): Promise<UnlistenFn> =>
     listen<EngineProgress>('engine-setup', (event) => handler(event.payload)),
   onMessage: (handler: (message: any) => void): Promise<UnlistenFn> =>

@@ -125,6 +125,38 @@ describe('ModelsStore downloads', () => {
     expect(calls).toBe(1);
   });
 
+  it('resumes a partial model after restart even when the current filter hides it', async () => {
+    models.results.set([]);
+    models.filters.set({ compatibleOnly: true, maxBytes: 10 });
+    const catalogRequests: any[] = [];
+    let downloads = 0;
+    agent.useDemo((method, params) => {
+      if (method === '_pwr/catalog') {
+        catalogRequests.push(params);
+        return { format: 'mlx', results: [entry], error: null };
+      }
+      if (method === '_pwr/download') {
+        downloads++;
+        return { modelRef: 'a/b', ready: true, nextStep: null };
+      }
+      if (method === '_pwr/models') return { installed: ['a/b'], model: null };
+      if (method === '_pwr/local_models') return { models: [] };
+      return {};
+    });
+
+    await models.resume('a/b', 'mlx');
+    expect(catalogRequests).toEqual([
+      expect.objectContaining({
+        query: 'a/b',
+        format: 'mlx',
+        filters: { compatibleOnly: false },
+      }),
+    ]);
+    expect(downloads).toBe(1);
+    expect(models.downloads()['a/b@mlx'].state.state).toBe('completed');
+    expect(models.filters()).toEqual({ compatibleOnly: true, maxBytes: 10 });
+  });
+
   it('loads every requested catalog page and keeps its next cursor', async () => {
     const second = { ...entry, repository: 'c/d' };
     const requested: Array<string | undefined> = [];

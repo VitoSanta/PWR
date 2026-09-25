@@ -69,6 +69,45 @@ fn models_on_disk_are_listed_once_each_with_their_size() {
 }
 
 #[test]
+fn interrupted_mlx_shards_are_listed_as_partial_after_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("publisher/Hermes-4-70B-MLX-4bit");
+    write(&dir.join("config.json"), 10);
+    for number in 1..=4 {
+        write(
+            &dir.join(format!("model-{number:05}-of-00008.safetensors")),
+            100,
+        );
+    }
+    write(&dir.join("model-00005-of-00008.safetensors.part"), 30);
+    let listed = local::list(root.path(), Format::Mlx);
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].partial);
+    assert_eq!(listed[0].bytes, 440);
+
+    std::fs::remove_file(dir.join("model-00005-of-00008.safetensors.part")).unwrap();
+    assert!(!local::mlx_weights_complete(&dir));
+    for number in 5..=8 {
+        write(
+            &dir.join(format!("model-{number:05}-of-00008.safetensors")),
+            100,
+        );
+    }
+    assert!(local::mlx_weights_complete(&dir));
+}
+
+#[test]
+fn a_gguf_split_with_one_partial_shard_is_not_usable() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("publisher/model");
+    write(&dir.join("model-00001-of-00002.gguf"), 100);
+    write(&dir.join("model-00002-of-00002.gguf.part"), 30);
+    let listed = local::list(root.path(), Format::Gguf);
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].partial);
+}
+
+#[test]
 fn deleting_an_mlx_model_removes_its_folder_and_nothing_else() {
     let root = models();
     let done = local::delete(root.path(), Format::Mlx, "mlx-community/Qwen3-4B-4bit").unwrap();

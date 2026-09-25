@@ -70,6 +70,32 @@
     },
     {
       "context": {
+        "default": 262144,
+        "maximum": 262144,
+        "minimum": 262144
+      },
+      "context_source": "pwr_override",
+      "model_selector": "ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit",
+      "provenance": "The upstream Ornith model card recommends temperature 0.6, top_p 0.95, and top_k 20 for general use. The MLX artifact generation_config sets temperature 1.0 for benchmark reproduction; that value was used by this deployment without an exact profile. This profile selects the vendor's general-use values for the agent. The 262144-token context is the deployed artifact's advertised limit.",
+      "reasoning": null,
+      "sampling": {
+        "temperature": {
+          "source": "official_model_card",
+          "value": 0.6
+        },
+        "top_k": {
+          "source": "official_model_card",
+          "value": 20
+        },
+        "top_p": {
+          "source": "official_model_card",
+          "value": 0.95
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "context": {
         "default": 131072,
         "maximum": 131072,
         "minimum": 65536
@@ -324,6 +350,32 @@
         "enabled": false
       },
       "provenance": "Added 2026-09-19 for the catalogue (roadmap step 7), chosen with the maintainer on paper before download: a hybrid Mamba-2 / attention MoE, ~31B total and ~3B active, 6 attention layers of 52 so 6 KiB of cache a token, fused attention (head 128), 17.8 GB at 4-bit; window on a 64 GiB host its trained 262,144. Writes Qwen's XML calls and think spans, so the Qwen adapter reads it; reasoning off through enable_thinking. Sampling is its generation_config.json."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "prism-ml/Bonsai-27B-mlx-1bit",
+      "context": {
+        "minimum": 8192,
+        "default": 262144,
+        "maximum": 262144
+      },
+      "context_source": "pwr_override",
+      "sampling": {
+        "temperature": {
+          "value": 0.7,
+          "source": "official_model_card"
+        },
+        "top_p": {
+          "value": 0.95,
+          "source": "official_model_card"
+        },
+        "top_k": {
+          "value": 20,
+          "source": "official_model_card"
+        }
+      },
+      "reasoning": null,
+      "provenance": "Prism ML's Bonsai 27B MLX model card recommends temperature 0.7, top-p 0.95 and top-k 20 for thinking mode, and declares a 262144-token maximum context. PWR's context policy allows smaller requests and otherwise uses that ceiling. The downloaded MLX artifact has no generation_config.json. PWR observed repeated output under the greedy MLX fallback on 2026-09-25; this entry applies the vendor sampling values without changing reasoning control. Coding task success under this profile remains to be measured."
     },
     {
       "schema_version": 1,

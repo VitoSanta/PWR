@@ -422,6 +422,10 @@ pub enum Observation {
 pub enum ParameterSource {
     /// The vendor's published recommendation for this model.
     OfficialModelCard,
+    /// A model card read automatically from a pinned Hub revision. Its author
+    /// may be a quantizer rather than the model creator; the URL is recorded
+    /// with the resolved value.
+    ModelCard,
     /// Declared in the backend-packaged model configuration.
     ///
     /// `ollama_model` remains accepted while existing profile artifacts are
@@ -438,6 +442,8 @@ pub enum ParameterSource {
     HardwareCalibration,
     /// Nothing set it. The backend decides, and we do not know what it decides.
     BackendDefault,
+    /// The explicit 0/0/0 sampler fallback in PWR's MLX sidecar.
+    MlxSidecarDefault,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1638,6 +1644,12 @@ pub struct GenerationMetrics {
     /// The engine ended the thinking phase at its budget.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_budget_reached: Option<bool>,
+    /// Aggregate repeated eight-token-window ratio, in basis points. The
+    /// sidecar retains only counts; private reasoning text is never audited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_repetition_bps: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer_repetition_bps: Option<u16>,
     pub total_duration_ns: Option<u64>,
     /// Time spent loading the model. A warm deployment reports near zero, which
     /// is how a warm-up is verified rather than assumed.

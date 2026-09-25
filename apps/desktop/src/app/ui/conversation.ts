@@ -11,36 +11,19 @@ import {
 import { AgentStore } from '../core/agent.store';
 import { Entry } from '../core/model';
 import { ModelsStore } from '../core/models.store';
-import { Diff, diffStats } from './diff';
+import { RunOutcome, Step, groupSteps } from '../core/trace';
 import { Icon, IconName } from './kit/icon';
-import { Markdown } from './markdown';
-
-const TOOL_ICONS: Record<string, IconName> = {
-  read: 'eye',
-  edit: 'pencil',
-  delete: 'trash',
-  move: 'move',
-  search: 'search',
-  execute: 'terminal',
-  fetch: 'globe',
-  think: 'sparkles',
-  other: 'circle-dot',
-};
-
-/** A step inside one assistant turn. */
-type Step =
-  | { type: 'entry'; key: string; entry: Entry }
-  | { type: 'actions'; key: string; entries: Entry[]; last: boolean };
+import { TraceCompact, TraceRaw, TraceSteps } from './trace';
 
 /** One row of the conversation: the person's message, or the whole reply to it. */
 type Item =
   | { type: 'user'; key: string; entry: Entry }
-  | { type: 'turn'; key: string; steps: Step[]; live: boolean; startedAt: number; endedAt: number }
+  | { type: 'turn'; key: string; entries: Entry[]; steps: Step[]; live: boolean; startedAt: number; endedAt: number }
   | { type: 'notice'; key: string; entry: Entry };
 
 @Component({
   selector: 'pa-conversation',
-  imports: [Markdown, Diff, Icon],
+  imports: [Icon, TraceCompact, TraceSteps, TraceRaw],
   template: `
     <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
@@ -113,86 +96,15 @@ type Item =
                   <span class="turn-meta num">· {{ item.live ? 'working' : 'done' }} · {{ duration(item) }}</span>
                 </header>
                 <div class="turn-body">
-                  @for (step of item.steps; track step.key) {
-                    @if (step.type === 'actions') {
-                      <section class="step actions" [class.busy]="busy(step.entries)">
-                        <button class="actions-head" (click)="toggle(step.key, step.last)" [attr.aria-expanded]="isOpen(step.key, step.last)">
-                          <span class="actions-icon">
-                            @if (busy(step.entries)) {
-                              <span class="spinner spinner-sm"></span>
-                            } @else if (refused(step.entries)) {
-                              <pa-icon name="alert" [size]="16" />
-                            } @else {
-                              <pa-icon name="check-circle" [size]="16" />
-                            }
-                          </span>
-                          <span class="actions-summary">{{ summary(step.entries) }}</span>
-                          @if (malformed(step.entries); as retried) {
-                            <span class="badge">{{ retried }} retried</span>
-                          }
-                          @if (refused(step.entries); as failed) {
-                            <span class="badge badge-danger">{{ failed }} refused</span>
-                          }
-                          <pa-icon class="chevron" [class.open]="isOpen(step.key, step.last)" name="chevron-right" [size]="16" />
-                        </button>
-                        @if (isOpen(step.key, step.last)) {
-                          <ul class="action-list">
-                            @for (entry of step.entries; track entry.key) {
-                              <li [class]="'action ' + entry.status" [class.malformed]="isMalformed(entry)">
-                                <button
-                                  class="action-row"
-                                  (click)="toggle(entry.key, false)"
-                                  [disabled]="!entry.diff"
-                                  [attr.aria-expanded]="entry.diff ? isOpen(entry.key, false) : null"
-                                >
-                                  <span class="tool-icon"><pa-icon [name]="icon(entry)" [size]="14" /></span>
-                                  <span class="tool-title">{{ isMalformed(entry) ? 'malformed call' : verb(entry) }}</span>
-                                  <span class="tool-detail">{{ isMalformed(entry) ? explainMalformed(entry) : entry.text }}</span>
-                                  @if (entry.diff) {
-                                    <span class="delta">
-                                      <span class="add">+{{ stats(entry).added }}</span>
-                                      <span class="del">−{{ stats(entry).removed }}</span>
-                                    </span>
-                                  }
-                                  <span [class]="'status-dot ' + entry.status" role="img" [attr.aria-label]="label(entry)" [attr.title]="label(entry)"></span>
-                                </button>
-                                @if (entry.diff && isOpen(entry.key, false)) {
-                                  <pa-diff [diff]="entry.diff" />
-                                }
-                              </li>
-                            }
-                          </ul>
-                        }
-                      </section>
-                    } @else {
-                      @switch (step.entry.kind) {
-                        @case ('thought') {
-                          <div class="step thought" [class.live]="step.entry.status === 'live'">
-                            <button class="thought-head" (click)="toggle(step.key, false)" [attr.aria-expanded]="isOpen(step.key, false)">
-                              <pa-icon class="spark" name="sparkles" [size]="14" />
-                              {{ step.entry.status === 'live' ? 'Thinking…' : 'Thought' }}
-                              <span class="muted num">{{ words(step.entry.text) }} words</span>
-                              <pa-icon class="chevron" [class.open]="isOpen(step.key, false)" name="chevron-right" [size]="14" />
-                            </button>
-                            @if (step.entry.status === 'live' && !isOpen(step.key, false)) {
-                              <!-- Anchored to the bottom: the newest lines are always whole, the
-                                   older ones fade out above instead of being cut mid-line. -->
-                              <div class="thought-window"><pa-markdown class="thought-md" [text]="tail(step.entry.text)" [copyable]="false" /></div>
-                            }
-                            @if (isOpen(step.key, false)) {
-                              <div class="thought-body"><pa-markdown class="thought-md" [text]="step.entry.text" [copyable]="false" /></div>
-                            }
-                          </div>
-                        }
-                        @case ('reply') {
-                          <div class="step text" [class.live]="step.entry.status === 'live'">
-                            <pa-markdown [text]="step.entry.text" />
-                          </div>
-                        }
-                        @case ('notice') {
-                          <div class="step checkpoint"><pa-icon name="refresh" [size]="14" /> {{ step.entry.text }}</div>
-                        }
-                      }
+                  @switch (store.traceVisibility()) {
+                    @case ('compact') {
+                      <pa-trace-compact [entries]="item.entries" [live]="item.live" />
+                    }
+                    @case ('detailed') {
+                      <pa-trace-steps [steps]="item.steps" />
+                    }
+                    @case ('raw') {
+                      <pa-trace-raw [entries]="item.entries" [startedAt]="item.startedAt" [endedAt]="item.endedAt" [live]="item.live" />
                     }
                   }
                   @if (item.live) {
@@ -221,8 +133,17 @@ type Item =
             </div>
           </article>
         }
-        @if (!store.turnActive() && store.outcome()) {
-          <div class="outcome" role="status"><pa-icon name="check-circle" [size]="14" /> {{ store.outcome() }}</div>
+        @if (!store.turnActive() && store.runOutcome(); as outcome) {
+          <div [class]="'outcome tone-' + outcome.tone" role="status">
+            <pa-icon [name]="outcomeIcon(outcome.tone)" [size]="14" />
+            <span>{{ outcome.text }}</span>
+            @if (outcome.action) {
+              <button class="btn btn-sm" (click)="store.continueRun()">
+                <pa-icon [name]="outcome.action === 'retry' ? 'refresh' : 'arrow-right'" [size]="14" />
+                {{ outcome.action === 'retry' ? 'Retry' : 'Continue' }}
+              </button>
+            }
+          </div>
         }
       </div>
     </section>
@@ -233,14 +154,13 @@ export class Conversation {
   protected readonly store = inject(AgentStore);
   protected readonly models = inject(ModelsStore);
   private readonly scroller = viewChild.required<ElementRef<HTMLElement>>('scroller');
-  private readonly opened = signal<Record<string, boolean>>({});
   private readonly now = signal(Date.now());
   private pinned = true;
 
   /**
    * Everything the model does between two messages of the person is one
-   * turn -- reasoning, text and actions in order, on one rail -- and
-   * consecutive actions inside it fold into one group.
+   * turn -- reasoning, text, actions, retries in order, on one rail. The turn
+   * keeps its entries; Compact, Detailed and Raw Trace each render them.
    */
   protected readonly items = computed<Item[]>(() => {
     const items: Item[] = [];
@@ -256,27 +176,19 @@ export class Conversation {
       }
       let turn = items[items.length - 1];
       if (turn?.type !== 'turn') {
-        turn = { type: 'turn', key: `turn-${entry.key}`, steps: [], live: false, startedAt: entry.at, endedAt: entry.at };
+        turn = { type: 'turn', key: `turn-${entry.key}`, entries: [], steps: [], live: false, startedAt: entry.at, endedAt: entry.at };
         items.push(turn);
       }
       turn.endedAt = Math.max(turn.endedAt, entry.at);
-      const previous = turn.steps[turn.steps.length - 1];
-      if (entry.kind === 'tool') {
-        if (previous?.type === 'actions') previous.entries.push(entry);
-        else turn.steps.push({ type: 'actions', key: `group-${entry.key}`, entries: [entry], last: false });
-      } else if (!(entry.kind === 'reply' && !entry.text.trim())) {
-        // A streamed reply made only of whitespace is not a message.
-        turn.steps.push({ type: 'entry', key: entry.key, entry });
-      }
+      turn.entries.push(entry);
     }
     const lastTurn = [...items].reverse().find((item) => item.type === 'turn');
     if (lastTurn && lastTurn.type === 'turn') {
       // Working only when it is the newest thing in the conversation: a turn
       // followed by the person's next message is finished, whatever runs now.
       lastTurn.live = this.store.turnActive() && items[items.length - 1] === lastTurn;
-      const lastGroup = [...lastTurn.steps].reverse().find((step) => step.type === 'actions');
-      if (lastGroup && lastGroup.type === 'actions') lastGroup.last = true;
     }
+    for (const item of items) if (item.type === 'turn') item.steps = groupSteps(item.entries);
     return items;
   });
 
@@ -311,39 +223,6 @@ export class Conversation {
     this.pinned = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
   }
 
-  /** Open state: what the person chose, else open only for the live group. */
-  protected isOpen(key: string, fallback: boolean): boolean {
-    return this.opened()[key] ?? (fallback && this.store.turnActive());
-  }
-
-  protected toggle(key: string, fallback: boolean): void {
-    const open = this.isOpen(key, fallback);
-    this.opened.update((state) => ({ ...state, [key]: !open }));
-  }
-
-  protected busy(entries: Entry[]): boolean {
-    return entries.some((entry) => entry.status === 'running' || entry.status === 'pending');
-  }
-
-  /** Refused by policy, not calls that failed to decode. */
-  protected refused(entries: Entry[]): number {
-    return entries.filter((entry) => entry.status === 'failed' && !this.isMalformed(entry)).length;
-  }
-
-  protected malformed(entries: Entry[]): number {
-    return entries.filter((entry) => this.isMalformed(entry)).length;
-  }
-
-  /** A call the core could not read: the model's form, retried, not a refusal. */
-  protected isMalformed(entry: Entry): boolean {
-    return /did not match its declared schema|could not be read|invalid type|missing field/i.test(entry.text);
-  }
-
-  protected explainMalformed(entry: Entry): string {
-    const missing = /missing field `([^`]+)`/.exec(entry.text)?.[1];
-    return missing ? `missing ${missing} — the model retries` : 'unreadable arguments — the model retries';
-  }
-
   protected lastIsUser(): boolean {
     const items = this.items();
     return items[items.length - 1]?.type === 'user';
@@ -355,45 +234,8 @@ export class Conversation {
     return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
   }
 
-  protected summary(entries: Entry[]): string {
-    const count = (kinds: string[]) => entries.filter((entry) => kinds.includes(entry.toolKind ?? 'other')).length;
-    const parts: string[] = [];
-    const read = count(['read', 'search']);
-    const edited = count(['edit', 'delete', 'move']);
-    const ran = count(['execute']);
-    if (read) parts.push(`${read} read`);
-    if (edited) parts.push(`${edited} edited`);
-    if (ran) parts.push(`${ran} ran`);
-    const other = entries.length - read - edited - ran - this.malformed(entries);
-    if (other > 0) parts.push(`${other} other`);
-    const real = entries.length - this.malformed(entries);
-    return `${real} action${real === 1 ? '' : 's'}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
-  }
-
-  protected verb(entry: Entry): string {
-    return entry.title.split(' ')[0];
-  }
-
-  protected icon(entry: Entry): IconName {
-    return TOOL_ICONS[entry.toolKind ?? 'other'] ?? 'circle-dot';
-  }
-
-  protected label(entry: Entry): string {
-    return { pending: 'Planned', running: 'Running', done: 'Done', failed: 'Refused' }[entry.status as string] ?? entry.status;
-  }
-
-  protected stats(entry: Entry): { added: number; removed: number } {
-    return entry.diff ? diffStats(entry.diff.oldText, entry.diff.newText) : { added: 0, removed: 0 };
-  }
-
-  /** The last paragraphs of the reasoning, enough to fill its window. */
-  protected tail(text: string): string {
-    const paragraphs = text.trimEnd().split(/\n{2,}/);
-    return paragraphs.slice(-3).join('\n\n');
-  }
-
-  protected words(text: string): number {
-    return text.split(/\s+/).filter(Boolean).length;
+  protected outcomeIcon(tone: RunOutcome['tone']): IconName {
+    return tone === 'done' ? 'check-circle' : tone === 'paused' ? 'history' : tone === 'stopped' ? 'stop' : 'alert';
   }
 
   protected name(path: string): string {

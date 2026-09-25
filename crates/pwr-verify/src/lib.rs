@@ -97,7 +97,7 @@ pub const BUILD_SYSTEMS: &[BuildSystem] = &[
         name: "cargo",
         marker: "Cargo.toml",
         executable: "cargo",
-        targeted: &["test", "--workspace", "--lib"],
+        targeted: &["test", "--workspace"],
         full: &["test", "--workspace"],
     },
     BuildSystem {
@@ -225,6 +225,12 @@ pub fn required_executables(root: &std::path::Path) -> Vec<String> {
         .filter(|system| root.join(system.marker).is_file())
         .map(|system| system.executable.to_string())
         .collect();
+    if !nested_cargo_manifests(root).is_empty() {
+        executables.push("cargo".into());
+    }
+    if !csharp_targets(root, "").is_empty() || !nested_csharp_targets(root).is_empty() {
+        executables.push("dotnet".into());
+    }
     // A JavaScript project's runner is npm, and its runtime is node.
     if root.join("package.json").is_file() {
         executables.push("npm".into());
@@ -580,6 +586,20 @@ pub fn discover_checks(
         if !root.join(system.marker).is_file() {
             continue;
         }
+        if system.name == "cargo" && scope == "targeted" {
+            if root.join("src/lib.rs").is_file() {
+                return Ok(vec![(
+                    "cargo".into(),
+                    vec!["test".into(), "--workspace".into(), "--lib".into()],
+                )]);
+            }
+            if root.join("src/main.rs").is_file() {
+                return Ok(vec![(
+                    "cargo".into(),
+                    vec!["test".into(), "--workspace".into(), "--bins".into()],
+                )]);
+            }
+        }
         // A build system with no distinct full command runs its targeted one:
         // some toolchains have a single test entry point and inventing a
         // second would be a command nobody chose.
@@ -591,6 +611,28 @@ pub fn discover_checks(
             system.executable.to_string(),
             args.iter().map(|a| a.to_string()).collect(),
         )]);
+    }
+    let root_csharp = csharp_targets(root, "");
+    if !root_csharp.is_empty() {
+        return Ok(dotnet_checks(root_csharp));
+    }
+    let mut nested_checks: Vec<_> = nested_cargo_manifests(root)
+        .into_iter()
+        .map(|manifest| {
+            (
+                "cargo".to_owned(),
+                vec![
+                    "test".to_owned(),
+                    "--manifest-path".to_owned(),
+                    manifest,
+                    "--workspace".to_owned(),
+                ],
+            )
+        })
+        .collect();
+    nested_checks.extend(dotnet_checks(nested_csharp_targets(root)));
+    if !nested_checks.is_empty() {
+        return Ok(nested_checks);
     }
     // Last, and only for a workspace nothing above speaks for: a page whose
     // project has no toolchain still has one deterministic property, that the
@@ -605,6 +647,99 @@ pub fn discover_checks(
     // run against it simply cannot claim verification, and completion is
     // judged on nothing rather than on something invented.
     Ok(Vec::new())
+}
+
+/// A new workspace often starts empty and gains one small Rust project below
+/// its root. Inspect immediate real directories only; never follow a symlink
+/// or recurse into build outputs and unrelated repositories.
+fn nested_cargo_manifests(root: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut manifests = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            if name.starts_with('.') || name == "target" || name == "node_modules" {
+                return None;
+            }
+            entry
+                .path()
+                .join("Cargo.toml")
+                .is_file()
+                .then(|| format!("{name}/Cargo.toml"))
+        })
+        .collect::<Vec<_>>();
+    manifests.sort();
+    manifests
+}
+
+/// Prefer a solution over its individual projects so tests shared across
+/// sibling C# projects run together. Without a solution, test each project.
+fn csharp_targets(directory: &std::path::Path, prefix: &str) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut solutions = Vec::new();
+    let mut projects = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let target = format!("{prefix}{name}");
+        if name.ends_with(".sln") || name.ends_with(".slnx") {
+            solutions.push(target);
+        } else if name.ends_with(".csproj") {
+            projects.push(target);
+        }
+    }
+    let mut selected = if solutions.is_empty() {
+        projects
+    } else {
+        solutions
+    };
+    selected.sort();
+    selected
+}
+
+fn nested_csharp_targets(root: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut targets = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name.starts_with('.') || name == "target" || name == "node_modules" {
+            continue;
+        }
+        targets.extend(csharp_targets(&entry.path(), &format!("{name}/")));
+    }
+    targets.sort();
+    targets
+}
+
+fn dotnet_checks(targets: Vec<String>) -> Vec<(String, Vec<String>)> {
+    targets
+        .into_iter()
+        .map(|target| {
+            (
+                "dotnet".to_owned(),
+                vec!["test".to_owned(), target, "--nologo".to_owned()],
+            )
+        })
+        .collect()
 }
 pub async fn baseline(
     policy: &ToolPolicy,
@@ -885,10 +1020,11 @@ pub async fn classify_with_reproduction(
 /// The sandbox denying a write, the network being unreachable: no edit to the
 /// repository produces these, so nothing about them is evidence against the
 /// edit.
-const DENIED: [&str; 3] = [
+const DENIED: [&str; 4] = [
     "operation not permitted",
     "permission denied",
     "network is unreachable",
+    "errno == eperm",
 ];
 
 /// Absences that are usually the environment and occasionally the code.
@@ -1027,5 +1163,123 @@ mod recovery_tests {
             recovery_decision(FailureClass::Assertion, 1, 0, &budget),
             RecoveryDecision::Stop { .. }
         ));
+    }
+}
+
+#[cfg(test)]
+mod nested_project_tests {
+    use super::*;
+
+    #[test]
+    fn discovers_a_new_rust_project_one_directory_below_the_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("fiscal-code-calculator");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::write(project.join("Cargo.toml"), "[package]\nname = \"cf\"\n").unwrap();
+        assert_eq!(
+            discover_checks(root.path(), "targeted").unwrap(),
+            vec![(
+                "cargo".to_owned(),
+                vec![
+                    "test".to_owned(),
+                    "--manifest-path".to_owned(),
+                    "fiscal-code-calculator/Cargo.toml".to_owned(),
+                    "--workspace".to_owned(),
+                ],
+            )]
+        );
+        assert!(required_executables(root.path()).contains(&"cargo".to_owned()));
+    }
+
+    #[test]
+    fn root_manifest_keeps_priority_over_nested_projects() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+        let project = root.path().join("child");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::write(project.join("Cargo.toml"), "[package]\n").unwrap();
+        assert_eq!(
+            discover_checks(root.path(), "targeted").unwrap(),
+            vec![(
+                "cargo".to_owned(),
+                vec!["test".to_owned(), "--workspace".to_owned()]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_binary_only_cargo_package_tests_its_binary_target() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("Cargo.toml"),
+            "[package]\nname = \"cli\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir(root.path().join("src")).unwrap();
+        std::fs::write(root.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+        assert_eq!(
+            discover_checks(root.path(), "targeted").unwrap(),
+            vec![(
+                "cargo".to_owned(),
+                vec![
+                    "test".to_owned(),
+                    "--workspace".to_owned(),
+                    "--bins".to_owned()
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn discovers_csharp_projects_at_the_root_and_in_a_new_child_directory() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("Example.csproj"), "<Project />").unwrap();
+        assert_eq!(
+            discover_checks(root.path(), "targeted").unwrap(),
+            vec![(
+                "dotnet".to_owned(),
+                vec![
+                    "test".to_owned(),
+                    "Example.csproj".to_owned(),
+                    "--nologo".to_owned()
+                ]
+            )]
+        );
+        std::fs::remove_file(root.path().join("Example.csproj")).unwrap();
+        let child = root.path().join("tax-code");
+        std::fs::create_dir(&child).unwrap();
+        std::fs::write(child.join("TaxCode.csproj"), "<Project />").unwrap();
+        assert_eq!(
+            discover_checks(root.path(), "full").unwrap(),
+            vec![(
+                "dotnet".to_owned(),
+                vec![
+                    "test".to_owned(),
+                    "tax-code/TaxCode.csproj".to_owned(),
+                    "--nologo".to_owned()
+                ]
+            )]
+        );
+        assert!(required_executables(root.path()).contains(&"dotnet".to_owned()));
+    }
+
+    #[test]
+    fn a_csharp_solution_covers_its_projects_once() {
+        let root = tempfile::tempdir().unwrap();
+        let child = root.path().join("tax-code");
+        std::fs::create_dir(&child).unwrap();
+        std::fs::write(child.join("TaxCode.sln"), "").unwrap();
+        std::fs::write(child.join("TaxCode.csproj"), "<Project />").unwrap();
+        assert_eq!(
+            discover_checks(root.path(), "targeted").unwrap(),
+            vec![(
+                "dotnet".to_owned(),
+                vec![
+                    "test".to_owned(),
+                    "tax-code/TaxCode.sln".to_owned(),
+                    "--nologo".to_owned()
+                ]
+            )]
+        );
     }
 }

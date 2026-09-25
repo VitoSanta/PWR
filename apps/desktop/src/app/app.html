@@ -30,7 +30,20 @@
         }
       </div>
       <div class="topbar-actions">
+        <pa-trace-visibility />
+        @if (developmentExport) {
+          <button
+            class="icon-btn"
+            (click)="exportDiagnostic()"
+            [disabled]="!store.timeline().length || store.turnActive()"
+            aria-label="Export development chat diagnostic"
+            paTooltip="Export chat and model raw trace (development only)"
+          >
+            <pa-icon name="download" />
+          </button>
+        }
         <pa-context-meter />
+        <pa-run-metrics />
         <pa-model-picker />
         <span class="topbar-sep" aria-hidden="true"></span>
         <button

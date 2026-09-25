@@ -39,6 +39,9 @@ pa-composer {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
+  /* The column's width, not the content's: a long unwrapped line (a payload,
+     a log) otherwise pushed the timeline past the column. */
+  width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 0 var(--space-8);
@@ -1015,4 +1018,297 @@ pa-composer {
   color: var(--text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ------------------------------------------ the trace: Compact phases */
+pa-trace-compact,
+pa-trace-steps,
+pa-trace-raw {
+  display: contents;
+}
+
+.step.phases {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-primary);
+}
+
+.step.phases::before {
+  top: 14px;
+  border-color: var(--text-muted);
+}
+
+.step.phases.busy {
+  border-color: var(--accent-border);
+}
+
+.step.phases.busy::before {
+  border-color: var(--accent-secondary);
+  background: var(--accent-secondary);
+  animation: pa-pulse 1.4s ease-in-out infinite;
+}
+
+.phase + .phase {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.phase-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-body-sm);
+  text-align: left;
+}
+
+.phase-head:disabled {
+  cursor: default;
+}
+
+.phase-head:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.phase-icon {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 16px;
+  color: var(--text-muted);
+}
+
+.phase.running .phase-name {
+  color: var(--text-primary);
+}
+
+.phase.failed .phase-icon {
+  color: var(--danger-text);
+}
+
+.phase-name {
+  flex: none;
+  font-weight: var(--fw-medium);
+}
+
+.phase-summary {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}
+
+.phase-time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}
+
+.phase-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px var(--space-3) var(--space-2) 36px;
+  font-size: var(--fs-label);
+}
+
+.phase-note.tone-warn {
+  color: var(--warning-text);
+}
+
+.phase-note.tone-ok {
+  color: var(--success-text);
+}
+
+.phase-note.tone-bad {
+  color: var(--danger-text);
+}
+
+.phase-note.tone-warn > pa-icon {
+  animation: pa-spin 1.2s linear infinite;
+}
+
+.phase-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-3) 36px;
+}
+
+/* Detailed's steps inside a phase sit off the rail. */
+.phase-detail .step::before {
+  display: none;
+}
+
+/* ---------------------------------------- the trace: Detailed extras */
+.thought-summary {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+  line-height: 1.5;
+}
+
+.step.trace-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+  line-height: 1.5;
+}
+
+.step.trace-line > pa-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.step.trace-line.retry.running {
+  color: var(--warning-text);
+}
+
+.step.trace-line.recovery {
+  color: var(--success-text);
+}
+
+.step.trace-line.retry.failed,
+.step.trace-line.stop {
+  color: var(--danger-text);
+}
+
+.action.trace-event .action-row {
+  cursor: default;
+}
+
+.action.trace-event.retry .tool-icon {
+  color: var(--warning-text);
+}
+
+.action.trace-event.recovery .tool-icon {
+  color: var(--success-text);
+}
+
+.action.trace-event .tool-detail {
+  white-space: normal;
+}
+
+/* ---------------------------------------------- the trace: Raw Trace */
+.step.raw-trace {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  font-size: var(--fs-caption);
+}
+
+.step.raw-trace::before {
+  top: 12px;
+}
+
+.raw-row {
+  padding: 6px var(--space-3);
+}
+
+.raw-row + .raw-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.raw-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 24px;
+}
+
+.raw-time {
+  flex: none;
+  width: 64px;
+  color: var(--text-muted);
+}
+
+.raw-event {
+  flex: none;
+  color: var(--accent-text);
+}
+
+.raw-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.raw-status {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.raw-text,
+.raw-payload {
+  max-height: 280px;
+  margin: 4px 0 2px 72px;
+  overflow: auto;
+  color: var(--text-secondary);
+  font: var(--fs-caption) / 1.55 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.raw-payload {
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-inline);
+  background: var(--bg-app);
+}
+
+.raw-log-head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+}
+
+.raw-log-head:hover {
+  color: var(--text-primary);
+}
+
+.raw-log-head + .raw-payload {
+  margin-left: 0;
+}
+
+/* ------------------------------------------------ how a run ended */
+.outcome .btn {
+  margin-left: var(--space-1);
+}
+
+.outcome.tone-paused > pa-icon {
+  color: var(--warning);
+}
+
+.outcome.tone-stopped > pa-icon {
+  color: var(--text-muted);
+}
+
+.outcome.tone-failed {
+  border-color: var(--danger-border);
+}
+
+.outcome.tone-failed > pa-icon {
+  color: var(--danger);
 }

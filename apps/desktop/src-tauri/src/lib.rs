@@ -26,6 +26,10 @@ static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::
 struct Running {
     child: Child,
     stdin: ChildStdin,
+    #[cfg(debug_assertions)]
+    trace_path: PathBuf,
+    #[cfg(debug_assertions)]
+    trace_owned: bool,
 }
 
 impl Running {
@@ -35,6 +39,10 @@ impl Running {
         drop(self.stdin);
         let _ = self.child.kill();
         let _ = self.child.wait();
+        #[cfg(debug_assertions)]
+        if self.trace_owned {
+            let _ = std::fs::remove_file(self.trace_path);
+        }
     }
 }
 
@@ -228,6 +236,7 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
         return Err(format!("Workspace has not been trusted: {}", workspace.display()));
     }
     let program = core_path(&app);
+    let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     // On a Mac the app runs MLX only; llama.cpp arrives with Windows. A
     // development build still honours `PWR_BACKEND` so the GGUF path can be
     // worked on; a release build never switches engine from the environment.
@@ -245,6 +254,40 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     command.env("PATH", login_path());
+    #[cfg(debug_assertions)]
+    let (trace_path, trace_owned) = match std::env::var_os("PWR_MLX_TRACE") {
+        Some(path) => (PathBuf::from(path), false),
+        None => {
+            let directory = app
+                .path()
+                .app_cache_dir()
+                .map_err(|error| error.to_string())?
+                .join("debug-traces");
+            std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|error| error.to_string())?;
+            }
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|error| error.to_string())?
+                .as_nanos();
+            let path = directory.join(format!("core-{}-{generation}-{nonce}.jsonl", std::process::id()));
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            options.open(&path).map_err(|error| error.to_string())?;
+            (path, true)
+        }
+    };
+    #[cfg(debug_assertions)]
+    command.env("PWR_MLX_TRACE", &trace_path);
     // The MLX interpreter: named by the environment, installed by this app on
     // first run, or (in development) the checkout's. See `engine`.
     if let Some(python) = engine::python(&app) {
@@ -272,11 +315,17 @@ fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Resul
     let stdout = child.stdout.take().ok_or("the core has no output")?;
     let stderr = child.stderr.take().ok_or("the core has no error output")?;
 
-    if let Some(previous) = core.0.lock().map_err(|_| "core state poisoned")?.replace(Running { child, stdin }) {
+    if let Some(previous) = core.0.lock().map_err(|_| "core state poisoned")?.replace(Running {
+        child,
+        stdin,
+        #[cfg(debug_assertions)]
+        trace_path,
+        #[cfg(debug_assertions)]
+        trace_owned,
+    }) {
         previous.stop();
     }
 
-    let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let events = app.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
@@ -367,9 +416,95 @@ fn core_stop(core: State<'_, Core>) {
     }
 }
 
+/// A diagnostic export exists only in a debug app. The UI gate is for
+/// discoverability; omitting this command from release builds is the actual
+/// access boundary. The sidecar's private raw output is filtered to the
+/// conversation's timeline before it is written to the chosen destination.
+#[cfg(debug_assertions)]
+#[tauri::command]
+fn debug_export_chat(
+    core: State<'_, Core>,
+    destination: String,
+    conversation: serde_json::Value,
+) -> Result<(), String> {
+    let timeline = conversation["timeline"]
+        .as_array()
+        .ok_or("conversation timeline is missing")?;
+    let start = timeline
+        .first()
+        .and_then(|entry| entry["at"].as_u64())
+        .ok_or("conversation has no dated entries")?;
+    let end = timeline
+        .last()
+        .and_then(|entry| entry["at"].as_u64())
+        .ok_or("conversation has no dated entries")?
+        .saturating_add(2_000);
+    let trace_path = core
+        .0
+        .lock()
+        .map_err(|_| "core state poisoned")?
+        .as_ref()
+        .ok_or("the core is not running")?
+        .trace_path
+        .clone();
+    let mlx_raw = match std::fs::File::open(&trace_path) {
+        Ok(file) => trace_records_in_window(BufReader::new(file), start, end)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(error.to_string()),
+    };
+    let export = serde_json::json!({
+        "schema_version": 1,
+        "kind": "pwr_development_chat_diagnostic",
+        "conversation": conversation,
+        "mlx_raw": mlx_raw,
+    });
+    let bytes = serde_json::to_vec_pretty(&export).map_err(|error| error.to_string())?;
+    std::fs::write(destination, bytes).map_err(|error| error.to_string())
+}
+
+#[cfg(debug_assertions)]
+fn trace_records_in_window(
+    reader: impl BufRead,
+    start: u64,
+    end: u64,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut mlx_raw = Vec::new();
+    for line in reader.lines() {
+        let line = line.map_err(|error| error.to_string())?;
+        let Ok(record) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue; // A generation may still be appending its last line.
+        };
+        if record["at_ms"]
+            .as_u64()
+            .is_some_and(|at| (start..=end).contains(&at))
+        {
+            mlx_raw.push(record);
+        }
+    }
+    Ok(mlx_raw)
+}
+
+#[cfg(all(test, debug_assertions))]
+mod diagnostic_tests {
+    use super::trace_records_in_window;
+
+    #[test]
+    fn raw_model_output_is_scoped_to_the_exported_chat() {
+        let lines = concat!(
+            "{\"at_ms\":90,\"raw\":\"other chat\"}\n",
+            "{\"at_ms\":150,\"raw\":\"current chat\"}\n",
+            "{\"raw\":\"undated\"}\n",
+            "{\"at_ms\":230,\"raw\":\"later chat\"}\n",
+        );
+        let selected = trace_records_in_window(lines.as_bytes(), 100, 200).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0]["raw"], "current chat");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(Core::default())
         .manage(engine::Setup::default())
         .plugin(tauri_plugin_dialog::init())
@@ -382,20 +517,21 @@ pub fn run() {
                 )?;
             }
             Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            default_workspace,
-            chat_home_path,
-            workspace_is_trusted,
-            trust_workspace,
-            core_start,
-            core_send,
-            core_stop,
-            open_external,
-            engine::engine_status,
-            engine::engine_install,
-            engine::engine_cancel
-        ])
+        });
+    #[cfg(debug_assertions)]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        default_workspace, chat_home_path, workspace_is_trusted, trust_workspace,
+        core_start, core_send, core_stop, open_external,
+        engine::engine_status, engine::engine_install, engine::engine_cancel,
+        debug_export_chat,
+    ]);
+    #[cfg(not(debug_assertions))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        default_workspace, chat_home_path, workspace_is_trusted, trust_workspace,
+        core_start, core_send, core_stop, open_external,
+        engine::engine_status, engine::engine_install, engine::engine_cancel,
+    ]);
+    builder
         .build(tauri::generate_context!())
         .expect("error while building the PWR app")
         .run(|app, event| {

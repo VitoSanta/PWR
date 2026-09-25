@@ -121,6 +121,14 @@ pub const REASONING_FINALIZATION_RETRIES: usize = 1;
 /// none: the engines' own default cap on a whole reply before reasoning had a
 /// budget of its own, so an action is given the room it always had.
 const ANSWER_ALLOWANCE: u32 = 16_384;
+/// Ornith-1.5 on MLX spent its 4,096-token thinking budget, then emitted over
+/// 48 KiB of additional self-dialogue in the answer channel until the 20,480
+/// token cap. Plain answer text this long after substantial thinking, with no
+/// tool call, is not useful progress for an agent turn. Keep tool-call bodies
+/// outside this guard: the adapter holds them rather than streaming them as
+/// prose.
+const AGENT_UNSTRUCTURED_REPLY_GUARD: (usize, usize) = (3_000, 12_000);
+const RUNAWAY_RETRY_MAX_TOKENS: u32 = 8_192;
 
 /// What one exchange produced.
 #[derive(Debug, Clone, PartialEq)]
@@ -153,6 +161,8 @@ pub enum StopReason {
     Looping,
     /// The deployment produced neither an answer nor an action, repeatedly.
     Silent,
+    /// The deployment wrote tool calls only inside its reasoning phase.
+    ToolCallInReasoning,
     /// The deployment kept emitting tool calls this backend could not parse.
     Unparseable,
     /// The turn took the actions it is given before checking in.
@@ -175,7 +185,10 @@ impl StopReason {
         match self {
             Self::Interrupted => TerminalClass::Interrupted,
             Self::BudgetSpent => TerminalClass::Budget,
-            Self::Silent | Self::Unparseable | Self::ReasoningUnfinished => TerminalClass::Protocol,
+            Self::Silent
+            | Self::ToolCallInReasoning
+            | Self::Unparseable
+            | Self::ReasoningUnfinished => TerminalClass::Protocol,
             Self::BackendFailing => TerminalClass::Provider,
             // Compaction could not make room, twice or at all: recovery ran out
             // of ways forward, which is what the run calls the same position.
@@ -193,11 +206,12 @@ impl StopReason {
     /// Test-only, and said so rather than kept alive by a token use in the
     /// product: its whole job is to make the fixture unable to miss a variant.
     #[cfg(test)]
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Interrupted,
         Self::ContextFull,
         Self::Looping,
         Self::Silent,
+        Self::ToolCallInReasoning,
         Self::Unparseable,
         Self::BudgetSpent,
         Self::BackendFailing,
@@ -222,6 +236,11 @@ impl StopReason {
                 "the deployment produced neither an answer nor an action three times running, so \
                  it was stopped; its replies may be in a form this backend cannot parse into tool \
                  calls"
+                    .to_owned()
+            }
+            Self::ToolCallInReasoning => {
+                "the deployment wrote tool calls inside its reasoning phase three times running; \
+                 those calls cannot be executed, so the turn was stopped"
                     .to_owned()
             }
             Self::Unparseable => {
@@ -290,6 +309,33 @@ pub enum TurnStep {
         used: u64,
         window: u64,
     },
+    /// A generation or call the turn could not use and is asking for again,
+    /// automatically, within its own bound. Emitted beside the `Refused` that
+    /// the console renders, for a front end that shows retries as state.
+    Retry {
+        /// `reply_fault`, `malformed_call`, `backend_fault`, `silent`,
+        /// `reasoning_unfinished` or `context_limit`.
+        cause: &'static str,
+        attempt: usize,
+        limit: usize,
+        detail: String,
+    },
+    /// The turn produced something usable after `retries` retries.
+    Recovered {
+        retries: usize,
+    },
+    /// One generation's counts and timings, as the backend reported them.
+    Generation(GenerationStats),
+}
+
+/// What one generation cost, for a front end's runtime figures.
+#[derive(Debug, Clone)]
+pub struct GenerationStats {
+    pub metrics: Option<pwr_domain::GenerationMetrics>,
+    /// From the request to the last chunk, measured here.
+    pub elapsed: std::time::Duration,
+    /// From the request to the first streamed chunk, measured here.
+    pub first_chunk: Option<std::time::Duration>,
 }
 
 /// An action as a front end tracks it.
@@ -665,6 +711,9 @@ async fn take_turn_inner<P: ModelProvider>(
     // Consecutive, so a deployment that recovers is not held to account for
     // having stumbled once.
     let mut silent = 0usize;
+    let mut reasoning_calls = 0usize;
+    let mut answer_without_thinking = false;
+    let mut runaway_retry = false;
     let mut turn = 0u32;
     // What the backend said the last prompt actually cost. `None` until the
     // first reply, which is the only turn with nothing to measure.
@@ -693,6 +742,9 @@ async fn take_turn_inner<P: ModelProvider>(
     // Consecutive generations that reasoned to their budget with no answer;
     // the next generation after one is asked to answer directly.
     let mut unfinished_reasoning = 0usize;
+    // Retries since the last usable output, of every cause, so a front end
+    // can say the turn recovered and after how many.
+    let mut retrying = 0usize;
     loop {
         if actions >= ACTIONS_BEFORE_CHECKING_IN {
             return stopped(actions, edited, StopReason::BudgetSpent);
@@ -752,6 +804,17 @@ async fn take_turn_inner<P: ModelProvider>(
             }
         }
         let mut request_sampling = sampling.clone();
+        if std::mem::take(&mut runaway_retry) {
+            let current = request_sampling
+                .get("max_tokens")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(ANSWER_ALLOWANCE);
+            request_sampling.insert(
+                "max_tokens".into(),
+                serde_json::json!(current.min(RUNAWAY_RETRY_MAX_TOKENS)),
+            );
+        }
         // The generation's envelope, after any compaction above: what the
         // prompt takes (counted conservatively), and the answer's own cap.
         let envelope = pwr_domain::GenerationEnvelope {
@@ -768,7 +831,8 @@ async fn take_turn_inner<P: ModelProvider>(
                 .and_then(|value| u32::try_from(value).ok())
                 .unwrap_or(ANSWER_ALLOWANCE),
         };
-        let finalizing = unfinished_reasoning > 0;
+        let finalizing = unfinished_reasoning > 0 || answer_without_thinking;
+        answer_without_thinking = false;
         let plan = if finalizing {
             pwr_domain::plan_finalization(
                 continuity.reasoning_effort,
@@ -820,12 +884,25 @@ async fn take_turn_inner<P: ModelProvider>(
                     },
                     "max_tokens": plan.max_tokens,
                     "answer_reserve": plan.answer_reserve,
+                    "sampling": {
+                        "temperature": request.sampling.get("temperature"),
+                        "top_p": request.sampling.get("top_p"),
+                        "top_k": request.sampling.get("top_k"),
+                        "min_p": request.sampling.get("min_p"),
+                        "presence_penalty": request.sampling.get("presence_penalty"),
+                        "repetition_penalty": request.sampling.get("repetition_penalty"),
+                        "sources": request.sampling.get("_pwr_sampling_sources"),
+                        "ignored": request.sampling.keys()
+                            .filter(|key| key.as_str() == "repeat_penalty")
+                            .collect::<Vec<_>>(),
+                    },
                 }),
             )
             .map_err(|error| error.to_string())?;
         let streamed_thinking = std::cell::Cell::new(0usize);
         let reasoning_seen = std::cell::Cell::new(false);
         let streamed_content = std::cell::Cell::new(0usize);
+        let first_chunk = std::cell::Cell::new(None::<std::time::Duration>);
         let failed = |turn: &mut u32, outcome: &str, detail: String| {
             *turn = turn.saturating_add(1);
             store
@@ -851,7 +928,10 @@ async fn take_turn_inner<P: ModelProvider>(
             // which drops the HTTP body, which closes the socket -- so the
             // backend stops generating rather than being politely waited out.
             Ok(stream) => tokio::select! {
-                outcome = pwr_provider::collect_reply_with(stream, |chunk| {
+                outcome = pwr_provider::collect_reply_with_guard(stream, |chunk| {
+                    if first_chunk.get().is_none() && !chunk.done {
+                        first_chunk.set(Some(started.elapsed()));
+                    }
                     let thinking = chunk.thinking.clone().unwrap_or_default();
                     if !thinking.is_empty() && !reasoning_seen.replace(true) {
                         // When, not what: the reasoning itself is never logged.
@@ -879,7 +959,8 @@ async fn take_turn_inner<P: ModelProvider>(
                             content: String::new(),
                         });
                     }
-                }) => outcome,
+                }, (deployment.provider == "mlx" && !continuity.chat_only)
+                    .then_some(AGENT_UNSTRUCTURED_REPLY_GUARD)) => outcome,
                 () = pressed(stop) => {
                     failed(&mut turn, "cancelled", "stopped by the operator".into())?;
                     return stopped(actions, edited, StopReason::Interrupted);
@@ -930,6 +1011,13 @@ async fn take_turn_inner<P: ModelProvider>(
                 on_step(TurnStep::Refused(format!(
                     "{safe_context}; asking the model to answer without further reasoning"
                 )));
+                retrying += 1;
+                on_step(TurnStep::Retry {
+                    cause: "reasoning_unfinished",
+                    attempt: unfinished_reasoning,
+                    limit: REASONING_FINALIZATION_RETRIES,
+                    detail: safe_context,
+                });
                 continue;
             }
             // A reply that never stops is the same kind of event as one that
@@ -946,6 +1034,13 @@ async fn take_turn_inner<P: ModelProvider>(
             // the backend's own message. Both carry both now.
             Err(ref error) if crate::ReplyFault::of(error).is_some() => {
                 let fault = crate::ReplyFault::of(error).expect("guarded above");
+                if matches!(fault, crate::ReplyFault::RanAway(_))
+                    && (fault.detail().contains("unstructured answer text")
+                        || fault.detail().contains("(length)"))
+                {
+                    answer_without_thinking = true;
+                    runaway_retry = true;
+                }
                 failed(&mut turn, fault.kind(), fault.detail().to_owned())?;
                 unparseable = unparseable.saturating_add(1);
                 if unparseable >= UNPARSEABLE_CALLS_BEFORE_GIVING_UP {
@@ -955,6 +1050,13 @@ async fn take_turn_inner<P: ModelProvider>(
                     "{} ({unparseable} of {UNPARSEABLE_CALLS_BEFORE_GIVING_UP})",
                     fault.detail()
                 )));
+                retrying += 1;
+                on_step(TurnStep::Retry {
+                    cause: "reply_fault",
+                    attempt: unparseable,
+                    limit: UNPARSEABLE_CALLS_BEFORE_GIVING_UP - 1,
+                    detail: fault.detail().to_owned(),
+                });
                 messages.push(fault.message());
                 continue;
             }
@@ -1008,6 +1110,13 @@ async fn take_turn_inner<P: ModelProvider>(
                          {lower} tokens, a window calibration measured -- this reloads the \
                          model on a backend that fixes its window at load time"
                     )));
+                    retrying += 1;
+                    on_step(TurnStep::Retry {
+                        cause: "context_limit",
+                        attempt: usize::from(context_drops),
+                        limit: usize::from(max_context_drops),
+                        detail: format!("{safe_context}; asking for {lower} tokens"),
+                    });
                     let granted = provider
                         .prepare_context(deployment, lower)
                         .await
@@ -1062,6 +1171,13 @@ async fn take_turn_inner<P: ModelProvider>(
                 on_step(TurnStep::Refused(format!(
                     "{error} ({backend_faults} of {BACKEND_FAULTS_BEFORE_GIVING_UP})"
                 )));
+                retrying += 1;
+                on_step(TurnStep::Retry {
+                    cause: "backend_fault",
+                    attempt: backend_faults,
+                    limit: BACKEND_FAULTS_BEFORE_GIVING_UP - 1,
+                    detail: error.to_string(),
+                });
                 continue;
             }
         };
@@ -1073,6 +1189,11 @@ async fn take_turn_inner<P: ModelProvider>(
             reasoning_seen.get(),
             started.elapsed(),
         )?;
+        on_step(TurnStep::Generation(GenerationStats {
+            metrics: reply.metrics.clone(),
+            elapsed: started.elapsed(),
+            first_chunk: first_chunk.get(),
+        }));
         let reply = adapter.normalize(&reply);
         let counted = reply
             .metrics
@@ -1151,19 +1272,60 @@ async fn take_turn_inner<P: ModelProvider>(
             // one that spends a turn.
             if reply.narrative.trim().is_empty() {
                 silent = silent.saturating_add(1);
+                let call_in_reasoning = reply.thinking.contains("<tool_call>")
+                    && reply.thinking.contains("</tool_call>");
+                reasoning_calls = if call_in_reasoning {
+                    reasoning_calls.saturating_add(1)
+                } else {
+                    0
+                };
                 if silent >= EMPTY_TURNS_BEFORE_GIVING_UP {
-                    return stopped(actions, edited, StopReason::Silent);
+                    return stopped(
+                        actions,
+                        edited,
+                        if reasoning_calls == silent {
+                            StopReason::ToolCallInReasoning
+                        } else {
+                            StopReason::Silent
+                        },
+                    );
                 }
+                let detail = if call_in_reasoning {
+                    answer_without_thinking = true;
+                    "the model wrote a tool call in its reasoning phase; calls there cannot run"
+                } else {
+                    "the reply held neither an answer nor a tool call"
+                };
                 on_step(TurnStep::Refused(format!(
-                    "the turn produced no answer ({silent} of \
-                     {EMPTY_TURNS_BEFORE_GIVING_UP})"
+                    "{detail} ({silent} of {EMPTY_TURNS_BEFORE_GIVING_UP})"
                 )));
+                retrying += 1;
+                on_step(TurnStep::Retry {
+                    cause: if call_in_reasoning {
+                        "tool_in_reasoning"
+                    } else {
+                        "silent"
+                    },
+                    attempt: silent,
+                    limit: EMPTY_TURNS_BEFORE_GIVING_UP - 1,
+                    detail: detail.into(),
+                });
                 messages.push(ChatMessage::text(
                     "tool",
-                    "That turn contained neither an answer nor a tool call. Say what you found, \
-                     or take the next action.",
+                    if call_in_reasoning {
+                        "Your tool call was inside the reasoning phase and was not executed. \
+                         Close the reasoning phase, then send the tool call in the answer phase."
+                    } else {
+                        "That turn contained neither an answer nor a tool call. Say what you found, \
+                         or take the next action."
+                    },
                 ));
                 continue;
+            }
+            if retrying > 0 {
+                on_step(TurnStep::Recovered {
+                    retries: std::mem::take(&mut retrying),
+                });
             }
             return Ok(TurnReport {
                 answer: reply.narrative,
@@ -1175,6 +1337,7 @@ async fn take_turn_inner<P: ModelProvider>(
             });
         }
         silent = 0;
+        reasoning_calls = 0;
         for call in &reply.tool_calls {
             if stop.load(std::sync::atomic::Ordering::Relaxed) {
                 // Between actions; inside one only for a command, below,
@@ -1185,6 +1348,11 @@ async fn take_turn_inner<P: ModelProvider>(
             let action = match decode(call, &catalog) {
                 Ok(action) => {
                     malformed_calls = 0;
+                    if retrying > 0 {
+                        on_step(TurnStep::Recovered {
+                            retries: std::mem::take(&mut retrying),
+                        });
+                    }
                     action
                 }
                 Err(problem) => {
@@ -1199,6 +1367,13 @@ async fn take_turn_inner<P: ModelProvider>(
                         return stopped(actions, edited, StopReason::Unparseable);
                     }
                     on_step(TurnStep::Refused(format!("{}: {problem}", call.name)));
+                    retrying += 1;
+                    on_step(TurnStep::Retry {
+                        cause: "malformed_call",
+                        attempt: malformed_calls,
+                        limit: UNPARSEABLE_CALLS_BEFORE_GIVING_UP - 1,
+                        detail: format!("{}: {problem}", call.name),
+                    });
                     call_sequence += 1;
                     on_step(TurnStep::ToolCall(ToolCallStep {
                         id: call_sequence,
@@ -1637,6 +1812,8 @@ fn record_generation(
             // No backend separates a call's tokens from the answer's.
             "tool_call_tokens_estimated": (tool_call_chars > 0).then_some(tool_call_chars / 4),
             "reasoning_budget_reached": metrics.reasoning_budget_reached,
+            "reasoning_repetition_bps": metrics.reasoning_repetition_bps,
+            "answer_repetition_bps": metrics.answer_repetition_bps,
             "effective_reasoning_tokens": plan.effective_tokens,
             "clamped": plan.clamped,
         }),
@@ -2348,6 +2525,7 @@ mod tests {
                 | StopReason::ContextFull
                 | StopReason::Looping
                 | StopReason::Silent
+                | StopReason::ToolCallInReasoning
                 | StopReason::Unparseable
                 | StopReason::BudgetSpent
                 | StopReason::BackendFailing
