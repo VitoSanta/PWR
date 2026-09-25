@@ -398,6 +398,8 @@ struct Session {
     busy: bool,
     turns: u32,
     grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
+    /// The person's last request, in their words, for the workspace's wiki.
+    last_request: String,
 }
 
 const GOAL_MAX_ACTIONS: usize = 208;
@@ -420,6 +422,7 @@ impl Session {
             busy: false,
             turns: 0,
             grants: Arc::default(),
+            last_request: String::new(),
         }
     }
 
@@ -741,6 +744,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             "_pwr/model_sampling" => self.model_sampling(id, &params),
             "_pwr/profile" => self.send(profile_request(id, &params)),
             "_pwr/memory" => self.send(memory_request(id, &params)),
+            "_pwr/projects" => self.send(projects_request(id, &params)),
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/compact" => self.compact(id, &params).await,
@@ -1895,6 +1899,44 @@ impl<R: TurnRunner + 'static> Server<R> {
         }
     }
 
+    /// Brings the workspace's wiki up to date after a turn, and logs the turn
+    /// when it changed or finished something (`pwr_orchestrator::wiki`). A
+    /// wiki that cannot be written costs the turn nothing.
+    fn remember_work(&self, session_id: &str, report: &TurnReport, answer: &str) {
+        let Some((root, request, files, chat_only)) =
+            self.sessions.borrow().get(session_id).map(|session| {
+                (
+                    session.root.clone(),
+                    session.last_request.clone(),
+                    session
+                        .continuity
+                        .written
+                        .lock()
+                        .map(|written| written.keys().cloned().collect::<Vec<_>>())
+                        .unwrap_or_default(),
+                    session.continuity.chat_only,
+                )
+            })
+        else {
+            return;
+        };
+        if chat_only {
+            return;
+        }
+        let Ok(home) = pwr_orchestrator::personal::Home::from_env() else {
+            return;
+        };
+        let worked =
+            (report.edited || report.completed).then_some(pwr_orchestrator::wiki::Worked {
+                request: &request,
+                answer,
+                files,
+            });
+        if let Err(why) = pwr_orchestrator::wiki::refresh(&home, &root, worked) {
+            eprintln!("pwr serve: the workspace wiki was not updated: {why}");
+        }
+    }
+
     fn turn_reply(
         &self,
         id: Value,
@@ -1925,6 +1967,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         if !answer.trim().is_empty() {
             self.update(session_id, message_chunk("agent_message_chunk", &answer));
         }
+        self.remember_work(session_id, &report, &answer);
         let (stop_reason, terminal) = stop_reason(&report);
         let mut meta = if goal_mode {
             json!({
@@ -2027,6 +2070,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 }
             }
         }
+        session.last_request = text.to_owned();
         let text = if goal_mode {
             // A single `\` continues the line; `\\` had put a literal
             // backslash and the next line's indentation into every goal-mode
@@ -2602,6 +2646,22 @@ fn notification(method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "method": method, "params": params})
 }
 
+/// `_pwr/projects`: the workspaces PWR keeps a wiki for, most recent first;
+/// with `forget` (a path), that one is dropped from the list first. The
+/// folder and its wiki are left alone.
+fn projects_request(id: Value, params: &Value) -> Value {
+    use pwr_orchestrator::{personal, wiki};
+    let home = match personal::Home::from_env() {
+        Ok(home) => home,
+        Err(why) => return error_response(id, -32000, &why),
+    };
+    if let Some(path) = params.get("forget").and_then(Value::as_str)
+        && let Err(why) = wiki::forget(&home, Path::new(path))
+    {
+        return error_response(id, -32000, &why);
+    }
+    result(id, json!({ "projects": wiki::projects(&home) }))
+}
 
 /// `_pwr/profile`: the person's profile, and with `profile` in the params,
 /// saved first. See `pwr_orchestrator::personal`.
@@ -4200,11 +4260,14 @@ mod tests {
         assert!(generation["firstChunkMs"].is_null());
         assert!(generation["promptEvalMs"].is_null());
         // What ACP already carries is not repeated.
-        assert!(turn_event(&TurnStep::Usage {
-            used: 1,
-            window: 2,
-            estimated: false,
-        }).is_none());
+        assert!(
+            turn_event(&TurnStep::Usage {
+                used: 1,
+                window: 2,
+                estimated: false,
+            })
+            .is_none()
+        );
     }
 
     #[test]

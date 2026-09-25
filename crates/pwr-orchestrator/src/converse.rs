@@ -524,7 +524,28 @@ pub fn chat_tool_catalog() -> ToolCatalog {
     // Conversations only: a scripted run has no person to confirm it, and its
     // catalogue is part of what a campaign measures.
     tools.push(remember_tool());
+    tools.push(recall_project_tool());
     ToolCatalog::new(tools).expect("a filtered catalogue is valid")
+}
+
+/// `recall_project`: what PWR knows about a workspace it worked in before,
+/// from that workspace's wiki (`crate::wiki`).
+pub fn recall_project_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "recall_project".into(),
+        description: "Recall a project you worked on with this person before, in any folder: \
+                      what it is, its layout and scripts, and the work done there, newest first. \
+                      Use it when they mention a project by name that is not this workspace. \
+                      Leave name empty to list every project you know."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "The project's folder name, or part of it."},
+            },
+            "required": [],
+        }),
+    }
 }
 
 /// `remember`: proposes a fact to keep across conversations. The person
@@ -565,7 +586,9 @@ pub fn chat_only_tool_catalog() -> ToolCatalog {
         .tools
         .into_iter()
         .filter(|tool| {
-            CHAT_ONLY_TOOLS.contains(&tool.name.as_str()) || tool.name == "remember"
+            CHAT_ONLY_TOOLS.contains(&tool.name.as_str())
+                || tool.name == "remember"
+                || tool.name == "recall_project"
         })
         .collect();
     ToolCatalog::new(tools).expect("a filtered catalogue is valid")
@@ -1473,7 +1496,12 @@ async fn take_turn_inner<P: ModelProvider>(
             // so, and the turn goes on.
             if let ActionProposal::Remember { text, scope } = &action {
                 let scope = scope.clone().unwrap_or_else(|| {
-                    if continuity.chat_only { "global" } else { "workspace" }.to_owned()
+                    if continuity.chat_only {
+                        "global"
+                    } else {
+                        "workspace"
+                    }
+                    .to_owned()
                 });
                 on_step(TurnStep::MemoryProposed {
                     text: text.trim().to_owned(),
@@ -1486,6 +1514,23 @@ async fn take_turn_inner<P: ModelProvider>(
                         "scope": scope,
                         "note": "shown to the person; it is saved only if they confirm it",
                     }))),
+                ));
+                continue;
+            }
+            // Reads another workspace's wiki, never its files.
+            if let ActionProposal::RecallProject { name } = &action {
+                let recalled = crate::personal::Home::from_env()
+                    .map(|home| crate::wiki::recall(&home, name.as_deref().unwrap_or_default()));
+                on_step(TurnStep::Acted {
+                    capability: "recall_project".into(),
+                    detail: name.clone().unwrap_or_else(|| "known projects".into()),
+                });
+                messages.push(tool_message(
+                    call,
+                    crate::action_outcome(match recalled {
+                        Ok(text) => Ok(serde_json::json!({"recalled": text})),
+                        Err(why) => Err(crate::ActionExecutionError::Invalid(why)),
+                    }),
                 ));
                 continue;
             }
@@ -1928,7 +1973,10 @@ fn conservative_prompt_tokens(
         .skip(from)
         .map(|message| {
             message.content.len().div_ceil(3)
-                + message.reasoning.as_ref().map_or(0, |r| r.len().div_ceil(3))
+                + message
+                    .reasoning
+                    .as_ref()
+                    .map_or(0, |r| r.len().div_ceil(3))
                 + 4
         })
         .sum();
@@ -1989,7 +2037,10 @@ fn kept_reasoning(thinking: &str) -> Option<String> {
     while !thinking.is_char_boundary(start) {
         start += 1;
     }
-    Some(format!("[earlier reasoning omitted]\n{}", &thinking[start..]))
+    Some(format!(
+        "[earlier reasoning omitted]\n{}",
+        &thinking[start..]
+    ))
 }
 
 /// Clears the reasoning earlier exchanges carried, called when the person
@@ -2209,7 +2260,11 @@ mod tests {
         assert_eq!(kept_reasoning("  \n "), None);
         assert_eq!(kept_reasoning(" short ").as_deref(), Some("short"));
         // A runaway keeps its end, on a character boundary.
-        let long = format!("{}é{}CONCLUSION", "x".repeat(REASONING_KEPT_CHARS), "y".repeat(10));
+        let long = format!(
+            "{}é{}CONCLUSION",
+            "x".repeat(REASONING_KEPT_CHARS),
+            "y".repeat(10)
+        );
         let kept = kept_reasoning(&long).unwrap();
         assert!(kept.starts_with("[earlier reasoning omitted]"));
         assert!(kept.ends_with("CONCLUSION"));

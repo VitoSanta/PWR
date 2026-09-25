@@ -359,3 +359,11 @@ export interface MemoryProposal {
   text: string;
   scope: MemoryScope;
 }
+
+/** A workspace PWR keeps a wiki for (`_pwr/projects`). */
+export interface KnownProject {
+  name: string;
+  path: string;
+  updatedAt: string;
+  summary?: string;
+}

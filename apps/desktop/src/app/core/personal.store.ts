@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { AgentStore } from './agent.store';
-import { Memory, MemoryList, MemoryProposal, MemoryScope, Profile } from './model';
+import { KnownProject, Memory, MemoryList, MemoryProposal, MemoryScope, Profile } from './model';
 
 /**
  * The person's profile and what PWR remembers, kept by the core in
@@ -15,6 +15,8 @@ export class PersonalStore {
   readonly profile = signal<Profile>({ memoryEnabled: true });
   readonly memories = signal<MemoryList>({ global: [], workspace: [], instructions: null });
   readonly proposals = signal<MemoryProposal[]>([]);
+  /** Workspaces with a wiki, which any conversation can recall by name. */
+  readonly projects = signal<KnownProject[]>([]);
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly error = signal('');
@@ -37,12 +39,14 @@ export class PersonalStore {
     this.loading.set(true);
     this.error.set('');
     try {
-      const [profile, memories] = await Promise.all([
+      const [profile, memories, projects] = await Promise.all([
         this.agent.call('_pwr/profile', {}),
         this.agent.call('_pwr/memory', { cwd: this.agent.workspace() }),
+        this.agent.call('_pwr/projects', {}),
       ]);
       this.profile.set({ memoryEnabled: true, ...(profile.profile ?? {}) });
       this.memories.set(memories as MemoryList);
+      this.projects.set(projects.projects ?? []);
     } catch (error) {
       this.error.set(message(error));
     } finally {
@@ -79,6 +83,17 @@ export class PersonalStore {
   async accept(proposal: MemoryProposal, scope: MemoryScope = proposal.scope): Promise<void> {
     await this.add(scope, proposal.text, proposal.sessionId ?? undefined);
     if (!this.error()) this.dismiss(proposal);
+  }
+
+  /** Drops a project from the list; its folder and wiki stay. */
+  async forget(project: KnownProject): Promise<void> {
+    this.error.set('');
+    try {
+      const reply = await this.agent.call('_pwr/projects', { forget: project.path });
+      this.projects.set(reply.projects ?? []);
+    } catch (error) {
+      this.error.set(message(error));
+    }
   }
 
   dismiss(proposal: MemoryProposal): void {

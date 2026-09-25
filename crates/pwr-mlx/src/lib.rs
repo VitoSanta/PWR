@@ -795,10 +795,7 @@ pub fn template_message(message: &ChatMessage) -> serde_json::Value {
     if message.role == "assistant"
         && let Some(reasoning) = &message.reasoning
     {
-        object.insert(
-            "reasoning_content".into(),
-            serde_json::json!(reasoning),
-        );
+        object.insert("reasoning_content".into(), serde_json::json!(reasoning));
     }
     if !message.tool_calls.is_empty() {
         object.insert(
@@ -1765,14 +1762,17 @@ mod tests {
             "The check character is U; the tables are settled."
         );
         // Not stored: a message written to disk and read back has none.
-        let stored: ChatMessage = serde_json::from_str(&serde_json::to_string(&step).unwrap()).unwrap();
+        let stored: ChatMessage =
+            serde_json::from_str(&serde_json::to_string(&step).unwrap()).unwrap();
         assert_eq!(stored.reasoning, None);
         let mut user = ChatMessage::text("user", "hi");
         user.reasoning = Some("never sent for a user message".into());
         assert!(template_message(&user).get("reasoning_content").is_none());
-        assert!(template_message(&ChatMessage::text("assistant", "ok"))
-            .get("reasoning_content")
-            .is_none());
+        assert!(
+            template_message(&ChatMessage::text("assistant", "ok"))
+                .get("reasoning_content")
+                .is_none()
+        );
     }
 
     #[test]
