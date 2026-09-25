@@ -1073,6 +1073,13 @@ pa-engine-setup {
   background: var(--bg-app);
 }
 
+/* Fills the window, so the body's auto margins centre it both ways. */
+.setup {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
 .setup-titlebar {
   flex: none;
   height: var(--titlebar-h);
