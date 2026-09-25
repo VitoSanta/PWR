@@ -20,6 +20,7 @@ pub mod download;
 pub mod fit;
 pub mod hub;
 pub mod local;
+pub mod ordered;
 pub mod profile;
 pub mod sampling;
 
@@ -105,6 +106,19 @@ pub struct Filters {
     /// The order the Hub returns the catalogue in, across every page; the
     /// most downloaded first when unset.
     pub sort: Option<HubSort>,
+    /// An order by size the Hub cannot sort by, walked across its whole
+    /// catalogue by PWR (see [`ordered`]). Takes precedence over `sort`.
+    pub order: Option<CatalogOrder>,
+}
+
+/// Orders by parameters, over everything the Hub lists, not only the page
+/// in hand. Download size follows from parameters and quantization, so
+/// "smallest first" with a quantization filter is "lightest first".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CatalogOrder {
+    SmallestFirst,
+    LargestFirst,
 }
 
 /// Orders the Hub itself can sort by, named as its API names them. Anything
@@ -439,7 +453,27 @@ pub async fn search(
     models_root: &Path,
     installed: &[String],
 ) -> Result<SearchPage, hub::HubError> {
-    use futures_util::StreamExt;
+    if let Some(order) = filters.order {
+        let limit = capacity_parameter_limit(capacity, filters);
+        let (models, next_cursor) = ordered::page(
+            &HubListing {
+                hub,
+                query,
+                format,
+                filters,
+            },
+            order,
+            limit,
+            cursor,
+            (filters.min_parameters, filters.max_parameters),
+        )
+        .await?;
+        let entries = enrich(hub, models, format, capacity, models_root, installed).await;
+        return Ok(SearchPage {
+            entries,
+            next_cursor,
+        });
+    }
     // Speech, embedding and image models share these formats. Keep the Hub's
     // cursor so every subsequent page can still be reached after filtering.
     let page = hub
@@ -450,6 +484,79 @@ pub async fn search(
         .into_iter()
         .filter(catalog::is_language_model)
         .collect();
+    let entries = enrich(hub, models, format, capacity, models_root, installed).await;
+    Ok(SearchPage {
+        entries,
+        next_cursor: page.next_cursor,
+    })
+}
+
+/// The most parameters a model that fits this machine could have, when only
+/// fitting models are asked for: at the lowest precision weights are stored
+/// at (about 1.5 bits), in all of its memory. A walk from the largest down
+/// starts there rather than paging through models that could never load.
+fn capacity_parameter_limit(capacity: &Capacity, filters: &Filters) -> Option<u64> {
+    if !filters.compatible_only {
+        return None;
+    }
+    let memory = capacity.total_memory_bytes.max(capacity.vram_bytes)?;
+    Some(memory.saturating_mul(8) / 3 * 2)
+}
+
+/// The Hub's listing within a parameter range, for [`ordered::page`].
+struct HubListing<'a> {
+    hub: &'a hub::HubClient,
+    query: &'a str,
+    format: Format,
+    filters: &'a Filters,
+}
+
+impl ordered::Listing for HubListing<'_> {
+    async fn list(
+        &self,
+        min: u64,
+        max: u64,
+        cursor: Option<&str>,
+    ) -> Result<(Vec<HubModel>, Option<String>), hub::HubError> {
+        let window = Filters {
+            min_parameters: Some(min),
+            max_parameters: Some(max),
+            sort: None,
+            order: None,
+            ..self.filters.clone()
+        };
+        let page = self
+            .hub
+            .search_page(
+                self.query,
+                self.format,
+                &window,
+                cursor,
+                ordered::LISTING_LIMIT,
+            )
+            .await?;
+        Ok((
+            page.models
+                .into_iter()
+                .filter(catalog::is_language_model)
+                .collect(),
+            page.next_cursor,
+        ))
+    }
+}
+
+/// Each listing with its file tree and config, so its variants carry exact
+/// sizes and a fit. Results whose tree cannot be read are kept with no
+/// variants and a note, rather than silently dropped.
+async fn enrich(
+    hub: &hub::HubClient,
+    models: Vec<HubModel>,
+    format: Format,
+    capacity: &Capacity,
+    models_root: &Path,
+    installed: &[String],
+) -> Vec<CatalogEntry> {
+    use futures_util::StreamExt;
     // GGUF repositories carry no config.json; their base model's describes
     // the same architecture, so it is read once per base model.
     let bases: Vec<String> = if format == Format::Gguf {
@@ -494,7 +601,7 @@ pub async fn search(
         .buffered(CONCURRENT_REQUESTS)
         .collect()
         .await;
-    let entries = enriched
+    enriched
         .into_iter()
         .map(|(model, files, config)| {
             let config = config.or_else(|| {
@@ -525,11 +632,7 @@ pub async fn search(
             }
             entry
         })
-        .collect();
-    Ok(SearchPage {
-        entries,
-        next_cursor: page.next_cursor,
-    })
+        .collect()
 }
 
 /// The plan for one variant, re-read from the Hub at the pinned revision: a

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { AgentStore } from '../core/agent.store';
 import { bytes, fitTone, parameters, percent, tokens } from '../core/format';
 import { CatalogEntry, CatalogVariant, DownloadView, ModelOrder } from '../core/model';
-import { ModelsStore, ordersLoaded } from '../core/models.store';
+import { ModelsStore } from '../core/models.store';
 import { roveFocus } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon } from './kit/icon';
@@ -336,9 +336,7 @@ import { Tooltip } from './kit/tooltip';
                       <span>
                         {{ models.results().length }} model{{ models.results().length === 1 ? '' : 's' }}
                         · {{ (models.format() ?? '').toUpperCase() }}{{ models.query() ? ' · “' + models.query() + '”' : ''
-                        }}{{ models.filters().compatibleOnly ? ' · fits this machine' : '' }}{{
-                          loadedOrder() ? ' · ' + loadedOrder() + (models.nextCursor() ? ', among those loaded' : '') : ''
-                        }}
+                        }}{{ models.filters().compatibleOnly ? ' · fits this machine' : '' }}{{ sizeOrder() }}
                       </span>
                     }
                     @case ('error') {
@@ -372,7 +370,7 @@ import { Tooltip } from './kit/tooltip';
                   </div>
                 }
                 @default {
-                  @for (entry of models.sorted(); track entry.repository) {
+                  @for (entry of models.results(); track entry.repository) {
                     <article class="model-card" [attr.aria-labelledby]="'model-' + $index">
                       <header class="model-card-head">
                         <div class="model-card-title">
@@ -675,15 +673,15 @@ export class ModelManager {
     { value: 'downloads', label: 'Most downloaded' },
     { value: 'likes', label: 'Most liked' },
     { value: 'lastModified', label: 'Recently updated' },
-    { value: 'params-desc', label: 'Largest first', hint: 'parameters' },
-    { value: 'params-asc', label: 'Smallest first', hint: 'parameters' },
-    { value: 'size-asc', label: 'Lightest download' },
-    { value: 'name', label: 'Name' },
+    { value: 'smallestFirst', label: 'Smallest first', hint: 'parameters' },
+    { value: 'largestFirst', label: 'Largest first', hint: 'parameters' },
   ];
-  /** The order, when it is one applied to the loaded results. */
-  protected readonly loadedOrder = computed(() => {
+  /** Said beside the count when the order is by size. */
+  protected readonly sizeOrder = computed(() => {
     const order = this.models.order();
-    return ordersLoaded(order) ? this.orderOptions.find((option) => option.value === order)?.label.toLowerCase() : '';
+    return order === 'smallestFirst' || order === 'largestFirst'
+      ? ` · ${order === 'smallestFirst' ? 'smallest' : 'largest'} first, across the Hub`
+      : '';
   });
 
 

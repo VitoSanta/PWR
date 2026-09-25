@@ -101,7 +101,7 @@ pub struct HubError {
 }
 
 impl HubError {
-    fn new(kind: HubErrorKind, message: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: HubErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
