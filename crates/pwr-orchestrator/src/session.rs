@@ -197,7 +197,7 @@ pub async fn withheld(
         .filter_map(|stream| value.get(*stream).and_then(serde_json::Value::as_str))
         .collect::<Vec<_>>()
         .join("\n");
-    let command = format!("{executable} {}", args.join(" "));
+    let command = pwr_tools::command_line(executable, args);
     let (approval, description) = if !policy.approvals.contains(&Approval::ContainerEngine)
         && pwr_tools::looks_like_container_engine_denied(&output)
     {

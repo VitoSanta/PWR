@@ -139,8 +139,11 @@ def verify(task, workspace, label="verify"):
             else:
                 command += [spec["image"], "sh", "-c", spec["command"]]
         try:
-            done = subprocess.run(command, cwd=copy, capture_output=True, text=True, timeout=timeout)
-            output = done.stdout + done.stderr
+            # One stream, in order: a verdict line printed after a build log
+            # must end the output, not sit before the log.
+            done = subprocess.run(command, cwd=copy, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True, timeout=timeout)
+            output = done.stdout
             passed = done.returncode == 0
         except subprocess.TimeoutExpired as error:
             if name:
