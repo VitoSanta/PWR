@@ -14,11 +14,12 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from run import RESULTS  # noqa: E402
+from run import RESULTS, task_digest  # noqa: E402
 
 HOME = str(pathlib.Path.home())
 
@@ -137,9 +138,47 @@ def events_of(transcript, workspace):
     return events
 
 
-def task_readme(task_id):
+def task_readme(run_dir, task_id):
+    """The README as it was handed over in that run: the workspace's first
+    commit is the seed, so a task revised since does not rewrite history."""
+    workspace = run_dir / "workspace"
+    first = subprocess.run(["git", "-C", str(workspace), "rev-list", "--max-parents=0", "HEAD"],
+                           capture_output=True, text=True).stdout.split()
+    if first:
+        shown = subprocess.run(["git", "-C", str(workspace), "show", f"{first[0]}:README.md"],
+                               capture_output=True, text=True)
+        if shown.returncode == 0:
+            return shown.stdout
     path = HERE.parent / "tasks" / task_id / "workspace" / "README.md"
     return path.read_text() if path.exists() else "(not found)"
+
+
+def revised_since(result):
+    """Whether the task has changed since the result was produced. A result
+    from before digests were recorded cannot say, and is marked unknown."""
+    task_dir = HERE.parent / "tasks" / result["task"]
+    if not task_dir.exists():
+        return "unknown"
+    recorded = result.get("task_digest")
+    if recorded is None:
+        return "unknown"
+    return "yes" if recorded != task_digest(task_dir) else "no"
+
+
+def revisions_html():
+    """The README's Revisions section, as a list."""
+    text = (HERE.parent / "README.md").read_text()
+    section = text.split("## Revisions", 1)[1] if "## Revisions" in text else ""
+    section = section.split("\n## ", 1)[0]
+    items, current = [], None
+    for line in section.splitlines():
+        if line.startswith("- "):
+            current = [line[2:].strip()]
+            items.append(current)
+        elif current is not None and line.strip():
+            current.append(line.strip())
+    code = lambda t: re.sub(r"`([^`]+)`", r"<code>\1</code>", esc(t))
+    return "".join(f"<li>{code(' '.join(item))}</li>" for item in items)
 
 
 def render_task(run_dir, result):
@@ -197,13 +236,27 @@ def render_task(run_dir, result):
 <span><b>{tokens.get("generated", 0):,}</b> tokens generated</span>
 <span>model <b>{esc(result.get("model", ""))}</b></span><span>PWR <b>{esc(result.get("revision", ""))}</b></span>
 <span>split <b>{esc(result.get("split") or "")}</b></span></div>
+{revision_note(result)}
 <h2>The conversation</h2>
 {"".join(parts)}
 <h2>The task as handed over</h2>
-<details><summary class="muted">README.md of the workspace</summary><pre class="code">{esc(task_readme(result["task"]))}</pre></details>
+<details><summary class="muted">README.md of the workspace</summary><pre class="code">{esc(task_readme(run_dir, result["task"]))}</pre></details>
 <h2>What changed</h2>
 <pre class="code">{esc(scrub(diff, workspace)[:60000]) or "(no change)"}</pre>
 </main></body></html>"""
+
+
+def revision_note(result):
+    revised = revised_since(result)
+    if revised == "yes":
+        return ('<div class="verdict"><b class="warn">This task was revised after this run.</b> '
+                '<span class="muted">The conversation below ran against the earlier text; '
+                '<a href="index.html#revisions">what changed and why</a>.</span></div>')
+    if revised == "unknown":
+        return ('<div class="verdict"><span class="muted">This run predates task digests, so whether '
+                'the task changed since cannot be told from the run; see '
+                '<a href="index.html#revisions">the revisions</a>.</span></div>')
+    return ""
 
 
 def summary_table(rows, key, label):
@@ -232,7 +285,8 @@ installed toolchains left out, the owner's test files restored exactly as writte
 laid over it -- is run in the task's official container image (or, for a task about containers, by a host script).
 Every task was first proven sound: as handed over it fails that verification, and with a reference solution it passes.</p>
 <p><b>dev</b> tasks are the ones PWR was improved against; <b>heldout</b> tasks were written before any run and are
-only measured. One run per task per campaign; a model runs locally (Apple Silicon, MLX), nothing is sent to a cloud model.</p>
+only measured. A held-out task whose failure was read and led to a change in PWR moves to dev. One run per task
+per campaign; a model runs locally (Apple Silicon, MLX), nothing is sent to a cloud model.</p>
 """
 
 
@@ -257,6 +311,9 @@ in the task's official container image, never from PWR's own report. Runs: {esc(
 <div class="scroll">{summary_table(rows, "split", "Split")}</div>
 <div class="scroll" style="margin-top:12px">{summary_table(rows, "category", "Kind of task")}</div>
 {METHOD}
+<h2 id="revisions">Tasks changed after a run</h2>
+<p class="muted">Every result records a digest of its task, and a page says when its task has changed since.</p>
+<ul>{revisions_html()}</ul>
 <h2>Every task</h2>
 <div class="scroll"><table><thead><tr><th>Task</th><th>Kind</th><th>Result</th><th>Min</th><th>Actions</th><th>Asked</th><th>Peak ctx</th><th>Run</th></tr></thead>
 <tbody>{"".join(body)}</tbody></table></div>
