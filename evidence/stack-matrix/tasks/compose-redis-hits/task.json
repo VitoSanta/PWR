@@ -1,14 +1,15 @@
 {
- "id": "cs-docker",
- "title": "Docker: multi-stage image, compose and a smoke test for a .NET API",
+ "id": "compose-redis-hits",
+ "title": "Docker Compose + Redis + Python: a rate-limited hit counter, persistent across restarts",
  "stacks": [
   "docker",
   "compose",
-  "dotnet",
-  "bash"
+  "redis",
+  "python",
+  "flask"
  ],
- "category": "infrastructure",
- "split": "dev",
+ "category": "multi-service",
+ "split": "heldout",
  "allow": [
   "container_engine",
   "network_access",
@@ -23,8 +24,8 @@
   "timeout": 1500,
   "expect": "^ACCEPTED",
   "restore": [
-   "tests/Inventory.Api.Tests/InventoryApiTests.cs",
-   "tests/Inventory.Api.Tests/Inventory.Api.Tests.csproj"
+   "tests/e2e.py",
+   "scripts/e2e.sh"
   ]
  }
 }

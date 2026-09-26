@@ -1,0 +1,1 @@
+Build the hits service described in README.md -- the app, its Dockerfile and compose.yaml -- so that `sh scripts/e2e.sh` passes. Docker is available. Don't change the tests or the e2e script. Tell me what you built and the final result.
