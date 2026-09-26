@@ -49,7 +49,21 @@ NOT_SOURCE = {
     ".next", ".angular", ".dart_tool", "vendor", "_build", "deps", ".build", ".swiftpm",
 }
 
-NUDGE = "It is not finished yet: keep going until the acceptance checks pass."
+# What the stand-in person says after the independent verification failed, by
+# protocol version. It never names a hidden test. Version 1 pointed at the
+# acceptance checks, which by then usually passed: seen in c2, a model told to
+# make passing checks pass re-read its work, said it was done, and spent two
+# turns doing nothing. Version 2 says what the person knows -- the work does
+# not yet do everything asked -- and where to look. Each result records the
+# protocol it ran under; results under different protocols are not pooled.
+NUDGES = {
+    1: "It is not finished yet: keep going until the acceptance checks pass.",
+    2: "It is not finished yet: the work does not do everything I asked. Check it against "
+       "my request and the README rule by rule, and try the cases the existing tests do "
+       "not cover.",
+}
+PROTOCOL = int(os.environ.get("PWR_EVIDENCE_PROTOCOL", "2"))
+NUDGE = NUDGES[PROTOCOL]
 
 
 def say(*parts):
@@ -343,6 +357,7 @@ def run_task(task, run_id, attempt, turns_override=None):
         "category": task["category"], "split": task.get("split"), "attempt": attempt,
         "run": run_id, "model": MODEL, "binary": PWR_BIN,
         "revision": binary_revision(),
+        "protocol": PROTOCOL,
         # The MLX sidecar is read from the source tree, not from the binary:
         # what it was is recorded beside the binary's revision.
         "sidecar": sidecar_digest(),

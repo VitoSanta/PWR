@@ -235,7 +235,8 @@ def render_task(run_dir, result):
 <span>peak context <b>{tokens.get("peak_context", 0):,}</b> tokens</span>
 <span><b>{tokens.get("generated", 0):,}</b> tokens generated</span>
 <span>model <b>{esc(result.get("model", ""))}</b></span><span>PWR <b>{esc(result.get("revision", ""))}</b></span>
-<span>split <b>{esc(result.get("split") or "")}</b></span></div>
+<span>split <b>{esc(result.get("split") or "")}</b></span>
+<span>protocol <b>{result.get("protocol", 1)}</b></span></div>
 {revision_note(result)}
 <h2>The conversation</h2>
 {"".join(parts)}
@@ -287,6 +288,11 @@ Every task was first proven sound: as handed over it fails that verification, an
 <p><b>dev</b> tasks are the ones PWR was improved against; <b>heldout</b> tasks were written before any run and are
 only measured. A held-out task whose failure was read and led to a change in PWR moves to dev. One run per task
 per campaign; a model runs locally (Apple Silicon, MLX), nothing is sent to a cloud model.</p>
+<p>When the independent verification fails, the stand-in person says the work is not finished -- never which hidden
+test failed -- and PWR gets another turn, up to the task's limit. What exactly they say is the run's <b>protocol</b>:
+version 1 told PWR to keep going until the acceptance checks passed; version 2 says the work does not yet do
+everything asked and to check it against the request and the README rule by rule. Results under different
+protocols are shown as such and never pooled.</p>
 """
 
 
