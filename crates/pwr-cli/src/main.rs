@@ -12581,6 +12581,34 @@ mod tests {
         assert_eq!(last.images, [PathBuf::from("/w/.pwr/images/ab.png")]);
     }
 
+    /// Measured 2026-09-26 (stack matrix c1, cs-docker): every goal turn's
+    /// own note -- "The checks pass. Before finishing..." -- was composed as a
+    /// new request, so a fresh ledger and passages ranked against that note
+    /// were added to the history on each of the goal's turns.
+    #[test]
+    fn a_goal_s_own_note_is_not_composed_as_a_request() {
+        let workspace = tempfile::tempdir().unwrap();
+        std::fs::write(
+            workspace.path().join("README.md"),
+            "# Notes\n\nThe checks pass here.\n",
+        )
+        .unwrap();
+        let mut note = ChatMessage::text("user", "The checks pass. Before finishing, review.");
+        note.purpose = Some(pwr_domain::MessagePurpose::GoalGuidance);
+        let mut messages = vec![ChatMessage::text("system", "be brief"), note.clone()];
+        let composed = compose_chat_turn(
+            workspace.path(),
+            32_768,
+            &pwr_orchestrator::TaskProfile::resolve(None, None),
+            Some("Ledger of 1 earlier run(s) of this session"),
+            &mut messages,
+        )
+        .unwrap();
+        assert_eq!(composed, None);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1], note);
+    }
+
     #[test]
     fn attachment_paths_with_spaces_and_shell_escaping_are_accepted() {
         let workspace = tempfile::tempdir().unwrap();

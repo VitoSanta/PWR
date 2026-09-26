@@ -1621,6 +1621,12 @@ pub enum MessagePurpose {
     /// so a later compaction merges it instead of reading it as a request, and
     /// so a replayed transcript does not show it as something the person said.
     CompactedMemory,
+    /// What goal mode says between its own turns -- review the work, the
+    /// checks failed, continue. Written by the harness, not asked by the
+    /// person: never composed as a new request (it drew a fresh ledger and
+    /// passages ranked against "The checks pass" on every goal turn), never
+    /// replayed as the person's words, never summarised as a request.
+    GoalGuidance,
 }
 /// Provider-neutral tool invocation requested by a model.
 ///

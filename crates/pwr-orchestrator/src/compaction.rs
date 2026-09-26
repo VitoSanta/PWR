@@ -402,6 +402,8 @@ fn preserve(folded: &[ChatMessage], carry: &Carry) -> (Preserved, usize) {
             // Composed fresh every turn from the files as they are, so an older
             // copy is superseded, and its hashes would now be stale.
             ("user", Some(MessagePurpose::SessionLedger)) => kept.superseded_ledgers += 1,
+            // The harness steering its own goal, answered by what followed it.
+            ("user", Some(MessagePurpose::GoalGuidance)) => {}
             ("user", _) => {
                 requests += 1;
                 if kept.first_request.is_none() {

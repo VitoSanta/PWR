@@ -474,6 +474,14 @@ const GOAL_REVIEW: &str = "The checks pass. Before finishing, hold the work agai
     checks again, then finish. If a named thing could not be used, say so and why instead of \
     counting a substitute as done. If every rule is met, finish and say so.";
 
+/// A message goal mode writes between its own turns, marked as the
+/// harness's so it is not composed, replayed or summarised as a request.
+fn goal_guidance(text: impl Into<String>) -> ChatMessage {
+    let mut message = ChatMessage::text("user", text);
+    message.purpose = Some(pwr_domain::MessagePurpose::GoalGuidance);
+    message
+}
+
 impl Session {
     fn new(
         root: PathBuf,
@@ -1911,7 +1919,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                                 "The checks pass. Reviewing the work against the request before finishing.",
                             ),
                         );
-                        messages.push(ChatMessage::text("user", GOAL_REVIEW));
+                        messages.push(goal_guidance(GOAL_REVIEW));
                     }
                     Ok(verification) if verification.passed => {
                         return self.turn_reply(
@@ -2008,13 +2016,10 @@ impl<R: TurnRunner + 'static> Server<R> {
                                 ),
                             ),
                         );
-                        messages.push(ChatMessage::text(
-                            "user",
-                            format!(
-                                "The goal is not complete: full repository verification failed. Fix the remaining issue. Evidence:\n{}",
-                                verification.summary
-                            ),
-                        ));
+                        messages.push(goal_guidance(format!(
+                            "The goal is not complete: full repository verification failed. Fix the remaining issue. Evidence:\n{}",
+                            verification.summary
+                        )));
                     }
                     Err(problem) => {
                         return error_response(
@@ -2072,8 +2077,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                         ),
                     );
                 }
-                messages.push(ChatMessage::text(
-                    "user",
+                messages.push(goal_guidance(
                     "Continue the same goal from the saved workspace state. Do not stop with prose: either make the next necessary change, investigate an unmet requirement, or call complete only when the full objective is ready for verification.",
                 ));
             }
