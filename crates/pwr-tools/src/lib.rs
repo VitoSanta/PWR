@@ -1179,7 +1179,19 @@ pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| executable.to_string());
-    if args.iter().any(|arg| arg == "publish") {
+    // `dotnet publish` builds a deployable folder on this machine and sends
+    // nothing anywhere -- `dotnet nuget push` is .NET's publish. Asked about as
+    // a publish, it was refused on the stack matrix (2026-09-26) and the model,
+    // unable to build its image's output, started rewriting a working API.
+    let local_build = name == "dotnet" && args.first().is_some_and(|first| first == "publish");
+    if args.iter().any(|arg| arg == "publish") && !local_build {
+        return Some(Approval::Publish);
+    }
+    if name == "dotnet"
+        && args
+            .windows(2)
+            .any(|pair| pair[0] == "nuget" && pair[1] == "push")
+    {
         return Some(Approval::Publish);
     }
     // An image pushed to a registry is published as surely as a package is.
@@ -6015,6 +6027,27 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dotnet_publish_is_a_build_and_nuget_push_is_a_publish() {
+        let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            command_approval("dotnet", &args(&["publish", "-c", "Release", "-o", "out"])),
+            None
+        );
+        assert_eq!(
+            command_approval("dotnet", &args(&["nuget", "push", "pkg.nupkg"])),
+            Some(Approval::Publish)
+        );
+        assert_eq!(
+            command_approval("npm", &args(&["publish"])),
+            Some(Approval::Publish)
+        );
+        assert_eq!(
+            command_approval("cargo", &args(&["publish"])),
+            Some(Approval::Publish)
+        );
+    }
+
     #[test]
     fn recipes_follow_the_workspace_and_what_is_missing() {
         let root = tempfile::tempdir().unwrap();

@@ -1344,5 +1344,8 @@ fn listing_a_missing_folder_says_what_the_root_holds() {
     let refused = pwr_tools::list_tree_under(&policy(root.path()), 100, Some("src")).unwrap_err();
     let said = refused.to_string();
     assert!(said.contains("does not exist yet"), "{said}");
-    assert!(said.contains("README.md") && said.contains("tests/"), "{said}");
+    assert!(
+        said.contains("README.md") && said.contains("tests/"),
+        "{said}"
+    );
 }
