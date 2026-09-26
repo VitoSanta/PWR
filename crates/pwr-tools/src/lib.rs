@@ -520,6 +520,237 @@ const TOOLCHAIN_READABLE: [&str; 10] = [
 /// Toolchain roots outside the home, by convention on this platform.
 const TOOLCHAIN_PREFIXES: [&str; 3] = ["/opt/homebrew", "/opt/local", "/Applications/Xcode.app"];
 
+/// Where a workspace keeps the toolchains the host does not have. Each
+/// directory in it contributes its `bin` (or a macOS JDK's `Contents/Home/bin`)
+/// to the front of PATH, for the run's commands and for its checks alike, so a
+/// Go or a JDK downloaded into the workspace is the `go` or `javac` a declared
+/// check runs.
+pub const TOOLCHAINS_DIRECTORY: &str = ".toolchains";
+
+/// Paths outside the workspace a toolchain's runtime writes to whatever its
+/// environment says.
+///
+/// .NET keeps the shared memory of its named mutexes under `/tmp/.dotnet`, not
+/// `TMPDIR`. With `HOME` in the workspace every run is a first run to it, and
+/// the first thing it does -- NuGet's migrations -- takes such a mutex.
+/// Measured 2026-09-26: every `dotnet` command in the sandbox died in 100 ms
+/// with EPERM on `/tmp/.dotnet/shm`, so a C# project could not even build.
+/// What the directory holds are lock files; opening it is what .NET needs and
+/// nothing more.
+const RUNTIME_WRITABLE: [&str; 1] = ["/private/tmp/.dotnet"];
+
+/// Programs a run is told the machine has or lacks, so a model does not guess:
+/// asked to use Go on a Mac without it, one downloaded the linux-amd64 build.
+const PROBED_PROGRAMS: &[&str] = &[
+    "python3",
+    "pip3",
+    "uv",
+    "node",
+    "npm",
+    "pnpm",
+    "yarn",
+    "bun",
+    "deno",
+    "java",
+    "javac",
+    "mvn",
+    "gradle",
+    "kotlinc",
+    "dotnet",
+    "go",
+    "cargo",
+    "rustc",
+    "gcc",
+    "g++",
+    "clang",
+    "clang++",
+    "cmake",
+    "make",
+    "ninja",
+    "swift",
+    "ruby",
+    "bundle",
+    "php",
+    "composer",
+    "elixir",
+    "mix",
+    "dart",
+    "flutter",
+    "docker",
+    "git",
+    "sqlite3",
+    "psql",
+    "mysql",
+    "mongosh",
+    "redis-server",
+    "terraform",
+    "kubectl",
+];
+
+/// Output that says a command wanted the network and the sandbox refused it.
+/// Strong signs only: a false positive costs one question, a false negative a
+/// task that cannot restore its packages.
+const NETWORK_DENIED_SIGNS: &[&str] = &[
+    "Unable to load the service index",
+    "NU1301",
+    "Could not resolve host",
+    "Couldn't resolve host",
+    "getaddrinfo ENOTFOUND",
+    "getaddrinfo EAI_AGAIN",
+    "Temporary failure in name resolution",
+    "nodename nor servname provided",
+    "Name or service not known",
+    "Network is unreachable",
+    "Failed to establish a new connection",
+    "Could not fetch URL",
+    "dial tcp: lookup",
+    "Could not transfer artifact",
+    "UnknownHostException",
+    "Could not GET",
+    "npm ERR! network",
+    "unable to access 'http",
+    "error sending request for url",
+    "failed to download from",
+];
+
+/// Whether a command's output says the network was wanted and refused.
+pub fn looks_like_network_denied(output: &str) -> bool {
+    NETWORK_DENIED_SIGNS
+        .iter()
+        .any(|sign| output.contains(sign))
+}
+
+/// The `bin` directories of the toolchains installed in the workspace, in the
+/// order they go on PATH.
+pub fn toolchain_paths(root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root.join(TOOLCHAINS_DIRECTORY)) else {
+        return Vec::new();
+    };
+    let mut directories: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    directories.sort();
+    let mut paths = Vec::new();
+    for directory in directories {
+        let nested: Vec<PathBuf> = [directory.join("bin"), directory.join("Contents/Home/bin")]
+            .into_iter()
+            .filter(|candidate| candidate.is_dir())
+            .collect();
+        if nested.is_empty() {
+            // A distribution with its executable at the top, as
+            // dotnet-install leaves one, or `.toolchains/bin` itself.
+            paths.push(directory);
+        } else {
+            paths.extend(nested);
+        }
+    }
+    paths
+}
+
+/// The home of a JDK and a .NET installed in the workspace, for the tools
+/// that look for them by variable rather than on PATH.
+fn toolchain_homes(root: &Path) -> Vec<(&'static str, PathBuf)> {
+    let mut homes = Vec::new();
+    for path in toolchain_paths(root) {
+        if path.join("javac").is_file()
+            && !homes.iter().any(|(name, _)| *name == "JAVA_HOME")
+            && let Some(home) = path.parent()
+        {
+            homes.push(("JAVA_HOME", home.to_path_buf()));
+        }
+        if path.join("dotnet").is_file() && !homes.iter().any(|(name, _)| *name == "DOTNET_ROOT") {
+            homes.push(("DOTNET_ROOT", path.clone()));
+        }
+    }
+    homes
+}
+
+/// The machine a run works on, in words a model can act on: what it is, what
+/// it has, what it lacks, and how to get the rest.
+pub fn host_facts(root: &Path) -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "macOS",
+        "linux" => "Linux",
+        "windows" => "Windows",
+        other => other,
+    };
+    let arch = std::env::consts::ARCH;
+    let archive_names = match (std::env::consts::OS, arch) {
+        ("macos", "aarch64") => "darwin-arm64, macos-aarch64 or mac-arm64",
+        ("macos", "x86_64") => "darwin-amd64, macos-x64 or mac-x64",
+        ("linux", "aarch64") => "linux-arm64 or linux-aarch64",
+        ("linux", "x86_64") => "linux-amd64 or linux-x64",
+        ("windows", "x86_64") => "windows-amd64 or win-x64",
+        _ => "the ones for this operating system and architecture",
+    };
+    let mut search = toolchain_paths(root);
+    if let Some(host) = std::env::var_os("PATH") {
+        search.extend(std::env::split_paths(&host));
+    }
+    let on_path = |program: &str| {
+        search
+            .iter()
+            .any(|directory| directory.join(program).is_file())
+    };
+    // macOS ships `java` and `javac` stubs that only say no Java is installed.
+    let has_jdk = std::env::var_os("JAVA_HOME").is_some()
+        || toolchain_paths(root)
+            .iter()
+            .any(|path| path.join("javac").is_file())
+        || std::fs::read_dir("/Library/Java/JavaVirtualMachines")
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false)
+        || Path::new("/opt/homebrew/opt/openjdk/bin/javac").is_file();
+    let (mut present, mut missing) = (Vec::new(), Vec::new());
+    for program in PROBED_PROGRAMS {
+        let found = if matches!(*program, "java" | "javac") {
+            has_jdk && on_path(program)
+        } else {
+            on_path(program)
+        };
+        if found {
+            present.push(*program)
+        } else {
+            missing.push(*program)
+        }
+    }
+    let docker = if !present.contains(&"docker") {
+        "not installed"
+    } else if std::env::var_os("HOME")
+        .map(|home| Path::new(&home).join(".docker/run/docker.sock").exists())
+        .unwrap_or(false)
+        || Path::new("/var/run/docker.sock").exists()
+    {
+        "installed, and its daemon is running"
+    } else {
+        "installed, but its daemon is not running"
+    };
+    present.sort_unstable();
+    missing.sort_unstable();
+    format!(
+        "This machine: {os} on {arch}. Release archives built for it are usually named \
+         {archive_names}.\n\
+         Installed: {}.\n\
+         Not installed: {}.\n\
+         Docker: {docker}.\n\
+         When the task needs a tool that is not installed, install it inside the workspace under \
+         `{TOOLCHAINS_DIRECTORY}/<name>/` from its official release for this machine: every \
+         `{TOOLCHAINS_DIRECTORY}/<name>/bin` is put on PATH for your commands and for the checks, \
+         so a check that runs `go` or `javac` finds it. Nothing outside the workspace can be \
+         written, so do not install system-wide. Programs the workspace does not list, the \
+         network and installs are asked of the engineer when you run them: run what the task \
+         needs rather than working around it.",
+        present.join(", "),
+        if missing.is_empty() {
+            "nothing checked for".to_owned()
+        } else {
+            missing.join(", ")
+        },
+    )
+}
+
 /// Dependency manifests and lockfiles. Editing one changes what the build
 /// fetches and executes, so it is an approval gate rather than a plain edit.
 const DEPENDENCY_MANIFESTS: [&str; 12] = [
@@ -625,10 +856,17 @@ pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
 /// never declared. So a program outside the list is a question for the person
 /// -- the one [`Approval::ToolchainInstall`] answers -- rather than a refusal
 /// nobody was asked about. The sandbox confines whatever runs either way.
-pub fn unlisted_program(action: &ActionProposal, policy: &ToolPolicy) -> Option<(Approval, String)> {
+pub fn unlisted_program(
+    action: &ActionProposal,
+    policy: &ToolPolicy,
+) -> Option<(Approval, String)> {
     let (executable, args) = match action {
-        ActionProposal::RunCommand { executable, args, .. }
-        | ActionProposal::StartService { executable, args, .. } => (executable, args),
+        ActionProposal::RunCommand {
+            executable, args, ..
+        }
+        | ActionProposal::StartService {
+            executable, args, ..
+        } => (executable, args),
         _ => return None,
     };
     if executable.trim().is_empty() || policy.permits_program(executable) {
@@ -1084,7 +1322,10 @@ impl ToolPolicy {
     /// programs, or running programs outside the list has been granted.
     pub fn permits_program(&self, executable: &str) -> bool {
         self.approvals.contains(&Approval::ToolchainInstall)
-            || self.allow_commands.iter().any(|allowed| allowed == executable)
+            || self
+                .allow_commands
+                .iter()
+                .any(|allowed| allowed == executable)
     }
 
     pub fn require(&self, approval: Approval) -> Result<(), ToolError> {
@@ -1173,6 +1414,11 @@ impl ToolPolicy {
         // runner (2026-09-23), as it would on such a Mac.
         readable.push(r#"(regex #"^/Applications/Xcode[^/]*\.app(/|$)")"#.to_owned());
         readable.push(format!("(subpath \"{root}\")"));
+        readable.extend(
+            RUNTIME_WRITABLE
+                .iter()
+                .filter_map(|path| quotable(Path::new(path))),
+        );
         readable.extend(
             self.extra_readable
                 .iter()
@@ -1292,8 +1538,13 @@ impl ToolPolicy {
         // allowlist follows its blanket denial and the credential denial
         // follows the allowlist -- otherwise a key under a readable toolchain
         // directory would be readable again.
+        let runtime_writes: String = RUNTIME_WRITABLE
+            .iter()
+            .filter_map(|path| quotable(Path::new(path)))
+            .map(|path| format!("(allow file-write* {path})"))
+            .collect();
         Some(format!(
-            "(version 1)(allow default)(deny file-write*)(allow file-write* (subpath \"{root}\")){harness_state_writes}(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\")){reads}{secrets}{network}"
+            "(version 1)(allow default)(deny file-write*)(allow file-write* (subpath \"{root}\")){runtime_writes}{harness_state_writes}(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\")){reads}{secrets}{network}"
         ))
     }
     /// Whether a command will actually be sandboxed, refusing if it must be
@@ -1367,11 +1618,27 @@ impl ToolPolicy {
             .unwrap_or_else(|_| self.root.clone())
             .join(SCRATCH_DIRECTORY);
         let _ = std::fs::create_dir_all(&scratch);
+        // The workspace's own toolchains first, then the host's.
+        let canonical_root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
+        let mut path_entries = toolchain_paths(&canonical_root);
+        if let Some(host) = std::env::var_os("PATH") {
+            path_entries.extend(std::env::split_paths(&host));
+        }
+        let path = std::env::join_paths(&path_entries)
+            .unwrap_or_else(|_| std::env::var_os("PATH").unwrap_or_default());
         command
             .current_dir(&self.root)
             .env_clear()
             // PATH is allowlisted solely for executable resolution; never logged.
-            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("PATH", path)
+            // .NET's first-run banner and telemetry, which every run would meet
+            // again with HOME in the workspace.
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+            .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
             .env("TMPDIR", &scratch)
             .env("TMP", &scratch)
             .env("TEMP", &scratch)
@@ -1388,6 +1655,10 @@ impl ToolPolicy {
             // persists into the next one, and nothing in the real home
             // directory is read.
             .env("HOME", &scratch);
+        // After the clear, or it would take them away again.
+        for (variable, home) in toolchain_homes(&canonical_root) {
+            command.env(variable, home);
+        }
         Ok(command)
     }
 
@@ -4963,6 +5234,77 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn workspace_toolchains_go_on_path_in_order() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join(TOOLCHAINS_DIRECTORY);
+        std::fs::create_dir_all(base.join("go/bin")).unwrap();
+        std::fs::create_dir_all(base.join("jdk-21/Contents/Home/bin")).unwrap();
+        std::fs::create_dir_all(base.join("dotnet")).unwrap();
+        assert_eq!(
+            toolchain_paths(root.path()),
+            vec![
+                base.join("dotnet"),
+                base.join("go/bin"),
+                base.join("jdk-21/Contents/Home/bin"),
+            ]
+        );
+        assert!(toolchain_paths(&root.path().join("missing")).is_empty());
+    }
+
+    #[test]
+    fn a_jdk_and_dotnet_in_the_workspace_get_their_homes() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join(TOOLCHAINS_DIRECTORY);
+        let jdk_bin = base.join("jdk-21/Contents/Home/bin");
+        std::fs::create_dir_all(&jdk_bin).unwrap();
+        std::fs::write(jdk_bin.join("javac"), "").unwrap();
+        std::fs::create_dir_all(base.join("dotnet")).unwrap();
+        std::fs::write(base.join("dotnet/dotnet"), "").unwrap();
+        let homes = toolchain_homes(root.path());
+        assert!(
+            homes.contains(&("JAVA_HOME", base.join("jdk-21/Contents/Home"))),
+            "{homes:?}"
+        );
+        assert!(
+            homes.contains(&("DOTNET_ROOT", base.join("dotnet"))),
+            "{homes:?}"
+        );
+    }
+
+    #[test]
+    fn network_refusals_are_recognised_across_ecosystems() {
+        for output in [
+            "error NU1301: Unable to load the service index for source https://api.nuget.org/v3/index.json.",
+            "npm ERR! code ENOTFOUND\nnpm ERR! network request to https://registry.npmjs.org failed",
+            "fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com",
+            "go: downloading golang.org/x/mod v0.1.0: dial tcp: lookup proxy.golang.org: no such host",
+            "WARNING: Retrying ... Failed to establish a new connection: [Errno 8] nodename nor servname provided",
+            "[ERROR] Could not transfer artifact org.junit:junit:pom:4.13 from/to central",
+        ] {
+            assert!(looks_like_network_denied(output), "{output}");
+        }
+        for output in [
+            "error[E0308]: mismatched types",
+            "FAILED tests/test_sheet.py::test_x",
+            "Connection refused (os error 61)",
+        ] {
+            assert!(!looks_like_network_denied(output), "{output}");
+        }
+    }
+
+    #[test]
+    fn host_facts_name_the_machine_and_how_to_install_what_it_lacks() {
+        let root = tempfile::tempdir().unwrap();
+        let facts = host_facts(root.path());
+        assert!(facts.contains(std::env::consts::ARCH), "{facts}");
+        assert!(facts.contains("Installed:"), "{facts}");
+        assert!(facts.contains(".toolchains/<name>/"), "{facts}");
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            assert!(facts.contains("darwin-arm64"), "{facts}");
+        }
+    }
+
     use super::*;
     #[test]
     fn a_page_is_read_as_its_text() {

@@ -1204,3 +1204,52 @@ fn a_command_that_cannot_be_confined_is_refused_by_default() {
     };
     assert!(why.contains("PWR_ALLOW_UNCONFINED"), "{why}");
 }
+
+/// A toolchain installed in the workspace is the one a command finds, for the
+/// run and for the checks alike, because both start through `prepare_command`.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_toolchain_in_the_workspace_is_on_path_inside_the_sandbox() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join(".toolchains/fakelang/bin");
+    fs::create_dir_all(&bin).unwrap();
+    let program = bin.join("fakelang");
+    fs::write(&program, "#!/bin/sh\necho fakelang 1.0\n").unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands.push("fakelang".into());
+    let result = block_on(run_command(&policy, "fakelang", &["--version".into()])).unwrap();
+    assert_eq!(result.exit_code, Some(0), "{result:?}");
+    assert!(result.sandboxed);
+    assert!(result.stdout.contains("fakelang 1.0"), "{result:?}");
+}
+
+/// Measured 2026-09-26: every `dotnet` command in the sandbox died with EPERM
+/// on /tmp/.dotnet/shm, the mutex NuGet's first-run migrations take -- and with
+/// HOME in the workspace every run is a first run.
+#[cfg(target_os = "macos")]
+#[test]
+fn dotnet_runs_in_the_sandbox_on_its_first_run() {
+    let Some(dotnet) = [
+        "/usr/local/share/dotnet/dotnet",
+        "/opt/homebrew/bin/dotnet",
+        "/usr/local/bin/dotnet",
+    ]
+    .into_iter()
+    .find(|path| Path::new(path).is_file()) else {
+        return; // No .NET on this machine: nothing to show.
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands.push(dotnet.into());
+    let result = block_on(run_command(
+        &policy,
+        dotnet,
+        &["nuget".into(), "--version".into()],
+    ))
+    .unwrap();
+    assert!(result.sandboxed);
+    assert!(!result.stderr.contains("EPERM"), "{result:?}");
+    assert_eq!(result.exit_code, Some(0), "{result:?}");
+}
