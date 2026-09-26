@@ -1,0 +1,1 @@
+Build the todo list described in README.md -- `TodoStore` and the `TodoList` component in src/app/ -- so that `npm test -- --watch=false` passes. The dependencies are declared but not installed. Don't change the tests. Tell me what you built and the final test result.

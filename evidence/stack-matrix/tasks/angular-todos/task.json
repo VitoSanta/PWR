@@ -1,0 +1,19 @@
+{
+ "id": "angular-todos",
+ "title": "Angular 21: a signals store with localStorage persistence and an accessible standalone component (Vitest, TestBed)",
+ "stacks": ["angular", "typescript", "signals", "vitest", "npm"],
+ "category": "frontend-framework",
+ "split": "heldout",
+ "allow": ["network_access", "dependency_change", "toolchain_install"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "node:24-slim",
+  "env": {"NO_COLOR": "1", "FORCE_COLOR": "0", "CI": "1"},
+  "command": "npm ci --no-audit --no-fund --loglevel=error >/dev/null && npx ng test --watch=false 2>&1",
+  "restore": ["src/app/todo-store.spec.ts", "src/app/todo-list.spec.ts", "package.json", "package-lock.json", "angular.json", "tsconfig.json", "tsconfig.spec.json"],
+  "cache": ["npm:/root/.npm"],
+  "timeout": 1200,
+  "expect": "Tests\\s+\\d+ passed"
+ }
+}
