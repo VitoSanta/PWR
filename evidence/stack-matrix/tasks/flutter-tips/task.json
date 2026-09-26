@@ -1,0 +1,18 @@
+{
+ "id": "flutter-tips",
+ "title": "Flutter: a Material tip-calculator widget with validation, choice chips and a bounded stepper (widget tests), on a machine without Flutter",
+ "stacks": ["flutter", "dart", "material", "mobile"],
+ "category": "mobile-ui",
+ "split": "heldout",
+ "needs": ["flutter"],
+ "allow": ["network_access", "toolchain_install", "dependency_change", "container_engine"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "ghcr.io/cirruslabs/flutter:stable",
+  "command": "flutter test 2>&1",
+  "restore": ["test/tip_calculator_test.dart", "pubspec.yaml"],
+  "timeout": 1500,
+  "expect": "All tests passed!"
+ }
+}

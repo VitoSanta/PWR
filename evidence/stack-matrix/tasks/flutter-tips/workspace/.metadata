@@ -1,0 +1,4 @@
+# Flutter project.
+version:
+  channel: stable
+project_type: app

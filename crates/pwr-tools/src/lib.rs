@@ -953,6 +953,7 @@ const TOOLCHAIN_MARKERS: &[(&str, &[&str])] = &[
     ("global.json", &["dotnet"]),
     ("CMakeLists.txt", &["cmake"]),
     ("pubspec.yaml", &["dart"]),
+    (".metadata", &["flutter"]),
     ("deno.json", &["deno"]),
     ("mix.exs", &["elixir"]),
 ];
@@ -1083,6 +1084,7 @@ pub fn toolchain_recipes(root: &Path, missing: &[&str]) -> Vec<String> {
             "php" => format!("php: static builds need nothing else -- https://dl.static-php.dev/static-php-cli/common/ lists php-<version>-cli-{php_arch}.tar.gz, one `php` binary; put it in {TOOLCHAINS_DIRECTORY}/php/bin/ and make it executable."),
             "composer" => format!("composer: https://getcomposer.org/download/latest-stable/composer.phar; save it as {TOOLCHAINS_DIRECTORY}/composer/bin/composer and make it executable (it runs with php)."),
             "dart" => format!("dart: https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-{dart_arch}-release.zip; unzip into {TOOLCHAINS_DIRECTORY}/ (it unpacks as dart-sdk/)."),
+            "flutter" => format!("flutter: {} lists every release -- base_url + archive of the current stable one for this machine ({}); unzip into {TOOLCHAINS_DIRECTORY}/ (it unpacks as flutter/, with dart inside).", if mac { "https://storage.googleapis.com/flutter_infra_release/releases/releases_macos.json" } else { "https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json" }, if mac && arm { "flutter_macos_arm64_<version>-stable.zip" } else if mac { "flutter_macos_<version>-stable.zip" } else { "flutter_linux_<version>-stable.tar.xz" }),
             "deno" => format!("deno: https://github.com/denoland/deno/releases/latest/download/deno-{triple}.zip; unzip into {TOOLCHAINS_DIRECTORY}/deno/bin/."),
             "cargo" => format!("cargo: https://static.rust-lang.org/rustup/dist/{triple}/rustup-init; run it with RUSTUP_HOME={TOOLCHAINS_DIRECTORY}/rust/rustup and CARGO_HOME={TOOLCHAINS_DIRECTORY}/rust/cargo: `rustup-init -y --no-modify-path --profile minimal`."),
             "terraform" => format!("terraform: https://releases.hashicorp.com/terraform/ lists the versions; download terraform_<version>_{}.zip and unzip into {TOOLCHAINS_DIRECTORY}/terraform/bin/.", go_arch.replace('-', "_")),
