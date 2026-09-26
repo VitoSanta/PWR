@@ -178,8 +178,90 @@ class TrimmedCache(unittest.TestCase):
         self.assertEqual(engine.checkpoint_tokens, [])
 
 
+class CopiedCache(unittest.TestCase):
+    """A cache that cannot be cut back is copied just before the marker that
+    closes the prompt's last message, so a next prompt that rewrites that
+    marker still resumes from the copy."""
+
+    def setUp(self):
+        import pwr_mlx
+
+        class Layer:
+            def __init__(self):
+                self.offset = 0
+
+        class Tokenizer:
+            eos_token_ids = {99}
+
+            def convert_tokens_to_ids(self, token):
+                return 99
+
+        self.prefilled = []
+        patches = {
+            "can_trim_prompt_cache": lambda cache: False,
+            "make_prompt_cache": lambda model: [Layer()],
+            "snapshot": lambda cache: [c.offset for c in cache],
+            "restore": lambda cache, states: [setattr(c, "offset", o) for c, o in zip(cache, states)],
+        }
+        self.saved = {name: getattr(pwr_mlx, name) for name in patches}
+        for name, value in patches.items():
+            setattr(pwr_mlx, name, value)
+        self.addCleanup(lambda: [setattr(pwr_mlx, n, v) for n, v in self.saved.items()])
+        self.engine = pwr_mlx.Engine()
+        self.engine.tokenizer = Tokenizer()
+
+        def prefill(tokens, offset, progress):
+            self.prefilled.append(list(tokens))
+            for layer in self.engine.cache:
+                layer.offset = offset + len(tokens)
+
+        self.engine.prefill = prefill
+
+    def test_a_rewritten_closing_marker_still_resumes_from_the_copy(self):
+        engine = self.engine
+        # ... </tool_response> <|im_end|> \n
+        first = [1, 2, 3, 4, 99, 10]
+        self.assertEqual(engine.resume(first, lambda *_: None), 0)
+        self.assertEqual(engine.checkpoint_tokens, [1, 2, 3, 4])
+        self.assertEqual(self.prefilled, [[1, 2, 3, 4], [99, 10]])
+        # A second tool result: the marker becomes \n <tool_response> ...
+        second = [1, 2, 3, 4, 10, 7, 7, 99, 10]
+        self.assertEqual(engine.resume(second, lambda *_: None), 4)
+        self.assertEqual(self.prefilled[-2:], [[10, 7, 7], [99, 10]])
+        # An ordinary next step, the assistant's turn after the marker.
+        third = second + [5, 5, 99, 10]
+        self.assertEqual(engine.resume(third, lambda *_: None), 7)
+
+    def test_a_prompt_without_a_marker_is_copied_whole(self):
+        self.assertEqual(self.engine.resume([1, 2, 3], lambda *_: None), 0)
+        self.assertEqual(self.engine.checkpoint_tokens, [1, 2, 3])
+
+
 class StableHistory(unittest.TestCase):
     """D.E2E-21: a user message must not re-render the history before it."""
+
+    def test_a_notice_after_a_tool_result_resumes_from_the_copy(self):
+        import pathlib
+        import os
+        root = pathlib.Path(os.environ.get("PWR_MLX_MODELS", pathlib.Path.home() / ".pwr/models"))
+        path = root / "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit"
+        if not (path / "chat_template.jinja").exists():
+            self.skipTest("Qwen3.6 is not on this machine")
+        import pwr_mlx
+        from mlx_lm.tokenizer_utils import load as load_tokenizer
+
+        engine = pwr_mlx.Engine()
+        engine.tokenizer = load_tokenizer(path)
+        call = {"role": "assistant", "content": "I will read.", "tool_calls": [
+            {"id": "c1", "type": "function",
+             "function": {"name": "read_file", "arguments": {"path": "a.txt"}}}]}
+        history = [{"role": "system", "content": "sys"}, {"role": "user", "content": "do it"},
+                   call, {"role": "tool", "tool_call_id": "c1", "content": "a"}]
+        noticed = history + [{"role": "tool", "content": '{"looping_reply": "act"}'}]
+        before = engine.render(history, None, False, False)[0]
+        after = engine.render(noticed, None, False, False)[0]
+        copy = before[:engine.checkpoint_point(before)]
+        self.assertEqual(after[:len(copy)], copy)
 
     def test_a_user_message_keeps_the_rendered_history_as_a_prefix(self):
         import pathlib

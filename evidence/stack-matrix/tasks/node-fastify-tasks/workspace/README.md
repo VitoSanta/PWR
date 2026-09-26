@@ -29,7 +29,7 @@ problem (at least one).
 | `GET /tasks` | `200`, sorted by priority, then `due` (no due date last), then id. Filters: `?status=`, `?label=`, `?overdue=true` (due before `?today=YYYY-MM-DD`, or before the real today when not given, and not done) |
 | `GET /tasks/{id}` | `200` or `404` `{"error": "not found"}` |
 | `PATCH /tasks/{id}` | changes the given fields; requires the header `If-Match: <version>`: missing is `428`, a stale version is `409` with the current task as `{"error": "conflict", "current": {...}}` |
-| `POST /tasks/{id}/transition` | body `{"to": "doing"}`: allowed moves are todo→doing, doing→done, doing→todo, done→todo; any other is `422` `{"error": "invalid transition", "from": ..., "to": ...}` |
+| `POST /tasks/{id}/transition` | body `{"to": "doing"}`; `to` must be one of the three statuses, else `400` (validation). Allowed moves are todo→doing, doing→done, doing→todo, done→todo; any other move between statuses is `422` `{"error": "invalid transition", "from": ..., "to": ...}` |
 | `DELETE /tasks/{id}` | `204` or `404` |
 | `GET /stats` | `200 {"total": n, "byStatus": {"todo": n, "doing": n, "done": n}, "overdue": n}` (overdue as above, with the same `?today=`) |
 

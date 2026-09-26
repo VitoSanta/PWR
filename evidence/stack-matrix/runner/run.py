@@ -131,7 +131,13 @@ def verify(task, workspace, label="verify"):
                 command += ["-v", f"pwr-sm-{volume}:{path}"]
             for key, value in spec.get("env", {}).items():
                 command += ["-e", f"{key}={value}"]
-            command += [spec["image"], "sh", "-c", spec["command"]]
+            # An image whose entrypoint is its tool (terraform) takes the
+            # shell as its entrypoint instead.
+            if spec.get("entrypoint"):
+                command += ["--entrypoint", spec["entrypoint"]]
+                command += [spec["image"], "-c", spec["command"]]
+            else:
+                command += [spec["image"], "sh", "-c", spec["command"]]
         try:
             done = subprocess.run(command, cwd=copy, capture_output=True, text=True, timeout=timeout)
             output = done.stdout + done.stderr
@@ -260,6 +266,12 @@ def diff_against_seed(seed, workspace, exclude=NOT_SOURCE):
     return "".join(chunks)
 
 
+def sidecar_digest():
+    import hashlib
+    path = REPO / "crates/pwr-mlx/sidecar/pwr_mlx.py"
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12] if path.exists() else None
+
+
 def binary_revision():
     """The revision the binary under test was built from: a pinned copy is
     named for it (`pwr-<revision>`); otherwise the checkout's, marked so."""
@@ -295,6 +307,9 @@ def run_task(task, run_id, attempt, turns_override=None):
         "category": task["category"], "split": task.get("split"), "attempt": attempt,
         "run": run_id, "model": MODEL, "binary": PWR_BIN,
         "revision": binary_revision(),
+        # The MLX sidecar is read from the source tree, not from the binary:
+        # what it was is recorded beside the binary's revision.
+        "sidecar": sidecar_digest(),
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "turns": [],
     }
     say(f"=== {label}: {task['title']}")

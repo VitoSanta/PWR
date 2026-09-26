@@ -699,23 +699,53 @@ class Engine:
         else:
             self.cache = make_prompt_cache(self.model)
             self.checkpoint = None
+        # Qwen 3.5/3.6's linear-attention layers, and a model reading images,
+        # cannot be cut back: for them the prompt's state is copied, to be
+        # restored when the next prompt extends this one.
+        keeps_copy = isinstance(self.model, VisionText) or not can_trim_prompt_cache(self.cache)
+        cut = max(reused, self.checkpoint_point(base)) if keeps_copy else len(base)
         try:
-            self.prefill(base[reused:], reused, progress)
+            self.prefill(base[reused:cut], reused, progress)
+            if keeps_copy:
+                self.checkpoint = snapshot(self.cache)
+            else:
+                self.checkpoint = None
+            if cut < len(base):
+                self.prefill(base[cut:], cut, progress)
         except BaseException:
             # Half a prefill matches no prompt: the next one starts clean.
             self.cache = None
             self.checkpoint = None
             self.checkpoint_tokens = []
             raise
-        # Qwen 3.5/3.6's linear-attention layers, and a model reading images,
-        # cannot be cut back: for them the prompt's state is copied, to be
-        # restored when the next prompt extends this one.
-        if isinstance(self.model, VisionText) or not can_trim_prompt_cache(self.cache):
-            self.checkpoint = snapshot(self.cache)
-        else:
-            self.checkpoint = None
-        self.checkpoint_tokens = base
+        self.checkpoint_tokens = base[:cut] if keeps_copy else base
         return reused
+
+    def checkpoint_point(self, tokens: list[int]) -> int:
+        """Where the copy of a prompt's state is taken: just before the
+        end-of-turn marker that closes its last message.
+
+        The copy is only of use to a next prompt that begins with it, and the
+        marker closing the last message is not always there in the next one.
+        Qwen's template writes consecutive tool results as one block, so a
+        tool result followed by another -- the notice PWR sends after a reply
+        it could not use -- rewrites `</tool_response><|im_end|>` as
+        `</tool_response>\n<tool_response>`. Taken after the marker, the copy
+        stopped being a prefix and the whole conversation was prefilled
+        again: measured 2026-09-26, eight times in one ninety-minute run, up
+        to 471 seconds each at 123k tokens. Taken before it, it costs the two
+        tokens of the marker and a newline on every prompt."""
+        marks = set(getattr(self.tokenizer, "eos_token_ids", None) or [])
+        try:
+            mark = self.tokenizer.convert_tokens_to_ids("<|im_end|>")
+            if isinstance(mark, int) and mark != getattr(self.tokenizer, "unk_token_id", None):
+                marks.add(mark)
+        except Exception:
+            pass
+        for index in range(len(tokens) - 1, max(-1, len(tokens) - 64), -1):
+            if tokens[index] in marks:
+                return index
+        return len(tokens)
 
     def chat(self, request: dict, reply, cancelled=lambda: False) -> dict:
         if self.model is None:
