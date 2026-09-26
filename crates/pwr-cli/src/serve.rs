@@ -1753,7 +1753,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         steps: SharedStepSink,
         continuity: converse::Continuity,
         approvals: Arc<dyn ApprovalPrompt>,
-        session_grants: Vec<pwr_tools::Approval>,
+        session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
         goal_mode: bool,
     ) -> Value {
         let mut total_actions = 0usize;
@@ -1808,7 +1808,15 @@ impl<R: TurnRunner + 'static> Server<R> {
                     }),
                     continuity: continuity.clone(),
                     approvals: Arc::clone(&approvals),
-                    session_grants: session_grants.clone(),
+                    // Read again for every turn of a goal: what the person
+                    // allowed for the session during the last one holds for
+                    // this one. Read once per prompt, it did not -- measured
+                    // 2026-09-26, Docker allowed for the session and asked
+                    // about again on the goal's next turn.
+                    session_grants: session_grants
+                        .lock()
+                        .map(|grants| grants.clone())
+                        .unwrap_or_default(),
                     goal_mode,
                 })
                 .await;
@@ -2528,10 +2536,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 grants: Arc::clone(&grants),
                 asking_about,
             });
-            let session_grants = grants
-                .lock()
-                .map(|grants| grants.clone())
-                .unwrap_or_default();
+            let session_grants = Arc::clone(&grants);
             let reply = server
                 .run_prompt_turns(
                     id,
@@ -3690,6 +3695,10 @@ mod tests {
         /// Reports to play instead of the default two turns, the last one
         /// repeated once the others are spent.
         script: Vec<TurnReport>,
+        /// A question the first turn puts to the person.
+        ask_on_first: Option<pwr_tools::Approval>,
+        /// How many session grants each turn started with.
+        grants_seen: Arc<Mutex<Vec<usize>>>,
     }
 
     #[async_trait::async_trait(?Send)]
@@ -3700,6 +3709,17 @@ mod tests {
 
         async fn run(&self, turn: TurnInput) -> Result<(TurnReport, Vec<ChatMessage>), String> {
             let run = self.runs.fetch_add(1, Ordering::Relaxed);
+            self.grants_seen
+                .lock()
+                .unwrap()
+                .push(turn.session_grants.len());
+            if run == 0
+                && let Some(approval) = self.ask_on_first
+            {
+                turn.approvals
+                    .ask(approval, "use the container engine")
+                    .await;
+            }
             let mut messages = turn.messages;
             if let Some(last) = messages.last() {
                 self.requests.lock().unwrap().push(last.content.clone());
@@ -4402,6 +4422,8 @@ mod tests {
         with_runner(
             GoalScripted {
                 runs: std::sync::atomic::AtomicUsize::new(0),
+                ask_on_first: None,
+                grants_seen: Default::default(),
                 script: Vec::new(),
                 requests: Default::default(),
                 verification: GoalVerification {
@@ -4468,6 +4490,8 @@ mod tests {
         let requests: Arc<Mutex<Vec<String>>> = Arc::default();
         let runner = GoalScripted {
             runs: std::sync::atomic::AtomicUsize::new(0),
+            ask_on_first: None,
+            grants_seen: Default::default(),
             script: Vec::new(),
             requests: Default::default(),
             verification: GoalVerification {
@@ -4563,6 +4587,57 @@ mod tests {
         })
     }
 
+    /// Seen 2026-09-26: Docker allowed for the session on a goal's first turn
+    /// was asked about again on its next, because the grants were read once
+    /// for the whole prompt.
+    #[tokio::test]
+    async fn a_grant_for_the_session_holds_for_the_rest_of_the_goal() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let runner = GoalScripted {
+            runs: std::sync::atomic::AtomicUsize::new(0),
+            verification: GoalVerification {
+                passed: false,
+                technical_passed: false,
+                acceptance_available: true,
+                summary: "1 of 1 acceptance check failing".into(),
+                failing: vec!["make test".into()],
+                failing_acceptance: vec!["make test".into()],
+            },
+            requests: Default::default(),
+            ask_on_first: Some(pwr_tools::Approval::ContainerEngine),
+            grants_seen: Arc::clone(&seen),
+            script: vec![
+                turn(2, false, Some(StopReason::BudgetSpent)),
+                turn(1, true, None),
+            ],
+        };
+        with_runner(runner, |mut client| async move {
+            let session = client.new_session(1).await;
+            client
+                .request(
+                    2,
+                    "session/prompt",
+                    json!({
+                        "sessionId": session,
+                        "goalMode": true,
+                        "prompt": [{"type": "text", "text": "Containerize it"}],
+                    }),
+                )
+                .await;
+            let question = client.receive().await;
+            assert_eq!(question["method"], "session/request_permission");
+            client
+                .send(json!({"jsonrpc": "2.0", "id": question["id"], "result": {"outcome": {"outcome": "selected", "optionId": "allow_always"}}}))
+                .await;
+            client.until_response(2).await;
+        })
+        .await;
+        let seen = seen.lock().unwrap().clone();
+        assert!(seen.len() >= 2, "{seen:?}");
+        assert_eq!(seen[0], 0);
+        assert!(seen[1..].iter().all(|grants| *grants == 1), "{seen:?}");
+    }
+
     /// Seen 2026-09-26: the acceptance tests of a C# task could not run, failed
     /// before the goal and after it, and the goal ended "left alone" -- a failed
     /// task reported as finished.
@@ -4572,6 +4647,8 @@ mod tests {
         let (messages, turns) = goal_prompt(GoalScripted {
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
+            ask_on_first: None,
+            grants_seen: Default::default(),
             script: vec![turn(4, true, None)],
             verification: GoalVerification {
                 summary: "0 of 1 full check(s) passing:\n  ✗ dotnet test tests/Api.Tests".into(),
@@ -4602,6 +4679,8 @@ mod tests {
         let (messages, turns) = goal_prompt(GoalScripted {
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
+            ask_on_first: None,
+            grants_seen: Default::default(),
             script: vec![
                 turn(5, false, Some(StopReason::BudgetSpent)),
                 turn(0, false, None),
@@ -4622,6 +4701,8 @@ mod tests {
         let (messages, _) = goal_prompt(GoalScripted {
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
+            ask_on_first: None,
+            grants_seen: Default::default(),
             script,
             verification: GoalVerification {
                 passed: true,
@@ -4651,6 +4732,8 @@ mod tests {
         with_runner(
             GoalScripted {
                 runs: std::sync::atomic::AtomicUsize::new(0),
+                ask_on_first: None,
+                grants_seen: Default::default(),
                 script: Vec::new(),
                 requests: Default::default(),
                 verification: GoalVerification {

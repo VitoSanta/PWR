@@ -1,0 +1,1 @@
+Implement the INI reader described in README.md (include/ini/ini.hpp and src/ini.cpp) so that `sh scripts/test.sh` passes. Don't change the tests or CMakeLists.txt. When it passes, tell me what you built and the final result.

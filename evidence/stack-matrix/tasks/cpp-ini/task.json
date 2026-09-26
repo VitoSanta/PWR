@@ -1,0 +1,19 @@
+{
+ "id": "cpp-ini",
+ "title": "C++17 + CMake: an INI reader with quoting, errors by line and a canonical dump, on a machine without CMake",
+ "stacks": ["cpp", "cmake", "ctest"],
+ "category": "systems-library",
+ "split": "dev",
+ "needs": ["cmake"],
+ "allow": ["network_access", "toolchain_install", "dependency_change"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "gcc:14",
+  "command": "(command -v cmake >/dev/null || (apt-get update -qq && apt-get install -y -qq cmake >/dev/null)) && sh scripts/test.sh",
+  "restore": ["tests/test_parse.cpp", "tests/test_errors_and_types.cpp", "tests/test_dump.cpp", "tests/check.hpp", "CMakeLists.txt", "scripts/test.sh"],
+  "cache": ["apt-lists:/var/lib/apt/lists", "apt-archives:/var/cache/apt/archives"],
+  "timeout": 1200,
+  "expect": "100% tests passed"
+ }
+}

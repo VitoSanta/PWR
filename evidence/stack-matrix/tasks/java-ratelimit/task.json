@@ -1,0 +1,19 @@
+{
+ "id": "java-ratelimit",
+ "title": "Java + Maven: thread-safe token bucket and sliding-window limiters, on a machine without a JDK",
+ "stacks": ["java", "maven", "junit"],
+ "category": "backend-library",
+ "split": "dev",
+ "needs": ["jdk", "maven"],
+ "allow": ["network_access", "toolchain_install", "dependency_change"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "maven:3.9-eclipse-temurin-21",
+  "command": "mvn -B -q test && echo TESTS-OK",
+  "restore": ["src/test/java/com/example/ratelimit/TokenBucketTest.java", "src/test/java/com/example/ratelimit/SlidingWindowLimiterTest.java", "src/test/java/com/example/ratelimit/FakeTime.java", "pom.xml"],
+  "cache": ["m2:/root/.m2"],
+  "timeout": 1200,
+  "expect": "^TESTS-OK"
+ }
+}
