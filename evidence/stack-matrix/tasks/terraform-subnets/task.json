@@ -1,0 +1,31 @@
+{
+ "id": "terraform-subnets",
+ "title": "Terraform: a subnet-planning module -- cidrsubnets packing, validation, outputs -- tested with terraform test, on a machine without Terraform",
+ "stacks": [
+  "terraform",
+  "hcl",
+  "iac"
+ ],
+ "category": "infrastructure",
+ "split": "heldout",
+ "needs": [
+  "terraform"
+ ],
+ "allow": [
+  "network_access",
+  "toolchain_install",
+  "dependency_change"
+ ],
+ "turns": 3,
+ "minutes": 60,
+ "verify": {
+  "image": "hashicorp/terraform:1.9",
+  "entrypoint": "sh",
+  "command": "terraform init -input=false -no-color >/dev/null && terraform test -no-color 2>&1",
+  "restore": [
+   "tests/subnets.tftest.hcl"
+  ],
+  "timeout": 600,
+  "expect": "Success! \\d+ passed, 0 failed"
+ }
+}

@@ -987,7 +987,7 @@ fn toolchains_named(root: &Path) -> Vec<&'static str> {
                     || name.ends_with(".slnx")
                 {
                     &["dotnet"]
-                } else if name.ends_with(".tf") {
+                } else if name.ends_with(".tf") || name.ends_with(".tftest.hcl") {
                     &["terraform"]
                 } else {
                     TOOLCHAIN_MARKERS

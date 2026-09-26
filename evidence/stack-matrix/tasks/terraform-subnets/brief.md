@@ -1,0 +1,1 @@
+Write the Terraform module described in README.md (variables.tf, main.tf, outputs.tf at the root) so that `terraform init && terraform test` passes. Don't change the tests. Tell me what you wrote and the final test result.
