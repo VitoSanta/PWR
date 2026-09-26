@@ -1,16 +1,22 @@
 {
  "id": "py-sheet",
  "title": "Python: a spreadsheet engine with formulas, ranges, errors, cycles and CSV",
- "stacks": ["python"],
+ "stacks": [
+  "python"
+ ],
  "category": "algorithmic-library",
  "split": "dev",
- "allow": [],
+ "allow": [
+  "toolchain_install"
+ ],
  "turns": 3,
  "minutes": 90,
  "verify": {
   "image": "python:3.13-slim",
   "command": "python -m unittest discover -s tests -v",
-  "restore": ["tests/test_sheet.py"],
+  "restore": [
+   "tests/test_sheet.py"
+  ],
   "expect": "^OK"
  }
 }

@@ -1,8 +1,10 @@
 # rotate
 
-`bin/rotate`, a log rotation script in portable Bash (4+ features are fine,
-but it must also run on the Bash 3.2 macOS ships), using only standard tools
-(`mv`, `rm`, `gzip`, `chmod`...).
+`bin/rotate`, a log rotation script in portable Bash, using only standard
+tools (`mv`, `rm`, `gzip`, `chmod`...). It runs on our Linux servers (GNU
+coreutils, Bash 5) and on developers' Macs (the BSD tools and Bash 3.2 macOS
+ships), so it must work with both -- where the two disagree on a tool's
+options, it has to cope with either.
 
     bin/rotate [--keep N] [--compress] DIR
 

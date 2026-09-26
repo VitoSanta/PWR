@@ -1,16 +1,25 @@
 {
  "id": "ruby-tablefmt",
  "title": "Ruby: a Markdown pipe-table formatter -- alignment, escapes, fences -- for Ruby 2.6 and 3",
- "stacks": ["ruby", "minitest", "markdown"],
+ "stacks": [
+  "ruby",
+  "minitest",
+  "markdown"
+ ],
  "category": "text-processing",
  "split": "heldout",
- "allow": [],
+ "allow": [
+  "toolchain_install"
+ ],
  "turns": 3,
  "minutes": 60,
  "verify": {
   "image": "ruby:3.3-slim",
   "command": "ruby scripts/test.rb 2>&1",
-  "restore": ["test/test_tablefmt.rb", "scripts/test.rb"],
+  "restore": [
+   "test/test_tablefmt.rb",
+   "scripts/test.rb"
+  ],
   "timeout": 600,
   "expect": "\\d+ runs, \\d+ assertions, 0 failures, 0 errors"
  }

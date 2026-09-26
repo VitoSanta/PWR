@@ -1,16 +1,26 @@
 {
  "id": "c-ringbuf",
  "title": "C99 + Make: a wrap-around byte ring buffer with overwrite, search and line reads, under -Werror",
- "stacks": ["c", "make"],
+ "stacks": [
+  "c",
+  "make"
+ ],
  "category": "systems-library",
  "split": "heldout",
- "allow": [],
+ "allow": [
+  "toolchain_install"
+ ],
  "turns": 3,
  "minutes": 60,
  "verify": {
   "image": "gcc:14",
   "command": "make test 2>&1",
-  "restore": ["Makefile", "include/ringbuf.h", "tests/test_basic.c", "tests/test_overwrite_find_lines.c"],
+  "restore": [
+   "Makefile",
+   "include/ringbuf.h",
+   "tests/test_basic.c",
+   "tests/test_overwrite_find_lines.c"
+  ],
   "timeout": 600,
   "expect": "^ALL TESTS PASSED"
  }

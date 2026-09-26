@@ -1,16 +1,26 @@
 {
  "id": "sql-analytics",
  "title": "SQL (SQLite): revenue, cohort and category reports plus a constrained migration",
- "stacks": ["sql", "sqlite", "python"],
+ "stacks": [
+  "sql",
+  "sqlite",
+  "python"
+ ],
  "category": "database",
  "split": "dev",
- "allow": [],
+ "allow": [
+  "toolchain_install"
+ ],
  "turns": 3,
  "minutes": 60,
  "verify": {
   "image": "python:3.13-slim",
   "command": "python -m unittest discover -s tests -v 2>&1",
-  "restore": ["tests/test_reports.py", "db/schema.sql", "db/seed.sql"],
+  "restore": [
+   "tests/test_reports.py",
+   "db/schema.sql",
+   "db/seed.sql"
+  ],
   "timeout": 600,
   "expect": "^OK"
  }

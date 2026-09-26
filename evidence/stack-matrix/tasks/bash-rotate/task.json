@@ -8,7 +8,9 @@
  ],
  "category": "scripting",
  "split": "dev",
- "allow": [],
+ "allow": [
+  "toolchain_install"
+ ],
  "turns": 3,
  "minutes": 60,
  "verify": {

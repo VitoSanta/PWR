@@ -1,16 +1,23 @@
 {
  "id": "ts-ledger",
  "title": "TypeScript: find and fix five billing bugs from failing tests",
- "stacks": ["typescript", "node"],
+ "stacks": [
+  "typescript",
+  "node"
+ ],
  "category": "debugging",
  "split": "dev",
- "allow": [],
+ "allow": [
+  "toolchain_install"
+ ],
  "turns": 3,
  "minutes": 60,
  "verify": {
   "image": "node:24-slim",
   "command": "node --test --test-reporter=spec",
-  "restore": ["test"],
+  "restore": [
+   "test"
+  ],
   "expect": "pass \\d+"
  }
 }
