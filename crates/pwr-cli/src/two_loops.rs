@@ -1206,7 +1206,12 @@ fn an_unreadable_call_in_the_text_is_told_and_asked_again() {
     let (_, text) = told(&outcome.requests[2]);
     assert!(text.contains("cut off"), "{text}");
     assert!(
-        outcome.steps.iter().filter(|step| step.starts_with("refused")).count() == 2,
+        outcome
+            .steps
+            .iter()
+            .filter(|step| step.starts_with("refused"))
+            .count()
+            == 2,
         "{:?}",
         outcome.steps
     );

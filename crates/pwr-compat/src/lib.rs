@@ -758,8 +758,19 @@ mod tests {
         assert_eq!(canonical.tool_calls.len(), 1, "{:?}", canonical.diagnostics);
         let arguments = &canonical.tool_calls[0].arguments;
         assert_eq!(arguments["path"], "src/Api/Api.csproj");
-        assert!(arguments["content"].as_str().unwrap().ends_with("</Project>\n"), "{arguments}");
-        assert!(!arguments["content"].as_str().unwrap().contains("</content>"));
+        assert!(
+            arguments["content"]
+                .as_str()
+                .unwrap()
+                .ends_with("</Project>\n"),
+            "{arguments}"
+        );
+        assert!(
+            !arguments["content"]
+                .as_str()
+                .unwrap()
+                .contains("</content>")
+        );
 
         let unclosed = "<tool_call>\n<function=read_file>\n<parameter=path>\nsrc/lib.rs\n</function>\n</tool_call>";
         let canonical = adapter.normalize(&reply(unclosed));
@@ -773,7 +784,6 @@ mod tests {
             "End a value with </parameter> on its own line."
         );
     }
-
 
     #[test]
     fn a_glm_call_is_read_with_typed_values() {
