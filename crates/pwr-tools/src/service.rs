@@ -181,8 +181,15 @@ impl ServiceSupervisor {
             if let Some(running) = self.running.get_mut(&id)
                 && running.child.try_wait().ok().flatten().is_some()
             {
+                // Said with the way out: twelve times on the stack matrix
+                // (2026-09-26) a smoke script or a build was started as a
+                // service, died "before it accepted a connection", and was
+                // started again the same way.
                 return Err(ToolError::Denied(format!(
-                    "service {id} exited before it accepted a connection"
+                    "service {id} exited before it accepted a connection. If this is \
+                     something that runs and finishes -- a script, a build, a test run -- \
+                     use run_command for it; start_service is for a server that keeps \
+                     running and listens on a port"
                 )));
             }
             if std::net::TcpStream::connect_timeout(
