@@ -33,8 +33,11 @@ solution it passes.
     python3 runner/run.py reference
     python3 runner/run.py run --run <id> [--split dev] [TASK ...]
 
-`PWR_BIN` selects the binary (a copy pinned per revision, so a rebuild during
-a campaign does not change what is measured), `PWR_EVIDENCE_MODEL` the model.
+`runner/pin.sh` builds the release binary and pins it with the MLX sidecar
+it reads (`~/Desktop/pwr-evidence/bin/pwr-<rev>` and `sidecar-<rev>/`), so a
+rebuild or an edit during a campaign does not change what is measured.
+`PWR_BIN` selects the pinned binary -- the runner uses the sidecar pinned
+beside it and records its digest -- and `PWR_EVIDENCE_MODEL` the model.
 Each task writes, under `~/Desktop/pwr-evidence/runs/<run>/<task>/`, the full
 protocol transcript, the result, the diff against the seed and the verifier's
 output.

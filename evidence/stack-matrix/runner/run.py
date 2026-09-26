@@ -266,9 +266,22 @@ def diff_against_seed(seed, workspace, exclude=NOT_SOURCE):
     return "".join(chunks)
 
 
+def sidecar_path():
+    """The sidecar pinned beside the binary (`sidecar-<revision>/`), else the
+    source tree's, which is what an unpinned binary reads."""
+    if os.environ.get("PWR_MLX_SIDECAR"):
+        return pathlib.Path(os.environ["PWR_MLX_SIDECAR"])
+    name = os.path.basename(PWR_BIN)
+    if name.startswith("pwr-"):
+        pinned = pathlib.Path(PWR_BIN).parent / f"sidecar-{name[4:]}" / "pwr_mlx.py"
+        if pinned.exists():
+            return pinned
+    return REPO / "crates/pwr-mlx/sidecar/pwr_mlx.py"
+
+
 def sidecar_digest():
     import hashlib
-    path = REPO / "crates/pwr-mlx/sidecar/pwr_mlx.py"
+    path = sidecar_path()
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12] if path.exists() else None
 
 
@@ -314,7 +327,8 @@ def run_task(task, run_id, attempt, turns_override=None):
     }
     say(f"=== {label}: {task['title']}")
     started = time.time()
-    core = Core(PWR_BIN, out / "transcript.jsonl", {"PWR_MLX_PYTHON": MLX_PYTHON})
+    core = Core(PWR_BIN, out / "transcript.jsonl",
+                {"PWR_MLX_PYTHON": MLX_PYTHON, "PWR_MLX_SIDECAR": str(sidecar_path())})
     person = Person(core, task.get("allow", []))
     passed, output = False, ""
     watchdog = None
