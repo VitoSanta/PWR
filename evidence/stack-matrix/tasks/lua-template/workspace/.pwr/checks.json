@@ -1,0 +1,1 @@
+{"checks":[{"executable":"sh","args":["tests/run.sh"],"kind":"acceptance"}]}

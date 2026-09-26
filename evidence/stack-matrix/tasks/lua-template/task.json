@@ -1,0 +1,17 @@
+{
+ "id": "lua-template",
+ "title": "Lua 5.4: a Mustache-style template renderer with sections, a context stack and escaping, on a machine without Lua",
+ "stacks": ["lua"],
+ "category": "library",
+ "split": "heldout",
+ "allow": ["network_access", "toolchain_install"],
+ "turns": 3,
+ "minutes": 60,
+ "verify": {
+  "image": "alpine:3.22",
+  "command": "apk add --no-cache lua5.4 >/dev/null && ln -sf /usr/bin/lua5.4 /usr/local/bin/lua && sh tests/run.sh 2>&1",
+  "restore": ["tests/run.sh", "tests/check.lua", "tests/render_test.lua"],
+  "timeout": 600,
+  "expect": "^ALL \\d+ TEST FILES PASSED"
+ }
+}
