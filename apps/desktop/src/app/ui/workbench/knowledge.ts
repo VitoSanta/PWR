@@ -18,6 +18,7 @@ import { ActivityStore } from '../../core/activity';
 import { ThemeService } from '../../core/theme';
 import { AgentStore } from '../../core/agent.store';
 import { CORE_TOO_OLD, PersonalStore } from '../../core/personal.store';
+import { roveFocus } from '../../core/ui';
 import { WorkbenchStore } from '../../core/workbench';
 import { Icon } from '../kit/icon';
 import { Select, SelectOption } from '../kit/select';
@@ -252,9 +253,17 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
       </div>
     }
     <div class="card-toolbar">
-      <div class="segmented" role="radiogroup" aria-label="Knowledge view">
+      <div class="tabs" role="tablist" aria-label="Knowledge view" (keydown)="viewKeys($event)">
         @for (item of views; track item.id) {
-          <button role="radio" [attr.aria-checked]="view() === item.id" (click)="view.set(item.id)">{{ item.label }}</button>
+          <button
+            class="tab"
+            role="tab"
+            [attr.aria-selected]="view() === item.id"
+            [attr.tabindex]="view() === item.id ? 0 : -1"
+            (click)="view.set(item.id)"
+          >
+            {{ item.label }}
+          </button>
         }
       </div>
       <span class="spacer"></span>
@@ -279,8 +288,8 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
             <form class="graph-search" (submit)="$event.preventDefault(); find(search.value)">
               <input #search class="input input-sm" placeholder="Find a file, folder or package" aria-label="Find in the graph" />
             </form>
-            <label class="graph-toggle"><input type="checkbox" [checked]="symbols()" (change)="toggleSymbols()" /> Symbols</label>
-            <label class="graph-toggle"><input type="checkbox" [checked]="builtins()" (change)="builtins.set(!builtins())" /> Standard library</label>
+            <label class="check-label"><input type="checkbox" class="checkbox" [checked]="symbols()" (change)="toggleSymbols()" /> Symbols</label>
+            <label class="check-label"><input type="checkbox" class="checkbox" [checked]="builtins()" (change)="builtins.set(!builtins())" /> Standard library</label>
           </div>
           <div class="graph-stage">
             <pa-graph3d [nodes]="shownNodes()" [edges]="data.graph.edges" [selected]="selected()" (picked)="selected.set($event)" />
@@ -290,7 +299,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
               }
             </ul>
             @if (detail(); as node) {
-              <section class="graph-detail" aria-label="Selected node" animate.enter="anim-rise-in" animate.leave="anim-fade-out">
+              <section class="graph-detail" aria-label="Selected node" animate.enter="anim-rise-in" animate.leave="anim-sink-out">
                 <header>
                   <span class="badge">{{ kindLabel(node.kind) }}</span>
                   <strong class="truncate" [attr.title]="node.label">{{ node.label }}</strong>
@@ -528,6 +537,11 @@ export class KnowledgeCard {
 
   protected choose(path: string): void {
     this.chosen.set(path);
+  }
+
+  protected viewKeys(event: KeyboardEvent): void {
+    if (roveFocus(event, event.currentTarget as HTMLElement, '[role=tab]', 'horizontal'))
+      (document.activeElement as HTMLElement | null)?.click();
   }
 
   async load(): Promise<void> {

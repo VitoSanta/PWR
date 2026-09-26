@@ -124,7 +124,7 @@ pa-inspector.is-overlay.is-leaving {
 
 .sidebar-head {
   gap: var(--space-2);
-  padding: 0 var(--space-2) 0 var(--space-4);
+  padding: 0 var(--space-3) 0 var(--space-4);
   border-bottom-color: transparent;
 }
 
@@ -182,8 +182,11 @@ pa-inspector.is-overlay.is-leaving {
   padding: var(--space-2) var(--space-3);
 }
 
+/* One column for the whole sidebar: every row's first icon or word starts
+   24px in (the section's inset plus the row's), and every trailing control
+   ends 12px from the edge. */
 .sidebar-section > .section-label {
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-3);
 }
 
 .workspace-row {
@@ -193,14 +196,12 @@ pa-inspector.is-overlay.is-leaving {
   width: 100%;
   min-width: 0;
   min-height: 44px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid transparent;
+  padding: var(--space-1) var(--space-3);
+  border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   text-align: left;
-  transition:
-    background-color var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease);
+  transition: background-color var(--dur-fast) var(--ease);
 }
 
 button.workspace-row:hover:not(:disabled) {
@@ -348,7 +349,7 @@ button.workspace-row:focus-visible > .workspace-change {
 }
 
 .sidebar-empty {
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   color: var(--text-muted);
   font-size: var(--fs-body-sm);
 }
@@ -358,7 +359,7 @@ button.workspace-row:focus-visible > .workspace-change {
   align-items: center;
   gap: var(--space-1);
   min-height: 48px;
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6);
   border-top: 1px solid var(--border-subtle);
 }
 
@@ -765,6 +766,11 @@ pa-inspector {
   list-style: none;
 }
 
+/* Inside a padded body the text already sits on the card's inset. */
+.card-pad > .card-empty {
+  padding-inline: 0;
+}
+
 .card-banner {
   margin: var(--space-2) var(--space-3) 0;
 }
@@ -836,48 +842,23 @@ pa-inspector {
   font-weight: var(--fw-medium);
 }
 
-.tool-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-1);
-}
-
-.tool-menu-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: var(--control-h);
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--fs-body-sm);
-  text-align: left;
-  cursor: pointer;
-}
-
-.tool-menu-item:hover,
-.tool-menu-item:focus-visible {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.tool-menu-label {
-  flex: 1;
-}
-
-.tool-menu-open {
+/* The workbench's tool menu is a plain menu; an open tool is ticked. */
+.menu-item > .tool-menu-open {
   color: var(--accent-text);
 }
 
 /* Plan & checks, Activity */
+/* The primary check across the top, the rest on a two-column grid: the
+   buttons line up with each other rather than wrapping where they fit. */
 .plan-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
   margin-bottom: var(--space-3);
+}
+
+.plan-actions > .btn-primary {
+  grid-column: 1 / -1;
 }
 
 .activity-list {
@@ -1029,22 +1010,18 @@ pa-inspector {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* The search owns the first row and the filters the second, at every width,
+   rather than one filter wrapping under the other when the card narrows. */
 .graph-search {
-  flex: 1;
-  min-width: 160px;
+  flex: 1 1 100%;
 }
 
 .graph-search > .input {
   width: 100%;
 }
 
-.graph-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-secondary);
+.graph-controls > .check-label {
   font-size: var(--fs-label);
-  cursor: pointer;
 }
 
 .graph-stage {
@@ -1226,16 +1203,15 @@ pa-inspector {
   animation-duration: var(--dur);
 }
 
-/* Hover states ease in, as every other control's do. */
+/* Hover states ease in at the primitives' speed. */
 .settings-nav-item,
-.tool-menu-item,
 .file-entry,
 .rewind-option,
 .chip,
 .wb-card-title,
 .knowledge-name {
   transition:
-    background-color var(--dur) var(--ease),
-    border-color var(--dur) var(--ease),
-    color var(--dur) var(--ease);
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }

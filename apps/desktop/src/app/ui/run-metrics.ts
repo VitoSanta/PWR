@@ -11,6 +11,8 @@ interface Figure {
   label: string;
   value: string;
   note?: string;
+  /** A part of the figure above it, shown indented under it. */
+  part?: boolean;
 }
 
 /**
@@ -42,7 +44,7 @@ interface Figure {
     @if (open()) {
       <pa-popover [anchor]="trigger" anchorAlign="end" width="360px" ariaLabel="Runtime metrics" (closed)="open.set(false)" animate.leave="anim-pop-out">
         <div class="popover-head">
-          <h2 class="popover-title">Runtime</h2>
+          <h2 class="popover-title">Runtime metrics</h2>
           <button class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
             <pa-icon name="x" [size]="16" />
           </button>
@@ -54,8 +56,8 @@ interface Figure {
                 <h3 class="section-label">{{ group.title }}</h3>
                 <dl class="facts metrics-facts">
                   @for (figure of group.figures; track figure.label) {
-                    <dt [attr.title]="figure.note ?? null">{{ figure.label }}</dt>
-                    <dd class="num">{{ figure.value }}</dd>
+                    <dt [class.is-part]="figure.part" [attr.title]="figure.note ?? null">{{ figure.label }}</dt>
+                    <dd class="num" [class.is-part]="figure.part">{{ figure.value }}</dd>
                   }
                 </dl>
               </section>
@@ -107,7 +109,7 @@ export class RunMetricsChip {
           when(m.promptTokens, (v) => approx + tokens(v), 'Input tokens'),
           when(m.generatedTokens, (v) => approx + tokens(v), 'Output tokens'),
           when(m.promptTokens !== null && m.generatedTokens !== null ? m.promptTokens + m.generatedTokens : null, (v) => approx + tokens(v), 'Total tokens'),
-          when(m.reasoningTokens, (v) => tokens(v), 'of which reasoning'),
+          m.reasoningTokens === null ? null : { label: 'of which reasoning', value: tokens(m.reasoningTokens), part: true },
           when(m.promptEvalTps, (v) => `${rate(v)} tok/s`, 'Prompt eval', 'Prompt tokens over prefill time. A reused KV cache makes this higher than a cold prefill.'),
           when(m.generationTps, (v) => `${rate(v)} tok/s`, 'Generation'),
           when(m.firstTokenMs, duration, 'Time to first token', 'From the request to the first streamed chunk, measured by the core.'),
@@ -130,7 +132,7 @@ export class RunMetricsChip {
         ]),
       },
       {
-        title: 'Runtime',
+        title: 'Engine',
         figures: figures([
           this.store.model() ? { label: 'Model', value: this.store.modelName() } : null,
           backend ? { label: 'Engine', value: backend.label, note: backend.detail } : null,

@@ -42,6 +42,8 @@ export const ICONS = {
   ],
   'panel-left': [RECT, 'M9 3v18'],
   'panel-right': [RECT, 'M15 3v18'],
+  maximize: ['M15 3h6v6', 'M9 21H3v-6', 'M21 3l-7 7', 'M3 21l7-7'],
+  minimize: ['M4 14h6v6', 'M20 10h-6V4', 'M14 10l7-7', 'M3 21l7-7'],
   settings: [
     'M20 7h-9',
     'M14 17H5',

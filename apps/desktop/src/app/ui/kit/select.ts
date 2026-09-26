@@ -63,7 +63,8 @@ let nextId = 0;
         [style.left.px]="position().left"
         [style.min-width.px]="position().width"
         [style.max-height.px]="position().maxHeight"
-        animate.leave="anim-fade-out"
+        [style.--pop-y]="position().bottom === null ? '-4px' : '4px'"
+        animate.leave="anim-pop-out"
       >
         @for (option of options(); track $index; let index = $index) {
           <div

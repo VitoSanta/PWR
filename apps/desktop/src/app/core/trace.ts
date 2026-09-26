@@ -375,5 +375,6 @@ export function duration(ms: number | null): string {
 
 export function rate(value: number | null): string {
   if (value === null) return '—';
-  return value >= 100 ? `${Math.round(value)}` : value.toFixed(1);
+  // Grouped like every other count in the app: 11,079 rather than 11079.
+  return value >= 100 ? Math.round(value).toLocaleString('en-US') : value.toFixed(1);
 }

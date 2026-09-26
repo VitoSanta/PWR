@@ -22,6 +22,9 @@ pa-composer {
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
+  /* The scrollbar takes room on one side only; reserving it on both keeps
+     the column on the same centre line as the composer below it. */
+  scrollbar-gutter: stable both-edges;
   padding: var(--space-8) 0 var(--space-8);
   scroll-behavior: smooth;
   container: conversation / size;
@@ -219,6 +222,12 @@ pa-composer {
   flex: none;
 }
 
+/* "Model · working · 12s" is one phrase split in two for truncation: the
+   gap before its first dot matches the space after it. */
+.turn-meta + .turn-meta.num {
+  margin-left: calc(var(--space-1) - var(--space-2));
+}
+
 .turn-body {
   position: relative;
   display: flex;
@@ -264,7 +273,7 @@ pa-composer {
 .step.working::before {
   border-color: var(--accent-secondary);
   background: var(--accent-secondary);
-  animation: pa-pulse 1.4s ease-in-out infinite;
+  animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
 }
 
 .step.text {
@@ -279,7 +288,7 @@ pa-composer {
   margin-left: 2px;
   vertical-align: -0.15em;
   background: var(--accent-primary);
-  animation: pa-pulse 1s steps(1) infinite;
+  animation: pa-pulse var(--dur-blink) steps(1) infinite;
 }
 
 .step.checkpoint {
@@ -308,15 +317,15 @@ pa-composer {
   height: 5px;
   border-radius: 50%;
   background: var(--accent-secondary);
-  animation: pa-dot 1.2s var(--ease) infinite;
+  animation: pa-dot var(--dur-dots) var(--ease) infinite;
 }
 
 .dots i:nth-child(2) {
-  animation-delay: 0.15s;
+  animation-delay: calc(var(--dur-dots) / 8);
 }
 
 .dots i:nth-child(3) {
-  animation-delay: 0.3s;
+  animation-delay: calc(var(--dur-dots) / 4);
 }
 
 @keyframes pa-dot {
@@ -364,7 +373,7 @@ pa-composer {
 }
 
 .thought.live .spark {
-  animation: pa-pulse 1.6s ease-in-out infinite;
+  animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
 }
 
 .thought-head .muted {
@@ -552,7 +561,7 @@ pa-composer {
 .status-dot.running,
 .status-dot.pending {
   background: var(--accent-secondary);
-  animation: pa-pulse 1s ease-in-out infinite;
+  animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
 }
 
 .delta {
@@ -762,9 +771,14 @@ pa-composer {
 }
 
 /* ------------------------------------------------------------ composer */
+/* The same column as the timeline's content: its edges line up with the
+   messages above it at every window width. */
 .composer {
   position: relative;
-  width: min(var(--content-max), calc(100% - 2 * var(--space-6)));
+  width: min(
+    calc(var(--content-max) - 2 * var(--space-8)),
+    calc(100% - 2 * var(--space-8))
+  );
   margin: 0 auto var(--space-5);
   padding: var(--space-2);
   border: 1px solid var(--border-strong);
@@ -1074,7 +1088,7 @@ pa-trace-raw {
 .step.phases.busy::before {
   border-color: var(--accent-secondary);
   background: var(--accent-secondary);
-  animation: pa-pulse 1.4s ease-in-out infinite;
+  animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
 }
 
 .phase + .phase {
@@ -1158,7 +1172,7 @@ pa-trace-raw {
 }
 
 .phase-note.tone-warn > pa-icon {
-  animation: pa-spin 1.2s linear infinite;
+  animation: pa-spin var(--dur-spin) linear infinite;
 }
 
 .phase-detail {

@@ -49,15 +49,15 @@ import { KnowledgeCard } from './workbench/knowledge';
         </button>
         @if (launcher()) {
           <pa-popover [anchor]="addTrigger" anchorAlign="end" width="300px" ariaLabel="Tools" panelRole="menu" [focusFirst]="true" (closed)="launcher.set(false)" animate.leave="anim-pop-out">
-            <div class="tool-menu" role="none">
+            <div class="menu" role="none">
               @for (card of work.available(); track card.id) {
-                <button class="tool-menu-item" role="menuitem" (click)="open(card.id)">
+                <button class="menu-item" role="menuitem" (click)="open(card.id)">
                   <pa-icon [name]="icon(card)" [size]="16" />
-                  <span class="tool-menu-label">{{ card.label }}</span>
+                  <span class="truncate">{{ card.label }}</span>
                   @if (work.isOpen(card.id)) {
-                    <pa-icon class="tool-menu-open" name="check" [size]="14" />
+                    <pa-icon class="menu-hint tool-menu-open" name="check" [size]="14" />
                   } @else if (card.keys) {
-                    <span class="kbd">{{ keys(card.keys) }}</span>
+                    <span class="kbd menu-hint">{{ keys(card.keys) }}</span>
                   }
                 </button>
               }
@@ -109,7 +109,7 @@ import { KnowledgeCard } from './workbench/knowledge';
                   [attr.aria-label]="work.focused() === card.id ? 'Restore' : 'Maximise'"
                   [paTooltip]="work.focused() === card.id ? 'Show the other cards' : 'Fill the column'"
                 >
-                  <pa-icon [name]="work.focused() === card.id ? 'minus' : 'panel-right'" [size]="14" />
+                  <pa-icon [name]="work.focused() === card.id ? 'minimize' : 'maximize'" [size]="14" />
                 </button>
                 <button class="icon-btn icon-btn-sm" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + info(card.id).label" paTooltip="Close">
                   <pa-icon name="x" [size]="14" />

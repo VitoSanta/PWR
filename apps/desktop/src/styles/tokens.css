@@ -68,6 +68,14 @@
   --dur-fast: 120ms;
   --dur: 160ms;
   --dur-slow: 220ms;
+  /* Loops. Everything that means "running" breathes at one rate and every
+     spinner turns at one speed, so two live things never beat against
+     each other. */
+  --dur-pulse: 1.4s;
+  --dur-spin: 700ms;
+  --dur-dots: 1.2s;
+  --dur-blink: 1s;
+  --dur-shimmer: 1.6s;
 
   /* ---------------------------------------------------------- z-layers */
   --z-panel-overlay: 30;

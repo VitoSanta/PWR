@@ -102,7 +102,8 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
               @case ('shortcuts') {
                 <div class="settings-page" animate.enter="anim-fade-in">
                 <header class="settings-page-head">
-                  <h3 class="settings-page-title">Keyboard shortcuts</h3>
+                  <h3 class="settings-page-title">Shortcuts</h3>
+                  <p class="fine">Keys that work anywhere in PWR.</p>
                 </header>
                 <dl class="shortcut-list">
                   @for (item of shortcuts; track item.label) {
@@ -146,7 +147,7 @@ export class Settings {
     { label: 'Command palette', keys: SHORTCUTS.palette },
     { label: 'New conversation', keys: SHORTCUTS.newConversation },
     { label: 'Show or hide the sidebar', keys: SHORTCUTS.toggleSidebar },
-    { label: 'Show or hide the inspector', keys: SHORTCUTS.toggleInspector },
+    { label: 'Show or hide the workbench', keys: SHORTCUTS.toggleInspector },
     { label: 'Settings', keys: SHORTCUTS.settings },
     { label: 'Send message', keys: 'Enter' },
     { label: 'New line', keys: 'Shift+Enter' },

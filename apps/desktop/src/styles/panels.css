@@ -535,8 +535,11 @@ pa-model-picker {
   min-width: 124px;
 }
 
+/* The two text filters share what the row has left, so it ends on the same
+   right edge as the search above it and the results below. */
 .mm-filter-input {
-  width: 180px;
+  flex: 1 1 140px;
+  min-width: 140px;
 }
 
 .mm-params-trigger {
@@ -1066,12 +1069,27 @@ pa-model-picker {
   background: linear-gradient(#070a0f 55%, #101621 55%);
 }
 
+/* System: the light preview, with the dark one over its lower-right half. */
+.swatch-system {
+  position: relative;
+}
+
 .swatch-system > span:first-child {
-  background: linear-gradient(90deg, #eef1f5 50%, #0b0f17 50%);
+  background: #eef1f5;
 }
 
 .swatch-system > span:last-child {
-  background: linear-gradient(90deg, #f5f7fa 50%, #070a0f 50%);
+  background: linear-gradient(#f5f7fa 55%, #ffffff 55%);
+}
+
+.swatch-system::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(#070a0f 55%, #101621 55%) 100% 0 / 72% 100% no-repeat,
+    #0b0f17;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
 }
 
 .shortcut-list {
@@ -1170,7 +1188,9 @@ pa-engine-setup {
   background: var(--bg-app);
 }
 
-/* Fills the window, so the body's auto margins centre it both ways. */
+/* Fills the window. The body starts where it would sit centred before the
+   install begins, and grows downward from there, so the steps appearing do
+   not push the title up the screen. */
 .setup {
   display: flex;
   flex: 1 0 auto;
@@ -1188,9 +1208,11 @@ pa-engine-setup {
   align-items: center;
   gap: var(--space-4);
   width: min(520px, 100%);
-  margin: auto;
+  margin: max(0px, calc(50vh - var(--titlebar-h) - var(--setup-half))) auto var(--space-6);
   padding: 0 var(--space-6) var(--space-10);
   text-align: center;
+  /* Half the body's height at rest (welcome, packages, install button). */
+  --setup-half: 282px;
   animation: pa-rise-in var(--dur-slow) var(--ease-out) backwards;
 }
 
@@ -1391,6 +1413,16 @@ pa-run-metrics {
   color: var(--text-primary);
 }
 
+/* A part of the figure above it: indented, and quieter. */
+.metrics-facts dt.is-part {
+  padding-left: var(--space-3);
+  color: var(--text-muted);
+}
+
+.metrics-facts dd.is-part {
+  color: var(--text-secondary);
+}
+
 /* ------------------------------------------------------ settings pages */
 .dialog.size-lg:has(.settings-layout) {
   width: min(860px, 100%);
@@ -1408,13 +1440,16 @@ pa-run-metrics {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--space-5) var(--space-3);
+  padding: var(--space-4) var(--space-3);
   border-right: 1px solid var(--border-subtle);
   background: var(--surface-secondary);
 }
 
+/* The nav's title, the page's title and the close button share one line:
+   each is a control's height tall, from the same top inset. */
 .settings-nav-title {
-  margin: 0 var(--space-2) var(--space-4);
+  margin: 0 var(--space-2) var(--space-3);
+  line-height: var(--control-h);
 }
 
 .settings-nav-item {
@@ -1433,14 +1468,14 @@ pa-run-metrics {
 }
 
 .settings-nav-item:hover:not([aria-current='page']) {
-  background: var(--surface-hover, var(--surface-active));
+  background: var(--surface-hover);
   color: var(--text-primary);
 }
 
 .settings-nav-item[aria-current='page'] {
   background: var(--surface-active);
   color: var(--text-primary);
-  font-weight: var(--fw-medium, 500);
+  font-weight: var(--fw-medium);
 }
 
 .settings-content {
@@ -1449,7 +1484,7 @@ pa-run-metrics {
   flex-direction: column;
   gap: var(--space-4);
   min-height: 0;
-  padding: var(--space-5) var(--space-6) var(--space-6);
+  padding: var(--space-4) var(--space-6) var(--space-6);
   overflow-y: auto;
   font-size: var(--fs-body-sm);
   color: var(--text-secondary);
@@ -1473,14 +1508,15 @@ pa-run-metrics {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding-right: var(--space-8, 40px);
+  padding-right: var(--space-8);
 }
 
 .settings-page-title {
   margin: 0;
   color: var(--text-primary);
-  font-size: var(--fs-title, 16px);
+  font-size: var(--fs-title);
   font-weight: var(--fw-semibold);
+  line-height: var(--control-h);
 }
 
 .settings-page-head > .fine {
@@ -1508,7 +1544,7 @@ pa-run-metrics {
 .settings-row-title {
   color: var(--text-primary);
   font-size: var(--fs-body-sm);
-  font-weight: var(--fw-medium, 500);
+  font-weight: var(--fw-medium);
 }
 
 .settings-field-hint {

@@ -36,6 +36,8 @@ import { focusables } from './dialog';
     '[style.max-height.px]': 'maxHeight()',
     '[style.width]': 'width()',
     '[style.transform-origin]': "side() === 'bottom' ? 'top' : 'bottom'",
+    // It opens from the anchor's side: down from above it, up from below.
+    '[style.--pop-y]': "side() === 'bottom' ? '-4px' : '4px'",
   },
 })
 export class Popover implements AfterViewInit, OnDestroy {

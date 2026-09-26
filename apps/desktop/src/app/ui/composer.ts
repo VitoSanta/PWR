@@ -89,7 +89,7 @@ const MAX_HEIGHT = 260;
       @if (store.attachments().length) {
         <ul class="attachments" aria-label="Attachments">
           @for (path of store.attachments(); track path) {
-            <li class="attachment" [class]="'attachment tone-' + kind(path).tone" [attr.title]="path" animate.enter="anim-pop-in">
+            <li class="attachment" [class]="'attachment tone-' + kind(path).tone" [attr.title]="path" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
               <span class="attachment-icon"><pa-icon [name]="kind(path).icon" [size]="16" /></span>
               <span class="attachment-text">
                 <strong>{{ name(path) }}</strong>

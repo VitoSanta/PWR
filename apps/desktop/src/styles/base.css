@@ -222,22 +222,32 @@ svg {
   }
 }
 
+/* A floating panel moves toward its anchor's side: --pop-y is negative for
+   one that opens downward (the default) and positive for one that opens up. */
 @keyframes pa-pop-in {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.98);
+    transform: translateY(var(--pop-y, -4px)) scale(0.98);
   }
 }
 
 @keyframes pa-pop-out {
   to {
     opacity: 0;
-    transform: translateY(-4px) scale(0.98);
+    transform: translateY(var(--pop-y, -4px)) scale(0.98);
   }
 }
 
 @keyframes pa-rise-in {
   from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* The way back out of pa-rise-in. */
+@keyframes pa-sink-out {
+  to {
     opacity: 0;
     transform: translateY(6px);
   }
