@@ -190,6 +190,10 @@ class Person:
         self.generated_tokens = 0
         self.prefill_ms = 0
         self.generation_ms = 0
+        # Prompts the engine computed mostly from scratch: long, and less than
+        # half resumed from its cache. Each is a history that stopped being a
+        # prefix of the one before, and on this model that costs minutes.
+        self.cold_prefills = []
         self.peak_context = 0
         self.answer = ""
 
@@ -212,6 +216,10 @@ class Person:
             self.generated_tokens += int(params.get("generatedTokens") or 0)
             self.prefill_ms += int(params.get("promptEvalMs") or 0)
             self.generation_ms += int(params.get("generationMs") or 0)
+            prompt, cached = params.get("promptTokens") or 0, params.get("cachedTokens")
+            if cached is not None and prompt > 4096 and cached * 2 < prompt:
+                self.cold_prefills.append({"at": time.strftime("%H:%M:%S"), "prompt": prompt,
+                                           "cached": cached, "ms": params.get("promptEvalMs")})
         elif method == "session/update":
             update = params.get("update", {})
             kind = update.get("sessionUpdate")
@@ -405,7 +413,8 @@ def run_task(task, run_id, attempt, turns_override=None):
         "questions": person.questions, "final_answer": person.answer,
         "tokens": {"prompt": person.prompt_tokens, "generated": person.generated_tokens,
                    "prefill_ms": person.prefill_ms, "generation_ms": person.generation_ms,
-                   "peak_context": person.peak_context},
+                   "peak_context": person.peak_context,
+                   "cold_prefills": person.cold_prefills},
     })
     kept = NOT_SOURCE - set(task["verify"].get("keep", []))
     (out / "diff.patch").write_text(diff_against_seed(task["dir"] / "workspace", workspace, kept))

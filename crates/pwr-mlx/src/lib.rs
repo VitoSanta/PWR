@@ -1252,6 +1252,7 @@ fn terminal_of(event: &serde_json::Value) -> Result<ModelChunk, ProviderError> {
                 .as_u64()
                 .and_then(|value| u16::try_from(value).ok()),
             prompt_tokens: usage["prompt_tokens"].as_u64(),
+            cached_prompt_tokens: usage["cached_tokens"].as_u64(),
             generated_tokens: usage["completion_tokens"].as_u64(),
             total_duration_ns: nanos("prefill_secs")
                 .zip(nanos("generation_secs"))
@@ -1949,6 +1950,19 @@ mod tests {
             ),
             Step::Finish(Err(ProviderError::Truncated { .. }))
         ));
+    }
+
+    #[test]
+    fn what_the_prompt_cache_saved_is_recorded() {
+        let event = serde_json::json!({
+            "event": "done", "finish_reason": "stop",
+            "usage": {"prompt_tokens": 66056, "cached_tokens": 12, "prefilled_tokens": 66044,
+                      "completion_tokens": 159},
+            "timings": {"prefill_secs": 205.0, "generation_secs": 7.7}
+        });
+        let metrics = terminal_of(&event).unwrap().metrics.unwrap();
+        assert_eq!(metrics.prompt_tokens, Some(66056));
+        assert_eq!(metrics.cached_prompt_tokens, Some(12));
     }
 
     #[test]

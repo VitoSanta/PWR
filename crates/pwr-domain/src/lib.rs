@@ -1640,6 +1640,13 @@ pub struct ToolCall {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GenerationMetrics {
     pub prompt_tokens: Option<u64>,
+    /// Of `prompt_tokens`, those the engine resumed from its prompt cache
+    /// rather than computed again. A long prompt with few of these was
+    /// prefilled from scratch: on a model whose cache can only be resumed
+    /// from an exact prefix, any change early in the history costs the whole
+    /// prompt, and minutes of it went unseen until this was recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_prompt_tokens: Option<u64>,
     pub generated_tokens: Option<u64>,
     /// Tokens generated inside the thinking phase. `None` when the backend
     /// does not separate them -- never zero for "not counted".

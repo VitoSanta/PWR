@@ -3059,6 +3059,7 @@ fn turn_event(step: &TurnStep) -> Option<Value> {
             json!({
                 "event": "generation",
                 "promptTokens": metrics.prompt_tokens,
+                "cachedTokens": metrics.cached_prompt_tokens,
                 "generatedTokens": metrics.generated_tokens,
                 "reasoningTokens": metrics.reasoning_tokens,
                 "answerTokens": metrics.answer_tokens,
