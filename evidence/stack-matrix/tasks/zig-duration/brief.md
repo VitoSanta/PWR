@@ -1,0 +1,1 @@
+Implement the duration library described in README.md in `src/duration.zig` so that `zig build test` passes with Zig 0.16.0. Don't change build.zig or the tests. Tell me what you built and the final test result.

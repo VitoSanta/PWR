@@ -1,0 +1,1 @@
+{"checks":[{"executable":"zig","args":["build","test","--summary","all"],"kind":"acceptance"}]}

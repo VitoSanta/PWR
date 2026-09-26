@@ -1,0 +1,18 @@
+{
+ "id": "zig-duration",
+ "title": "Zig 0.16: a duration parser and formatter with a precise error model (zig build test), on a machine without Zig",
+ "stacks": ["zig"],
+ "category": "systems-library",
+ "split": "heldout",
+ "allow": ["network_access", "toolchain_install"],
+ "turns": 3,
+ "minutes": 60,
+ "verify": {
+  "image": "alpine:3.22",
+  "command": "set -e; if [ ! -x /opt/zig/zig ]; then apk add --no-cache xz >/dev/null; wget -qO- https://ziglang.org/download/0.16.0/zig-$(uname -m)-linux-0.16.0.tar.xz | tar -xJ -C /opt/zig --strip-components=1; fi; /opt/zig/zig build test --summary all 2>&1",
+  "restore": ["build.zig", "tests/public.zig"],
+  "cache": ["zig-0.16.0:/opt/zig", "zig-cache:/root/.cache/zig"],
+  "timeout": 900,
+  "expect": "(\\d+)/\\1 tests passed"
+ }
+}
