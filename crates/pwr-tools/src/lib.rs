@@ -934,7 +934,8 @@ pub fn host_facts(root: &Path) -> String {
          Docker: {docker}.\n\
          When the task needs a tool that is not installed, install it inside the workspace under \
          `{TOOLCHAINS_DIRECTORY}/<name>/` from its official release for this machine -- download \
-         the archive with fetch_url and save_as, check its sha256, extract it there: every \
+         the archive with fetch_url and save_as, check its sha256, extract it there quietly (`unzip -q`, `tar -xzf` with no `v`: a list of every \
+         file extracted fills the conversation and says nothing): every \
          `{TOOLCHAINS_DIRECTORY}/<name>/bin` is put on PATH for your commands and for the checks, \
          so a check that runs `go` or `javac` finds it. Nothing outside the workspace can be \
          written, so do not install system-wide. A program the workspace does not list, a \

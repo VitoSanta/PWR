@@ -3914,6 +3914,14 @@ fn queue_tui_attachment(state: &mut TuiState, root: &Path, input: &str) {
     }
 }
 
+/// What one stream of a command may put into a conversation: the first and
+/// last 8 KiB, where the first error and the summary are, with the middle
+/// elided and counted. Measured on stack matrix c1 (2026-09-26): 6 of 321
+/// commands wrote more than 16 KiB and those six were half of every byte of
+/// command output -- five of them `unzip` naming each file it extracted --
+/// at up to 64 KiB a stream, some 16k tokens, into a local model's window.
+const CONVERSATION_OUTPUT_LIMIT: usize = 16 * 1024;
+
 /// The OpenAI-compatible name for graded reasoning, which LM Studio maps onto
 /// the model's own template variable.
 const REASONING_EFFORT: &str = "reasoning_effort";
@@ -4596,7 +4604,7 @@ async fn chat_turn(
             extra_readable: reference_roots(&root, &config),
             protected: Vec::new(),
             allow_commands: Vec::new(),
-            output_limit: 64 * 1024,
+            output_limit: CONVERSATION_OUTPUT_LIMIT,
             timeout: Duration::from_secs(120),
             sandbox: pwr_tools::SandboxPolicy::Preferred,
             approvals: Vec::new(),
@@ -4619,7 +4627,7 @@ async fn chat_turn(
             // this repository and the wrong one for an Angular project, whose
             // `npm` a scripted run has allowlisted all along.
             allow_commands: pwr_verify::required_executables(&root),
-            output_limit: 64 * 1024,
+            output_limit: CONVERSATION_OUTPUT_LIMIT,
             timeout: Duration::from_secs(120),
             sandbox: pwr_tools::SandboxPolicy::Preferred,
             // The grant the console makes for work in this workspace, less what
