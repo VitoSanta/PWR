@@ -116,6 +116,24 @@ library is usually already on disk, in the exact version the project builds
 against. It is offline, free, and not a third-party page that might carry
 instructions — so installed dependencies come first and the web later.
 
+## Seeing a page: `look_at` (2026-09-26)
+
+A model that reads images (an MLX deployment with a vision encoder) is also
+offered `look_at`: a screenshot of a local server's URL or of an HTML file in
+the workspace, returned with the tool result as an image. It is the first
+rung of computer use -- look, not click -- and it answers what a test suite
+cannot: whether the page a model built actually looks right.
+
+The browser (Chrome, Chromium or Edge; `PWR_BROWSER` to choose) runs
+headless inside the command sandbox: its bundle readable, its profile in the
+workspace scratch, the network limited to this machine, and pages elsewhere
+refused before it starts. Chromium's instance lock is a Unix socket; since a
+socket path is limited to 104 bytes on macOS, its temporary directory is a
+short one under `/private/tmp/pwr-look`, the only place a sandboxed command
+may bind a Unix socket, and only with the local-service grant. Images are
+kept under `.pwr/images/` by their SHA-256, as attachments are. Each costs
+about a thousand tokens of context at the default 1280x800.
+
 ## The command allowlist
 
 The allowlist is derived from the repository — the executables named by an explicit `.pwr/checks.json`, by CI configuration, or by the build systems whose markers are present — never a fixed list. Common aliases travel with what a repository declares: `python3` admits `python` and the reverse, `pytest` and `poetry` admit the interpreter they run under, `npm` admits `node` and `npx`, `flutter` admits `dart`. A project whose declared check runs `python3` denying `python` refuses the interpreter it already permits, and did cost a measured run an action.

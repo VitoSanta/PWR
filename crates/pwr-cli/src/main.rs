@@ -4694,6 +4694,9 @@ async fn chat_turn(
         .unwrap_or_default();
     let catalog = if chat_only {
         converse::chat_only_tool_catalog()
+    } else if pwr_mlx::MlxConfig::from_env().has_vision_encoder(&model) == Some(true) {
+        // A model that reads images can look at what it built.
+        converse::with_vision(converse::chat_tool_catalog())
     } else {
         converse::chat_tool_catalog()
     };

@@ -408,6 +408,11 @@ fn tool_call_detail(call: &pwr_domain::ToolCall) -> String {
                 .unwrap_or_default();
             format!("{}{place}", format!("{executable} {args}").trim())
         }
+        "look_at" => arguments
+            .and_then(|fields| fields.get("target"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("a page")
+            .to_owned(),
         "list_tree" => arguments
             .and_then(|fields| fields.get("path"))
             .and_then(serde_json::Value::as_str)
@@ -637,6 +642,38 @@ pub fn chat_tool_catalog() -> ToolCatalog {
     tools.push(recall_project_tool());
     tools.push(wiki_query_tool());
     ToolCatalog::new(tools).expect("a filtered catalogue is valid")
+}
+
+/// `look_at`: what a page on this machine looks like, for a model that
+/// reads images. Offered only to one (see [`with_vision`]).
+pub fn look_at_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "look_at".into(),
+        description: "See a page as a person would: takes a screenshot of a local server's URL \
+                      (http://localhost:PORT/...) or an HTML file in the workspace, and shows it \
+                      to you. Use it to check what a page you built looks like -- layout, text, \
+                      what is visible -- after its tests pass. Start a server first with \
+                      start_service if the page needs one."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "description": "http://localhost:PORT/path, or a workspace-relative .html file"},
+                "width": {"type": "integer", "description": "Viewport width in pixels, 320-1920; 1280 when omitted."},
+                "height": {"type": "integer", "description": "Viewport height in pixels, 240-1600; 800 when omitted."},
+            },
+            "required": ["target"],
+        }),
+    }
+}
+
+/// A conversation's catalogue with `look_at`, for a model that reads images.
+pub fn with_vision(catalog: ToolCatalog) -> ToolCatalog {
+    let mut tools = catalog.tools;
+    if !tools.iter().any(|tool| tool.name == "look_at") {
+        tools.push(look_at_tool());
+    }
+    ToolCatalog::new(tools).expect("a catalogue with one more tool is valid")
 }
 
 /// `wiki_query`: a node of a workspace's knowledge graph and its neighbours.
@@ -1651,6 +1688,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 ActionProposal::Remember { .. }
                     | ActionProposal::RecallProject { .. }
                     | ActionProposal::WikiQuery { .. }
+                    | ActionProposal::LookAt { .. }
             ) {
                 call_sequence += 1;
                 let step = |phase| {
@@ -1706,12 +1744,41 @@ async fn take_turn_inner<P: ModelProvider>(
                             })
                         })
                     }
+                    // Only where it was offered: a model that cannot read the
+                    // image would be sent one.
+                    ActionProposal::LookAt { .. } if !tools.to_string().contains("\"look_at\"") => {
+                        Err(
+                            "look_at is not available with this model: it does not read images"
+                                .to_owned(),
+                        )
+                    }
+                    ActionProposal::LookAt {
+                        target,
+                        width,
+                        height,
+                    } => pwr_tools::look_at(&policy, target, *width, *height)
+                        .await
+                        .map_err(|error| error.to_string())
+                        .and_then(|look| {
+                            serde_json::to_value(look).map_err(|error| error.to_string())
+                        }),
                     _ => unreachable!("matched above"),
                 };
                 match outcome {
                     Ok(value) => {
                         on_step(step(ToolPhase::Completed));
-                        messages.push(tool_message(call, crate::action_outcome(Ok(value))));
+                        // The screenshot goes to the model with the result,
+                        // its path kept out of the text it reads.
+                        let image = value
+                            .get("image")
+                            .and_then(serde_json::Value::as_str)
+                            .filter(|_| matches!(action, ActionProposal::LookAt { .. }))
+                            .map(std::path::PathBuf::from);
+                        let mut message = tool_message(call, crate::action_outcome(Ok(value)));
+                        if let Some(image) = image {
+                            message.images.push(image);
+                        }
+                        messages.push(message);
                     }
                     Err(why) => {
                         on_step(step(ToolPhase::Failed(why.clone())));
@@ -3186,6 +3253,43 @@ mod tests {
             edited |= crate::conversation::may_change_workspace(&write);
         }
         assert!(!edited);
+    }
+
+    #[test]
+    fn look_at_is_offered_only_with_vision_and_decodes() {
+        assert!(
+            !chat_tool_catalog()
+                .tools
+                .iter()
+                .any(|tool| tool.name == "look_at")
+        );
+        let seeing = with_vision(chat_tool_catalog());
+        assert_eq!(
+            seeing
+                .tools
+                .iter()
+                .filter(|tool| tool.name == "look_at")
+                .count(),
+            1
+        );
+        assert_eq!(
+            with_vision(seeing)
+                .tools
+                .iter()
+                .filter(|tool| tool.name == "look_at")
+                .count(),
+            1
+        );
+        let call = pwr_domain::ToolCall {
+            name: "look_at".into(),
+            arguments: serde_json::json!({"target": "http://localhost:4200/", "width": 800}),
+            id: None,
+        };
+        assert!(matches!(
+            crate::action_from_tool_call(&call).unwrap(),
+            ActionProposal::LookAt { ref target, width: Some(800), height: None } if target == "http://localhost:4200/"
+        ));
+        assert_eq!(tool_call_detail(&call), "http://localhost:4200/");
     }
 
     #[test]

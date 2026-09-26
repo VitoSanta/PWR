@@ -1177,8 +1177,10 @@ async fn attempt_action(
         // anything else has nobody to confirm it.
         ActionProposal::Remember { .. }
         | ActionProposal::RecallProject { .. }
-        | ActionProposal::WikiQuery { .. } => Err(ActionExecutionError::Invalid(
-            "remember and recall_project are available only in a conversation".into(),
+        | ActionProposal::WikiQuery { .. }
+        | ActionProposal::LookAt { .. } => Err(ActionExecutionError::Invalid(
+            "remember, recall_project, wiki_query and look_at are available only in a conversation"
+                .into(),
         )),
         // Reaching here means a person approved it: the approval gate runs
         // before execution. Adopting it is the loop's job, not the tool's,
@@ -2038,6 +2040,7 @@ fn remember_verification(
 fn action_fingerprint(action: &ActionProposal) -> String {
     match action {
         ActionProposal::Remember { text, .. } => format!("remember:{text}"),
+        ActionProposal::LookAt { target, .. } => format!("look_at:{target}"),
         ActionProposal::RecallProject { name } => {
             format!("recall_project:{}", name.as_deref().unwrap_or_default())
         }

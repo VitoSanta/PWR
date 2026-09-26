@@ -91,6 +91,16 @@ pub enum ActionProposal {
         #[serde(default)]
         project: Option<String>,
     },
+    /// A screenshot of a page on this machine -- a local server's URL or an
+    /// HTML file in the workspace -- shown to a model that reads images
+    /// (`look_at`). Conversations with such a model only.
+    LookAt {
+        target: String,
+        #[serde(default)]
+        width: Option<u32>,
+        #[serde(default)]
+        height: Option<u32>,
+    },
     /// Several replacements in one file, under one hash guard.
     ///
     /// Named for the schema, not for the variant. The tool has always been
@@ -375,6 +385,9 @@ impl ActionProposal {
             Self::ReplaceText { find, .. } if find.is_empty() => {
                 Err(ToolError::Denied("find text is required".into()))
             }
+            Self::LookAt { target, .. } if target.trim().is_empty() => Err(ToolError::Denied(
+                "look_at needs a target: a local server's URL or an HTML file's path".into(),
+            )),
             Self::FetchUrl { url, .. } if url.is_empty() => {
                 Err(ToolError::Denied("url is required".into()))
             }
