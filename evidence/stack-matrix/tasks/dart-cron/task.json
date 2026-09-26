@@ -3,7 +3,7 @@
  "title": "Dart: cron expressions -- parsing, Vixie day rules, next run across months and leap years -- on a machine without Dart",
  "stacks": ["dart", "pub"],
  "category": "algorithmic-library",
- "split": "heldout",
+ "split": "dev",
  "needs": ["dart"],
  "allow": ["network_access", "toolchain_install", "dependency_change", "container_engine"],
  "turns": 3,

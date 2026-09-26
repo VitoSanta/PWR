@@ -343,8 +343,14 @@ def run_task(task, run_id, attempt, turns_override=None):
     }
     say(f"=== {label}: {task['title']}")
     started = time.time()
+    # The person's own profile and memories (`~/.pwr/profile.json`) would reach
+    # the prompt -- their name, their language -- and make a run depend on who
+    # ran it. Each task gets an empty personal folder instead.
+    personal = out / "pwr-home"
+    personal.mkdir(exist_ok=True)
     core = Core(PWR_BIN, out / "transcript.jsonl",
-                {"PWR_MLX_PYTHON": MLX_PYTHON, "PWR_MLX_SIDECAR": str(sidecar_path())})
+                {"PWR_MLX_PYTHON": MLX_PYTHON, "PWR_MLX_SIDECAR": str(sidecar_path()),
+                 "PWR_HOME": str(personal)})
     person = Person(core, task.get("allow", []))
     passed, output = False, ""
     watchdog = None

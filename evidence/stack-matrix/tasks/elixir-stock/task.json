@@ -3,7 +3,7 @@
  "title": "Elixir + OTP: a GenServer stock ledger with expiring reservations and an injected clock (ExUnit), on a machine without Elixir",
  "stacks": ["elixir", "otp", "genserver", "exunit"],
  "category": "concurrency",
- "split": "heldout",
+ "split": "dev",
  "needs": ["elixir"],
  "allow": ["container_engine", "network_access", "toolchain_install", "dependency_change"],
  "turns": 3,

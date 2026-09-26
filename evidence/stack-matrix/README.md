@@ -66,3 +66,8 @@ compared with results after it.
 - 2026-09-26 `cs-docker`: the brief says the `Dockerfile` and `.dockerignore`
   go at the root of the repository, where the verifier looks. A run put them
   in the project folder, which the brief had not ruled out.
+- 2026-09-26 `elixir-stock` and `dart-cron` moved from `heldout` to `dev`.
+  Their c1 failures were read and the harness changed because of them: a
+  host install recipe for Elixir (Docker cannot satisfy a check that runs
+  `mix` on the host), and a review round that runs a rule no check covers
+  rather than reading the code for it.
