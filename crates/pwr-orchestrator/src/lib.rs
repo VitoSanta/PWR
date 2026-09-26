@@ -804,11 +804,18 @@ impl ReplyFault {
                  {detail}. Do less in one turn: make one or two tool calls, wait for their \
                  results, and continue from there."
             ),
+            // Measured 2026-09-26 (a PostgreSQL ledger): the loops were "I
+            // can't know at INSERT time whether more entries are coming" --
+            // a model that did not know deferred constraint triggers exist,
+            // reasoning in circles with the documentation a fetch away.
             Self::Looped(detail) => format!(
                 "Your last reply was going round in circles and was stopped -- {detail} -- \
                  so nothing in it was done. Do not work the problem out again in prose: act \
                  on what you concluded with one tool call (make the change, or run the \
-                 failing test and read its output), and let the result tell you what next."
+                 failing test and read its output), and let the result tell you what next. \
+                 If what you are unsure of is how a language, library or database feature \
+                 works, read its official documentation (fetch_url) instead of reasoning \
+                 about it."
             ),
         }
     }
