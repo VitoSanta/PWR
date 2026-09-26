@@ -1,0 +1,18 @@
+{
+ "id": "django-rooms",
+ "title": "Django 5: meeting-room bookings -- models, migrations, JSON views, overlap and availability rules",
+ "stacks": ["python", "django", "sqlite"],
+ "category": "backend-framework",
+ "split": "heldout",
+ "allow": ["network_access", "dependency_change", "toolchain_install"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "python:3.13-slim",
+  "command": "pip install -q --root-user-action=ignore -r requirements.txt && python manage.py test -v 2 2>&1",
+  "restore": ["rooms/tests/test_api.py", "rooms/tests/__init__.py", "config/settings.py", "config/urls.py", "manage.py", "requirements.txt"],
+  "cache": ["pip:/root/.cache/pip"],
+  "timeout": 900,
+  "expect": "^OK"
+ }
+}

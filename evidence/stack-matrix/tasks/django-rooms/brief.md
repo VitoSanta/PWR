@@ -1,0 +1,1 @@
+Build the `rooms` Django app described in README.md -- models, migrations, views and URLs -- so that the tests pass: set up the virtual environment as the README says, then `.venv/bin/python manage.py test`. Don't change the tests or the project settings. Tell me what you built and the final test result.
