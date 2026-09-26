@@ -1,0 +1,1 @@
+Implement the ring buffer declared in include/ringbuf.h as described in README.md (src/ringbuf.c) so that `make test` passes. Don't change the header, the tests or the Makefile. Tell me what you wrote and the final test result.
