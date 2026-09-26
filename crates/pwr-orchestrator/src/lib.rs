@@ -616,6 +616,14 @@ fn annotate(
                 }
             }
         }
+        ActionProposal::WriteFile { path, .. }
+        | ActionProposal::ApplyReplace { path, .. }
+        | ActionProposal::ApplyPatchHunks { path, .. }
+        | ActionProposal::ReplaceText { path, .. } => {
+            if let Some(hash) = outcome.get("new_hash").and_then(serde_json::Value::as_str) {
+                reads.known.insert(path.clone(), hash.to_owned());
+            }
+        }
         ActionProposal::ReadFile { path, .. } => {
             let Some(hash) = outcome
                 .get("artifact_hash")
@@ -624,6 +632,7 @@ fn annotate(
             else {
                 return;
             };
+            reads.known.insert(path.clone(), hash.clone());
             match reads.seen.get(path) {
                 Some((earlier, seen)) if *seen == hash => {
                     if let Some(object) = outcome.as_object_mut() {
@@ -961,11 +970,48 @@ const ORIGINAL_KEEP_LIMIT: u64 = 8 * 1024 * 1024;
 #[derive(Debug, Default)]
 pub struct ReadHistory {
     seen: std::collections::BTreeMap<String, (u8, String)>,
+    /// The hash each file had when this turn last read or wrote it.
+    known: std::collections::BTreeMap<String, String>,
     /// `None` for a path that did not exist when the run first touched it.
     originals: std::collections::BTreeMap<String, Option<Vec<u8>>>,
 }
 
 impl ReadHistory {
+    /// A delete sent without a hash, of a file this turn last read or wrote
+    /// and that has not changed since, is given the hash it would have sent.
+    ///
+    /// The hash is there so that nothing is removed unseen; here the harness
+    /// has seen it on the deployment's behalf. Measured 2026-09-27 (stack
+    /// matrix c2, dart-cron): a model that wrote three scratch tests and ran
+    /// them was refused once for each when it tidied them away. A file that
+    /// changed since, or that this turn never saw, is still refused.
+    pub fn with_known_hash(&self, policy: &ToolPolicy, action: ActionProposal) -> ActionProposal {
+        let ActionProposal::DeletePath {
+            path,
+            expected_hash: None,
+            recursive,
+        } = action
+        else {
+            return action;
+        };
+        let current = policy
+            .resolve(std::path::Path::new(&path))
+            .ok()
+            .filter(|resolved| resolved.is_file())
+            .and_then(|resolved| std::fs::read(resolved).ok())
+            .map(pwr_domain::hash_bytes);
+        let expected_hash = self
+            .known
+            .get(&path)
+            .filter(|known| current.as_deref() == Some(known.as_str()))
+            .cloned();
+        ActionProposal::DeletePath {
+            path,
+            expected_hash,
+            recursive,
+        }
+    }
+
     /// Keeps the file an action is about to read or change, the first time.
     fn remember_original(&mut self, policy: &ToolPolicy, action: &ActionProposal) {
         let path = match action {
@@ -1036,6 +1082,7 @@ pub async fn execute_action_recorded(
     reads: &mut ReadHistory,
     step: u8,
 ) -> Result<serde_json::Value, ActionExecutionError> {
+    let action = reads.with_known_hash(policy, action);
     reads.remember_original(policy, &action);
     let mut result = match &action {
         ActionProposal::RestoreFile { path } => reads.restore(policy, path),
@@ -6594,6 +6641,63 @@ mod tests {
         };
         assert!(action_from_reply(&pwr_compat::CanonicalReply::verbatim(&reply)).is_err());
     }
+    /// Measured 2026-09-27 (stack matrix c2, dart-cron): scratch tests the
+    /// model had written and run were each refused once when it deleted them,
+    /// for want of a hash the harness already knew.
+    #[tokio::test]
+    async fn a_file_this_turn_wrote_or_read_is_deleted_without_a_hash() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("seen.txt"), "read me").unwrap();
+        std::fs::write(root.path().join("unseen.txt"), "never read").unwrap();
+        let policy = ToolPolicy {
+            root: root.path().to_path_buf(),
+            extra_readable: Vec::new(),
+            protected: Vec::new(),
+            allow_commands: vec![],
+            output_limit: 1024,
+            timeout: Duration::from_secs(1),
+            sandbox: pwr_tools::SandboxPolicy::Disabled,
+            approvals: Vec::new(),
+        };
+        let store = Store::open(":memory:").unwrap();
+        let run_id = new_id();
+        let mut services = pwr_tools::service::ServiceSupervisor::new();
+        let mut reads = ReadHistory::default();
+        macro_rules! act {
+            ($json:expr) => {
+                execute_action_recorded(
+                    &store,
+                    run_id,
+                    &policy,
+                    parse_action_proposal($json).unwrap(),
+                    &mut services,
+                    &mut reads,
+                    0,
+                )
+                .await
+            };
+        }
+        let delete = |path: &str| format!(r#"{{"capability":"delete_path","path":"{path}"}}"#);
+
+        act!(r#"{"capability":"write_file","path":"scratch.txt","content":"try"}"#).unwrap();
+        act!(&delete("scratch.txt")).unwrap();
+        assert!(!root.path().join("scratch.txt").exists());
+
+        act!(r#"{"capability":"read_file","path":"seen.txt"}"#).unwrap();
+        act!(&delete("seen.txt")).unwrap();
+        assert!(!root.path().join("seen.txt").exists());
+
+        // Never seen: the hash is still asked for.
+        assert!(act!(&delete("unseen.txt")).is_err());
+        assert!(root.path().join("unseen.txt").exists());
+
+        // Changed since it was written: still asked for.
+        act!(r#"{"capability":"write_file","path":"moved.txt","content":"one"}"#).unwrap();
+        std::fs::write(root.path().join("moved.txt"), "someone else's").unwrap();
+        assert!(act!(&delete("moved.txt")).is_err());
+        assert!(root.path().join("moved.txt").exists());
+    }
+
     #[tokio::test]
     async fn locked_smoke_action_is_audited() {
         let root = tempfile::tempdir().unwrap();
