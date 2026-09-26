@@ -4619,11 +4619,95 @@ fn string_list_with_raw_newlines(text: &str) -> Option<serde_json::Value> {
     if !text.trim_start().starts_with('[') {
         return None;
     }
-    let list = lenient_json(text).ok()?;
+    let list = lenient_json(text)
+        .ok()
+        .or_else(|| lenient_json(&repaired_list(text)).ok())?;
     list.as_array()?
         .iter()
         .all(serde_json::Value::is_string)
         .then_some(list)
+}
+
+/// A list of strings written almost as JSON, with the slips that have one
+/// reading put right. Each was a refused `run_command` on the stack matrix of
+/// 2026-09-26 (Qwen3.6-35B-A3B):
+///
+/// - a backslash before a character JSON does not escape -- the shell's
+///   `'\''` inside a `psql -c` string -- kept as the backslash and the
+///   character, which is what a shell command meant by it;
+/// - a comma or semicolon after the closing bracket, dropped;
+/// - a list that stops before its closing bracket (or quote), closed;
+/// - bare words with no quotes at all, `[-c]`, taken as strings.
+///
+/// Anything else is left as it was, for the refusal to name.
+fn repaired_list(text: &str) -> String {
+    let text = text.trim();
+    if !text.contains('"') {
+        let inner = text
+            .trim_start_matches('[')
+            .trim_end_matches([']', ',', ';', ' ']);
+        let words: Vec<String> = inner
+            .split(',')
+            .map(str::trim)
+            .filter(|word| !word.is_empty())
+            .map(|word| serde_json::Value::String(word.to_owned()).to_string())
+            .collect();
+        return format!("[{}]", words.join(","));
+    }
+    let mut out = String::with_capacity(text.len() + 4);
+    let mut in_string = false;
+    let mut backslash = false;
+    let mut depth = 0i32;
+    let mut closed_at = None;
+    for (index, c) in text.char_indices() {
+        if in_string {
+            if backslash {
+                backslash = false;
+                if !matches!(c, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' | 'u') {
+                    // Not an escape JSON knows: the backslash was meant.
+                    out.push('\\');
+                }
+                out.push(c);
+                continue;
+            }
+            match c {
+                '\\' => backslash = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            out.push(c);
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    out.push(c);
+                    closed_at = Some(index + c.len_utf8());
+                    break;
+                }
+            }
+            _ => {}
+        }
+        out.push(c);
+    }
+    if let Some(end) = closed_at {
+        // Only punctuation may follow; anything more is not a slip.
+        if text[end..].trim().chars().all(|c| matches!(c, ',' | ';')) {
+            return out;
+        }
+        return text.to_owned();
+    }
+    if in_string {
+        out.push('"');
+    }
+    while depth > 0 {
+        out.push(']');
+        depth -= 1;
+    }
+    out
 }
 
 fn coerce_string_lists(arguments: &mut serde_json::Value) -> Result<(), String> {
@@ -5910,6 +5994,33 @@ pub fn calibration_invalidations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn slips_in_a_list_of_arguments_with_one_reading_are_put_right() {
+        let read = |text: &str| string_list_with_raw_newlines(text);
+        assert_eq!(
+            read(r#"["go", "clean", "-testcache"],"#),
+            Some(serde_json::json!(["go", "clean", "-testcache"]))
+        );
+        assert_eq!(
+            read(r#"["sh", "-c", "psql -c 'SELECT '\''x'\'''"]"#),
+            Some(serde_json::json!([
+                "sh",
+                "-c",
+                r#"psql -c 'SELECT '\''x'\'''"#
+            ]))
+        );
+        assert_eq!(
+            read(r#"["sh", "-c", "echo 'hi'""#),
+            Some(serde_json::json!(["sh", "-c", "echo 'hi'"]))
+        );
+        assert_eq!(read("[-c]"), Some(serde_json::json!(["-c"])));
+        assert_eq!(
+            read("[run, build]"),
+            Some(serde_json::json!(["run", "build"]))
+        );
+        // More than punctuation after the list is not a slip.
+        assert_eq!(read(r#"["a"] and more"#), None);
+    }
 
     #[test]
     fn a_program_sent_as_executables_is_read_as_the_executable() {
