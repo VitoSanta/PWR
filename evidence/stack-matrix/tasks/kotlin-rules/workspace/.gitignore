@@ -1,0 +1,4 @@
+.pwr/
+build/
+.gradle/
+.kotlin/

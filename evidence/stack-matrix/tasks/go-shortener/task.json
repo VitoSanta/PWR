@@ -1,0 +1,19 @@
+{
+ "id": "go-shortener",
+ "title": "Go: a URL shortener on net/http's pattern mux, with expiry, visit counts and concurrency",
+ "stacks": ["go", "net/http"],
+ "category": "backend-api",
+ "split": "heldout",
+ "needs": ["go"],
+ "allow": ["network_access", "toolchain_install", "dependency_change"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "golang:1",
+  "command": "go test -race -count=1 ./... 2>&1",
+  "env": {"GOTOOLCHAIN": "auto"},
+  "restore": ["shortener_test.go"],
+  "cache": ["gomod:/go/pkg/mod", "gobuild:/root/.cache/go-build"],
+  "expect": "^ok\\s+shortener"
+ }
+}

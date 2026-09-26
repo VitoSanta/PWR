@@ -1,0 +1,19 @@
+{
+ "id": "kotlin-rules",
+ "title": "Kotlin + Gradle: a feature-flag rule language -- lexer, parser, evaluator, positioned errors -- on a machine without a JDK or Gradle",
+ "stacks": ["kotlin", "gradle", "jvm", "junit"],
+ "category": "language-tooling",
+ "split": "heldout",
+ "needs": ["jdk", "gradle"],
+ "allow": ["network_access", "toolchain_install", "dependency_change"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "gradle:8-jdk21",
+  "command": "gradle test --no-daemon --console=plain -q 2>&1 && echo TESTS-OK",
+  "restore": ["src/test/kotlin/rules/RulesTest.kt", "build.gradle.kts", "settings.gradle.kts"],
+  "cache": ["gradle-home:/home/gradle/.gradle"],
+  "timeout": 1500,
+  "expect": "^TESTS-OK"
+ }
+}
