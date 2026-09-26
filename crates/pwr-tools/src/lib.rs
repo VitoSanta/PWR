@@ -916,7 +916,11 @@ pub fn host_facts(root: &Path) -> String {
         || Path::new("/var/run/docker.sock").exists()
     {
         "installed, and its daemon is running; the engineer is asked before a command uses \
-         it, since containers run outside the sandbox"
+         it, since containers run outside the sandbox. Before assuming what an image holds -- \
+         its distribution, shell, package manager, users -- look: `docker run --rm \
+         --entrypoint sh IMAGE -c 'cat /etc/os-release; cat /etc/passwd'`. Official images \
+         often already have a non-root user to switch to (.NET: `USER $APP_UID`; Node: \
+         `USER node`)"
     } else {
         "installed, but its daemon is not running"
     };
