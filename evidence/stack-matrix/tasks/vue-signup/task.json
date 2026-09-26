@@ -1,0 +1,18 @@
+{
+ "id": "vue-signup",
+ "title": "Vue 3 + TypeScript: an accessible sign-up form with live validation and async submit (Vitest, Testing Library)",
+ "stacks": ["vue", "typescript", "vite", "vitest", "npm"],
+ "category": "frontend-component",
+ "split": "heldout",
+ "allow": ["network_access", "dependency_change", "toolchain_install"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "node:24-slim",
+  "command": "npm install --no-audit --no-fund --loglevel=error >/dev/null && npx vitest run 2>&1",
+  "restore": ["test/SignupForm.test.ts", "vitest.config.ts", "package.json"],
+  "cache": ["npm:/root/.npm"],
+  "timeout": 1200,
+  "expect": "Tests\\s+\\d+ passed"
+ }
+}

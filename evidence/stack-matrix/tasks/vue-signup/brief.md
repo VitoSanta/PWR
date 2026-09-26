@@ -1,0 +1,1 @@
+Build the sign-up form described in README.md (src/SignupForm.vue) so that `npm test` passes. The dependencies are declared but not installed. Don't change the tests. Tell me what you built and the final test result.
