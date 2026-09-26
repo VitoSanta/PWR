@@ -86,6 +86,10 @@ pub fn may_change_workspace(action: &pwr_tools::ActionProposal) -> bool {
             | ActionProposal::RestoreFile { .. }
             | ActionProposal::RunCommand { .. }
             | ActionProposal::ExtractDocument { .. }
+            | ActionProposal::FetchUrl {
+                save_as: Some(_),
+                ..
+            }
     )
 }
 

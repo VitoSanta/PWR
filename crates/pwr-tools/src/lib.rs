@@ -279,6 +279,10 @@ pub enum ActionProposal {
     },
     FetchUrl {
         url: String,
+        /// Where in the workspace to write the body instead of returning it:
+        /// an archive, a binary, anything too large to read whole.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        save_as: Option<String>,
     },
     /// Marks a plan step finished.
     ///
@@ -371,7 +375,7 @@ impl ActionProposal {
             Self::ReplaceText { find, .. } if find.is_empty() => {
                 Err(ToolError::Denied("find text is required".into()))
             }
-            Self::FetchUrl { url } if url.is_empty() => {
+            Self::FetchUrl { url, .. } if url.is_empty() => {
                 Err(ToolError::Denied("url is required".into()))
             }
             Self::RunCommand { executable, .. } if executable.is_empty() => {
@@ -846,7 +850,8 @@ pub fn host_facts(root: &Path) -> String {
          Not installed: {}.\n\
          Docker: {docker}.\n\
          When the task needs a tool that is not installed, install it inside the workspace under \
-         `{TOOLCHAINS_DIRECTORY}/<name>/` from its official release for this machine: every \
+         `{TOOLCHAINS_DIRECTORY}/<name>/` from its official release for this machine -- download \
+         the archive with fetch_url and save_as, check its sha256, extract it there: every \
          `{TOOLCHAINS_DIRECTORY}/<name>/bin` is put on PATH for your commands and for the checks, \
          so a check that runs `go` or `javac` finds it. Nothing outside the workspace can be \
          written, so do not install system-wide. A program the workspace does not list, a \
@@ -1069,7 +1074,13 @@ pub fn unlisted_program(
 /// discovering its own gate at the moment it would have acted.
 pub fn required_approval(action: &ActionProposal) -> Option<(Approval, String)> {
     match action {
-        ActionProposal::FetchUrl { url } => Some((Approval::NetworkAccess, format!("fetch {url}"))),
+        ActionProposal::FetchUrl { url, save_as } => Some((
+            Approval::NetworkAccess,
+            match save_as {
+                Some(path) => format!("download {url} into {path}"),
+                None => format!("fetch {url}"),
+            },
+        )),
         ActionProposal::RunCommand {
             executable, args, ..
         } => command_approval(executable, args)
@@ -3284,6 +3295,69 @@ pub struct FetchResult {
     pub truncated: bool,
     pub redacted: bool,
     pub artifact_hash: String,
+    /// The body's media type, as the server named it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /// Where the body was written, for a fetch with `save_as`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_as: Option<String>,
+    /// How many bytes the body was, when it was written or not shown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    /// SHA-256 of a saved body: what release pages publish to check against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    /// What the model should know about what it was and was not given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// The most of a fetched text put in front of the model.
+///
+/// Sixty-four KiB was the command limit reused. Measured 2026-09-26: the Go
+/// download page and its JSON listing are hashes and file names, a few
+/// characters per token, and each fetch added 15,000-45,000 tokens -- the
+/// context doubled in one call and the next reply waited 108 seconds on
+/// prefill. What is past this is one `save_as` away, searchable.
+const FETCH_TEXT_BYTES: usize = 24 * 1024;
+/// The most a download writes.
+const FETCH_SAVE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// How long a download may take, whatever the command timeout: a JDK is a few
+/// hundred megabytes.
+const FETCH_SAVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Whether a media type is text a model can read.
+fn textual(content_type: &str) -> bool {
+    let kind = content_type.to_ascii_lowercase();
+    kind.starts_with("text/")
+        || [
+            "json",
+            "xml",
+            "javascript",
+            "yaml",
+            "toml",
+            "csv",
+            "markdown",
+            "x-sh",
+            "html",
+        ]
+        .iter()
+        .any(|marker| kind.contains(marker))
+}
+
+/// Whether bytes with no usable media type are binary: a NUL, or more than a
+/// few bytes that are not UTF-8, in the first of them.
+fn looks_binary(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(8192)];
+    if head.contains(&0) {
+        return true;
+    }
+    let text = String::from_utf8_lossy(head);
+    text.chars()
+        .filter(|c| *c == char::REPLACEMENT_CHARACTER)
+        .count()
+        * 50
+        > head.len().max(1)
 }
 
 /// Schemes a fetch may use. Anything else can reach the filesystem or a local
@@ -3302,8 +3376,27 @@ const FETCH_REDIRECTS: usize = 5;
 /// it — so it is bounded, redacted and hashed exactly like a file read, and it
 /// grants nothing: a page saying to run a command is prose, and the command
 /// still has to pass policy.
-pub async fn fetch_url(policy: &ToolPolicy, url: &str) -> Result<FetchResult, ToolError> {
+pub async fn fetch_url(
+    policy: &ToolPolicy,
+    url: &str,
+    save_as: Option<&str>,
+) -> Result<FetchResult, ToolError> {
     policy.require(Approval::NetworkAccess)?;
+    // Checked before anything is fetched: a download aimed outside the
+    // workspace, or at a file already there, is refused without the traffic.
+    let destination = match save_as.map(str::trim).filter(|path| !path.is_empty()) {
+        None => None,
+        Some(relative) => {
+            policy.refuse_if_protected(Path::new(relative))?;
+            let path = policy.resolve(Path::new(relative))?;
+            if path.exists() {
+                return Err(ToolError::Denied(format!(
+                    "{relative} already exists; delete_path it first or save_as another path"
+                )));
+            }
+            Some((relative.to_owned(), path))
+        }
+    };
     let parsed = url::Url::parse(url)
         .map_err(|_| ToolError::Denied("url is not a valid absolute URL".into()))?;
     if !FETCH_SCHEMES.contains(&parsed.scheme()) {
@@ -3313,7 +3406,11 @@ pub async fn fetch_url(policy: &ToolPolicy, url: &str) -> Result<FetchResult, To
         )));
     }
     let client = reqwest::Client::builder()
-        .timeout(policy.timeout)
+        .timeout(if destination.is_some() {
+            policy.timeout.max(FETCH_SAVE_TIMEOUT)
+        } else {
+            policy.timeout
+        })
         // Sites refuse an anonymous client: measured 2026-09-25, Wikipedia
         // answered 403 "Please set a user-agent" to the one page a model had
         // asked for to settle a question it then reasoned about for twenty
@@ -3345,42 +3442,142 @@ pub async fn fetch_url(policy: &ToolPolicy, url: &str) -> Result<FetchResult, To
         }
     })?;
     let status = response.status().as_u16();
-    let html = response
+    let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let declared_length = response.content_length();
+    let url_text = response.url().to_string();
+    use futures_util::StreamExt as _;
+    let mut body = response.bytes_stream();
+    let body_error = |error: reqwest::Error| {
+        if error.is_timeout() {
+            ToolError::Timeout
+        } else {
+            ToolError::Io(std::io::Error::other("fetch response body failed"))
+        }
+    };
+    if let Some((relative, path)) = destination {
+        use sha2::Digest as _;
+        use std::io::Write as _;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        // Written beside the destination and renamed, so a download cut short
+        // never leaves a file that looks complete.
+        let partial = path.with_extension("pwr-partial");
+        let mut file = std::fs::File::create(&partial)?;
+        let mut sha256 = sha2::Sha256::new();
+        let mut hasher = blake3::Hasher::new();
+        let mut written = 0u64;
+        while let Some(chunk) = body.next().await {
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    let _ = std::fs::remove_file(&partial);
+                    return Err(body_error(error));
+                }
+            };
+            written = written.saturating_add(chunk.len() as u64);
+            if written > FETCH_SAVE_BYTES {
+                let _ = std::fs::remove_file(&partial);
+                return Err(ToolError::Denied(format!(
+                    "the download passed {} GiB and was stopped; nothing was kept",
+                    FETCH_SAVE_BYTES / (1024 * 1024 * 1024)
+                )));
+            }
+            sha256.update(&chunk);
+            hasher.update(&chunk);
+            file.write_all(&chunk)?;
+        }
+        file.flush()?;
+        drop(file);
+        std::fs::rename(&partial, &path)?;
+        let failed = !(200..300).contains(&status);
+        return Ok(FetchResult {
+            url: url_text,
+            status,
+            content: String::new(),
+            truncated: false,
+            redacted: false,
+            artifact_hash: hasher.finalize().to_hex().to_string(),
+            content_type,
+            saved_as: Some(relative.clone()),
+            bytes: Some(written),
+            sha256: Some(format!("{:x}", sha256.finalize())),
+            note: Some(if failed {
+                format!(
+                    "the server answered {status}, so {relative} holds its error page, not the \
+                     file: read it, then fix the URL"
+                )
+            } else {
+                format!(
+                    "saved to {relative}; compare sha256 with the checksum the release page \
+                     publishes before using it"
+                )
+            }),
+        });
+    }
+    let html = content_type
+        .as_deref()
         .is_some_and(|kind| kind.to_ascii_lowercase().contains("html"));
     // A page is mostly markup: its text is read from more of it than the
     // limit, which then bounds the text rather than the markup.
+    let text_limit = policy.output_limit.min(FETCH_TEXT_BYTES);
     let raw_limit = if html {
-        policy.output_limit.saturating_mul(8).min(FETCH_HTML_BYTES)
+        text_limit.saturating_mul(8).min(FETCH_HTML_BYTES)
     } else {
-        policy.output_limit
+        text_limit
     };
-    let mut body = response.bytes_stream();
     let mut retained = Vec::with_capacity(raw_limit.min(64 * 1024));
     let mut hasher = blake3::Hasher::new();
     let mut observed = 0usize;
-    use futures_util::StreamExt as _;
-    while let Some(chunk) = body.next().await {
-        let chunk = chunk.map_err(|error| {
-            if error.is_timeout() {
-                ToolError::Timeout
-            } else {
-                ToolError::Io(std::io::Error::other("fetch response body failed"))
-            }
-        })?;
+    let mut binary = content_type.as_deref().is_some_and(|kind| !textual(kind));
+    while !binary && let Some(chunk) = body.next().await {
+        let chunk = chunk.map_err(body_error)?;
         observed = observed.saturating_add(chunk.len());
         hasher.update(&chunk);
         let remaining = raw_limit.saturating_sub(retained.len());
         retained.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+        if content_type.is_none() && looks_binary(&retained) {
+            binary = true;
+        }
+    }
+    // Measured 2026-09-26: a Go release archive fetched this way reached the
+    // model as 64 KiB of replacement characters -- 30,000 tokens, twice in
+    // one session -- and was no use to it as text or as a file.
+    if binary {
+        let kind = content_type
+            .clone()
+            .unwrap_or_else(|| "binary data".to_owned());
+        let size = declared_length
+            .map(|bytes| format!(", {bytes} bytes"))
+            .unwrap_or_default();
+        return Ok(FetchResult {
+            url: url_text,
+            status,
+            content: String::new(),
+            truncated: true,
+            redacted: false,
+            artifact_hash: hasher.finalize().to_hex().to_string(),
+            content_type,
+            saved_as: None,
+            bytes: declared_length,
+            sha256: None,
+            note: Some(format!(
+                "this is a file ({kind}{size}), not text, so none of it is shown. To download \
+                 it, call fetch_url again with save_as set to a workspace path -- a toolchain \
+                 under `{TOOLCHAINS_DIRECTORY}/` -- and then extract it with tar or unzip."
+            )),
+        });
     }
     let mut truncated = observed > retained.len();
     let mut bounded = String::from_utf8_lossy(&retained).into_owned();
     if html {
         bounded = html_to_text(&bounded);
-        if bounded.len() > policy.output_limit {
-            let mut end = policy.output_limit;
+        if bounded.len() > text_limit {
+            let mut end = text_limit;
             while !bounded.is_char_boundary(end) {
                 end -= 1;
             }
@@ -3390,12 +3587,21 @@ pub async fn fetch_url(policy: &ToolPolicy, url: &str) -> Result<FetchResult, To
     }
     let (content, redacted) = policy.redact(&bounded);
     Ok(FetchResult {
-        url: parsed.to_string(),
+        url: url_text,
         status,
         artifact_hash: hasher.finalize().to_hex().to_string(),
         content,
         truncated,
         redacted,
+        content_type,
+        saved_as: None,
+        bytes: None,
+        sha256: None,
+        note: truncated.then(|| {
+            "only the beginning is shown. To have all of it, fetch it again with save_as set to \
+             a workspace path, then search it or read_file the part you need."
+                .to_owned()
+        }),
     })
 }
 

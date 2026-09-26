@@ -521,11 +521,12 @@ fn a_window_past_the_end_of_the_file_is_refused() {
 fn fetching_needs_the_network_grant() {
     let root = tempfile::tempdir().unwrap();
     let policy = policy(root.path());
-    let refused = block_on_tools(fetch_url(&policy, "https://example.com"));
+    let refused = block_on_tools(fetch_url(&policy, "https://example.com", None));
     assert!(refused.is_err());
     assert_eq!(
         required_approval(&ActionProposal::FetchUrl {
-            url: "https://example.com".into()
+            url: "https://example.com".into(),
+            save_as: None,
         })
         .map(|(a, _)| a),
         Some(Approval::NetworkAccess)
@@ -547,7 +548,7 @@ fn only_http_and_https_are_fetchable() {
         "/etc/passwd",
     ] {
         assert!(
-            block_on_tools(fetch_url(&policy, url)).is_err(),
+            block_on_tools(fetch_url(&policy, url, None)).is_err(),
             "fetched: {url}"
         );
     }
