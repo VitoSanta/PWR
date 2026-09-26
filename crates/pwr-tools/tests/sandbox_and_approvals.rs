@@ -1297,3 +1297,39 @@ fn the_sandbox_refusing_the_network_is_recognisable() {
         );
     }
 }
+
+/// The daemon is reachable through its socket only once the engine is
+/// granted, and the client finds the plugins `build` and `compose` are.
+#[cfg(target_os = "macos")]
+#[test]
+fn docker_reaches_its_daemon_only_when_the_engine_is_granted() {
+    if pwr_tools::container_socket().is_none() {
+        return; // No engine running on this machine: nothing to show.
+    }
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands.push("docker".into());
+    let version = |policy: &ToolPolicy, args: &[&str]| {
+        let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+        block_on(run_command(policy, "docker", &args)).unwrap()
+    };
+    let refused = version(&policy, &["version", "--format", "{{.Server.Version}}"]);
+    assert!(refused.sandboxed);
+    assert_ne!(refused.exit_code, Some(0), "{refused:?}");
+    assert!(
+        pwr_tools::looks_like_container_engine_denied(&format!(
+            "{}{}",
+            refused.stdout, refused.stderr
+        )),
+        "{refused:?}"
+    );
+
+    policy.approvals.push(Approval::ContainerEngine);
+    let server = version(&policy, &["version", "--format", "{{.Server.Version}}"]);
+    assert_eq!(server.exit_code, Some(0), "{server:?}");
+    assert!(!server.stdout.trim().is_empty(), "{server:?}");
+    for plugin in [["buildx", "version"], ["compose", "version"]] {
+        let result = version(&policy, &plugin);
+        assert_eq!(result.exit_code, Some(0), "{plugin:?}: {result:?}");
+    }
+}

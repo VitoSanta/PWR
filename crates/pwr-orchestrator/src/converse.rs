@@ -1820,7 +1820,7 @@ async fn take_turn_inner<P: ModelProvider>(
             // without a receipt, which is what an effect nobody can vouch for
             // should look like to a restart.
             let interruptible = matches!(action, ActionProposal::RunCommand { .. });
-            // Kept to run again if it turns out the network is what it lacked.
+            // Kept to run again if the network or the engine is what it lacked.
             let command = interruptible.then(|| action.clone());
             let performing = crate::session::perform(
                 store,
@@ -1845,7 +1845,7 @@ async fn take_turn_inner<P: ModelProvider>(
             };
             let mut outcome = outcome;
             if let Some(command) = command {
-                let offline = crate::session::offline(
+                let withheld = crate::session::withheld(
                     store,
                     conversation_id,
                     u8::try_from(actions).unwrap_or(u8::MAX),
@@ -1857,9 +1857,9 @@ async fn take_turn_inner<P: ModelProvider>(
                     &mut refused_streak,
                 )
                 .await?;
-                if let crate::session::Offline::Allowed { once } = offline {
+                if let crate::session::Withheld::Allowed { approval, once } = withheld {
                     if once {
-                        granted_once.push(pwr_tools::Approval::NetworkAccess);
+                        granted_once.push(approval);
                     }
                     let again = crate::session::perform(
                         store,

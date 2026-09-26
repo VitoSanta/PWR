@@ -61,7 +61,8 @@ export class Permission {
       publish: 'Publishes a package or pushes to a remote',
       network_access: 'Reaches the network',
       local_service: 'Starts a service on this machine',
-      toolchain_install: 'Installs a toolchain',
+      toolchain_install: 'Runs a program this workspace does not list',
+      container_engine: 'Uses Docker — containers run outside the sandbox',
     };
     return labels[kind] ?? kind.replaceAll('_', ' ');
   }

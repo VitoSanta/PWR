@@ -1829,7 +1829,11 @@ impl<R: TurnRunner + 'static> Server<R> {
             {
                 return self.turn_reply(id, &session_id, report, total_actions, goal_mode, None);
             }
-            idle_rounds = if report.actions == 0 && !report.completed { idle_rounds + 1 } else { 0 };
+            idle_rounds = if report.actions == 0 && !report.completed {
+                idle_rounds + 1
+            } else {
+                0
+            };
 
             if report.completed {
                 let context = self
@@ -4511,7 +4515,11 @@ mod tests {
 
     fn turn(actions: usize, completed: bool, stopped: Option<StopReason>) -> TurnReport {
         TurnReport {
-            answer: if completed { "done".into() } else { "working".into() },
+            answer: if completed {
+                "done".into()
+            } else {
+                "working".into()
+            },
             actions,
             edited: actions > 0,
             completed,
@@ -4549,7 +4557,9 @@ mod tests {
 
     fn says(messages: &[Value], needle: &str) -> bool {
         updates(messages).iter().any(|update| {
-            update["content"]["text"].as_str().is_some_and(|text| text.contains(needle))
+            update["content"]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains(needle))
         })
     }
 
@@ -4574,8 +4584,14 @@ mod tests {
         assert!(!says(&messages, "left alone"), "{messages:#?}");
         let response = messages.last().unwrap();
         assert_eq!(response["result"]["_meta"]["pwr"]["terminal"], "blocked");
-        assert_eq!(response["result"]["_meta"]["pwr"]["goal"]["verified"], false);
-        assert_eq!(response["result"]["_meta"]["pwr"]["goal"]["guardReached"], true);
+        assert_eq!(
+            response["result"]["_meta"]["pwr"]["goal"]["verified"],
+            false
+        );
+        assert_eq!(
+            response["result"]["_meta"]["pwr"]["goal"]["guardReached"],
+            true
+        );
         // Three completions refused the same way, then it stops.
         assert_eq!(turns, 3);
     }
@@ -4586,7 +4602,10 @@ mod tests {
         let (messages, turns) = goal_prompt(GoalScripted {
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
-            script: vec![turn(5, false, Some(StopReason::BudgetSpent)), turn(0, false, None)],
+            script: vec![
+                turn(5, false, Some(StopReason::BudgetSpent)),
+                turn(0, false, None),
+            ],
             verification: GoalVerification::default(),
         })
         .await;
@@ -4621,7 +4640,10 @@ mod tests {
         // Actions 3, 6, 9, 12, 15, 18: noticed at 3, then at 15 (3 + 10 or more).
         assert_eq!(notices.len(), 2, "{notices:?}");
         assert!(notices[0].starts_with("Checkpoint after 3 "), "{notices:?}");
-        assert!(notices[1].starts_with("Checkpoint after 15 "), "{notices:?}");
+        assert!(
+            notices[1].starts_with("Checkpoint after 15 "),
+            "{notices:?}"
+        );
     }
 
     #[tokio::test]

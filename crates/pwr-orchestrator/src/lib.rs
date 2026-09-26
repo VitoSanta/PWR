@@ -3751,9 +3751,9 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         )
         .await?;
         // The same question the conversation asks when a command failed only
-        // because the sandbox kept it offline.
+        // because the sandbox kept it from the network or the engine.
         if let Some(command) = command
-            && let session::Offline::Allowed { once } = session::offline(
+            && let session::Withheld::Allowed { approval, once } = session::withheld(
                 store,
                 run_id,
                 step,
@@ -3767,7 +3767,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             .await?
         {
             if once {
-                once_granted.push(pwr_tools::Approval::NetworkAccess);
+                once_granted.push(approval);
             }
             outcome = session::perform(
                 store,

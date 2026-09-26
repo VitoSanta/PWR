@@ -465,6 +465,18 @@ pub enum Approval {
     /// sensitive parts of the host home directory are denied to any sandboxed
     /// run (see `sandbox_profile`), which narrows it but does not close it.
     ToolchainInstall,
+    /// Driving the machine's container engine -- Docker, Podman -- through
+    /// its socket.
+    ///
+    /// The one grant that leaves the sandbox rather than widening it. The
+    /// command stays confined, but what it asks the daemon for is not: a
+    /// container reaches the network, and a bind mount reaches any path the
+    /// engine shares, which on Docker Desktop is the whole home directory.
+    /// A containerised task cannot be built or tested without it, so it
+    /// exists; it is asked about in `Ask` mode whatever Settings say (see
+    /// `effective_ask_before` in the CLI), and the question says what it
+    /// gives away.
+    ContainerEngine,
 }
 
 /// Host paths under the real home directory that no run has a reason to read.
@@ -628,6 +640,95 @@ pub fn looks_like_network_denied(output: &str) -> bool {
         .any(|sign| output.contains(sign))
 }
 
+/// Programs whose work is done by a container engine's daemon.
+const CONTAINER_CLIENTS: &[&str] = &[
+    "docker",
+    "docker-compose",
+    "podman",
+    "podman-compose",
+    "nerdctl",
+    "kind",
+    "k3d",
+    "act",
+    "devcontainer",
+];
+
+/// What a command says when a container engine was wanted and the sandbox kept
+/// it from the socket -- `docker` itself, and the libraries that drive it from
+/// a test run, Testcontainers above all.
+const CONTAINER_DENIED_SIGNS: &[&str] = &[
+    "Cannot connect to the Docker daemon",
+    "permission denied while trying to connect to the docker API",
+    "permission denied while trying to connect to the Docker daemon",
+    "Could not find a valid Docker environment",
+    "Error while fetching server API version",
+    "Cannot connect to Podman",
+];
+
+/// Whether a command's output says it wanted a container engine and could not
+/// reach one.
+pub fn looks_like_container_engine_denied(output: &str) -> bool {
+    CONTAINER_DENIED_SIGNS
+        .iter()
+        .any(|sign| output.contains(sign))
+}
+
+/// Whether `executable` is a container engine's client.
+pub fn is_container_client(executable: &str) -> bool {
+    let name = Path::new(executable)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| executable.to_owned());
+    CONTAINER_CLIENTS.contains(&name.as_str())
+}
+
+/// The container engine's socket on this machine, resolved to the file it
+/// is -- seatbelt matches the path a connection reaches, not a symlink to it.
+///
+/// `DOCKER_HOST` first, then where Docker Desktop, OrbStack, Colima and
+/// Rancher Desktop put theirs, then the conventional path, which on a Mac is
+/// usually a link to one of those.
+pub fn container_socket() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(host) = std::env::var("DOCKER_HOST")
+        && let Some(path) = host.strip_prefix("unix://")
+    {
+        candidates.push(PathBuf::from(path));
+    }
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        for relative in [
+            ".docker/run/docker.sock",
+            ".orbstack/run/docker.sock",
+            ".colima/default/docker.sock",
+            ".colima/docker.sock",
+            ".rd/docker.sock",
+        ] {
+            candidates.push(home.join(relative));
+        }
+    }
+    candidates.push(PathBuf::from("/var/run/docker.sock"));
+    candidates
+        .into_iter()
+        .filter(|path| path.exists())
+        .find_map(|path| path.canonicalize().ok())
+}
+
+/// Where the host's container client is installed, when that is somewhere the
+/// sandbox does not already let a command read.
+///
+/// Docker Desktop's `docker` is a link into `/Applications/Docker.app`, and so
+/// are its `buildx` and `compose` plugins: without this the client cannot
+/// even be loaded. The directory two levels up from the resolved binary holds
+/// both (`Contents/Resources/bin/docker`, `Contents/Resources/cli-plugins`).
+fn container_client_home() -> Option<PathBuf> {
+    let host = std::env::var_os("PATH")?;
+    std::env::split_paths(&host)
+        .map(|directory| directory.join("docker"))
+        .find(|candidate| candidate.is_file())
+        .and_then(|candidate| candidate.canonicalize().ok())
+        .and_then(|binary| binary.parent()?.parent().map(Path::to_path_buf))
+}
+
 /// The `bin` directories of the toolchains installed in the workspace, in the
 /// order they go on PATH.
 pub fn toolchain_paths(root: &Path) -> Vec<PathBuf> {
@@ -731,7 +832,8 @@ pub fn host_facts(root: &Path) -> String {
         .unwrap_or(false)
         || Path::new("/var/run/docker.sock").exists()
     {
-        "installed, and its daemon is running"
+        "installed, and its daemon is running; the engineer is asked before a command uses \
+         it, since containers run outside the sandbox"
     } else {
         "installed, but its daemon is not running"
     };
@@ -833,6 +935,10 @@ pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
     if args.iter().any(|arg| arg == "publish") {
         return Some(Approval::Publish);
     }
+    // An image pushed to a registry is published as surely as a package is.
+    if CONTAINER_CLIENTS.contains(&name.as_str()) && args.iter().any(|arg| arg == "push") {
+        return Some(Approval::Publish);
+    }
     if name == "git" {
         if args.iter().any(|arg| arg == "push") {
             return Some(Approval::Publish);
@@ -882,6 +988,38 @@ pub fn names_a_url(action: &ActionProposal, policy: &ToolPolicy) -> Option<(Appr
             format!("let `{executable} {}` reach the network", args.join(" ")),
         )
     })
+}
+
+/// A command that drives the container engine, and the grant it needs.
+pub fn drives_containers(
+    action: &ActionProposal,
+    policy: &ToolPolicy,
+) -> Option<(Approval, String)> {
+    let (ActionProposal::RunCommand {
+        executable, args, ..
+    }
+    | ActionProposal::StartService {
+        executable, args, ..
+    }) = action
+    else {
+        return None;
+    };
+    (is_container_client(executable) && !policy.approvals.contains(&Approval::ContainerEngine))
+        .then(|| {
+            (
+                Approval::ContainerEngine,
+                container_engine_question(executable, args),
+            )
+        })
+}
+
+/// What a person is asked before a command reaches the container engine.
+pub fn container_engine_question(executable: &str, args: &[String]) -> String {
+    format!(
+        "let `{executable} {}` use the container engine -- containers run outside PWR's \
+         sandbox, can reach the network and can mount folders the engine shares",
+        args.join(" ")
+    )
 }
 
 /// The program an action would run that this policy does not permit, with the
@@ -1469,6 +1607,10 @@ impl ToolPolicy {
                     .filter_map(|path| quotable(&path)),
             );
         }
+        let container_engine = self.approvals.contains(&Approval::ContainerEngine);
+        if container_engine && let Some(client) = container_client_home() {
+            readable.extend(quotable(&client));
+        }
         // Data rather than every read. Resolving a path walks its components,
         // and denying metadata denies that walk -- the executable itself stops
         // being findable, which is a broken sandbox rather than a strict one.
@@ -1570,6 +1712,22 @@ impl ToolPolicy {
         } else {
             "(deny network*)".to_string()
         };
+        // The engine's socket and nothing else of the filesystem's sockets,
+        // after the denial it carves out of. Measured 2026-09-26: `docker
+        // version` under `(deny network*)` is "permission denied while trying
+        // to connect to the docker API", and with this one rule it answers.
+        let mut network = network;
+        if container_engine
+            && !self.network_allowed()
+            && let Some(socket) = container_socket()
+            && let Some(socket) = socket.to_str()
+            && !socket.contains('"')
+            && !socket.contains('\\')
+        {
+            network.push_str(&format!(
+                "(allow network-outbound (remote unix-socket (path-literal \"{socket}\")))"
+            ));
+        }
         // Order is load-bearing: the last matching rule wins, so the reads
         // allowlist follows its blanket denial and the credential denial
         // follows the allowlist -- otherwise a key under a readable toolchain
@@ -1694,6 +1852,29 @@ impl ToolPolicy {
         // After the clear, or it would take them away again.
         for (variable, home) in toolchain_homes(&canonical_root) {
             command.env(variable, home);
+        }
+        if self.approvals.contains(&Approval::ContainerEngine) {
+            // The client's contexts live in the real home, which a command
+            // cannot read: name the socket instead, and point the client at
+            // the plugins `docker build` and `docker compose` are.
+            if let Some(socket) = container_socket() {
+                command.env("DOCKER_HOST", format!("unix://{}", socket.display()));
+            }
+            let plugins = container_client_home()
+                .map(|home| home.join("cli-plugins"))
+                .filter(|plugins| plugins.is_dir());
+            let config = scratch.join(".docker");
+            if let Some(plugins) = plugins.as_deref().and_then(Path::to_str)
+                && !plugins.contains('"')
+                && !plugins.contains('\\')
+                && !config.join("config.json").exists()
+                && std::fs::create_dir_all(&config).is_ok()
+            {
+                let _ = std::fs::write(
+                    config.join("config.json"),
+                    format!("{{\"cliPluginsExtraDirs\":[\"{plugins}\"]}}"),
+                );
+            }
         }
         Ok(command)
     }

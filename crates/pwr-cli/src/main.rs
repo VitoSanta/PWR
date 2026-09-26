@@ -217,6 +217,9 @@ enum ApprovalArg {
     NetworkAccess,
     LocalService,
     ToolchainInstall,
+    /// Driving Docker or another container engine, whose containers run
+    /// outside the sandbox.
+    ContainerEngine,
     /// Adopting a check the deployment proposes for a workspace that declares
     /// none. Granting it in advance means the run may adopt one without asking
     /// again, which is the unattended case; without it a proposal is asked
@@ -232,6 +235,7 @@ impl From<ApprovalArg> for pwr_tools::Approval {
             ApprovalArg::NetworkAccess => Self::NetworkAccess,
             ApprovalArg::LocalService => Self::LocalService,
             ApprovalArg::ToolchainInstall => Self::ToolchainInstall,
+            ApprovalArg::ContainerEngine => Self::ContainerEngine,
             ApprovalArg::VerifierProposal => Self::VerifierProposal,
         }
     }
@@ -1080,7 +1084,8 @@ pub(crate) enum PermissionMode {
 }
 
 /// What `Ask` asks about by default: changing dependencies, reaching the
-/// network, installing toolchains, rewriting history and publishing.
+/// network, running programs the workspace does not list, using the container
+/// engine, rewriting history and publishing.
 fn asked_before_by_default() -> Vec<pwr_tools::Approval> {
     vec![
         pwr_tools::Approval::DependencyChange,
@@ -1088,8 +1093,17 @@ fn asked_before_by_default() -> Vec<pwr_tools::Approval> {
         pwr_tools::Approval::Publish,
         pwr_tools::Approval::NetworkAccess,
         pwr_tools::Approval::ToolchainInstall,
+        pwr_tools::Approval::ContainerEngine,
     ]
 }
+
+/// What `Ask` asks about whatever Settings hold.
+///
+/// The container engine is the grant that leaves the sandbox. A list saved
+/// before it existed does not name it, and "not named" means "granted" --
+/// so without this, a person who had only ever chosen `Ask` would have had
+/// Docker handed to the model without a question the day it was added.
+const ALWAYS_ASKED: [pwr_tools::Approval; 1] = [pwr_tools::Approval::ContainerEngine];
 
 /// The list the old default asked about, before the modes existed. A saved
 /// configuration still holding exactly this was never chosen by anyone, so it
@@ -1105,7 +1119,15 @@ fn asked_before_by_default_until_2026_09_23() -> Vec<pwr_tools::Approval> {
 fn effective_ask_before(config: &ChatConfig) -> Vec<pwr_tools::Approval> {
     match config.permission_mode.unwrap_or(PermissionMode::Ask) {
         PermissionMode::Auto => Vec::new(),
-        PermissionMode::Ask => config.ask_before.clone(),
+        PermissionMode::Ask => {
+            let mut asked = config.ask_before.clone();
+            for approval in ALWAYS_ASKED {
+                if !asked.contains(&approval) {
+                    asked.push(approval);
+                }
+            }
+            asked
+        }
     }
 }
 
@@ -1134,7 +1156,12 @@ fn approval_label(approval: pwr_tools::Approval) -> &'static str {
         Approval::Publish => "push to a remote or publish a package",
         Approval::NetworkAccess => "reach the network",
         Approval::LocalService => "start and reach services on this machine",
-        Approval::ToolchainInstall => "run executables outside the allowlist (toolchain install)",
+        Approval::ToolchainInstall => {
+            "run programs this workspace does not list, and toolchains it installs"
+        }
+        Approval::ContainerEngine => {
+            "use Docker or another container engine (containers run outside the sandbox)"
+        }
         Approval::VerifierProposal => "adopt a check the model proposes",
     }
 }
@@ -1800,6 +1827,7 @@ fn all_approvals() -> Vec<pwr_tools::Approval> {
         ApprovalArg::NetworkAccess,
         ApprovalArg::LocalService,
         ApprovalArg::ToolchainInstall,
+        ApprovalArg::ContainerEngine,
         ApprovalArg::VerifierProposal,
     ]
     .into_iter()
@@ -3687,7 +3715,11 @@ impl serve::TurnRunner for ConsoleTurns {
             .collect();
         let failing_acceptance = failing
             .iter()
-            .filter(|command| acceptance_commands.iter().any(|accepted| accepted == *command))
+            .filter(|command| {
+                acceptance_commands
+                    .iter()
+                    .any(|accepted| accepted == *command)
+            })
             .cloned()
             .collect();
         Ok(serve::GoalVerification {
@@ -7374,6 +7406,7 @@ async fn evaluate_task(
                 "network_access" => Some(pwr_tools::Approval::NetworkAccess),
                 "local_service" => Some(pwr_tools::Approval::LocalService),
                 "toolchain_install" => Some(pwr_tools::Approval::ToolchainInstall),
+                "container_engine" => Some(pwr_tools::Approval::ContainerEngine),
                 "verifier_proposal" => Some(pwr_tools::Approval::VerifierProposal),
                 _ => None,
             })
@@ -11533,6 +11566,7 @@ mod tests {
             Approval::DependencyChange,
             Approval::NetworkAccess,
             Approval::ToolchainInstall,
+            Approval::ContainerEngine,
         ] {
             assert!(
                 !granted.contains(&asked),

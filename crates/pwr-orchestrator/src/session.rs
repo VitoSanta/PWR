@@ -71,6 +71,7 @@ pub async fn gate(
         pwr_tools::unlisted_program(action, policy),
         pwr_tools::required_approval(action),
         pwr_tools::names_a_url(action, policy),
+        pwr_tools::drives_containers(action, policy),
     ]
     .into_iter()
     .flatten()
@@ -140,32 +141,32 @@ pub async fn gate(
     Ok(Gate::Proceed { granted_once })
 }
 
-/// What a command the sandbox kept off the network is owed.
+/// What a command the sandbox kept from something it needed is owed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Offline {
-    /// It did not fail for want of the network, or the network was not
-    /// what kept it from it: nothing to ask.
-    NotOffline,
-    /// The person let it through; run it again. `once` when the grant is for
-    /// this command alone and goes when it has run.
-    Allowed { once: bool },
-    /// The person kept it offline, and its result now says so.
+pub enum Withheld {
+    /// It did not fail for want of something the sandbox withholds, or
+    /// asking would not change it: nothing to ask.
+    Nothing,
+    /// The person granted `approval`; run it again. `once` when the grant is
+    /// for this command alone and goes when it has run.
+    Allowed { approval: Approval, once: bool },
+    /// The person kept it withheld, and the command's result now says so.
     Refused,
 }
 
-/// Asks for the network when a command failed because the sandbox kept it
-/// offline, and says what the answer was.
+/// Asks for what a command failed without, when the sandbox is what kept it
+/// from it -- the network, or the container engine -- and says the answer.
 ///
-/// Whether a command needs the network cannot be told from its name --
-/// `npm test` may, `npm install` may not if the cache is warm -- and asking
-/// before every `mvn` or `dotnet build` in case it does would train a person to
-/// click through. So the command runs offline first, and only a failure that
-/// reads like a refused connection is put to the person, with the command
+/// Whether a command needs either cannot be told from its name -- `npm test`
+/// may reach the network, `mvn test` may start a Testcontainers database --
+/// and asking before every build in case it does would train a person to
+/// click through. So the command runs without first, and only a failure that
+/// reads like the sandbox's refusal is put to the person, with the command
 /// named. Before this, a model in a workspace without the grant saw
 /// `ENOTFOUND` or `NU1301`, took it for a broken mirror and rewrote the
 /// project around it.
 #[allow(clippy::too_many_arguments)]
-pub async fn offline(
+pub async fn withheld(
     store: &Store,
     id: pwr_domain::Id,
     step: u8,
@@ -175,42 +176,52 @@ pub async fn offline(
     policy: &mut ToolPolicy,
     prompt: &dyn ApprovalPrompt,
     refused: &mut RefusalStreak,
-) -> Result<Offline, String> {
+) -> Result<Withheld, String> {
     let ActionProposal::RunCommand {
         executable, args, ..
     } = action
     else {
-        return Ok(Offline::NotOffline);
+        return Ok(Withheld::Nothing);
     };
     let Ok(value) = outcome else {
-        return Ok(Offline::NotOffline);
+        return Ok(Withheld::Nothing);
     };
     let sandboxed = value.get("sandboxed").and_then(serde_json::Value::as_bool) == Some(true);
     let succeeded = value.get("exit_code").and_then(serde_json::Value::as_i64) == Some(0);
+    // Without the sandbox nothing withheld it, and asking would not help.
+    if !sandboxed || succeeded {
+        return Ok(Withheld::Nothing);
+    }
     let output = ["stdout", "stderr"]
         .iter()
         .filter_map(|stream| value.get(*stream).and_then(serde_json::Value::as_str))
         .collect::<Vec<_>>()
         .join("\n");
-    // Without the sandbox nothing kept it offline, and asking would not help.
-    if policy.network_allowed()
-        || !sandboxed
-        || succeeded
-        || !pwr_tools::looks_like_network_denied(&output)
+    let command = format!("{executable} {}", args.join(" "));
+    let (approval, description) = if !policy.approvals.contains(&Approval::ContainerEngine)
+        && pwr_tools::looks_like_container_engine_denied(&output)
     {
-        return Ok(Offline::NotOffline);
-    }
-    let description = format!(
-        "let `{executable} {}` reach the network -- it failed because the sandbox kept it offline",
-        args.join(" ")
-    );
-    let decision = prompt.ask(Approval::NetworkAccess, &description).await;
+        (
+            Approval::ContainerEngine,
+            pwr_tools::container_engine_question(executable, args),
+        )
+    } else if !policy.network_allowed() && pwr_tools::looks_like_network_denied(&output) {
+        (
+            Approval::NetworkAccess,
+            format!(
+                "let `{command}` reach the network -- it failed because the sandbox kept it offline"
+            ),
+        )
+    } else {
+        return Ok(Withheld::Nothing);
+    };
+    let decision = prompt.ask(approval, &description).await;
     store
         .append(
             Some(id),
             "approval.decision",
             serde_json::json!({
-                "approval": Approval::NetworkAccess,
+                "approval": approval,
                 "description": description,
                 "decision": decision,
                 "step": step,
@@ -219,28 +230,37 @@ pub async fn offline(
         .map_err(|e| e.to_string())?;
     match decision {
         ApprovalDecision::AllowOnce => {
-            policy.approvals.push(Approval::NetworkAccess);
-            Ok(Offline::Allowed { once: true })
+            policy.approvals.push(approval);
+            Ok(Withheld::Allowed {
+                approval,
+                once: true,
+            })
         }
         ApprovalDecision::AllowForRun => {
-            policy.approvals.push(Approval::NetworkAccess);
-            Ok(Offline::Allowed { once: false })
+            policy.approvals.push(approval);
+            Ok(Withheld::Allowed {
+                approval,
+                once: false,
+            })
         }
         ApprovalDecision::Deny => {
             // Said in the result, not left to be inferred from `ENOTFOUND`:
             // a model that reads it as a flaky mirror retries it forever.
+            let what = match approval {
+                Approval::ContainerEngine => "use the container engine",
+                _ => "reach the network",
+            };
             if let Some(object) = value.as_object_mut() {
                 object.insert(
-                    "network".into(),
-                    serde_json::Value::String(
-                        "the engineer did not let this command reach the network; do it \
-                         without the network or say what it needs"
-                            .into(),
-                    ),
+                    "withheld".into(),
+                    serde_json::Value::String(format!(
+                        "the engineer did not let this command {what}; do it another way or \
+                         say what it needs"
+                    )),
                 );
             }
             refused.refused(fingerprint);
-            Ok(Offline::Refused)
+            Ok(Withheld::Refused)
         }
     }
 }
@@ -378,7 +398,7 @@ mod tests {
         let prompt = Answer::with(&[ApprovalDecision::AllowOnce]);
         let mut policy = policy(&["dotnet"]);
         let gate = through(
-            &command("docker", &["build", "-t", "api", "."]),
+            &command("javac", &["-d", "out", "Main.java"]),
             &mut policy,
             &prompt,
         )
@@ -394,7 +414,7 @@ mod tests {
         assert_eq!(asked[0].0, Approval::ToolchainInstall);
         // The person sees the whole command and what the workspace lists.
         assert!(
-            asked[0].1.contains("docker build -t api ."),
+            asked[0].1.contains("javac -d out Main.java"),
             "{}",
             asked[0].1
         );
@@ -475,9 +495,9 @@ mod tests {
         outcome: &mut Result<serde_json::Value, ActionExecutionError>,
         policy: &mut ToolPolicy,
         prompt: &Answer,
-    ) -> Offline {
+    ) -> Withheld {
         let store = Store::open(":memory:").unwrap();
-        offline(
+        withheld(
             &store,
             pwr_domain::new_id(),
             1,
@@ -502,7 +522,10 @@ mod tests {
         let mut outcome = failed_offline(NPM_OFFLINE, true);
         assert_eq!(
             after(&mut outcome, &mut policy, &prompt).await,
-            Offline::Allowed { once: true }
+            Withheld::Allowed {
+                approval: Approval::NetworkAccess,
+                once: true
+            }
         );
         assert!(policy.network_allowed());
         let asked = prompt.asked.lock().unwrap();
@@ -517,14 +540,56 @@ mod tests {
         let mut outcome = failed_offline(NPM_OFFLINE, true);
         assert_eq!(
             after(&mut outcome, &mut policy, &prompt).await,
-            Offline::Refused
+            Withheld::Refused
         );
         assert!(!policy.network_allowed());
-        let said = outcome.unwrap()["network"]
+        let said = outcome.unwrap()["withheld"]
             .as_str()
             .unwrap_or_default()
             .to_owned();
         assert!(said.contains("did not let"), "{said}");
+    }
+
+    #[tokio::test]
+    async fn a_test_run_that_wanted_docker_is_offered_the_engine() {
+        let prompt = Answer::with(&[ApprovalDecision::AllowForRun]);
+        let mut policy = policy(&["mvn"]);
+        let mut outcome = failed_offline(
+            "java.lang.IllegalStateException: Could not find a valid Docker environment.",
+            true,
+        );
+        assert_eq!(
+            after(&mut outcome, &mut policy, &prompt).await,
+            Withheld::Allowed {
+                approval: Approval::ContainerEngine,
+                once: false
+            }
+        );
+        assert!(policy.approvals.contains(&Approval::ContainerEngine));
+        let asked = prompt.asked.lock().unwrap();
+        assert!(
+            asked[0].1.contains("outside PWR's sandbox"),
+            "{}",
+            asked[0].1
+        );
+    }
+
+    #[tokio::test]
+    async fn docker_is_asked_about_before_it_runs() {
+        let prompt = Answer::with(&[ApprovalDecision::AllowOnce, ApprovalDecision::AllowOnce]);
+        let mut policy = policy(&["docker"]);
+        let gate = through(
+            &command("docker", &["push", "registry.example/api:1"]),
+            &mut policy,
+            &prompt,
+        )
+        .await;
+        assert_eq!(
+            gate,
+            Gate::Proceed {
+                granted_once: vec![Approval::Publish, Approval::ContainerEngine]
+            }
+        );
     }
 
     #[tokio::test]
@@ -541,7 +606,7 @@ mod tests {
         ] {
             assert_eq!(
                 after(&mut outcome, &mut policy, &prompt).await,
-                Offline::NotOffline
+                Withheld::Nothing
             );
         }
         // And nothing is asked once the network is already granted.
@@ -549,7 +614,7 @@ mod tests {
         let mut outcome = failed_offline(NPM_OFFLINE, true);
         assert_eq!(
             after(&mut outcome, &mut policy, &prompt).await,
-            Offline::NotOffline
+            Withheld::Nothing
         );
         assert!(prompt.asked.lock().unwrap().is_empty());
     }
