@@ -256,6 +256,15 @@ export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
   const plural = (n: number) => `${n} action${n === 1 ? '' : 's'}`;
   const base = { terminal, detail };
   if (goal?.verified) return { ...base, text: `Goal verified by the declared acceptance checks after ${plural(actions)}.`, action: null, tone: 'done' };
+  // Stalled or blocked: the core says why, and it is not a success either way.
+  if (goal?.guardReached && (terminal === 'stalled' || terminal === 'blocked'))
+    return {
+      ...base,
+      text: terminal === 'blocked' ? `Goal blocked after ${plural(actions)}: verification kept failing the same way.` : `Goal paused after ${plural(actions)}: the last check-ins took no action.`,
+      detail: goal.reason ?? detail,
+      action: 'continue',
+      tone: terminal === 'blocked' ? 'failed' : 'paused',
+    };
   if (goal?.guardReached) return { ...base, text: `Goal mode paused after ${plural(actions)} without a verified completion.`, action: 'continue', tone: 'paused' };
   if (goal?.needsAcceptance)
     return { ...base, text: 'Technical checks passed; no acceptance contract was declared, so the goal is not verified.', action: null, tone: 'done' };

@@ -3674,7 +3674,24 @@ impl serve::TurnRunner for ConsoleTurns {
             })
             .collect();
         failing.extend(no_tests);
+        // The owner's acceptance checks among them: the goal itself, which a
+        // goal is never allowed to leave failing because it failed before.
+        let acceptance_commands: Vec<String> = acceptance
+            .iter()
+            .map(|(executable, args)| {
+                std::iter::once(executable.as_str())
+                    .chain(args.iter().map(String::as_str))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect();
+        let failing_acceptance = failing
+            .iter()
+            .filter(|command| acceptance_commands.iter().any(|accepted| accepted == *command))
+            .cloned()
+            .collect();
         Ok(serve::GoalVerification {
+            failing_acceptance,
             failing,
             passed: technical_passed && acceptance_available,
             technical_passed,

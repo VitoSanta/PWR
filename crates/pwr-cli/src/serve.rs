@@ -68,6 +68,8 @@ pub struct GoalVerification {
     pub summary: String,
     /// The checks that failed, by command.
     pub failing: Vec<String>,
+    /// Those of `failing` the workspace declares as acceptance checks.
+    pub failing_acceptance: Vec<String>,
 }
 
 /// What a goal is told about checks that failed before it started.
@@ -433,6 +435,18 @@ struct RewindPoint {
 }
 
 const GOAL_MAX_ACTIONS: usize = 208;
+/// Check-ins in a row that took no action before a goal pauses as stalled.
+/// Measured 2026-09-26: a model that could not run its toolchain answered in
+/// prose, and the goal re-prompted it 57 times in 23 minutes, the action count
+/// standing still at 20 -- far below [`GOAL_MAX_ACTIONS`], so nothing stopped it.
+const GOAL_IDLE_LIMIT: usize = 3;
+/// Completions in a row that verification refuses with the same failing checks
+/// before a goal stops as blocked: the same wall three times is the
+/// environment or the task, not a step the next attempt will take.
+const GOAL_SAME_FAILURE_LIMIT: usize = 3;
+/// Actions between two checkpoint notices; a notice per check-in made the
+/// conversation a column of them while a run was stuck.
+const GOAL_NOTICE_EVERY: usize = 10;
 
 impl Session {
     fn new(
@@ -1767,6 +1781,9 @@ impl<R: TurnRunner + 'static> Server<R> {
                 }
             }
         }
+        let mut idle_rounds = 0usize;
+        let mut same_failure: (Vec<String>, usize) = (Vec::new(), 0);
+        let mut noticed_at: Option<usize> = None;
         loop {
             let base = highest_call.get();
             let outcome = self
@@ -1812,6 +1829,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             {
                 return self.turn_reply(id, &session_id, report, total_actions, goal_mode, None);
             }
+            idle_rounds = if report.actions == 0 && !report.completed { idle_rounds + 1 } else { 0 };
 
             if report.completed {
                 let context = self
@@ -1833,9 +1851,13 @@ impl<R: TurnRunner + 'static> Server<R> {
                             Some(verification),
                         );
                     }
+                    // A check broken before the goal is not the goal's to fix --
+                    // unless it is an acceptance check, which *is* the goal:
+                    // ending "left alone" on one reported a failed task as done.
                     Ok(verification)
                         if !verification.technical_passed
                             && !verification.failing.is_empty()
+                            && verification.failing_acceptance.is_empty()
                             && verification
                                 .failing
                                 .iter()
@@ -1884,6 +1906,26 @@ impl<R: TurnRunner + 'static> Server<R> {
                         );
                     }
                     Ok(verification) => {
+                        if same_failure.0 == verification.failing {
+                            same_failure.1 += 1;
+                        } else {
+                            same_failure = (verification.failing.clone(), 1);
+                        }
+                        if same_failure.1 >= GOAL_SAME_FAILURE_LIMIT {
+                            return self.goal_stopped(
+                                id,
+                                &session_id,
+                                &report,
+                                total_actions,
+                                "blocked",
+                                &format!(
+                                    "Goal mode stopped: the work was declared complete {} times and verification refused it the same way each time ({}). Something the code cannot change is probably in the way -- a missing tool, a permission, the environment; the checks' output says which.\n{}",
+                                    same_failure.1,
+                                    verification.failing.join(", "),
+                                    verification.summary
+                                ),
+                            );
+                        }
                         self.update(
                             &session_id,
                             message_chunk(
@@ -1934,21 +1976,70 @@ impl<R: TurnRunner + 'static> Server<R> {
                     }),
                 );
             } else {
-                self.update(
-                    &session_id,
-                    message_chunk(
-                        "agent_message_chunk",
+                if idle_rounds >= GOAL_IDLE_LIMIT {
+                    return self.goal_stopped(
+                        id,
+                        &session_id,
+                        &report,
+                        total_actions,
+                        "stalled",
                         &format!(
-                            "Checkpoint after {total_actions} action(s). Continuing toward the goal; use Stop to interrupt."
+                            "Goal mode paused: the last {idle_rounds} check-ins took no action. Read the last replies for what is in the way, then continue deliberately."
                         ),
-                    ),
-                );
+                    );
+                }
+                if noticed_at.is_none_or(|at| total_actions >= at + GOAL_NOTICE_EVERY) {
+                    noticed_at = Some(total_actions);
+                    self.update(
+                        &session_id,
+                        message_chunk(
+                            "agent_message_chunk",
+                            &format!(
+                                "Checkpoint after {total_actions} action(s). Continuing toward the goal; use Stop to interrupt."
+                            ),
+                        ),
+                    );
+                }
                 messages.push(ChatMessage::text(
                     "user",
                     "Continue the same goal from the saved workspace state. Do not stop with prose: either make the next necessary change, investigate an unmet requirement, or call complete only when the full objective is ready for verification.",
                 ));
             }
         }
+    }
+
+    /// Ends a goal that cannot finish on its own: `terminal` says why
+    /// (`stalled`, `blocked`), `text` says it to the person, and the goal is
+    /// reported unverified and paused so a client offers to continue.
+    fn goal_stopped(
+        &self,
+        id: Value,
+        session_id: &str,
+        report: &converse::TurnReport,
+        total_actions: usize,
+        terminal: &str,
+        text: &str,
+    ) -> Value {
+        self.update(session_id, message_chunk("agent_message_chunk", text));
+        result(
+            id,
+            json!({
+                "stopReason": "end_turn",
+                "_meta": {"pwr": {
+                    "terminal": terminal,
+                    "actions": report.actions,
+                    "totalActions": total_actions,
+                    "edited": report.edited,
+                    "goal": {
+                        "enabled": true,
+                        "completed": false,
+                        "verified": false,
+                        "guardReached": true,
+                        "reason": text,
+                    },
+                }},
+            }),
+        )
     }
 
     /// `_pwr/rewind`: the conversation back to just before the person's
@@ -3592,6 +3683,9 @@ mod tests {
         verification: GoalVerification,
         /// The last message each turn was given, in order.
         requests: Arc<Mutex<Vec<String>>>,
+        /// Reports to play instead of the default two turns, the last one
+        /// repeated once the others are spent.
+        script: Vec<TurnReport>,
     }
 
     #[async_trait::async_trait(?Send)]
@@ -3620,7 +3714,9 @@ mod tests {
                 phase: ToolPhase::Proposed,
                 diff: None,
             }));
-            let report = if run == 0 {
+            let report = if !self.script.is_empty() {
+                self.script[run.min(self.script.len() - 1)].clone()
+            } else if run == 0 {
                 TurnReport {
                     answer: "first checkpoint".into(),
                     actions: 26,
@@ -4302,6 +4398,7 @@ mod tests {
         with_runner(
             GoalScripted {
                 runs: std::sync::atomic::AtomicUsize::new(0),
+                script: Vec::new(),
                 requests: Default::default(),
                 verification: GoalVerification {
                     passed: true,
@@ -4367,6 +4464,7 @@ mod tests {
         let requests: Arc<Mutex<Vec<String>>> = Arc::default();
         let runner = GoalScripted {
             runs: std::sync::atomic::AtomicUsize::new(0),
+            script: Vec::new(),
             requests: Default::default(),
             verification: GoalVerification {
                 passed: false,
@@ -4374,6 +4472,7 @@ mod tests {
                 acceptance_available: false,
                 summary: "1 of 2 full check(s) passing:\n  · npm run build\n  ✗ npm test".into(),
                 failing: vec!["npm test".into()],
+                ..GoalVerification::default()
             },
         };
         let runner = GoalScripted {
@@ -4410,11 +4509,127 @@ mod tests {
         assert!(first.contains("Do not repair them"), "{first}");
     }
 
+    fn turn(actions: usize, completed: bool, stopped: Option<StopReason>) -> TurnReport {
+        TurnReport {
+            answer: if completed { "done".into() } else { "working".into() },
+            actions,
+            edited: actions > 0,
+            completed,
+            stopped,
+            declined: false,
+        }
+    }
+
+    async fn goal_prompt(runner: GoalScripted) -> (Vec<Value>, usize) {
+        let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = Arc::clone(&runs);
+        let requests = Arc::clone(&runner.requests);
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let kept = Arc::clone(&messages);
+        with_runner(runner, |mut client| async move {
+            let session = client.new_session(1).await;
+            client
+                .request(
+                    2,
+                    "session/prompt",
+                    json!({
+                        "sessionId": session,
+                        "goalMode": true,
+                        "prompt": [{"type": "text", "text": "Make the acceptance tests pass"}],
+                    }),
+                )
+                .await;
+            *kept.lock().unwrap() = client.until_response(2).await;
+        })
+        .await;
+        counted.store(requests.lock().unwrap().len(), Ordering::Relaxed);
+        let messages = messages.lock().unwrap().clone();
+        (messages, runs.load(Ordering::Relaxed))
+    }
+
+    fn says(messages: &[Value], needle: &str) -> bool {
+        updates(messages).iter().any(|update| {
+            update["content"]["text"].as_str().is_some_and(|text| text.contains(needle))
+        })
+    }
+
+    /// Seen 2026-09-26: the acceptance tests of a C# task could not run, failed
+    /// before the goal and after it, and the goal ended "left alone" -- a failed
+    /// task reported as finished.
+    #[tokio::test]
+    async fn an_acceptance_check_failing_before_the_goal_is_never_left_alone() {
+        let failing = vec!["dotnet test tests/Api.Tests".to_owned()];
+        let (messages, turns) = goal_prompt(GoalScripted {
+            runs: std::sync::atomic::AtomicUsize::new(0),
+            requests: Default::default(),
+            script: vec![turn(4, true, None)],
+            verification: GoalVerification {
+                summary: "0 of 1 full check(s) passing:\n  ✗ dotnet test tests/Api.Tests".into(),
+                failing: failing.clone(),
+                failing_acceptance: failing,
+                ..GoalVerification::default()
+            },
+        })
+        .await;
+        assert!(!says(&messages, "left alone"), "{messages:#?}");
+        let response = messages.last().unwrap();
+        assert_eq!(response["result"]["_meta"]["pwr"]["terminal"], "blocked");
+        assert_eq!(response["result"]["_meta"]["pwr"]["goal"]["verified"], false);
+        assert_eq!(response["result"]["_meta"]["pwr"]["goal"]["guardReached"], true);
+        // Three completions refused the same way, then it stops.
+        assert_eq!(turns, 3);
+    }
+
+    /// Seen 2026-09-26: 57 check-ins in 23 minutes without one action.
+    #[tokio::test]
+    async fn a_goal_that_takes_no_action_pauses_as_stalled() {
+        let (messages, turns) = goal_prompt(GoalScripted {
+            runs: std::sync::atomic::AtomicUsize::new(0),
+            requests: Default::default(),
+            script: vec![turn(5, false, Some(StopReason::BudgetSpent)), turn(0, false, None)],
+            verification: GoalVerification::default(),
+        })
+        .await;
+        let response = messages.last().unwrap();
+        assert_eq!(response["result"]["_meta"]["pwr"]["terminal"], "stalled");
+        assert!(says(&messages, "took no action"), "{messages:#?}");
+        assert_eq!(turns, 4);
+    }
+
+    #[tokio::test]
+    async fn checkpoint_notices_come_every_ten_actions_not_every_check_in() {
+        let mut script = vec![turn(3, false, Some(StopReason::BudgetSpent)); 6];
+        script.push(turn(1, true, None));
+        let (messages, _) = goal_prompt(GoalScripted {
+            runs: std::sync::atomic::AtomicUsize::new(0),
+            requests: Default::default(),
+            script,
+            verification: GoalVerification {
+                passed: true,
+                technical_passed: true,
+                acceptance_available: true,
+                ..GoalVerification::default()
+            },
+        })
+        .await;
+        let notices: Vec<String> = updates(&messages)
+            .iter()
+            .filter_map(|update| update["content"]["text"].as_str())
+            .filter(|text| text.starts_with("Checkpoint after"))
+            .map(str::to_owned)
+            .collect();
+        // Actions 3, 6, 9, 12, 15, 18: noticed at 3, then at 15 (3 + 10 or more).
+        assert_eq!(notices.len(), 2, "{notices:?}");
+        assert!(notices[0].starts_with("Checkpoint after 3 "), "{notices:?}");
+        assert!(notices[1].starts_with("Checkpoint after 15 "), "{notices:?}");
+    }
+
     #[tokio::test]
     async fn goal_mode_never_calls_technical_checks_alone_a_verified_goal() {
         with_runner(
             GoalScripted {
                 runs: std::sync::atomic::AtomicUsize::new(0),
+                script: Vec::new(),
                 requests: Default::default(),
                 verification: GoalVerification {
                     passed: false,

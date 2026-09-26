@@ -64,6 +64,15 @@ describe('the execution trace', () => {
     expect(runOutcome({ stopReason: 'end_turn', _meta: { pwr: { actions: 1 } } }, false)).toMatchObject({ action: null, text: 'Finished after 1 action.' });
   });
 
+  it('never shows a stalled or blocked goal as finished, and says why', () => {
+    const blocked = runOutcome({ stopReason: 'end_turn', _meta: { pwr: { terminal: 'blocked', totalActions: 12, goal: { guardReached: true, verified: false, reason: 'dotnet test failed 3 times' } } } }, false);
+    expect(blocked).toMatchObject({ tone: 'failed', action: 'continue', detail: 'dotnet test failed 3 times' });
+    expect(blocked.text).toContain('blocked');
+    const stalled = runOutcome({ stopReason: 'end_turn', _meta: { pwr: { terminal: 'stalled', totalActions: 20, goal: { guardReached: true, verified: false } } } }, false);
+    expect(stalled).toMatchObject({ tone: 'paused', action: 'continue' });
+    expect(stalled.text).toContain('no action');
+  });
+
   it('reads runtime figures only from what was reported', () => {
     const entries = [
       entry('user'),
