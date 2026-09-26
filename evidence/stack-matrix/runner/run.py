@@ -226,14 +226,14 @@ class Person:
 # ---------------------------------------------------------------- one task
 
 
-def diff_against_seed(seed, workspace):
+def diff_against_seed(seed, workspace, exclude=NOT_SOURCE):
     seed, workspace = pathlib.Path(seed), pathlib.Path(workspace)
 
     def files(root):
         found = {}
         for path in root.rglob("*"):
             relative = path.relative_to(root)
-            if any(part in NOT_SOURCE for part in relative.parts) or not path.is_file():
+            if any(part in exclude for part in relative.parts) or not path.is_file():
                 continue
             found[str(relative)] = path
         return found
@@ -334,7 +334,8 @@ def run_task(task, run_id, attempt, turns_override=None):
                    "prefill_ms": person.prefill_ms, "generation_ms": person.generation_ms,
                    "peak_context": person.peak_context},
     })
-    (out / "diff.patch").write_text(diff_against_seed(task["dir"] / "workspace", workspace))
+    kept = NOT_SOURCE - set(task["verify"].get("keep", []))
+    (out / "diff.patch").write_text(diff_against_seed(task["dir"] / "workspace", workspace, kept))
     (out / "verdict.txt").write_text(output)
     (out / "result.json").write_text(json.dumps(result, indent=1))
     say(f"=== {label}: {'PASS' if passed else 'FAIL'} in {result['minutes']} min, {person.actions} actions")

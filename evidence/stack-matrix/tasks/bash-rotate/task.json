@@ -1,0 +1,26 @@
+{
+ "id": "bash-rotate",
+ "title": "Bash: a portable log-rotation script with options, compression and careful quoting",
+ "stacks": [
+  "bash",
+  "shell",
+  "python"
+ ],
+ "category": "scripting",
+ "split": "dev",
+ "allow": [],
+ "turns": 3,
+ "minutes": 60,
+ "verify": {
+  "image": "python:3.13-slim",
+  "command": "python -m unittest discover -s tests -v 2>&1",
+  "restore": [
+   "tests/test_rotate.py"
+  ],
+  "timeout": 600,
+  "expect": "^OK",
+  "keep": [
+   "bin"
+  ]
+ }
+}

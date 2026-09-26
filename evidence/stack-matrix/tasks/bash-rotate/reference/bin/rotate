@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Rotates the non-empty *.log files of a directory. See README.md.
+set -u
+
+usage() {
+  echo "usage: rotate [--keep N] [--compress] DIR" >&2
+  echo "rotate: $1" >&2
+  exit 2
+}
+
+keep=5
+compress=0
+dir=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --keep)
+      [ $# -ge 2 ] || usage "--keep needs a number"
+      case "$2" in
+        '' | *[!0-9]*) usage "--keep takes a whole number from 1 to 99" ;;
+      esac
+      if [ "$2" -lt 1 ] || [ "$2" -gt 99 ]; then usage "--keep takes a whole number from 1 to 99"; fi
+      keep=$((10#$2))
+      shift 2
+      ;;
+    --compress) compress=1; shift ;;
+    --*) usage "unknown option $1" ;;
+    *)
+      [ -z "$dir" ] || usage "only one directory"
+      dir="$1"
+      shift
+      ;;
+  esac
+done
+[ -n "$dir" ] || usage "no directory given"
+[ -d "$dir" ] || usage "$dir is not a directory"
+
+suffix=""
+[ "$compress" -eq 1 ] && suffix=".gz"
+
+for path in "$dir"/*.log; do
+  [ -f "$path" ] && [ ! -L "$path" ] && [ -s "$path" ] || continue
+  name=$(basename -- "$path")
+  # Drop copies above the limit, then shift the rest up by one.
+  n=100
+  while [ "$n" -gt "$keep" ]; do
+    rm -f -- "$path.$n" "$path.$n.gz"
+    n=$((n - 1))
+  done
+  n=$((keep - 1))
+  while [ "$n" -ge 1 ]; do
+    [ -e "$path.$n$suffix" ] && mv -f -- "$path.$n$suffix" "$path.$((n + 1))$suffix"
+    n=$((n - 1))
+  done
+  mode=$(stat -c '%a' -- "$path" 2>/dev/null || stat -f '%Lp' -- "$path")
+  mv -f -- "$path" "$path.1"
+  [ "$compress" -eq 1 ] && gzip -f -- "$path.1"
+  : > "$path"
+  chmod "$mode" -- "$path"
+  echo "rotated $name"
+done
+exit 0
