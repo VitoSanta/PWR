@@ -196,6 +196,71 @@ pub enum ProviderError {
     /// and what it lacks is the transition, not an ending.
     #[error("the model's reasoning reached its budget without an answer: {safe_context}")]
     ReasoningUnfinished { safe_context: String },
+    /// The reply fell into a loop, writing the same passage over and over,
+    /// and was stopped rather than left to run to its token cap.
+    ///
+    /// Distinct from `Truncated`, whose way out is doing less per turn: a
+    /// model going round in circles needs to stop analysing and act. Measured
+    /// 2026-09-26 (Qwen3.6-35B-A3B, reasoning off, a spreadsheet engine):
+    /// 29,000 characters restating why `-2^2` parsed wrong, the same three
+    /// paragraphs again and again, for eight minutes of a turn.
+    #[error("the model's reply was going round in circles: {safe_context}")]
+    Looping { safe_context: String },
+}
+
+/// How much of a reply's end is looked at for a loop, in bytes.
+const LOOP_WINDOW: usize = 6_000;
+/// A reply shorter than this is not judged at all: a short answer that says
+/// one thing twice is not a loop.
+const LOOP_MIN_TEXT: usize = 2_500;
+
+/// Whether the end of `text` is going round in circles: a line of some
+/// length written four times or more, or -- for text without line breaks --
+/// fewer than two in five of its 80-byte stretches unlike the others.
+///
+/// Prose and reasoning, never tool arguments (the MLX adapter holds those
+/// back), which is where legitimate repetition -- a table, a test file --
+/// lives.
+pub fn looping(text: &str) -> Option<String> {
+    if text.len() < LOOP_MIN_TEXT {
+        return None;
+    }
+    let mut start = text.len().saturating_sub(LOOP_WINDOW);
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    let window = &text[start..];
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for line in window
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.len() >= 40)
+    {
+        let count = counts.entry(line).or_default();
+        *count += 1;
+        if *count >= 4 {
+            let shown: String = line.chars().take(80).collect();
+            return Some(format!("the passage \"{shown}\" came back {count} times"));
+        }
+    }
+    let bytes = window.as_bytes();
+    if bytes.len() >= LOOP_MIN_TEXT {
+        let mut seen = std::collections::HashSet::new();
+        let mut total = 0usize;
+        let mut index = 0;
+        while index + 80 <= bytes.len() {
+            seen.insert(&bytes[index..index + 80]);
+            total += 1;
+            index += 20;
+        }
+        if total > 0 && seen.len() * 5 < total * 2 {
+            return Some(format!(
+                "only {} of the last {total} stretches of its text were new",
+                seen.len()
+            ));
+        }
+    }
+    None
 }
 
 /// A handle that stops a reply in progress.
@@ -348,6 +413,7 @@ pub async fn collect_reply_with_guard(
 ) -> Result<ModelReply, ProviderError> {
     let mut reply = ModelReply::default();
     let mut done = false;
+    let mut checked_at = 0usize;
     loop {
         // Bounded only once the reply has started. Reading the prompt produces
         // nothing however healthy the backend is, so a bound applied before
@@ -382,6 +448,17 @@ pub async fn collect_reply_with_guard(
             reply.thinking.push_str(thinking);
         }
         reply.tool_calls.extend(chunk.tool_calls);
+        // Judged every kilobyte or so rather than every chunk: a chunk is a
+        // token or two, and the window is six thousand bytes.
+        if unstructured_limit.is_some() && !chunk.done {
+            let written = reply.content.len() + reply.thinking.len();
+            if written / 1024 != checked_at / 1024 {
+                checked_at = written;
+                if let Some(said) = looping(&reply.content).or_else(|| looping(&reply.thinking)) {
+                    return Err(ProviderError::Looping { safe_context: said });
+                }
+            }
+        }
         if let Some((min_thinking, max_content)) = unstructured_limit
             && reply.thinking.len() >= min_thinking
             && reply.content.len() >= max_content

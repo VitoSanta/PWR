@@ -1,0 +1,109 @@
+Right, the `_unary` already calls `_power`. The issue is that `_power` calls `_unary` for the base, and `_unary` calls `_power` for the operand. The chain creates `-(2^2)`.
+
+The fix: `_unary` should call `_power` for the base, and `_power` should call `_unary` for the base. When `_unary` handles `-`, it should call `_power` for the operand. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+But the issue is that `_unary` calls `_power`, which calls `_unary`, which calls `_power`, which calls `_primary`. The base from `_unary` is `NUM(2)`, not `UNARY`.
+
+The fix: `_unary` should handle `-` by calling `_power` for the base, and `_power` should call `_unary` for the base. When `_unary` handles `-`, it should call `_power` for the operand. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+I think the issue is that `_unary` calls `_power`, and `_power` calls `_unary`, and `_unary` calls `_power`. The chain is:
+
+`_unary(-)` → `_power` → `_unary` → `_power` → `_primary(2)`
+
+Then `_power` sees `^` and handles it. The base from `_unary` is `NUM(2)`, not `UNARY`. So `_power` handles `^` and returns `('BINOP', '^', ('NUM', 2), ('NUM', 2))`. Then `_unary` wraps it in `UNARY`.
+
+The fix: `_unary` should handle `-` by calling `_power` for the base, and `_power` should call `_unary` for the base. When `_unary` handles `-`, it should call `_power` for the operand. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+I think the issue is that `_unary` calls `_power`, which calls `_unary`, which calls `_power`, which calls `_primary`. The base from `_unary` is `NUM(2)`, not `UNARY`.
+
+The fix: `_unary` should handle `-` by calling `_power` for the base, and `_power` should call `_unary` for the base. When `_unary` handles `-`, it should call `_power` for the operand. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+For `-2^2`:
+1. `_unary` sees `-`, calls `_power` for the base
+2. `_power` calls `_unary` for the base
+3. `_unary` doesn't see `-`, calls `_power` for the operand
+4. `_power` calls `_primary` → `NUM(2)`
+5. `_power` sees `^`, handles it → `('BINOP', '^', ('NUM', 2), ('NUM', 2))`
+6. `_unary` (step 3) returns `BINOP`
+7. `_power` (step 2) sees base is `BINOP` (not `UNARY`), handles `^`... no more `^`, returns `BINOP`
+8. `_unary` (step 1) wraps: `('UNARY', '-', ('BINOP', '^', ...))`
+
+The `-` is applied to the `BINOP` result, giving `-(2^2)` = `-4`.
+
+The fix: `_unary` should NOT wrap the result of `_power` in a `UNARY` node. Instead, `_unary` should apply `-` to the base of `_power`, and `_power` should handle `^` with the base being the result of `_unary`.
+
+The way to do this: `_unary` handles `-` by calling `_power` for the base, and the `-` is applied to the base, not to the result. This means: `_unary` should call `_power` for the base, and the `-` is applied to the base, not to the result of `_power`.
+
+I think the cleanest solution is to restructure the parser so that `_unary` handles `-` by calling `_power` for the base, and `_power` handles `^` with the base being the result of `_unary`. But when `_unary` handles `-`, it should NOT call `_power` for the operand. Instead, it should call `_power` directly. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+OK, I need to fundamentally restructure the parser. The current structure is:
+
+```
+_power → _unary → _power
+```
+
+This creates the chain `_unary(-)` → `_power` → `_unary` → `_power` → `_primary(2)`.
+
+The fix: `_power` should call `_unary` for the base. `_unary` handles `-` by calling `_power` for the base. When `_power` handles `^`, it checks if the base is a `UNARY` node. If so, DON'T handle `^` — just return the `UNARY` node.
+
+But the issue is that `_unary` calls `_power`, which calls `_unary`, which calls `_power`, which calls `_primary`. The base from `_unary` is `NUM(2)`, not `UNARY`.
+
+The fix: `_unary` should handle `-` by calling `_power` for the base, and `_power` should call `_unary` for the base. When `_unary` handles `-`, it should call `_power` for the operand. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+For `-2^2`:
+1. `_unary` sees `-`, calls `_power` for the base
+2. `_power` calls `_unary` for the base
+3. `_unary` doesn't see `-`, calls `_power` for the operand
+4. `_power` calls `_primary` → `NUM(2)`
+5. `_power` sees `^`, handles it → `('BINOP', '^', ('NUM', 2), ('NUM', 2))`
+6. `_unary` (step 3) returns `BINOP`
+7. `_power` (step 2) sees base is `BINOP` (not `UNARY`), handles `^`... no more `^`, returns `BINOP`
+8. `_unary` (step 1) wraps: `('UNARY', '-', ('BINOP', '^', ...))`
+
+The `-` is applied to the `BINOP` result, giving `-(2^2)` = `-4`.
+
+The fix: `_unary` should NOT wrap the result of `_power` in a `UNARY` node. Instead, `_unary` should apply `-` to the base of `_power`, and `_power` should handle `^` with the base being the result of `_unary`.
+
+The way to do this: `_unary` handles `-` by calling `_power` for the base, and the `-` is applied to the base, not to the result. This means: `_unary` should call `_power` for the base, and the `-` is applied to the base, not to the result of `_power`.
+
+I think the issue is that `_unary` calls `_power`, which calls `_unary`, which calls `_power`, which calls `_primary`. The base from `_unary` is `NUM(2)`, not `UNARY`.
+
+The fix: `_unary` should handle `-` by calling `_power` for the base, and `_power` should call `_unary` for the base. When `_unary` handles `-`, it should call `_power` for the operand. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+For `-2^2`, the issue is that `_unary` calls `_power`, which calls `_unary`, which calls `_power`, which calls `_primary`. The base from `_unary` is `NUM(2)`, not `UNARY`. So `_power` handles `^` and returns `('BINOP', '^', ('NUM', 2), ('NUM', 2))`. Then `_unary` wraps it in `UNARY`.
+
+The fix: `_unary` should handle `-` by calling `_power` for the base, and `_power` should call `_unary` for the base. When `_unary` handles `-`, it should call `_power` for the operand. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+I think the issue is that `_unary` calls `_power`, which calls `_unary`, which calls `_power`, which calls `_primary`. The base from `_unary` is `NUM(2)`, not `UNARY`.
+
+The fix: `_unary` should handle `-` by calling `_power` for the base, and `_power` should call `_unary` for the base. When `_unary` handles `-`, it should call `_power` for the operand. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+I've been going in circles. Let me just rewrite the entire parser with a different structure. The key change: `_power` should call `_unary` for the base, and `_unary` should call `_power` for the operand. When `_unary` handles `-`, it calls `_power` for the base. `_power` handles `^` with the base being the result of `_unary`.
+
+For `-2^2`:
+1. `_power` calls `_unary` for the base
+2. `_unary` sees `-`, calls `_power` for the base
+3. `_power` calls `_unary` for the base
+4. `_unary` doesn't see `-`, calls `_power` for the operand
+5. `_power` calls `_primary` → `NUM(2)`
+6. `_power` sees `^`, handles it → `('BINOP', '^', ('NUM', 2), ('NUM', 2))`
+7. `_unary` (step 4) returns `BINOP`
+8. `_power` (step 3) sees base is `BINOP` (not `UNARY`), handles `^`... no more `^`, returns `BINOP`
+9. `_unary` (step 2) wraps: `('UNARY', '-', ('BINOP', '^', ...))`
+10. `_power` (step 1) sees base is `UNARY`, returns it (because of the check `if base[0] == 'UNARY': return base`)
+
+Wait, step 10 should return the `UNARY` node because of the check. Let me verify:
+
+At step 10, `_power` sees base is `UNARY`. The check `if base[0] == 'UNARY': return base` should return the `UNARY` node. So the result is `('UNARY', '-', ('BINOP', '^', ('NUM', 2), ('NUM', 2)))`.
+
+But that's `-(2^2)` = `-4`. The check is working, but it's returning the wrong thing.
+
+The issue: `_unary` (step 2) wraps the `BINOP` result in a `UNARY` node. The `-` is applied to the `BINOP` result, not to the base of the `BINOP`.
+
+The fix: `_unary` should NOT wrap the result of `_power` in a `UNARY` node. Instead, `_unary` should apply `-` to the base of `_power`, and `_power` should handle `^` with the base being the result of `_unary`.
+
+The way to do this: `_unary` handles `-` by calling `_power` for the base, and the `-` is applied to the base, not to the result. This means: `_unary` should call `_power` for the base, and the `-` is applied to the base, not to the result of `_power`.
+
+I think the cleanest solution is to restructure the parser so that `_unary` handles `-` by calling `_power` for the base, and `_power` handles `^` with the base being the result of `_unary`. But when `_unary` handles `-`, it should NOT call `_power` for the operand. Instead, it should call `_power` directly. And `_power` should NOT handle `^` when the base is a `UNARY` node.
+
+OK, let me try a completely different approach. Instead of having `_unary` call `_power`, have `_unary` handle `-` by ca

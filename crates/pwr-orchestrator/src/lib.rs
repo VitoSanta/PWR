@@ -726,6 +726,8 @@ pub enum ReplyFault {
     Unparsed(String),
     /// The reply never stopped, and was cut off.
     RanAway(String),
+    /// The reply went round in circles, and was stopped.
+    Looped(String),
 }
 
 impl ReplyFault {
@@ -743,6 +745,9 @@ impl ReplyFault {
             pwr_provider::ProviderError::Truncated { safe_context } => {
                 Some(Self::RanAway(safe_context.clone()))
             }
+            pwr_provider::ProviderError::Looping { safe_context } => {
+                Some(Self::Looped(safe_context.clone()))
+            }
             _ => None,
         }
     }
@@ -753,12 +758,13 @@ impl ReplyFault {
         match self {
             Self::Unparsed(_) => "unparsed_output",
             Self::RanAway(_) => "runaway_reply",
+            Self::Looped(_) => "looping_reply",
         }
     }
 
     pub fn detail(&self) -> &str {
         match self {
-            Self::Unparsed(detail) | Self::RanAway(detail) => detail,
+            Self::Unparsed(detail) | Self::RanAway(detail) | Self::Looped(detail) => detail,
         }
     }
 
@@ -797,6 +803,12 @@ impl ReplyFault {
                 "Your last reply ran on until it was cut off, so nothing in it was done: \
                  {detail}. Do less in one turn: make one or two tool calls, wait for their \
                  results, and continue from there."
+            ),
+            Self::Looped(detail) => format!(
+                "Your last reply was going round in circles and was stopped -- {detail} -- \
+                 so nothing in it was done. Do not work the problem out again in prose: act \
+                 on what you concluded with one tool call (make the change, or run the \
+                 failing test and read its output), and let the result tell you what next."
             ),
         }
     }

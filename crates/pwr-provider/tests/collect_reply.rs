@@ -279,3 +279,45 @@ async fn a_slow_reply_that_keeps_speaking_still_arrives() {
         .expect("a slow reply is a reply");
     assert_eq!(reply.content, "0123");
 }
+
+/// A reply going round in circles is stopped where it starts repeating, with
+/// no reasoning needed to arm the guard -- the looping reply of 2026-09-26
+/// had reasoning off, and ran eight minutes under the old guard.
+#[tokio::test]
+async fn a_looping_answer_is_stopped_without_waiting_for_its_cap() {
+    let paragraph =
+        "I think the issue is that `_unary` calls `_power`, which calls `_unary` again.\n";
+    let mut chunks: Vec<Result<ModelChunk, ProviderError>> =
+        (0..400).map(|_| Ok(content(paragraph))).collect();
+    chunks.push(Ok(ModelChunk {
+        done: true,
+        ..Default::default()
+    }));
+    let mut seen = 0usize;
+    let error = collect_reply_with_guard(stream(chunks), |_| seen += 1, Some((3_000, 12_000)))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ProviderError::Looping { .. }), "{error:?}");
+    assert!(seen < 150, "read {seen} of 400 chunks before stopping");
+}
+
+/// Without the guard -- a plain chat reply -- nothing is judged.
+#[tokio::test]
+async fn an_unguarded_reply_is_never_judged_a_loop() {
+    let mut chunks: Vec<Result<ModelChunk, ProviderError>> = (0..200)
+        .map(|_| {
+            Ok(content(
+                "the same line of text, again and again, forty bytes long\n",
+            ))
+        })
+        .collect();
+    chunks.push(Ok(ModelChunk {
+        done: true,
+        ..Default::default()
+    }));
+    assert!(
+        collect_reply_with_guard(stream(chunks), |_| {}, None)
+            .await
+            .is_ok()
+    );
+}

@@ -10052,6 +10052,7 @@ fn provider_error(e: pwr_provider::ProviderError) -> SafeError {
         pwr_provider::ProviderError::Truncated { .. } => "provider_truncated",
         pwr_provider::ProviderError::ModelOutput { .. } => "model_output",
         pwr_provider::ProviderError::ReasoningUnfinished { .. } => "reasoning_unfinished",
+        pwr_provider::ProviderError::Looping { .. } => "model_looping",
     };
     SafeError {
         category,

@@ -1265,6 +1265,11 @@ async fn take_turn_inner<P: ModelProvider>(
                     answer_without_thinking = true;
                     runaway_retry = true;
                 }
+                // A model that looped once is bounded more tightly on the next
+                // try, so a second loop costs minutes rather than a turn.
+                if matches!(fault, crate::ReplyFault::Looped(_)) {
+                    runaway_retry = true;
+                }
                 failed(&mut turn, fault.kind(), fault.detail().to_owned())?;
                 unparseable = unparseable.saturating_add(1);
                 if unparseable >= UNPARSEABLE_CALLS_BEFORE_GIVING_UP {
