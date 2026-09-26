@@ -1,0 +1,12 @@
+{
+  "name": "tasks-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "fastify": "^5.4.0"
+  }
+}

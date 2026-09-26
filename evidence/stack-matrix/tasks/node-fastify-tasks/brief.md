@@ -1,0 +1,1 @@
+Build the tasks API described in README.md (src/app.js) so that `npm test` passes. Fastify is declared in package.json but not installed yet. Don't change the tests. Tell me what you built and the final test result.
