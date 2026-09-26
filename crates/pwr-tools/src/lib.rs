@@ -914,14 +914,197 @@ pub fn host_facts(root: &Path) -> String {
          written, so do not install system-wide. A program the workspace does not list, a \
          download and a published change go to the engineer for approval when you run them, \
          so run what the task needs rather than working around it; if one is refused, say \
-         what it would have taken.",
+         what it would have taken.{}",
         present.join(", "),
         if missing.is_empty() {
             "nothing checked for".to_owned()
         } else {
             missing.join(", ")
         },
+        {
+            let recipes = toolchain_recipes(root, &missing);
+            if recipes.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\nWhere to get what this workspace needs and the machine lacks:\n{}",
+                    recipes
+                        .iter()
+                        .map(|recipe| format!("- {recipe}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+            }
+        },
     )
+}
+
+/// Files that say which toolchain a workspace is built with, and the
+/// programs that toolchain is.
+const TOOLCHAIN_MARKERS: &[(&str, &[&str])] = &[
+    ("composer.json", &["php", "composer"]),
+    ("pom.xml", &["java", "mvn"]),
+    ("build.gradle", &["java", "gradle"]),
+    ("build.gradle.kts", &["java", "gradle"]),
+    ("settings.gradle.kts", &["java", "gradle"]),
+    ("go.mod", &["go"]),
+    ("Cargo.toml", &["cargo"]),
+    ("package.json", &["node"]),
+    ("global.json", &["dotnet"]),
+    ("CMakeLists.txt", &["cmake"]),
+    ("pubspec.yaml", &["dart"]),
+    ("deno.json", &["deno"]),
+    ("mix.exs", &["elixir"]),
+];
+
+/// The toolchains a workspace's own files name, looked for at its root and
+/// two levels down (a .NET test project under `tests/`).
+fn toolchains_named(root: &Path) -> Vec<&'static str> {
+    let mut named: Vec<&'static str> = Vec::new();
+    let mut level = vec![root.to_path_buf()];
+    for _ in 0..3 {
+        let mut next = Vec::new();
+        for directory in &level {
+            let Ok(entries) = std::fs::read_dir(directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let path = entry.path();
+                if path.is_dir() {
+                    if !name.starts_with('.')
+                        && !matches!(
+                            name.as_str(),
+                            "node_modules" | "vendor" | "target" | "build" | "dist" | "bin" | "obj"
+                        )
+                    {
+                        next.push(path);
+                    }
+                    continue;
+                }
+                let programs: &[&'static str] = if name.ends_with(".csproj")
+                    || name.ends_with(".sln")
+                    || name.ends_with(".slnx")
+                {
+                    &["dotnet"]
+                } else if name.ends_with(".tf") {
+                    &["terraform"]
+                } else {
+                    TOOLCHAIN_MARKERS
+                        .iter()
+                        .find(|(marker, _)| *marker == name)
+                        .map(|(_, programs)| *programs)
+                        .unwrap_or(&[])
+                };
+                for program in programs {
+                    if !named.contains(program) {
+                        named.push(program);
+                    }
+                }
+            }
+        }
+        level = next;
+    }
+    named
+}
+
+/// How to get each toolchain the workspace names and the machine lacks,
+/// from its official source, for this machine.
+///
+/// A local model knows that Go comes from go.dev; it does not reliably know
+/// what the archive for this machine is called, that PHP has static builds
+/// for macOS, or that a JDK's `bin` is under `Contents/Home`. Measured
+/// 2026-09-26 on the stack matrix: guessing CMake's archive name cost twenty
+/// actions, and with no PHP to be had the model built PHP from source, tried
+/// Homebrew and `sudo chown` on `/opt/homebrew`, and copied a Linux binary out
+/// of a container -- an hour, with the code already correct. Every address
+/// here was checked to answer on the day it was written.
+pub fn toolchain_recipes(root: &Path, missing: &[&str]) -> Vec<String> {
+    let mac = std::env::consts::OS == "macos";
+    let arm = std::env::consts::ARCH == "aarch64";
+    let go_arch = match (mac, arm) {
+        (true, true) => "darwin-arm64",
+        (true, false) => "darwin-amd64",
+        (false, true) => "linux-arm64",
+        (false, false) => "linux-amd64",
+    };
+    let node_arch = match (mac, arm) {
+        (true, true) => "darwin-arm64",
+        (true, false) => "darwin-x64",
+        (false, true) => "linux-arm64",
+        (false, false) => "linux-x64",
+    };
+    let adoptium = match (mac, arm) {
+        (true, true) => "mac/aarch64",
+        (true, false) => "mac/x64",
+        (false, true) => "linux/aarch64",
+        (false, false) => "linux/x64",
+    };
+    let triple = match (mac, arm) {
+        (true, true) => "aarch64-apple-darwin",
+        (true, false) => "x86_64-apple-darwin",
+        (false, true) => "aarch64-unknown-linux-gnu",
+        (false, false) => "x86_64-unknown-linux-gnu",
+    };
+    let php_arch = match (mac, arm) {
+        (true, true) => "macos-aarch64",
+        (true, false) => "macos-x86_64",
+        (false, true) => "linux-aarch64",
+        (false, false) => "linux-x86_64",
+    };
+    let dart_arch = match (mac, arm) {
+        (true, true) => "macos-arm64",
+        (true, false) => "macos-x64",
+        (false, true) => "linux-arm64",
+        (false, false) => "linux-x64",
+    };
+    let cmake_archive = if mac {
+        "cmake-3.31.6-macos-universal.tar.gz".to_owned()
+    } else {
+        format!(
+            "cmake-3.31.6-linux-{}.tar.gz",
+            if arm { "aarch64" } else { "x86_64" }
+        )
+    };
+    let jdk_bin = if mac {
+        " (its bin is under Contents/Home/bin)"
+    } else {
+        ""
+    };
+    let recipe = |program: &str| -> Option<String> {
+        Some(match program {
+            "go" => format!("go: https://go.dev/dl/go<version>.{go_arch}.tar.gz -- the versions are at https://go.dev/dl/?mode=json; extract into {TOOLCHAINS_DIRECTORY}/ (it unpacks as go/)."),
+            "node" => format!("node: https://nodejs.org/dist/latest-v22.x/ lists node-v22.<x>.<y>-{node_arch}.tar.gz; extract into {TOOLCHAINS_DIRECTORY}/."),
+            "java" => format!("java: https://api.adoptium.net/v3/binary/latest/21/ga/{adoptium}/jdk/hotspot/normal/eclipse is a JDK 21 .tar.gz; extract into {TOOLCHAINS_DIRECTORY}/{jdk_bin}."),
+            "mvn" => format!("mvn: https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz; extract into {TOOLCHAINS_DIRECTORY}/ (it needs a JDK)."),
+            "gradle" => format!("gradle: https://services.gradle.org/distributions/gradle-8.14-bin.zip; unzip into {TOOLCHAINS_DIRECTORY}/ (it needs a JDK)."),
+            "dotnet" => format!("dotnet: save https://dot.net/v1/dotnet-install.sh and run `bash dotnet-install.sh --channel 10.0 --install-dir {TOOLCHAINS_DIRECTORY}/dotnet`."),
+            "cmake" => format!("cmake: https://github.com/Kitware/CMake/releases/download/v3.31.6/{cmake_archive}; extract into {TOOLCHAINS_DIRECTORY}/."),
+            "php" => format!("php: static builds need nothing else -- https://dl.static-php.dev/static-php-cli/common/ lists php-<version>-cli-{php_arch}.tar.gz, one `php` binary; put it in {TOOLCHAINS_DIRECTORY}/php/bin/ and make it executable."),
+            "composer" => format!("composer: https://getcomposer.org/download/latest-stable/composer.phar; save it as {TOOLCHAINS_DIRECTORY}/composer/bin/composer and make it executable (it runs with php)."),
+            "dart" => format!("dart: https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-{dart_arch}-release.zip; unzip into {TOOLCHAINS_DIRECTORY}/ (it unpacks as dart-sdk/)."),
+            "deno" => format!("deno: https://github.com/denoland/deno/releases/latest/download/deno-{triple}.zip; unzip into {TOOLCHAINS_DIRECTORY}/deno/bin/."),
+            "cargo" => format!("cargo: https://static.rust-lang.org/rustup/dist/{triple}/rustup-init; run it with RUSTUP_HOME={TOOLCHAINS_DIRECTORY}/rust/rustup and CARGO_HOME={TOOLCHAINS_DIRECTORY}/rust/cargo: `rustup-init -y --no-modify-path --profile minimal`."),
+            "terraform" => format!("terraform: https://releases.hashicorp.com/terraform/ lists the versions; download terraform_<version>_{}.zip and unzip into {TOOLCHAINS_DIRECTORY}/terraform/bin/.", go_arch.replace('-', "_")),
+            "elixir" => "elixir: there is no portable build for this machine; run it in its Docker image (`docker run --rm -v \"$PWD\":/w -w /w elixir:1.18 mix test`), with the engineer's approval for the container engine.".to_owned(),
+            _ => return None,
+        })
+    };
+    let mut recipes: Vec<String> = toolchains_named(root)
+        .into_iter()
+        .filter(|program| {
+            missing.contains(program) || (*program == "java" && missing.contains(&"javac"))
+        })
+        .filter_map(recipe)
+        .collect();
+    if !recipes.is_empty() {
+        recipes.push(
+            "anything with an official Docker image can also run in a container \
+             (`docker run --rm -v \"$PWD\":/w -w /w <image> <command>`), with the engineer's approval."
+                .to_owned(),
+        );
+    }
+    recipes
 }
 
 /// Dependency manifests and lockfiles. Editing one changes what the build
@@ -5798,6 +5981,25 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recipes_follow_the_workspace_and_what_is_missing() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("composer.json"), "{}").unwrap();
+        std::fs::create_dir_all(root.path().join("tests/Api.Tests")).unwrap();
+        std::fs::write(root.path().join("tests/Api.Tests/Api.Tests.csproj"), "").unwrap();
+        let recipes = toolchain_recipes(root.path(), &["php", "composer", "go"]);
+        let said = recipes.join("\n");
+        assert!(said.contains("dl.static-php.dev"), "{said}");
+        assert!(said.contains("composer.phar"), "{said}");
+        // Go is missing but nothing here is built with it; .NET is named but present.
+        assert!(!said.contains("go.dev"), "{said}");
+        assert!(!said.contains("dotnet-install"), "{said}");
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            assert!(said.contains("cli-macos-aarch64"), "{said}");
+        }
+        assert!(toolchain_recipes(root.path(), &[]).is_empty());
+    }
+
     #[test]
     fn a_repeated_program_is_recognised_however_it_is_spelled() {
         let args = |words: &[&str]| {
