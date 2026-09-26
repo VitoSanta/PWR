@@ -1,0 +1,18 @@
+{
+ "id": "rust-semver",
+ "title": "Rust: semantic versions and npm-style ranges, prerelease rules included",
+ "stacks": ["rust", "cargo"],
+ "category": "algorithmic-library",
+ "split": "dev",
+ "allow": ["network_access", "dependency_change"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "rust:1",
+  "command": "cargo test --quiet 2>&1",
+  "restore": ["tests/versions.rs", "tests/ranges.rs"],
+  "cache": ["cargo-registry:/usr/local/cargo/registry"],
+  "timeout": 1200,
+  "expect": "test result: ok"
+ }
+}

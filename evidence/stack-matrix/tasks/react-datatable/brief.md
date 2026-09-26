@@ -1,0 +1,1 @@
+Build the DataTable component described in README.md (src/DataTable.tsx) so that `npm test` passes. The dependencies are declared in package.json but not installed yet. Don't change the tests. Tell me what you built and the final test result.

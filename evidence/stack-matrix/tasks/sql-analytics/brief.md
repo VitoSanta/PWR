@@ -1,0 +1,1 @@
+Write the reporting queries and the refunds migration described in README.md, so that `python3 -m unittest discover -s tests -v` passes. The queries must be correct for any data in this schema, not only the sample. Don't change the tests or the schema. Tell me what you wrote and the final test result.

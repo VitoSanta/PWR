@@ -1,0 +1,18 @@
+{
+ "id": "react-datatable",
+ "title": "React 19 + TypeScript: an accessible sortable, filterable, paged table (Vitest, Testing Library)",
+ "stacks": ["react", "typescript", "vite", "vitest", "npm"],
+ "category": "frontend-component",
+ "split": "dev",
+ "allow": ["network_access", "dependency_change", "toolchain_install"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "node:24-slim",
+  "command": "npm install --no-audit --no-fund --loglevel=error >/dev/null && npx vitest run 2>&1",
+  "restore": ["test/DataTable.test.tsx", "test/fixtures.ts", "vitest.config.ts", "package.json"],
+  "cache": ["npm:/root/.npm"],
+  "timeout": 1200,
+  "expect": "Tests\\s+\\d+ passed"
+ }
+}
