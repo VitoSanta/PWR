@@ -979,6 +979,9 @@ async fn take_turn_inner<P: ModelProvider>(
     // Consecutive, like `silent`: a deployment that recovers is not held to
     // account for one bad generation.
     let mut unparseable = 0usize;
+    // Its own count: a reply carrying an unreadable call arrives as a reply,
+    // and every reply that arrives resets `unparseable`.
+    let mut broken_calls = 0usize;
     // Consecutive tool calls that did not decode against the catalogue.
     let mut malformed_calls = 0usize;
     // Identifies each action across its phases for a front end.
@@ -1531,6 +1534,55 @@ async fn take_turn_inner<P: ModelProvider>(
             images: Vec::new(),
             reasoning: kept_reasoning(&reply.thinking),
         });
+        // A call the model tried to make and the family adapter could not
+        // read is not an answer. Taken as one, the turn ended "answered" with
+        // the raw block as its text; measured on the stack matrix (2026-09-26)
+        // the model then saw its file had never been written and wrote the
+        // same unreadable call sixty times across a goal. Told, counted with
+        // the other reply faults, and asked again.
+        let broken_call = reply
+            .diagnostics
+            .iter()
+            .filter(|_| reply.tool_calls.is_empty())
+            .find(|diagnostic| {
+                diagnostic.kind.ends_with("undecodable_tool_call")
+                    || diagnostic.kind.ends_with("unterminated_tool_call")
+            });
+        if let Some(diagnostic) = broken_call {
+            broken_calls = broken_calls.saturating_add(1);
+            if broken_calls >= UNPARSEABLE_CALLS_BEFORE_GIVING_UP {
+                return stopped(actions, edited, StopReason::Unparseable);
+            }
+            let cut_off = diagnostic.kind.ends_with("unterminated_tool_call");
+            on_step(TurnStep::Refused(format!(
+                "{} ({broken_calls} of {UNPARSEABLE_CALLS_BEFORE_GIVING_UP})",
+                diagnostic.detail
+            )));
+            retrying += 1;
+            on_step(TurnStep::Retry {
+                cause: "reply_fault",
+                attempt: broken_calls,
+                limit: UNPARSEABLE_CALLS_BEFORE_GIVING_UP - 1,
+                detail: diagnostic.detail.clone(),
+            });
+            if cut_off {
+                runaway_retry = true;
+            }
+            messages.push(ChatMessage::text(
+                "tool",
+                if cut_off {
+                    "Your tool call was cut off before it ended, so nothing was done. Send it again, \
+                     complete; if a file is long, write part of it and add the rest with replace_text \
+                     or apply_patch."
+                } else {
+                    "Your tool call could not be read, so nothing was done. Write it exactly in this \
+                     form, closing every parameter with </parameter> (not with the parameter's name):\n\
+                     <tool_call>\n<function=NAME>\n<parameter=KEY>\nVALUE\n</parameter>\n</function>\n</tool_call>"
+                },
+            ));
+            continue;
+        }
+        broken_calls = 0;
         if reply.tool_calls.is_empty() {
             // A turn with neither an answer nor an action produced nothing,
             // and returning it as the answer shows the operator "1 action(s)

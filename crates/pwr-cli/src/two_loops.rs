@@ -361,7 +361,19 @@ fn drive_chat_under<P: Recording>(
     context_tiers: &[u32],
     stop: &std::sync::atomic::AtomicBool,
 ) -> ChatOutcome {
-    let adapter = pwr_compat::adapter_for(None, "fake");
+    drive_chat_as("fake", policy, provider, context_tiers, stop)
+}
+
+/// A turn read by the adapter a model reference selects, for what only one
+/// family's reply format can produce.
+fn drive_chat_as<P: Recording>(
+    model_ref: &str,
+    policy: ToolPolicy,
+    provider: P,
+    context_tiers: &[u32],
+    stop: &std::sync::atomic::AtomicBool,
+) -> ChatOutcome {
+    let adapter = pwr_compat::adapter_for(None, model_ref);
     let store = pwr_store::Store::open(":memory:").unwrap();
     let catalog = converse::chat_tool_catalog();
     let tools = pwr_compat::render_tools(&catalog);
@@ -1155,6 +1167,66 @@ fn an_unreadable_reply_is_told_the_same_way_by_both_loops() {
             .as_str()
             .unwrap()
             .contains("XML syntax error")
+    );
+}
+
+/// A call the family adapter could not read is a reply fault, not an answer.
+///
+/// Measured on the stack matrix, 2026-09-26: a turn whose only content was an
+/// unreadable `<tool_call>` block ended "answered" with the block as its text,
+/// and in goal mode the model wrote the same call sixty times, each one
+/// accepted as a finished turn that had done nothing.
+#[test]
+fn an_unreadable_call_in_the_text_is_told_and_asked_again() {
+    let dir = workspace();
+    let outcome = drive_chat_as(
+        "qwen3.6",
+        policy_for(dir.path()),
+        Scripted::new(vec![
+            says("<tool_call>\nnot a call at all\n</tool_call>"),
+            says("<tool_call>\n<function=read_file>\n<parameter=path>\nnotes.txt"),
+            says("Done."),
+        ]),
+        &[],
+        &std::sync::atomic::AtomicBool::new(false),
+    );
+    assert_eq!(outcome.report.answer, "Done.");
+    assert_eq!(outcome.report.actions, 0);
+    let told = |request: &ModelRequest| {
+        request
+            .messages
+            .last()
+            .map(|message| (message.role.clone(), message.content.clone()))
+            .unwrap()
+    };
+    let (role, text) = told(&outcome.requests[1]);
+    assert_eq!(role, "tool");
+    assert!(text.contains("could not be read"), "{text}");
+    assert!(text.contains("</parameter>"), "{text}");
+    let (_, text) = told(&outcome.requests[2]);
+    assert!(text.contains("cut off"), "{text}");
+    assert!(
+        outcome.steps.iter().filter(|step| step.starts_with("refused")).count() == 2,
+        "{:?}",
+        outcome.steps
+    );
+}
+
+/// Unreadable calls that keep coming stop the turn the way every other reply
+/// fault does, rather than one of them being taken as the answer.
+#[test]
+fn unreadable_calls_that_keep_coming_stop_the_turn() {
+    let dir = workspace();
+    let outcome = drive_chat_as(
+        "qwen3.6",
+        policy_for(dir.path()),
+        Scripted::new(vec![says("<tool_call>\nnot a call\n</tool_call>"); 3]),
+        &[],
+        &std::sync::atomic::AtomicBool::new(false),
+    );
+    assert_eq!(
+        outcome.report.stopped,
+        Some(converse::StopReason::Unparseable)
     );
 }
 

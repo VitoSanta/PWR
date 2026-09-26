@@ -266,6 +266,7 @@ fn parse_call(body: &str) -> Option<ToolCall> {
 const OPEN_FUNCTION: &str = "<function=";
 const OPEN_PARAMETER: &str = "<parameter=";
 const CLOSE_PARAMETER: &str = "</parameter>";
+const CLOSE_FUNCTION: &str = "</function>";
 
 /// Reads the XML form Qwen 3.5 and 3.6 are trained to write:
 ///
@@ -298,8 +299,35 @@ fn parse_xml_call(body: &str) -> Option<ToolCall> {
         let key_end = from.find('>')?;
         let key = from[..key_end].trim().to_owned();
         let value_from = &from[key_end + 1..];
-        let value_end = value_from.find(CLOSE_PARAMETER)?;
-        let raw = &value_from[..value_end];
+        // Where this parameter's value can end at the latest: the next
+        // parameter or the end of the function. Within that, the value is
+        // closed by `</parameter>` -- or, as Qwen 3.6 sometimes writes it, by
+        // a closing tag named for the parameter (`<parameter=content>` ...
+        // `</content>`), or not closed at all. Measured 2026-09-26 on the
+        // stack matrix: a `write_file` closed with `</content>` was dropped as
+        // undecodable, the reply counted as an answer, and the model --
+        // seeing its file never written -- wrote it the same way again
+        // sixty times. All three have one reading.
+        let boundary = [
+            value_from.find(&format!("\n{OPEN_PARAMETER}")),
+            value_from.find(CLOSE_FUNCTION),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(value_from.len());
+        let segment = &value_from[..boundary];
+        let named_close = format!("</{key}>");
+        let trimmed = segment.trim_end();
+        let (raw, consumed) = if let Some(value) = trimmed.strip_suffix(CLOSE_PARAMETER) {
+            (value, boundary)
+        } else if let Some(value) = trimmed.strip_suffix(named_close.as_str()) {
+            (value, boundary)
+        } else if let Some(close) = segment.find(CLOSE_PARAMETER) {
+            (&segment[..close], close + CLOSE_PARAMETER.len())
+        } else {
+            (trimmed, boundary)
+        };
         let raw = raw.strip_prefix('\n').unwrap_or(raw);
         let raw = raw.strip_suffix('\n').unwrap_or(raw);
         let value = match serde_json::from_str::<serde_json::Value>(raw.trim()) {
@@ -307,7 +335,7 @@ fn parse_xml_call(body: &str) -> Option<ToolCall> {
             _ => serde_json::Value::String(raw.to_owned()),
         };
         arguments.insert(key, value);
-        rest = &value_from[value_end + CLOSE_PARAMETER.len()..];
+        rest = &value_from[consumed..];
     }
     Some(ToolCall {
         name,
@@ -722,6 +750,30 @@ pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehavi
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_parameter_closed_by_its_own_name_or_not_at_all_still_reads() {
+        let adapter = QwenFamilyAdapter;
+        let text = "Creating it.\n<tool_call>\n<function=write_file>\n<parameter=path>\nsrc/Api/Api.csproj\n</parameter>\n<parameter=content>\n<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n  <PropertyGroup>\n    <Nullable>enable</Nullable>\n  </PropertyGroup>\n</Project>\n\n</content>\n</function>\n</tool_call>";
+        let canonical = adapter.normalize(&reply(text));
+        assert_eq!(canonical.tool_calls.len(), 1, "{:?}", canonical.diagnostics);
+        let arguments = &canonical.tool_calls[0].arguments;
+        assert_eq!(arguments["path"], "src/Api/Api.csproj");
+        assert!(arguments["content"].as_str().unwrap().ends_with("</Project>\n"), "{arguments}");
+        assert!(!arguments["content"].as_str().unwrap().contains("</content>"));
+
+        let unclosed = "<tool_call>\n<function=read_file>\n<parameter=path>\nsrc/lib.rs\n</function>\n</tool_call>";
+        let canonical = adapter.normalize(&reply(unclosed));
+        assert_eq!(canonical.tool_calls[0].arguments["path"], "src/lib.rs");
+
+        // A value that itself contains the closing tag of the format keeps it.
+        let quoted = "<tool_call>\n<function=write_file>\n<parameter=path>\ndocs/format.md\n</parameter>\n<parameter=content>\nEnd a value with </parameter> on its own line.\n</parameter>\n</function>\n</tool_call>";
+        let canonical = adapter.normalize(&reply(quoted));
+        assert_eq!(
+            canonical.tool_calls[0].arguments["content"],
+            "End a value with </parameter> on its own line."
+        );
+    }
+
 
     #[test]
     fn a_glm_call_is_read_with_typed_values() {
