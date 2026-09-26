@@ -2648,9 +2648,41 @@ pub fn list_tree_under(
                 },
             };
             if !resolved.is_dir() {
+                // What is there, said here: a model starting a project lists
+                // the folders it expects -- `src`, `include`, `scripts` -- and
+                // each refusal that only pointed at list_tree cost a second
+                // call to learn the root (nine on the stack matrix of
+                // 2026-09-26).
+                let mut top: Vec<String> = std::fs::read_dir(&policy.root)
+                    .map(|entries| {
+                        entries
+                            .flatten()
+                            .map(|entry| {
+                                let name = entry.file_name().to_string_lossy().into_owned();
+                                if entry.path().is_dir() {
+                                    format!("{name}/")
+                                } else {
+                                    name
+                                }
+                            })
+                            .filter(|name| !name.starts_with(".pwr") && name != ".git/")
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                top.sort();
+                top.truncate(40);
+                let what = if resolved.exists() {
+                    "is a file, not a directory"
+                } else {
+                    "does not exist yet"
+                };
                 return Err(ToolError::Denied(format!(
-                    "{dir} is not a directory in the workspace; list_tree without a path shows \
-                     what is there"
+                    "{dir} {what}. The workspace root holds: {}",
+                    if top.is_empty() {
+                        "nothing yet".to_owned()
+                    } else {
+                        top.join(", ")
+                    }
                 )));
             }
             // Compared as a path relative to the root: `resolve` answers

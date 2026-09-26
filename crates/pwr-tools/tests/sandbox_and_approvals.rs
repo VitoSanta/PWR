@@ -1333,3 +1333,16 @@ fn docker_reaches_its_daemon_only_when_the_engine_is_granted() {
         assert_eq!(result.exit_code, Some(0), "{plugin:?}: {result:?}");
     }
 }
+
+/// A folder that is not there yet is answered with what is, so the next call
+/// is not spent finding out.
+#[test]
+fn listing_a_missing_folder_says_what_the_root_holds() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("README.md"), "spec").unwrap();
+    fs::create_dir_all(root.path().join("tests")).unwrap();
+    let refused = pwr_tools::list_tree_under(&policy(root.path()), 100, Some("src")).unwrap_err();
+    let said = refused.to_string();
+    assert!(said.contains("does not exist yet"), "{said}");
+    assert!(said.contains("README.md") && said.contains("tests/"), "{said}");
+}
