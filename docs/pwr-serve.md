@@ -209,8 +209,11 @@ deployment.
 - **Process.** `pwr serve --stdio`: one process per app window or workspace,
   launched by the app, talking JSON-RPC on stdin/stdout, logging on stderr. No
   network listener; a remote client is out of scope.
-- **Policy.** Identical to the console's: the workspace's derived allowlist,
-  sandbox, protected state, and approvals asked through the client.
+- **Policy.** Identical to the console's: the workspace's derived allowlist
+  (a program outside it is a question, not a refusal), sandbox, protected
+  state, and approvals asked through the client. What the person allows "for
+  this session" holds for every later turn of the session, the turns of a
+  goal included, and for the checks those turns run.
 - **Concurrency.** One active turn per session; `session/prompt` on a busy
   session is refused with a JSON-RPC error rather than queued.
 - **Audit.** Every session is a conversation in `.pwr/state.sqlite`, so

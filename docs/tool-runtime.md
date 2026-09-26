@@ -14,7 +14,7 @@ Tools are typed capabilities. Requests carry root-relative paths and limits; res
 | `ReplaceText` | Replaces one exact, unique occurrence | Hash guard; refuses an ambiguous or absent match |
 | `WriteFile` | Creates a file | Refuses to overwrite; approval gate on manifests |
 | `ApplyReplace` | Rewrites a whole file | Hash guard; refuses binaries and oversized content |
-| `RunCommand` | Runs one allowlisted command | Sandbox, timeout, output cap, no network without a grant |
+| `RunCommand` | Runs one command; a program the workspace does not list is asked about | Sandbox, timeout, output cap, no network or container engine without a grant |
 | `FetchUrl` | Fetches one http or https URL as text | Requires the network grant; refuses other schemes and redirects |
 | `Complete` | Declares the task done | Accepted only if deterministic verification then passes |
 
@@ -119,6 +119,37 @@ instructions — so installed dependencies come first and the web later.
 ## The command allowlist
 
 The allowlist is derived from the repository — the executables named by an explicit `.pwr/checks.json`, by CI configuration, or by the build systems whose markers are present — never a fixed list. Common aliases travel with what a repository declares: `python3` admits `python` and the reverse, `pytest` and `poetry` admit the interpreter they run under, `npm` admits `node` and `npx`, `flutter` admits `dart`. A project whose declared check runs `python3` denying `python` refuses the interpreter it already permits, and did cost a measured run an action.
+
+### From refusal to question — 2026-09-26
+
+The list is where a run starts, not where it must stop. Measured on the
+stress tests of 2026-09-26: a .NET API could not be containerised because
+`docker` was not in the list, `start_service` was the way around it, and a
+Go task on a machine without Go could neither install Go nor say what it
+lacked. Now, through the gate both loops share (`session::gate`):
+
+- A program outside the list is put to the person as `toolchain_install`
+  (`unlisted_program`), with the whole command and what the workspace
+  declares. `start_service` is held to the same list.
+- A command naming a URL asks for the network before it runs
+  (`names_a_url`); one that failed in the sandbox with output that reads like
+  a refused connection asks afterwards and is run once more if allowed
+  (`session::withheld`). The same holds for a test run that wanted the
+  container engine (`Could not find a valid Docker environment`).
+- A container client asks for `container_engine` (`drives_containers`); the
+  sandbox then opens that socket only, and the client gets `DOCKER_HOST` and
+  its `buildx`/`compose` plugins.
+- Toolchains go into `.toolchains/<name>/`; the shallowest `bin` under each
+  (up to four levels: `go/bin`, a JDK's `Contents/Home/bin`, CMake's
+  `CMake.app/Contents/bin`) is put first on `PATH`, with `JAVA_HOME` and
+  `DOTNET_ROOT` set when a JDK or .NET is there. The conversation's
+  instructions carry `host_facts`: the OS and architecture, the archive names
+  for them, what is installed and what is not, and whether Docker answers.
+- `fetch_url` never shows a file as text: a body that is not text is
+  described (type and size) with the way to download it, `save_as` streams it
+  into the workspace and returns its size and SHA-256, and text is cut at
+  24 KiB with the cut said. Measured before: a Go release archive fetched as
+  text added 30,000 tokens of replacement characters to the context, twice.
 
 ### Several reads in one turn — 2026-09-07
 

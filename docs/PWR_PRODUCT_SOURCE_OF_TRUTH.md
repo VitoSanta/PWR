@@ -462,7 +462,10 @@ Format: **Name** — STATUS. *User value.* How it works. *Evidence.*
 31. **Toolchain provisioning (`pwr run --provision`)** — EXPERIMENTAL. It
     grants network plus any executable so a run can install a JDK, Go or
     Flutter inside the workspace. It is documented as a known limit of the
-    boundary, for supervised use only. *Evidence:* `Approval::ToolchainInstall` in [pwr-tools](../crates/pwr-tools/src/lib.rs); [SECURITY.md](../SECURITY.md).
+    boundary, for supervised use only. In a conversation (2026-09-26) the
+    same is asked piece by piece: a program the workspace does not list, the
+    network, the container engine; toolchains go under `.toolchains/<name>/`
+    and are on `PATH` for commands and checks. *Evidence:* `Approval::ToolchainInstall`, `unlisted_program`, `toolchain_paths`, `host_facts` in [pwr-tools](../crates/pwr-tools/src/lib.rs); `session::gate`, `session::withheld` in [pwr-orchestrator](../crates/pwr-orchestrator/src/session.rs); [SECURITY.md](../SECURITY.md); [evidence/stack-matrix](../evidence/stack-matrix/README.md).
 32. **Named sessions (`pwr run --session`, `pwr session list|show`)** —
     IMPLEMENTED (CLI). What earlier runs established is re-checked against
     the current workspace. *Evidence:* [sessions_cli.rs](../crates/pwr-cli/tests/sessions_cli.rs), [sessions.rs](../crates/pwr-orchestrator/tests/sessions.rs).
@@ -1215,8 +1218,9 @@ Stated precisely, per operation:
 |---|---|---|
 | **Model inference** | **No** (local) | The MLX sidecar is a child process over stdio, with `HF_HUB_OFFLINE=1` set by the sidecar. llama.cpp is a managed child on `127.0.0.1` by default (`PWR_LLAMA_HOST` overrides it). There is no remote-inference option. |
 | **Conversation, tools, verification, audit** | No | All local. The event log is `<workspace>/.pwr/state.sqlite`. Chat mode data is in `~/.pwr/chat`. |
-| **Commands the agent runs** | Denied by default | The sandbox denies network unless `NetworkAccess` (or `ToolchainInstall`/`--provision`) is granted. In **Auto** mode, network access is granted without asking. |
-| **`fetch_url` tool** | Yes, if granted | Needs `NetworkAccess`. |
+| **Commands the agent runs** | Denied by default | The sandbox denies network unless `NetworkAccess` (or `ToolchainInstall`/`--provision`) is granted. In **Ask** mode a command naming a URL is asked about before it runs, and one that failed because the sandbox kept it offline is asked about and re-run once if allowed. In **Auto** mode, network access is granted without asking. |
+| **`fetch_url` tool** | Yes, if granted | Needs `NetworkAccess`. With `save_as` it downloads into the workspace and returns size and SHA-256; a binary body is never shown as text. |
+| **Container engine** | Yes, if granted | Only with `ContainerEngine`: the command reaches the engine's socket, and the engine -- outside the sandbox -- pulls images and runs containers with the network. Always asked in **Ask** mode. |
 | **Model downloads** | Yes | Hugging Face (`huggingface.co` or `PWR_HF_BASE_URL`), started by the user. |
 | **Hugging Face metadata** | Yes | Model Manager search, trees and configs, while the Model Manager is used. Anonymous use is subject to Hub rate limits. `HF_TOKEN` is sent if set. |
 | **First-run engine install** | Yes | The bundled `uv` downloads a standalone Python 3.11 and the pinned `mlx*` packages. The search encoder `intfloat/multilingual-e5-small` comes from Hugging Face. The exact package index and Python distribution hosts are those `uv` uses by default; this is not documented in the repo (**requires author confirmation**). |

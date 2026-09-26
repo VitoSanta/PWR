@@ -55,7 +55,36 @@ On macOS a tool runs under a seatbelt profile:
 - **Credentials** — `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.kube`,
   `Library/Keychains` and others — are denied to every run, grant or no grant.
 - **`HOME` and `TMPDIR`** point inside the workspace, so a package manager's
-  caches stay inside the boundary rather than widening it.
+  caches stay inside the boundary rather than widening it. The one path
+  outside it a command may write is `/private/tmp/.dotnet`, where .NET keeps
+  the lock files of its named mutexes whatever `TMPDIR` says; without it no
+  `dotnet` command could start in the sandbox.
+- **Toolchains a task needs** are installed into the workspace, under
+  `.toolchains/<name>/`, whose `bin` goes first on `PATH` for the agent's
+  commands and for the checks alike. The host is not modified.
+
+What a command may do beyond that is a question for you, asked when the
+command is about to run and answered *once*, *for the session* or *no*
+(since 2026-09-26; before, most of it was refused with nobody asked):
+
+- **A program the workspace does not list** -- `docker`, `curl`, `javac` --
+  is asked about (`toolchain_install`) instead of refused. The workspace's
+  own programs, derived from what it declares, run without a question.
+- **The network**: a command that names a URL is asked about before it runs;
+  one that fails in a way that reads like the sandbox refusing it a
+  connection (`ENOTFOUND`, NuGet's `NU1301`, `Could not resolve host`...) is
+  asked about afterwards and run once more if you allow it. Refused, its
+  result says so, and the same command is not run again.
+- **The container engine** (`container_engine`): opens exactly the engine's
+  socket (Docker Desktop, OrbStack, Colima, Rancher Desktop or `DOCKER_HOST`)
+  and nothing else. This is the grant that leaves the sandbox: the command
+  stays confined, but a container reaches the network and can mount any
+  folder the engine shares -- on Docker Desktop, the whole home directory.
+  In **Ask** mode it is asked about whatever Settings hold. `docker push`
+  also needs the `publish` answer.
+- **The checks** that close a turn or a goal run with what the conversation
+  may do -- your Settings plus what you allowed for the session -- so a
+  check that restores packages has the network you already allowed.
 
 In the app:
 
@@ -80,6 +109,11 @@ These are not oversights; they are the known limits of the current design.
   still read the system and toolchain paths. The flag's own help says to use it
   only for work you are willing to watch. Running provisioning in a separate
   process or VM is unbuilt.
+- **The container engine is outside the sandbox.** Granting it lets the
+  agent run containers with the network and with bind mounts of what the
+  engine shares; the socket is the only thing the sandbox opens, and what the
+  daemon does with a request is not confined by PWR. Grant it for work you
+  are willing to watch.
 - **Linux and Windows have no sandbox adapter.** On those platforms a command
   is refused, unless `PWR_ALLOW_UNCONFINED=1` is set; then it runs with your
   full rights and is recorded as `sandboxed: false`. Check `sandboxed` on any
