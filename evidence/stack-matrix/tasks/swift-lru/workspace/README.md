@@ -34,7 +34,9 @@ public final class LRUCache<Key: Hashable, Value> {
   `.removed`.
 - `count` and `keys` never include expired entries; `keys` is ordered from
   most to least recently used.
-- Operations are O(1) on average (a dictionary and a linked list), apart
-  from `keys` and the sweep of expired entries.
+- Operations are O(1) on average (a dictionary and a linked list). `keys`
+  is O(n), and so may be finding expired entries -- but when no entry has an
+  expiry, every operation other than `keys` stays O(1) however large the
+  cache.
 
 Run the tests with `swift test`.

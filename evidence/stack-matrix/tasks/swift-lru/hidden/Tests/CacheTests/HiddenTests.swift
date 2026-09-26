@@ -6,8 +6,6 @@ final class HiddenTests: XCTestCase {
         var time = 0.0
         let cache = LRUCache<Int, Int>(capacity: 7, now: { time })
         var model: [(key: Int, value: Int, expires: Double?)] = []   // most recent first
-        var generator = SystemRandomNumberGenerator()
-        _ = generator
         var seed: UInt64 = 42
         func next(_ bound: Int) -> Int {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
@@ -46,14 +44,21 @@ final class HiddenTests: XCTestCase {
         }
     }
 
-    func testManyOperationsAreFast() {
-        let cache = LRUCache<Int, Int>(capacity: 1000, now: { 0 })
-        let start = Date()
-        for i in 0..<200_000 {
-            cache.set(i % 5000, i)
-            _ = cache.get((i * 7) % 5000)
+    /// O(1) is a matter of scale, not of a machine's speed: the same work on a
+    /// cache a hundred times larger may not take ten times as long.
+    func testOperationsDoNotSlowWithSize() {
+        func timed(capacity: Int) -> Double {
+            let cache = LRUCache<Int, Int>(capacity: capacity, now: { 0 })
+            for i in 0..<capacity { cache.set(i, i) }
+            let start = Date()
+            for i in 0..<20_000 {
+                cache.set(capacity + i, i)
+                _ = cache.get(capacity + i - capacity / 2)
+            }
+            return Date().timeIntervalSince(start)
         }
-        XCTAssertLessThan(Date().timeIntervalSince(start), 20)
-        XCTAssertEqual(cache.count, 1000)
+        let small = timed(capacity: 100)
+        let large = timed(capacity: 20_000)
+        XCTAssertLessThan(large, small * 10 + 0.5, "small \(small)s, large \(large)s")
     }
 }

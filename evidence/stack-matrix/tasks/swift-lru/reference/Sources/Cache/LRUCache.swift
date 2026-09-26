@@ -22,6 +22,8 @@ public final class LRUCache<Key: Hashable, Value> {
     private var nodes: [Key: Node] = [:]
     private var newest: Node?
     private var oldest: Node?
+    /// How many entries have an expiry: with none, nothing needs sweeping.
+    private var expiring = 0
 
     public var onEvict: ((Key, Value, EvictionReason) -> Void)?
 
@@ -53,10 +55,12 @@ public final class LRUCache<Key: Hashable, Value> {
     private func drop(_ node: Node, _ reason: EvictionReason) {
         unlink(node)
         nodes[node.key] = nil
+        if node.expires != nil { expiring -= 1 }
         onEvict?(node.key, node.value, reason)
     }
 
     private func sweep() {
+        guard expiring > 0 else { return }
         var node = oldest
         while let current = node {
             node = current.newer
@@ -85,6 +89,7 @@ public final class LRUCache<Key: Hashable, Value> {
         if let node = live(key) {
             let old = node.value
             node.value = value
+            expiring += (expires != nil ? 1 : 0) - (node.expires != nil ? 1 : 0)
             node.expires = expires
             unlink(node)
             pushNewest(node)
@@ -94,6 +99,7 @@ public final class LRUCache<Key: Hashable, Value> {
         if nodes.count >= capacity { sweep() }
         if nodes.count >= capacity, let victim = oldest { drop(victim, .capacity) }
         let node = Node(key: key, value: value, expires: expires)
+        if expires != nil { expiring += 1 }
         nodes[key] = node
         pushNewest(node)
     }
