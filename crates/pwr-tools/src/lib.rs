@@ -553,7 +553,16 @@ pub const TOOLCHAINS_DIRECTORY: &str = ".toolchains";
 /// with EPERM on `/tmp/.dotnet/shm`, so a C# project could not even build.
 /// What the directory holds are lock files; opening it is what .NET needs and
 /// nothing more.
-const RUNTIME_WRITABLE: [&str; 1] = ["/private/tmp/.dotnet"];
+const RUNTIME_WRITABLE: [&str; 2] = ["/private/tmp/.dotnet", BROWSER_SCRATCH];
+
+/// Where `look_at`'s browser keeps its temporary files, sockets among them.
+///
+/// Outside the workspace because a Unix socket's path may be no longer than
+/// 104 bytes on macOS, and Chromium's instance lock is a socket under its
+/// temporary directory: under a workspace's `.pwr-scratch` it was either too
+/// long or, where it fit, the bind was refused, and the browser gave up.
+/// Sockets are allowed here and nowhere else.
+pub const BROWSER_SCRATCH: &str = "/private/tmp/pwr-look";
 
 /// Programs a run is told the machine has or lacks, so a model does not guess:
 /// asked to use Go on a Mac without it, one downloaded the linux-amd64 build.
@@ -1978,11 +1987,19 @@ impl ToolPolicy {
         } else {
             "(deny network*)".to_string()
         };
+        let mut network = network;
+        // The browser's own sockets, in the one directory kept for them.
+        if self.approvals.contains(&Approval::LocalService) && !self.network_allowed() {
+            network.push_str(&format!(
+                "(allow network-bind (local unix-socket (subpath \"{BROWSER_SCRATCH}\")))\
+                 (allow network-inbound (local unix-socket (subpath \"{BROWSER_SCRATCH}\")))\
+                 (allow network-outbound (remote unix-socket (subpath \"{BROWSER_SCRATCH}\")))"
+            ));
+        }
         // The engine's socket and nothing else of the filesystem's sockets,
         // after the denial it carves out of. Measured 2026-09-26: `docker
         // version` under `(deny network*)` is "permission denied while trying
         // to connect to the docker API", and with this one rule it answers.
-        let mut network = network;
         if container_engine
             && !self.network_allowed()
             && let Some(socket) = container_socket()
@@ -3662,6 +3679,227 @@ fn looks_binary(bytes: &[u8]) -> bool {
 const FETCH_SCHEMES: [&str; 2] = ["http", "https"];
 /// Redirects a fetch follows, each re-checked against `FETCH_SCHEMES`.
 const FETCH_REDIRECTS: usize = 5;
+
+/// A screenshot of a page, stored where images for the model are kept.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LookResult {
+    pub target: String,
+    pub width: u32,
+    pub height: u32,
+    /// The image, under `.pwr/images/`, named by its SHA-256.
+    pub image: PathBuf,
+    pub bytes: u64,
+}
+
+/// The browser `look_at` drives: `PWR_BROWSER`, else Chrome, Chromium or Edge
+/// where they are usually installed, else one on PATH.
+pub fn browser_executable() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("PWR_BROWSER") {
+        return Some(PathBuf::from(path));
+    }
+    let known = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ];
+    if let Some(path) = known.iter().map(PathBuf::from).find(|path| path.is_file()) {
+        return Some(path);
+    }
+    let host = std::env::var_os("PATH")?;
+    [
+        "google-chrome",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+    ]
+    .iter()
+    .find_map(|name| {
+        std::env::split_paths(&host)
+            .map(|directory| directory.join(name))
+            .find(|candidate| candidate.is_file())
+    })
+}
+
+/// The directory a browser's files live in: its `.app` bundle on macOS, its
+/// own directory elsewhere.
+fn browser_home(executable: &Path) -> PathBuf {
+    let mut current = executable;
+    while let Some(parent) = current.parent() {
+        if current
+            .extension()
+            .is_some_and(|extension| extension == "app")
+        {
+            return current.to_path_buf();
+        }
+        current = parent;
+    }
+    executable
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
+}
+
+/// Takes a screenshot of a page on this machine -- a local server, or an HTML
+/// file in the workspace -- for a model that reads images.
+///
+/// The first rung of letting a model see what it built: a test suite says a
+/// component renders, not that the layout is not broken. The browser runs
+/// headless inside the same sandbox as a command -- its own bundle readable,
+/// its profile in the workspace scratch, the network limited to this machine
+/// -- and only a page here can be looked at, so nothing is fetched from
+/// elsewhere on the model's behalf.
+pub async fn look_at(
+    policy: &ToolPolicy,
+    target: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<LookResult, ToolError> {
+    let width = width.unwrap_or(1280).clamp(320, 1920);
+    let height = height.unwrap_or(800).clamp(240, 1600);
+    let target = target.trim();
+    let url = if target.starts_with("http://") || target.starts_with("https://") {
+        let parsed = url::Url::parse(target)
+            .map_err(|_| ToolError::Denied(format!("`{target}` is not a valid URL")))?;
+        let local = matches!(
+            parsed.host_str(),
+            Some("localhost" | "127.0.0.1" | "[::1]" | "::1")
+        );
+        if !local {
+            return Err(ToolError::Denied(format!(
+                "look_at shows pages on this machine -- a local server (http://localhost:PORT) or \
+                 an HTML file in the workspace -- and `{target}` is neither"
+            )));
+        }
+        policy.require(Approval::LocalService)?;
+        parsed.to_string()
+    } else {
+        let path = policy.resolve(Path::new(target))?;
+        if !path.is_file() {
+            return Err(ToolError::Denied(format!(
+                "`{target}` is not a file in the workspace; give an HTML file's path or a local \
+                 server's URL (http://localhost:PORT/...)"
+            )));
+        }
+        url::Url::from_file_path(&path)
+            .map_err(|_| ToolError::Denied(format!("`{target}` cannot be opened as a page")))?
+            .to_string()
+    };
+    let browser = browser_executable().ok_or_else(|| {
+        ToolError::Denied(
+            "no browser to take the screenshot with: install Chrome or Chromium, or set \
+             PWR_BROWSER to one"
+                .into(),
+        )
+    })?;
+    let root = policy
+        .root
+        .canonicalize()
+        .unwrap_or_else(|_| policy.root.clone());
+    let scratch = root.join(SCRATCH_DIRECTORY).join("look");
+    std::fs::create_dir_all(&scratch)?;
+    let shot = scratch.join(format!(
+        "shot-{}.png",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or_default()
+    ));
+    let mut browsing = policy.clone();
+    browsing.extra_readable.push(browser_home(&browser));
+    browsing
+        .approvals
+        .retain(|approval| *approval != Approval::NetworkAccess);
+    if !browsing.approvals.contains(&Approval::LocalService) {
+        browsing.approvals.push(Approval::LocalService);
+    }
+    let args: Vec<String> = vec![
+        "--headless=new".into(),
+        // The browser's own sandbox cannot start inside PWR's, which already
+        // confines it.
+        "--no-sandbox".into(),
+        "--disable-gpu".into(),
+        "--hide-scrollbars".into(),
+        "--no-first-run".into(),
+        "--no-default-browser-check".into(),
+        "--disable-extensions".into(),
+        "--disable-background-networking".into(),
+        "--disable-crash-reporter".into(),
+        "--disable-breakpad".into(),
+        format!("--user-data-dir={}", scratch.join("profile").display()),
+        format!("--window-size={width},{height}"),
+        "--virtual-time-budget=3000".into(),
+        format!("--screenshot={}", shot.display()),
+        url.clone(),
+    ];
+    let browser_path = browser.to_string_lossy().into_owned();
+    let temporary = Path::new(BROWSER_SCRATCH).join(format!(
+        "{:08x}",
+        std::process::id()
+            ^ (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.subsec_nanos())
+                .unwrap_or_default())
+    ));
+    std::fs::create_dir_all(&temporary)?;
+    let mut command = browsing.prepare_command(&browser_path, &args)?;
+    // Chromium on macOS takes its temporary directory from here, not TMPDIR.
+    command.env("MAC_CHROMIUM_TMPDIR", &temporary);
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn()?;
+    let mut group = ProcessGroupGuard::new(child.id());
+    // The browser writes the file and does not always exit after it: wait for
+    // a file whose size has settled, then end the browser.
+    let deadline = std::time::Instant::now() + policy.timeout.min(Duration::from_secs(45));
+    let mut last_size = None;
+    let taken = loop {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let size = std::fs::metadata(&shot).map(|meta| meta.len()).ok();
+        if size.is_some_and(|size| size > 0) && size == last_size {
+            break true;
+        }
+        last_size = size;
+        if child.try_wait().ok().flatten().is_some() {
+            break std::fs::metadata(&shot)
+                .map(|meta| meta.len() > 0)
+                .unwrap_or(false);
+        }
+        if std::time::Instant::now() >= deadline {
+            break false;
+        }
+    };
+    group.terminate();
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    let _ = std::fs::remove_dir_all(&temporary);
+    if !taken {
+        let _ = std::fs::remove_file(&shot);
+        return Err(ToolError::Denied(format!(
+            "the page at {url} could not be captured: the browser wrote no screenshot. If it is \
+             a local server, is it running (start_service) and on that port?"
+        )));
+    }
+    let bytes = std::fs::read(&shot)?;
+    let _ = std::fs::remove_file(&shot);
+    use sha2::Digest as _;
+    let digest = format!("{:x}", sha2::Sha256::digest(&bytes));
+    let images = root.join(STATE_DIRECTORY).join("images");
+    std::fs::create_dir_all(&images)?;
+    let image = images.join(format!("{digest}.png"));
+    std::fs::write(&image, &bytes)?;
+    Ok(LookResult {
+        target: target.to_owned(),
+        width,
+        height,
+        image,
+        bytes: bytes.len() as u64,
+    })
+}
 
 /// Fetches one URL as text.
 ///

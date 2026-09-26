@@ -1349,3 +1349,44 @@ fn listing_a_missing_folder_says_what_the_root_holds() {
         "{said}"
     );
 }
+
+/// The browser runs inside the sandbox and the screenshot lands where images
+/// for the model are kept; a page elsewhere is refused before any browser.
+#[cfg(target_os = "macos")]
+#[test]
+fn look_at_photographs_a_workspace_page_from_inside_the_sandbox() {
+    if pwr_tools::browser_executable().is_none() {
+        return; // No browser on this machine: nothing to show.
+    }
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("index.html"),
+        "<!doctype html><body style='background:#123'><h1 style='color:#fff'>Look</h1></body>",
+    )
+    .unwrap();
+    let mut policy = policy(root.path());
+    policy.timeout = Duration::from_secs(60);
+    policy.approvals.push(Approval::LocalService);
+    let result = block_on(pwr_tools::look_at(
+        &policy,
+        "index.html",
+        Some(640),
+        Some(400),
+    ))
+    .unwrap_or_else(|error| panic!("{error}"));
+    let bytes = fs::read(&result.image).unwrap();
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    assert!(
+        result
+            .image
+            .starts_with(root.path().canonicalize().unwrap().join(".pwr/images"))
+    );
+    let refused = block_on(pwr_tools::look_at(
+        &policy,
+        "https://example.com",
+        None,
+        None,
+    ))
+    .unwrap_err();
+    assert!(refused.to_string().contains("on this machine"), "{refused}");
+}
