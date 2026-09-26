@@ -844,8 +844,12 @@ pub fn host_facts(root: &Path) -> String {
     };
     let arch = std::env::consts::ARCH;
     let archive_names = match (std::env::consts::OS, arch) {
-        ("macos", "aarch64") => "darwin-arm64, macos-aarch64 or mac-arm64",
-        ("macos", "x86_64") => "darwin-amd64, macos-x64 or mac-x64",
+        ("macos", "aarch64") => {
+            "darwin-arm64, macos-aarch64, mac-arm64, or a universal build (macos-universal)"
+        }
+        ("macos", "x86_64") => {
+            "darwin-amd64, macos-x64, mac-x64, or a universal build (macos-universal)"
+        }
         ("linux", "aarch64") => "linux-arm64 or linux-aarch64",
         ("linux", "x86_64") => "linux-amd64 or linux-x64",
         ("windows", "x86_64") => "windows-amd64 or win-x64",
@@ -3528,6 +3532,46 @@ pub async fn fetch_url(
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        // An error answer is not a download. Saving the error page left a
+        // file at the path, so the next try was refused as an overwrite, and
+        // a model guessing at an archive's name spent twenty actions on a
+        // delete-then-fetch dance (measured 2026-09-26, CMake on macOS). The
+        // answer's first bytes are shown instead, and nothing is written.
+        if !(200..300).contains(&status) {
+            let mut first = Vec::new();
+            while first.len() < 2048
+                && let Some(Ok(chunk)) = body.next().await
+            {
+                first.extend_from_slice(&chunk[..chunk.len().min(2048 - first.len())]);
+            }
+            let said = String::from_utf8_lossy(&first).into_owned();
+            let said = if content_type
+                .as_deref()
+                .is_some_and(|kind| kind.to_ascii_lowercase().contains("html"))
+            {
+                html_to_text(&said)
+            } else {
+                said
+            };
+            return Ok(FetchResult {
+                url: url_text,
+                status,
+                content: said.trim().chars().take(600).collect(),
+                truncated: false,
+                redacted: false,
+                artifact_hash: String::new(),
+                content_type,
+                saved_as: None,
+                bytes: declared_length,
+                sha256: None,
+                note: Some(format!(
+                    "the server answered {status}, so nothing was saved to {relative}. The \
+                     address is wrong: fetch the page that lists the downloads (for a GitHub \
+                     release, https://api.github.com/repos/OWNER/REPO/releases/latest or \
+                     .../releases/tags/TAG lists every asset's exact name) and use a name from it."
+                )),
+            });
+        }
         // Written beside the destination and renamed, so a download cut short
         // never leaves a file that looks complete.
         let partial = path.with_extension("pwr-partial");
@@ -3558,7 +3602,6 @@ pub async fn fetch_url(
         file.flush()?;
         drop(file);
         std::fs::rename(&partial, &path)?;
-        let failed = !(200..300).contains(&status);
         return Ok(FetchResult {
             url: url_text,
             status,
@@ -3570,17 +3613,10 @@ pub async fn fetch_url(
             saved_as: Some(relative.clone()),
             bytes: Some(written),
             sha256: Some(format!("{:x}", sha256.finalize())),
-            note: Some(if failed {
-                format!(
-                    "the server answered {status}, so {relative} holds its error page, not the \
-                     file: read it, then fix the URL"
-                )
-            } else {
-                format!(
-                    "saved to {relative}; compare sha256 with the checksum the release page \
-                     publishes before using it"
-                )
-            }),
+            note: Some(format!(
+                "saved to {relative}; compare sha256 with the checksum the release page \
+                 publishes before using it"
+            )),
         });
     }
     let html = content_type

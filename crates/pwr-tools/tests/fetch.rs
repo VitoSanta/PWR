@@ -136,3 +136,49 @@ fn a_long_text_is_cut_and_says_how_to_have_it_all() {
     );
     assert!(result.note.unwrap_or_default().contains("save_as"));
 }
+
+/// Serves one response with the given status line.
+fn serve_status(status: &str, body: &str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (status, body) = (status.to_owned(), body.to_owned());
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 4096];
+        let _ = stream.read(&mut request);
+        let _ = stream.write_all(
+            format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{body}", body.len())
+                .as_bytes(),
+        );
+    });
+    format!("http://{address}/cmake-darwin-arm64.tar.gz")
+}
+
+/// A 404 is not a download: nothing is written, so the next try at the
+/// right address is not refused as an overwrite, and the way to find the
+/// right one is said.
+#[test]
+fn a_failed_download_leaves_nothing_behind() {
+    let root = tempfile::tempdir().unwrap();
+    let url = serve_status("404 Not Found", "Not Found");
+    let result = block_on(fetch_url(
+        &policy(root.path()),
+        &url,
+        Some(".tmp/cmake.tar.gz"),
+    ))
+    .unwrap();
+    assert_eq!(result.status, 404);
+    assert!(result.saved_as.is_none());
+    assert!(!root.path().join(".tmp/cmake.tar.gz").exists());
+    assert!(result.content.contains("Not Found"), "{result:?}");
+    assert!(result.note.unwrap_or_default().contains("releases"));
+    let url = serve_once(Some("application/gzip"), b"\x1f\x8barchive".to_vec());
+    assert!(
+        block_on(fetch_url(
+            &policy(root.path()),
+            &url,
+            Some(".tmp/cmake.tar.gz")
+        ))
+        .is_ok()
+    );
+}
