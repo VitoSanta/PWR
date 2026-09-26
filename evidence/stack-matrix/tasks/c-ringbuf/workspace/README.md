@@ -2,7 +2,8 @@
 
 A fixed-capacity byte ring buffer in C99, no dependencies. The interface is
 `include/ringbuf.h`; the implementation goes in `src/ringbuf.c`. It must
-compile cleanly with `-std=c99 -Wall -Wextra -Werror -pedantic`.
+compile cleanly with `-std=c99 -Wall -Wextra -Werror -pedantic` under both
+compilers it is built with: GCC on Linux (CI) and Clang on macOS.
 
 - `ringbuf_new(capacity)`: a new empty buffer holding up to `capacity`
   bytes, or `NULL` when `capacity` is 0 or memory runs out.
