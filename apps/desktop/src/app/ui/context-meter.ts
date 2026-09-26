@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { fullness, percent, tokens, when } from '../core/format';
 import { Icon } from './kit/icon';
@@ -38,7 +38,8 @@ import { Tooltip } from './kit/tooltip';
     @if (open()) {
       <pa-popover
         [anchor]="trigger"
-        anchorAlign="end"
+        [anchorAlign]="align()"
+        [side]="side()"
         width="380px"
         ariaLabel="Context"
         (closed)="open.set(false)"
@@ -185,6 +186,9 @@ import { Tooltip } from './kit/tooltip';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ContextMeter {
+  /** Where its panel opens: below the chip in a top bar, above it in a status bar. */
+  readonly side = input<'bottom' | 'top'>('bottom');
+  readonly align = input<'start' | 'end'>('end');
   protected readonly store = inject(AgentStore);
   protected readonly open = signal(false);
   protected readonly loadError = signal('');

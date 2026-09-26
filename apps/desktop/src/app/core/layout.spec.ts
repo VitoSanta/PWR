@@ -56,4 +56,12 @@ describe('arrange', () => {
     // The inspector gets the room the collapsed navigation gave back.
     expect(arrange(1100, { ...open, leftOpen: false }).right).toBe('docked');
   });
+
+  it('docks the workbench by the width a shell without a sidebar really keeps', () => {
+    // 1000px: beside a 288px sidebar the workbench cannot dock; beside a
+    // 48px rail, or nothing, it can.
+    expect(arrange(1000, open).right).toBe('hidden');
+    expect(arrange(1000, open, 48).right).toBe('docked');
+    expect(arrange(1000, open, 0).right).toBe('docked');
+  });
 });

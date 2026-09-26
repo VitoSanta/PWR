@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { AgentStore } from '../core/agent.store';
 import { EngineStatus } from '../core/model';
 import { ThemeMode, ThemeService } from '../core/theme';
+import { VARIANTS, VariantService } from '../core/variant';
 import { SHORTCUTS, UiStore, roveFocus, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
@@ -82,6 +83,32 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
                     </button>
                   }
                 </div>
+                <header class="settings-page-head settings-subhead">
+                  <h4 class="settings-row-title">Layout</h4>
+                  <p class="fine">Every layout has every feature; they arrange them differently.</p>
+                </header>
+                <div
+                  class="variant-options"
+                  role="radiogroup"
+                  aria-label="Layout"
+                  (keydown)="variantKeys($event)"
+                >
+                  @for (option of variantList; track option.id) {
+                    <button
+                      class="variant-option"
+                      role="radio"
+                      [attr.aria-checked]="variants.variant() === option.id"
+                      [attr.tabindex]="variants.variant() === option.id ? 0 : -1"
+                      (click)="variants.set(option.id)"
+                    >
+                      <span [class]="'variant-sketch sketch-' + option.id" aria-hidden="true"><i></i><i></i><i></i></span>
+                      <span class="variant-text">
+                        <span class="variant-label">{{ option.label }}</span>
+                        <span class="fine">{{ option.description }}</span>
+                      </span>
+                    </button>
+                  }
+                </div>
                 @if (store.engine(); as engine) {
                   @if (engine.needed) {
                     <div class="settings-row">
@@ -138,6 +165,8 @@ export class Settings {
     { id: 'appearance', label: 'Appearance', icon: 'sun' },
     { id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
   ];
+  protected readonly variants = inject(VariantService);
+  protected readonly variantList = VARIANTS;
   protected readonly themes: { value: ThemeMode; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
     { value: 'light', label: 'Light', icon: 'sun' },
@@ -161,6 +190,11 @@ export class Settings {
 
   protected navKeys(event: KeyboardEvent): void {
     if (roveFocus(event, event.currentTarget as HTMLElement, '.settings-nav-item', 'vertical'))
+      (document.activeElement as HTMLElement | null)?.click();
+  }
+
+  protected variantKeys(event: KeyboardEvent): void {
+    if (roveFocus(event, event.currentTarget as HTMLElement, '[role=radio]', 'horizontal'))
       (document.activeElement as HTMLElement | null)?.click();
   }
 

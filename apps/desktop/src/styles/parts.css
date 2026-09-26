@@ -1,0 +1,716 @@
+/*
+ * The pieces the shells share beyond the classic layout: the conversation
+ * switcher, the status bar, the run's phase strip, the tool dock, the run
+ * board, and the layout chooser in Settings. Tokens only, like the rest.
+ */
+
+/* A shell's host adds no box: its root element is the layout. */
+pa-shell-studio,
+pa-shell-instrument,
+pa-shell-paper,
+pa-shell-islands,
+pa-shell-mission,
+pa-shell-focus {
+  display: contents;
+}
+
+/* ------------------------------------------------- conversation switcher */
+pa-session-switcher {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 320px;
+  height: var(--control-h-lg);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  text-align: left;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.switcher-trigger:hover,
+.switcher-trigger[aria-expanded='true'] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.switcher-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--lh-tight);
+}
+
+.switcher-title {
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.switcher-where {
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+}
+
+.switcher-trigger.is-icon {
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  color: var(--text-secondary);
+}
+
+.switcher-list {
+  max-height: 360px;
+}
+
+.switcher-list .session-list {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+/* -------------------------------------------------------------- status bar */
+pa-status-bar {
+  display: block;
+  min-width: 0;
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 30px;
+  padding: 0 var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+}
+
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+button.status-item:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.status-item.tone-warning {
+  color: var(--warning-text);
+}
+
+.status-item.tone-danger {
+  color: var(--danger-text);
+}
+
+.status-bar .topbar-chip {
+  gap: 5px;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-color: transparent;
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-caption);
+}
+
+.status-bar .meter-ring {
+  width: 13px;
+  height: 13px;
+}
+
+.status-bar .topbar-chip-label {
+  max-width: 200px;
+}
+
+.status-bar .kbd {
+  margin: 0;
+}
+
+/* ---------------------------------------------------------- phase strip */
+pa-phase-strip {
+  display: flex;
+  min-width: 0;
+}
+
+.phase-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.phase-stages {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+.phase-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.phase-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.phase-stage-name {
+  font-weight: var(--fw-medium);
+}
+
+.phase-stage-note:empty {
+  display: none;
+}
+
+.phase-stage.is-done {
+  color: var(--text-secondary);
+}
+
+.phase-stage.is-done .phase-mark {
+  background: currentColor;
+}
+
+.phase-stage.is-active {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.phase-stage.is-active .phase-mark {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
+  animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
+}
+
+/* Narrow: the counts go first, then every name but the current stage's. */
+@container phase-strip (max-width: 520px) {
+  .phase-strip:not(.is-vertical) .phase-stage-note {
+    display: none;
+  }
+}
+
+@container phase-strip (max-width: 400px) {
+  .phase-strip:not(.is-vertical) .phase-stage:not(.is-active) .phase-stage-name {
+    display: none;
+  }
+}
+
+.run-state {
+  flex: none;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.run-state.is-working {
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+
+.run-state.is-asking,
+.run-state.is-paused {
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+
+.run-state.is-done {
+  border-color: var(--success-border);
+  color: var(--success-text);
+}
+
+.run-state.is-failed {
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+/* Vertical: margin notes on a thread, the mark on the line. */
+.phase-strip.is-vertical {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-4);
+}
+
+.is-vertical .phase-stages {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  margin-left: 3px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.is-vertical .phase-stage {
+  position: relative;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  height: auto;
+  padding: var(--space-2) 0 var(--space-2) var(--space-4);
+  border-radius: 0;
+  background: none;
+  white-space: normal;
+}
+
+.is-vertical .phase-mark {
+  position: absolute;
+  top: 12px;
+  left: -4px;
+  background: var(--bg-app);
+}
+
+.is-vertical .phase-stage.is-done .phase-mark,
+.is-vertical .phase-stage.is-active .phase-mark {
+  background: currentColor;
+}
+
+.is-vertical .phase-stage.is-active .phase-mark {
+  background: var(--accent-primary);
+}
+
+.is-vertical .phase-stage.is-active .phase-stage-name {
+  color: var(--accent-text);
+}
+
+.is-vertical .run-state {
+  align-self: flex-start;
+}
+
+/* ------------------------------------------------------------ tool dock */
+.tool-dock {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tool-dock.is-vertical {
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------ run board */
+pa-run-board {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.run-board {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.run-board-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.run-board-prompt {
+  flex: 1;
+  min-width: 0;
+}
+
+.run-board-prompt p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-primary);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+
+.truncate-2 {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.run-board-figures {
+  display: flex;
+  gap: var(--space-5);
+  margin: 0;
+}
+
+.run-board-figures > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.run-board-figures dt {
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+}
+
+.run-board-figures dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+}
+
+.run-board-columns {
+  display: grid;
+  flex: 1;
+  grid-auto-columns: minmax(168px, 1fr);
+  grid-auto-flow: column;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-4) var(--space-5);
+  overflow-x: auto;
+}
+
+.run-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-inset);
+  transition:
+    border-color var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+
+.run-column.is-active {
+  border-color: var(--accent-border);
+}
+
+.run-column.is-waiting {
+  opacity: 0.55;
+}
+
+.run-column-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+}
+
+.run-column-name {
+  flex: 1;
+  color: var(--text-primary);
+  font-weight: var(--fw-semibold);
+}
+
+.run-column.is-done .phase-mark {
+  background: currentColor;
+}
+
+.run-column.is-active .phase-mark {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
+  animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
+}
+
+.run-cards {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+  list-style: none;
+}
+
+.run-card {
+  animation: pa-rise-in var(--dur-slow) var(--ease-out) backwards;
+}
+
+.run-card-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-primary);
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+  text-align: left;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+button.run-card-body:hover {
+  border-color: var(--border-strong);
+}
+
+.run-card-body > pa-icon {
+  color: var(--text-muted);
+}
+
+.run-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.run-card-tool {
+  color: var(--text-primary);
+  font: var(--fw-medium) var(--fs-caption) / 1.4 var(--mono);
+}
+
+.run-card-subject {
+  color: var(--text-muted);
+  font: var(--fs-caption) / 1.4 var(--mono);
+}
+
+.run-card-diff {
+  flex: none;
+  font-size: var(--fs-caption);
+}
+
+.run-card-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.run-card.tone-live .run-card-dot {
+  background: var(--accent-secondary);
+  animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
+}
+
+.run-card.tone-bad .run-card-dot {
+  background: var(--danger);
+}
+
+.run-card.tone-note .run-card-body {
+  border-style: dashed;
+}
+
+.run-card.tone-note .run-card-dot {
+  background: var(--warning);
+}
+
+.run-card-empty {
+  padding: var(--space-2) var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}
+
+/* ------------------------------------------------- Settings → Layout */
+.settings-subhead {
+  margin-top: var(--space-2);
+}
+
+.variant-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: var(--space-3);
+}
+
+.variant-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.variant-option:hover {
+  background: var(--surface-hover);
+}
+
+.variant-option[aria-checked='true'] {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border);
+}
+
+.variant-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--space-1) var(--space-1);
+}
+
+.variant-label {
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-medium);
+}
+
+/* Each layout sketched in three blocks: where the navigation, the
+   conversation and the tools go. */
+.variant-sketch {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr;
+  gap: 3px;
+  height: 64px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+}
+
+.variant-sketch > i {
+  display: block;
+  border-radius: 3px;
+  background: var(--surface-active);
+}
+
+.variant-sketch > i:nth-child(2) {
+  background: var(--surface-secondary);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.sketch-studio {
+  grid-template-columns: 22% 1fr 26%;
+}
+
+.sketch-instrument {
+  grid-template-columns: 7% 1fr 26%;
+  padding-bottom: 12px;
+}
+
+.sketch-instrument::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  left: 4px;
+  height: 5px;
+  border-radius: 2px;
+  background: var(--surface-active);
+}
+
+.sketch-paper {
+  grid-template-columns: 18% 1fr 18%;
+}
+
+.sketch-paper > i:first-child {
+  margin: 6px 6px 6px 0;
+  background: none;
+  border-right: 2px solid var(--surface-active);
+  border-radius: 0;
+}
+
+.sketch-paper > i:last-child {
+  background: none;
+}
+
+.sketch-islands {
+  grid-template-columns: 22% 1fr 26%;
+  gap: 5px;
+  padding: 6px;
+}
+
+.sketch-islands > i {
+  border-radius: 6px;
+  background: var(--surface-secondary);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.sketch-mission {
+  grid-template-columns: 34% 1fr;
+  grid-template-rows: 1fr 32%;
+}
+
+.sketch-mission > i:first-child {
+  grid-row: 1 / -1;
+}
+
+.sketch-focus {
+  grid-template-columns: 1fr;
+  padding: 12px 34% 8px;
+}
+
+.sketch-focus > i:first-child {
+  position: absolute;
+  top: 3px;
+  left: 38%;
+  width: 24%;
+  height: 5px;
+  border-radius: var(--radius-pill);
+}
+
+.sketch-focus > i:last-child {
+  position: absolute;
+  top: 18px;
+  left: 5px;
+  width: 6px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+}
+
+.sketch-mission > i:nth-child(2) {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--surface-active) 0 22%,
+    transparent 22% 26%
+  );
+  box-shadow: none;
+}

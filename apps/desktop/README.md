@@ -51,14 +51,20 @@ the app never writes to a workspace itself. It is the supported desktop client.
 ```text
 src-tauri/src/lib.rs     the shell: finds and starts the core, relays ACP, remembers the workspace
 src/app/core/            bridge.ts (Tauri IPC), agent.store.ts (state, signals), models.store.ts (Model Manager),
-                         format.ts, model.ts, demo.ts; theme.ts (System/Light/Dark), layout.ts (panel
-                         docking and sizes), ui.ts (shortcuts, dialog stack, toasts, confirmations)
+                         format.ts, model.ts, demo.ts; theme.ts (System/Light/Dark), variant.ts (the
+                         layout), layout.ts (panel docking and sizes), navigation.ts (mode, workspace,
+                         conversations, window), run.ts (the latest run as the loop's stages),
+                         ui.ts (shortcuts, dialog stack, toasts, confirmations)
 src/app/ui/              conversation, composer, sidebar (and rail), inspector, diff, markdown, permission,
                          context-meter (indicator and panel), model-picker, model-manager, settings,
                          command-palette
+src/app/ui/shells/       one shell per layout: studio, instrument, paper, islands, mission, focus
+src/app/ui/parts/        what the shells share beyond the classic layout: session switcher, status bar,
+                         phase strip, tool dock, run board, diagnostic export
 src/app/ui/kit/          the shared primitives: icon, dialog, popover, select, tooltip, resize-handle,
                          toasts and the confirmation dialog
-src/styles/              the design system, in layers: tokens, base, primitives, shell, conversation, panels
+src/styles/              the design system, in layers: tokens, base, primitives, shell, conversation, panels,
+                         parts, variants (each layout's tokens and arrangement)
 ```
 
 ### Content Security Policy
@@ -90,6 +96,33 @@ tooltip, one toast and one confirmation dialog (`ConfirmService`, instead of
 **Appearance** is System (the default, following the OS live), Light or Dark,
 in Settings (⌘, / Ctrl+,) or the command palette; `index.html` applies it
 before first paint and the native window follows it.
+
+**Layouts** (Settings → Appearance → Layout, or "Layout:" in the command
+palette; `?variant=paper` in a browser) arrange the same components six
+ways. None has a feature the others lack: the stores, the conversation, the
+composer, the workbench's cards and every dialog are shared, and a layout
+only moves, redraws and re-colours them, with its own tokens in both themes.
+
+- **Studio**: the sidebar, the conversation and the workbench side by side.
+- **Instrument**: monochrome, colour kept for state; a rail of icons (the
+  conversations behind one, the workbench's tools as the rest), the run's
+  phases on a strip across the top, the engine and the agent's rules in a
+  status bar.
+- **Paper**: the conversation as a document, PWR's answers in a serif; the
+  conversation's title is the switcher, the run's phases are notes in the
+  margin, the workbench is a drawer.
+- **Islands**: floating panels on a canvas; the model, context and speed sit
+  under the composer; the workbench's cards are islands of their own.
+- **Mission**: the run is the main surface -- the conversation in a column,
+  a board with one column per stage of the loop and one card per action,
+  the workbench rising from under it.
+- **Focus**: no chrome; where you are, the run, the engine and the tools
+  float over the page on glass.
+
+The run's stages come from the same reading of the timeline the
+conversation uses (`compactTurn`), so a strip, the margin notes and the board
+never disagree with the phases in the conversation. In the layouts without
+a sidebar ⌘B opens the conversation switcher instead.
 
 **Panels** dock while the conversation keeps at least 560 px: as the window
 narrows the inspector collapses first, then the navigation becomes a rail.

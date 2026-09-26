@@ -47,7 +47,7 @@ pa-composer {
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: 0 var(--space-8);
+  padding: 0 var(--column-inset);
 }
 
 .timeline > * {
@@ -776,8 +776,8 @@ pa-composer {
 .composer {
   position: relative;
   width: min(
-    calc(var(--content-max) - 2 * var(--space-8)),
-    calc(100% - 2 * var(--space-8))
+    calc(var(--content-max) - 2 * var(--column-inset)),
+    calc(100% - 2 * var(--column-inset))
   );
   margin: 0 auto var(--space-5);
   padding: var(--space-2);

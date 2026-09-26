@@ -32,6 +32,8 @@ export const SHORTCUTS = {
 export class UiStore {
   readonly settingsOpen = signal(false);
   readonly paletteOpen = signal(false);
+  /** The conversation switcher, in the shells that have no sidebar (⌘B opens it). */
+  readonly sessionsOpen = signal(false);
 }
 
 /**

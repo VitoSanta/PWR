@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { shortDate } from '../core/format';
 import { LEFT, LayoutService } from '../core/layout';
-import { ConfirmService, SHORTCUTS, ToastService, UiStore, roveFocus, shortcut } from '../core/ui';
+import { NavigationService } from '../core/navigation';
+import { SHORTCUTS, UiStore, roveFocus, shortcut } from '../core/ui';
 import { Icon } from './kit/icon';
 import { ResizeHandle } from './kit/resize-handle';
 import { Tooltip } from './kit/tooltip';
@@ -177,72 +178,35 @@ abstract class Navigation {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Sidebar extends Navigation {
-  private readonly confirm = inject(ConfirmService);
-  private readonly toast = inject(ToastService);
+  private readonly nav = inject(NavigationService);
   protected readonly bounds = LEFT;
   protected readonly date = shortDate;
 
-  protected readonly switching = computed(() => this.store.switchingMode() || this.store.switchingWorkspace());
-  protected readonly modeLocked = computed(() => this.store.turnActive() || this.switching());
-
-  protected readonly folderName = computed(() => {
-    const parts = this.store.workspace().split(/[\\/]/).filter(Boolean);
-    return parts.pop() ?? 'Choose a folder';
-  });
-
-  protected readonly folderParent = computed(() => {
-    const path = this.store.workspace();
-    if (!path) return 'no folder open';
-    const parts = path.split(/[\\/]/).filter(Boolean);
-    parts.pop();
-    const parent = parts.length > 2 ? '…/' + parts.slice(-2).join('/') : '/' + parts.join('/');
-    return parent.replace(/^\/Users\/[^/]+/, '~');
-  });
-
-  protected readonly coreLabel = computed(
-    () =>
-      ({ starting: 'Starting core…', ready: 'Core ready', stopped: 'Core stopped', error: 'Core unavailable' })[
-        this.store.coreState()
-      ],
-  );
-  protected readonly coreDot = computed(
-    () =>
-      ({ starting: 'dot-warning dot-live', ready: 'dot-success', stopped: 'dot-danger', error: 'dot-danger' })[
-        this.store.coreState()
-      ],
-  );
-  protected readonly coreDetail = computed(() => this.store.corePath() || this.coreLabel());
+  protected readonly switching = this.nav.switching;
+  protected readonly modeLocked = this.nav.modeLocked;
+  protected readonly folderName = this.nav.folderName;
+  protected readonly folderParent = this.nav.folderParent;
+  protected readonly coreLabel = this.nav.coreLabel;
+  protected readonly coreDot = this.nav.coreDot;
+  protected readonly coreDetail = this.nav.coreDetail;
 
   protected useAgent(): void {
-    if (this.store.chatMode()) void this.store.leaveChat();
+    this.nav.useAgent();
   }
 
   protected useChat(): void {
-    if (!this.store.chatMode()) void this.store.openChat();
+    this.nav.useChat();
   }
 
   /** Arrow keys switch mode, as in any radio group. */
   protected modeKeys(event: KeyboardEvent): void {
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
     event.preventDefault();
-    if (this.modeLocked()) return;
-    if (this.store.chatMode()) this.useAgent();
-    else this.useChat();
+    this.nav.toggleMode();
   }
 
-  protected async askDelete(sessionId: string, title: string): Promise<void> {
-    if (this.store.turnActive()) return;
-    const deleted = await this.confirm.ask({
-      title: 'Delete this conversation?',
-      message:
-        'It disappears from the history and cannot be reopened. Workspace files are unchanged; its events stay in the audit log.',
-      subject: title || 'Untitled',
-      subjectIsText: true,
-      confirmLabel: 'Delete conversation',
-      tone: 'danger',
-      action: () => this.store.deleteConversation(sessionId),
-    });
-    if (deleted) this.toast.show('Conversation deleted', 'success');
+  protected askDelete(sessionId: string, title: string): Promise<void> {
+    return this.nav.askDelete(sessionId, title);
   }
 }
 

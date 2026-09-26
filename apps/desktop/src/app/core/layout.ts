@@ -25,11 +25,13 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 export function arrange(
   viewport: number,
   state: Saved & { leftPeek: boolean; rightPeek: boolean },
+  /** A shell without a sidebar takes a fixed width on the left instead (a rail, or nothing). */
+  leftFixed: number | null = null,
 ): { left: LeftMode; right: RightMode; leftDockable: boolean; rightDockable: boolean } {
   const leftDockable = viewport - state.leftWidth >= MAIN_MIN;
   const left: LeftMode =
     state.leftOpen && leftDockable ? 'docked' : state.leftPeek ? 'overlay' : 'rail';
-  const leftTaken = left === 'docked' ? state.leftWidth : RAIL;
+  const leftTaken = leftFixed ?? (left === 'docked' ? state.leftWidth : RAIL);
   // The inspector gives way first: it docks only if the conversation keeps
   // its minimum beside whatever the left side takes.
   const rightDockable = viewport - leftTaken - state.rightWidth >= MAIN_MIN;
@@ -56,6 +58,11 @@ export class LayoutService {
   readonly rightPeek = signal(false);
   /** A resize handle is being dragged: width transitions are paused. */
   readonly resizing = signal(false);
+  /**
+   * Set by a shell that has no sidebar: the width it keeps on the left
+   * (its rail, or 0), so the workbench docks by the room really left.
+   */
+  readonly leftFixed = signal<number | null>(null);
 
   private readonly arrangement = computed(() =>
     arrange(this.viewport(), {
@@ -65,7 +72,7 @@ export class LayoutService {
       rightWidth: this.rightWidth(),
       leftPeek: this.leftPeek(),
       rightPeek: this.rightPeek(),
-    }),
+    }, this.leftFixed()),
   );
   readonly left = computed(() => this.arrangement().left);
   readonly right = computed(() => this.arrangement().right);
@@ -143,7 +150,7 @@ export class LayoutService {
   }
 
   setRightWidth(width: number): void {
-    const left = this.left() === 'docked' ? this.leftWidth() : RAIL;
+    const left = this.leftFixed() ?? (this.left() === 'docked' ? this.leftWidth() : RAIL);
     const room = this.viewport() - left - MAIN_MIN;
     this.rightWidth.set(
       Math.round(clamp(width, RIGHT.min, Math.max(RIGHT.min, Math.min(RIGHT.max, room)))),
