@@ -137,6 +137,11 @@ def events_of(transcript, workspace):
     return events
 
 
+def task_readme(task_id):
+    path = HERE.parent / "tasks" / task_id / "workspace" / "README.md"
+    return path.read_text() if path.exists() else "(not found)"
+
+
 def render_task(run_dir, result):
     workspace = str(run_dir / "workspace")
     events = events_of(run_dir / "transcript.jsonl", workspace)
@@ -194,9 +199,41 @@ def render_task(run_dir, result):
 <span>split <b>{esc(result.get("split") or "")}</b></span></div>
 <h2>The conversation</h2>
 {"".join(parts)}
+<h2>The task as handed over</h2>
+<details><summary class="muted">README.md of the workspace</summary><pre class="code">{esc(task_readme(result["task"]))}</pre></details>
 <h2>What changed</h2>
 <pre class="code">{esc(scrub(diff, workspace)[:60000]) or "(no change)"}</pre>
 </main></body></html>"""
+
+
+def summary_table(rows, key, label):
+    groups = {}
+    for r in rows:
+        groups.setdefault(r.get(key) or "-", []).append(r)
+    lines = []
+    for name in sorted(groups):
+        group = groups[name]
+        passed = sum(1 for r in group if r["passed"])
+        minutes = sorted(r["minutes"] for r in group)
+        median = minutes[len(minutes) // 2]
+        lines.append(f"<tr><td>{esc(name)}</td><td>{passed} / {len(group)}</td><td>{median}</td></tr>")
+    return (f"<table><thead><tr><th>{esc(label)}</th><th>Passed</th><th>Median min</th></tr></thead>"
+            f"<tbody>{''.join(lines)}</tbody></table>")
+
+
+METHOD = """
+<h2>How it is measured</h2>
+<p>Each task is a small repository handed to PWR with a one-paragraph request, the way a person would hand it over
+in the desktop app: the app's own protocol (<code>pwr serve --stdio</code>), one conversation per task, goal mode on.
+A stand-in person answers PWR's permission questions -- allowing what the task needs (the network, a program the
+workspace does not list, Docker) and nothing else -- and every question and answer is on the task's page.</p>
+<p>The verdict is independent of PWR. After each turn a clean copy of the workspace -- build output, caches and
+installed toolchains left out, the owner's test files restored exactly as written, and hidden tests PWR never saw
+laid over it -- is run in the task's official container image (or, for a task about containers, by a host script).
+Every task was first proven sound: as handed over it fails that verification, and with a reference solution it passes.</p>
+<p><b>dev</b> tasks are the ones PWR was improved against; <b>heldout</b> tasks were written before any run and are
+only measured. One run per task per campaign; a model runs locally (Apple Silicon, MLX), nothing is sent to a cloud model.</p>
+"""
 
 
 def render_index(rows, runs):
@@ -217,6 +254,10 @@ def render_index(rows, runs):
 Every verdict comes from an independent run of the task's tests -- the owner's, restored as written, plus hidden ones --
 in the task's official container image, never from PWR's own report. Runs: {esc(", ".join(runs))}.</p>
 <div class="meta"><span><b>{passed}</b> of <b>{len(rows)}</b> passed</span></div>
+<div class="scroll">{summary_table(rows, "split", "Split")}</div>
+<div class="scroll" style="margin-top:12px">{summary_table(rows, "category", "Kind of task")}</div>
+{METHOD}
+<h2>Every task</h2>
 <div class="scroll"><table><thead><tr><th>Task</th><th>Kind</th><th>Result</th><th>Min</th><th>Actions</th><th>Asked</th><th>Peak ctx</th><th>Run</th></tr></thead>
 <tbody>{"".join(body)}</tbody></table></div>
 </main></body></html>"""
