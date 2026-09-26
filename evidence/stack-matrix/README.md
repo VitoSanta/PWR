@@ -47,3 +47,22 @@ output.
 `dev` tasks are the ones PWR is improved against. `heldout` tasks are run only
 to measure, after the harness is frozen for a campaign; a harness change made
 after looking at a held-out failure moves that task to `dev`.
+
+## Revisions
+
+A task changed after it was run is listed here, with what changed and why.
+Every result records the task's digest (`task_digest`), so a result can be
+matched to the text it ran against; results from before a revision are not
+compared with results after it.
+
+- 2026-09-26 `bash-rotate`: the README names GNU and BSD userlands. A run
+  used BSD-only `stat` flags that the Linux verifier does not have.
+- 2026-09-26 `cpp-ini`: the README names GCC/libstdc++ and Clang/libc++ and
+  asks for every header used to be included. A run built on macOS with a
+  header reached only through libc++ (`<stdexcept>`) and failed on Linux.
+- 2026-09-26 `c-ringbuf`: the README names GCC and Clang, for the same reason.
+- 2026-09-26 `node-fastify-tasks`: the README states that an unknown `to` is
+  a 400, which the hidden tests check and the README had left open.
+- 2026-09-26 `cs-docker`: the brief says the `Dockerfile` and `.dockerignore`
+  go at the root of the repository, where the verifier looks. A run put them
+  in the project folder, which the brief had not ruled out.

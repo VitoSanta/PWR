@@ -288,6 +288,18 @@ def sidecar_digest():
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12] if path.exists() else None
 
 
+def task_digest(task_dir):
+    """Every file of a task -- brief, workspace, hidden tests, verifier --
+    hashed together, so a result names the exact task it ran against and a
+    task revised after a run is visible as one."""
+    import hashlib
+    digest = hashlib.sha256()
+    for path in sorted(p for p in task_dir.rglob("*") if p.is_file()):
+        digest.update(str(path.relative_to(task_dir)).encode() + b"\0")
+        digest.update(path.read_bytes() + b"\0")
+    return digest.hexdigest()[:12]
+
+
 def binary_revision():
     """The revision the binary under test was built from: a pinned copy is
     named for it (`pwr-<revision>`); otherwise the checkout's, marked so."""
@@ -326,6 +338,7 @@ def run_task(task, run_id, attempt, turns_override=None):
         # The MLX sidecar is read from the source tree, not from the binary:
         # what it was is recorded beside the binary's revision.
         "sidecar": sidecar_digest(),
+        "task_digest": task_digest(task["dir"]),
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "turns": [],
     }
     say(f"=== {label}: {task['title']}")
