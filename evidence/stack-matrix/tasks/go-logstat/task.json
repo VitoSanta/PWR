@@ -1,0 +1,34 @@
+{
+ "id": "go-logstat",
+ "title": "Go: access-log analyzer library and CLI, on a machine without Go",
+ "stacks": [
+  "go"
+ ],
+ "category": "backend-library",
+ "split": "dev",
+ "needs": [
+  "go"
+ ],
+ "allow": [
+  "network_access",
+  "toolchain_install",
+  "dependency_change"
+ ],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "golang:1",
+  "command": "go test -count=1 ./...",
+  "env": {
+   "GOTOOLCHAIN": "auto"
+  },
+  "cache": [
+   "gomod:/go/pkg/mod",
+   "gobuild:/root/.cache/go-build"
+  ],
+  "expect": "^ok\\s+logstat\\s",
+  "restore": [
+   "logstat_test.go"
+  ]
+ }
+}

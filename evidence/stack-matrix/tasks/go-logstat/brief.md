@@ -1,0 +1,1 @@
+Implement the `logstat` package and the `cmd/logstat` command described in README.md, so that `go test ./...` passes. Do not change logstat_test.go. When it passes, tell me what you built and the final test result.

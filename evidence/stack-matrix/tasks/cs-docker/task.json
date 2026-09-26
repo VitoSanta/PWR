@@ -1,0 +1,15 @@
+{
+ "id": "cs-docker",
+ "title": "Docker: multi-stage image, compose and a smoke test for a .NET API",
+ "stacks": ["docker", "compose", "dotnet", "bash"],
+ "category": "infrastructure",
+ "split": "dev",
+ "allow": ["container_engine", "network_access", "dependency_change", "toolchain_install", "local_service"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "host": "bash verify.sh",
+  "timeout": 1500,
+  "expect": "^ACCEPTED"
+ }
+}

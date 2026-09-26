@@ -1,0 +1,7 @@
+bin/
+obj/
+**/bin/
+**/obj/
+tests/
+.git/
+.pwr/

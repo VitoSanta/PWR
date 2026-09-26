@@ -747,19 +747,72 @@ pub fn toolchain_paths(root: &Path) -> Vec<PathBuf> {
     directories.sort();
     let mut paths = Vec::new();
     for directory in directories {
-        let nested: Vec<PathBuf> = [directory.join("bin"), directory.join("Contents/Home/bin")]
-            .into_iter()
-            .filter(|candidate| candidate.is_dir())
-            .collect();
-        if nested.is_empty() {
-            // A distribution with its executable at the top, as
-            // dotnet-install leaves one, or `.toolchains/bin` itself.
+        if directory.file_name().is_some_and(|name| name == "bin") {
             paths.push(directory);
-        } else {
-            paths.extend(nested);
+            continue;
         }
+        // A distribution with its executable at the top, as dotnet-install
+        // leaves one.
+        if has_executable(&directory) {
+            paths.push(directory.clone());
+        }
+        paths.extend(shallowest_bin(&directory));
     }
     paths
+}
+
+/// How deep under a toolchain its `bin` is looked for: `go/bin` is one level,
+/// a macOS JDK's `Contents/Home/bin` three, CMake's
+/// `CMake.app/Contents/bin` three under the directory it was unpacked into.
+const TOOLCHAIN_BIN_DEPTH: usize = 4;
+
+/// The shallowest `bin` directory under `directory`, breadth first, the
+/// first by name at that depth.
+fn shallowest_bin(directory: &Path) -> Option<PathBuf> {
+    let mut level = vec![directory.to_path_buf()];
+    for _ in 0..TOOLCHAIN_BIN_DEPTH {
+        let mut next = Vec::new();
+        for parent in &level {
+            let Ok(entries) = std::fs::read_dir(parent) else {
+                continue;
+            };
+            let mut children: Vec<PathBuf> = entries
+                .flatten()
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                .map(|entry| entry.path())
+                .collect();
+            children.sort();
+            next.extend(children);
+        }
+        if let Some(bin) = next
+            .iter()
+            .find(|path| path.file_name().is_some_and(|name| name == "bin"))
+        {
+            return Some(bin.clone());
+        }
+        level = next;
+    }
+    None
+}
+
+/// Whether a directory holds an executable file of its own.
+fn has_executable(directory: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::read_dir(directory).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .metadata()
+                    .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            })
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = directory;
+        false
+    }
 }
 
 /// The home of a JDK and a .NET installed in the workspace, for the tools
@@ -990,7 +1043,7 @@ pub fn names_a_url(action: &ActionProposal, policy: &ToolPolicy) -> Option<(Appr
     .then(|| {
         (
             Approval::NetworkAccess,
-            format!("let `{executable} {}` reach the network", args.join(" ")),
+            format!("let `{}` reach the network", command_line(executable, args)),
         )
     })
 }
@@ -1021,9 +1074,9 @@ pub fn drives_containers(
 /// What a person is asked before a command reaches the container engine.
 pub fn container_engine_question(executable: &str, args: &[String]) -> String {
     format!(
-        "let `{executable} {}` use the container engine -- containers run outside PWR's \
-         sandbox, can reach the network and can mount folders the engine shares",
-        args.join(" ")
+        "let `{}` use the container engine -- containers run outside PWR's sandbox, can reach \
+         the network and can mount folders the engine shares",
+        command_line(executable, args)
     )
 }
 
@@ -1060,10 +1113,7 @@ pub fn unlisted_program(
         Approval::ToolchainInstall,
         format!(
             "run `{}` -- `{executable}` is not one of this workspace's programs ({listed})",
-            std::iter::once(executable.as_str())
-                .chain(args.iter().map(String::as_str))
-                .collect::<Vec<_>>()
-                .join(" ")
+            command_line(executable, args)
         ),
     ))
 }
@@ -1083,8 +1133,12 @@ pub fn required_approval(action: &ActionProposal) -> Option<(Approval, String)> 
         )),
         ActionProposal::RunCommand {
             executable, args, ..
-        } => command_approval(executable, args)
-            .map(|approval| (approval, format!("run `{executable} {}`", args.join(" ")))),
+        } => command_approval(executable, args).map(|approval| {
+            (
+                approval,
+                format!("run `{}`", command_line(executable, args)),
+            )
+        }),
         ActionProposal::ApplyReplace { path, .. } | ActionProposal::WriteFile { path, .. } => {
             edit_approval(Path::new(path)).map(|a| (a, format!("write {path}")))
         }
@@ -2903,6 +2957,16 @@ pub fn args_after_program<'a>(
         _ => args,
     };
     Ok(args)
+}
+
+/// A command as a person reads it: the program, then its args with any repeat
+/// of the program taken off, as it will actually run.
+pub fn command_line(executable: &str, args: &[String]) -> String {
+    let args = args_after_program(executable, args).unwrap_or(args);
+    std::iter::once(executable)
+        .chain(args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Moves or renames a path within the workspace.
@@ -5725,11 +5789,24 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let base = root.path().join(TOOLCHAINS_DIRECTORY);
         std::fs::create_dir_all(base.join("go/bin")).unwrap();
+        std::fs::create_dir_all(base.join("go/pkg/tool/bin")).unwrap();
         std::fs::create_dir_all(base.join("jdk-21/Contents/Home/bin")).unwrap();
-        std::fs::create_dir_all(base.join("dotnet")).unwrap();
+        std::fs::create_dir_all(base.join("cmake-4.1/CMake.app/Contents/bin")).unwrap();
+        std::fs::create_dir_all(base.join("dotnet/sdk")).unwrap();
+        std::fs::create_dir_all(base.join("empty")).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(base.join("dotnet/dotnet"), "").unwrap();
+            std::fs::set_permissions(
+                base.join("dotnet/dotnet"),
+                std::fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+        }
         assert_eq!(
             toolchain_paths(root.path()),
             vec![
+                base.join("cmake-4.1/CMake.app/Contents/bin"),
                 base.join("dotnet"),
                 base.join("go/bin"),
                 base.join("jdk-21/Contents/Home/bin"),
@@ -5747,6 +5824,14 @@ mod tests {
         std::fs::write(jdk_bin.join("javac"), "").unwrap();
         std::fs::create_dir_all(base.join("dotnet")).unwrap();
         std::fs::write(base.join("dotnet/dotnet"), "").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                base.join("dotnet/dotnet"),
+                std::fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+        }
         let homes = toolchain_homes(root.path());
         assert!(
             homes.contains(&("JAVA_HOME", base.join("jdk-21/Contents/Home"))),

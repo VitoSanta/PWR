@@ -1,0 +1,18 @@
+{
+ "id": "cs-inventory",
+ "title": "C#: an ASP.NET Core minimal API with validation, conflicts and stats",
+ "stacks": ["csharp", "dotnet", "aspnetcore"],
+ "category": "backend-api",
+ "split": "dev",
+ "allow": ["network_access", "dependency_change", "toolchain_install"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "mcr.microsoft.com/dotnet/sdk:10.0",
+  "command": "dotnet test tests/Inventory.Api.Tests 2>&1",
+  "restore": ["tests/Inventory.Api.Tests/InventoryApiTests.cs", "tests/Inventory.Api.Tests/Inventory.Api.Tests.csproj"],
+  "cache": ["nuget:/root/.nuget/packages"],
+  "timeout": 1500,
+  "expect": "Passed!|Test summary: total: \\d+, failed: 0"
+ }
+}
