@@ -238,14 +238,37 @@ def diff_against_seed(seed, workspace, exclude=NOT_SOURCE):
             found[str(relative)] = path
         return found
 
+    def text(path):
+        data = path.read_bytes()
+        if b"\0" in data[:8192] or len(data) > 512 * 1024:
+            return None, len(data)
+        try:
+            return data.decode("utf-8").splitlines(True), len(data)
+        except UnicodeDecodeError:
+            return None, len(data)
+
     before, after = files(seed), files(workspace)
     chunks = []
     for name in sorted(set(before) | set(after)):
-        old = before[name].read_text(errors="replace").splitlines(True) if name in before else []
-        new = after[name].read_text(errors="replace").splitlines(True) if name in after else []
-        if old != new:
+        old, old_size = text(before[name]) if name in before else ([], 0)
+        new, new_size = text(after[name]) if name in after else ([], 0)
+        if old is None or new is None:
+            if before.get(name) is None or after.get(name) is None or before[name].read_bytes() != after[name].read_bytes():
+                chunks.append(f"Binary or large file {name}: {old_size} -> {new_size} bytes\n")
+        elif old != new:
             chunks.extend(difflib.unified_diff(old, new, f"a/{name}", f"b/{name}"))
     return "".join(chunks)
+
+
+def binary_revision():
+    """The revision the binary under test was built from: a pinned copy is
+    named for it (`pwr-<revision>`); otherwise the checkout's, marked so."""
+    name = os.path.basename(PWR_BIN)
+    if name.startswith("pwr-"):
+        return name[4:]
+    head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    return f"{head} (unpinned build)"
 
 
 def run_task(task, run_id, attempt, turns_override=None):
@@ -271,8 +294,7 @@ def run_task(task, run_id, attempt, turns_override=None):
         "task": task["id"], "title": task["title"], "stacks": task["stacks"],
         "category": task["category"], "split": task.get("split"), "attempt": attempt,
         "run": run_id, "model": MODEL, "binary": PWR_BIN,
-        "revision": subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
-                                   capture_output=True, text=True).stdout.strip(),
+        "revision": binary_revision(),
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "turns": [],
     }
     say(f"=== {label}: {task['title']}")
