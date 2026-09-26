@@ -58,7 +58,11 @@ On macOS a tool runs under a seatbelt profile:
   caches stay inside the boundary rather than widening it. The one path
   outside it a command may write is `/private/tmp/.dotnet`, where .NET keeps
   the lock files of its named mutexes whatever `TMPDIR` says; without it no
-  `dotnet` command could start in the sandbox.
+  `dotnet` command could start in the sandbox. The other is
+  `/private/tmp/pwr-look`, where `look_at`'s headless browser keeps its
+  temporary files; it is also the only place a sandboxed command may bind or
+  connect to a Unix socket (with the local-service grant), because a socket
+  path under a workspace is too long for macOS.
 - **Toolchains a task needs** are installed into the workspace, under
   `.toolchains/<name>/`, whose `bin` goes first on `PATH` for the agent's
   commands and for the checks alike. The host is not modified.
