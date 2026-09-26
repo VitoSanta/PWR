@@ -1,7 +1,9 @@
 # ini
 
 An INI configuration reader in C++17, standard library only, built with CMake.
-The header is `include/ini/ini.hpp`, the implementation `src/ini.cpp`.
+The header is `include/ini/ini.hpp`, the implementation `src/ini.cpp`. CI
+builds it with GCC and libstdc++ on Linux, developers with Clang and libc++ on
+macOS: it must compile with both, so include every standard header you use.
 
 ```cpp
 namespace ini {
