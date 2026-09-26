@@ -48,7 +48,10 @@ pub struct TurnInput {
     pub steps: Box<dyn FnMut(TurnStep)>,
     pub continuity: converse::Continuity,
     pub approvals: Arc<dyn ApprovalPrompt>,
-    pub session_grants: Vec<pwr_tools::Approval>,
+    /// What the person allowed for the rest of the session, as it stands:
+    /// shared rather than copied, so a grant made during the turn reaches the
+    /// checks that close it.
+    pub session_grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
     /// Goal mode keeps a single task moving across ordinary turn checkpoints.
     /// The runner still owns completion evidence; the server owns the bounded
     /// continuation policy and the operator's stop control.
@@ -404,6 +407,10 @@ pub struct CommandContext {
     pub acceptance_contract_hash: Option<String>,
     /// Files the session changed, by the content it left them with.
     pub changed_files: BTreeMap<String, String>,
+    /// What the person allowed for the rest of the session. The checks run
+    /// with it: a check that restores packages needs the network the person
+    /// already allowed, and a smoke test the container engine.
+    pub session_grants: Vec<pwr_tools::Approval>,
 }
 
 struct Session {
@@ -481,6 +488,11 @@ impl Session {
                 .checkpoint
                 .lock()
                 .map(|checkpoint| checkpoint.changed_files.clone())
+                .unwrap_or_default(),
+            session_grants: self
+                .grants
+                .lock()
+                .map(|grants| grants.clone())
                 .unwrap_or_default(),
         }
     }
@@ -1808,15 +1820,12 @@ impl<R: TurnRunner + 'static> Server<R> {
                     }),
                     continuity: continuity.clone(),
                     approvals: Arc::clone(&approvals),
-                    // Read again for every turn of a goal: what the person
-                    // allowed for the session during the last one holds for
-                    // this one. Read once per prompt, it did not -- measured
+                    // Shared, not copied: what the person allowed for the
+                    // session during one turn of a goal holds for the next.
+                    // Copied once per prompt, it did not -- measured
                     // 2026-09-26, Docker allowed for the session and asked
                     // about again on the goal's next turn.
-                    session_grants: session_grants
-                        .lock()
-                        .map(|grants| grants.clone())
-                        .unwrap_or_default(),
+                    session_grants: Arc::clone(&session_grants),
                     goal_mode,
                 })
                 .await;
@@ -3546,7 +3555,7 @@ mod tests {
                     }
                 }
                 "ask" => {
-                    let grants = turn.session_grants.len();
+                    let grants = turn.session_grants.lock().unwrap().len();
                     let decision = turn
                         .approvals
                         .ask(pwr_tools::Approval::Publish, "publish the crate")
@@ -3712,7 +3721,7 @@ mod tests {
             self.grants_seen
                 .lock()
                 .unwrap()
-                .push(turn.session_grants.len());
+                .push(turn.session_grants.lock().unwrap().len());
             if run == 0
                 && let Some(approval) = self.ask_on_first
             {
@@ -5437,7 +5446,7 @@ mod tests {
             let policy = pwr_tools::ToolPolicy {
                 approvals: crate::chat_approvals(
                     &[pwr_tools::Approval::DependencyChange],
-                    &turn.session_grants,
+                    &turn.session_grants.lock().unwrap().clone(),
                 ),
                 ..crate::two_loops::policy_for(&turn.root)
             };

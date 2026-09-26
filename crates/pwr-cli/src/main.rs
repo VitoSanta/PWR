@@ -1147,6 +1147,21 @@ fn chat_approvals(
     granted
 }
 
+/// What a conversation's checks may do: what its turns may, Settings and the
+/// session's grants together.
+fn session_approvals(root: &Path, context: &serve::CommandContext) -> Vec<pwr_tools::Approval> {
+    let config = load_chat_config(root).unwrap_or_default();
+    chat_approvals(&effective_ask_before(&config), &context.session_grants)
+}
+
+/// The session's grants as they stand.
+fn granted_now(grants: &std::sync::Mutex<Vec<pwr_tools::Approval>>) -> Vec<pwr_tools::Approval> {
+    grants
+        .lock()
+        .map(|grants| grants.clone())
+        .unwrap_or_default()
+}
+
 /// The plain name of a kind of approval, for Settings and the prompt.
 fn approval_label(approval: pwr_tools::Approval) -> &'static str {
     use pwr_tools::Approval;
@@ -3575,9 +3590,14 @@ impl serve::TurnRunner for ConsoleTurns {
         Ok(match command {
             serve::Command::Changes => conversation_changes(&root, &context.changed_files).await,
             serve::Command::Verify => summarise_verification(
-                &verify_in(&root, None, "targeted".into())
-                    .await
-                    .map_err(|error| error.context)?,
+                &verify_in(
+                    &root,
+                    None,
+                    "targeted".into(),
+                    session_approvals(&root, &context),
+                )
+                .await
+                .map_err(|error| error.context)?,
             ),
             serve::Command::Report => summarise_session(
                 &report_in(&root, id, "json".into()).map_err(|error| error.context)?,
@@ -3642,9 +3662,14 @@ impl serve::TurnRunner for ConsoleTurns {
         context: serve::CommandContext,
     ) -> Result<serve::GoalVerification, String> {
         let acceptance = pwr_verify::declared_acceptance_checks(&context.root)?;
-        let report = verify_in(&context.root, None, "full".into())
-            .await
-            .map_err(|error| error.context)?;
+        let report = verify_in(
+            &context.root,
+            None,
+            "full".into(),
+            session_approvals(&context.root, &context),
+        )
+        .await
+        .map_err(|error| error.context)?;
         let no_tests: Vec<String> = report
             .get("baseline")
             .and_then(|baseline| baseline.get("checks"))
@@ -4472,7 +4497,7 @@ async fn chat_turn(
     mut continuity: converse::Continuity,
     // Whoever asks the person: the console, or a protocol client.
     approvals: Arc<dyn pwr_orchestrator::ApprovalPrompt>,
-    session_grants: Vec<pwr_tools::Approval>,
+    session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
     _goal_mode: bool,
 ) -> ChatTurnResult {
     let model = config.model.clone().ok_or("no model is selected")?;
@@ -4595,7 +4620,10 @@ async fn chat_turn(
             // The grant the console makes for work in this workspace, less what
             // Settings say to ask about, plus what was allowed for this session
             // when asked. The policy still confines writes and records every action.
-            approvals: chat_approvals(&effective_ask_before(&config), &session_grants),
+            approvals: chat_approvals(
+                &effective_ask_before(&config),
+                &granted_now(&session_grants),
+            ),
         }
     };
     let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
@@ -4710,6 +4738,12 @@ async fn chat_turn(
             pwr_verify::discover_checks(&root, "targeted").unwrap_or_default()
         };
         let mut verification_policy = policy.clone();
+        // What the person allowed for the session during this turn counts for
+        // its checks: a restore needs the network they allowed a moment ago.
+        verification_policy.approvals = chat_approvals(
+            &effective_ask_before(&config),
+            &granted_now(&session_grants),
+        );
         for (executable, _) in &after_checks {
             if !verification_policy.allow_commands.contains(executable) {
                 verification_policy.allow_commands.push(executable.clone());
@@ -5042,7 +5076,7 @@ async fn run_tui_inner(
                                 // repository stood had to leave.
                                 state.input.clear();
                                 push_tui_activity(&mut state, "Running the repository's own checks…");
-                                let said = match verify_in(&root, None, "targeted".into()).await {
+                                let said = match verify_in(&root, None, "targeted".into(), granted_now(&session_grants)).await {
                                     Ok(report) => summarise_verification(&report),
                                     Err(error) => format!("could not verify: {}", error.context),
                                 };
@@ -5144,7 +5178,7 @@ async fn run_tui_inner(
                                     requests: approval_sender.clone(),
                                     session_grants: Arc::clone(&session_grants),
                                 });
-                                let grants = session_grants.lock().map(|grants| grants.clone()).unwrap_or_default();
+                                let grants = Arc::clone(&session_grants);
                                 chat_task = Some(tokio::task::spawn_local(async move {
                                     chat_turn(root, runtime, config, conversation_id, stop, steps, history, continuity, approvals, grants, false).await
                                 }));
@@ -9912,13 +9946,14 @@ fn report_in(root: &Path, id: String, format: String) -> Result<serde_json::Valu
     }))
 }
 async fn verify(run_id: Option<String>, scope: String) -> Result<serde_json::Value, SafeError> {
-    verify_in(&current_root()?, run_id, scope).await
+    verify_in(&current_root()?, run_id, scope, Vec::new()).await
 }
 
 async fn verify_in(
     root: &Path,
     run_id: Option<String>,
     scope: String,
+    approvals: Vec<pwr_tools::Approval>,
 ) -> Result<serde_json::Value, SafeError> {
     let root = root.to_path_buf();
     let checks = pwr_verify::discover_checks(&root, &scope).map_err(|e| SafeError {
@@ -9936,9 +9971,13 @@ async fn verify_in(
         output_limit: 64 * 1024,
         timeout: Duration::from_secs(120),
         sandbox: pwr_tools::SandboxPolicy::Preferred,
-        // No approval is granted by default; the CLI has no flag to grant one
-        // until a run can actually ask the user for it.
-        approvals: Vec::new(),
+        // What the caller was granted: nothing from the command line, the
+        // session's grants from a conversation. Measured 2026-09-26: a goal's
+        // checks ran with none, so `dotnet test` failed its restore (NU1301)
+        // and a smoke test its Docker socket, while the model -- allowed both
+        // for the session -- had run them green; the goal was refused three
+        // times and ended "blocked" on work that was done.
+        approvals,
     };
     let state_dir = root.join(".pwr");
     std::fs::create_dir_all(&state_dir).map_err(|e| SafeError {
@@ -11548,6 +11587,32 @@ mod tests {
         let markdown = report_markdown(uuid::Uuid::nil(), &[]);
         assert!(markdown.contains(REPLAY_IS_NOT_EXECUTION), "{markdown}");
         assert!(REPLAY_IS_NOT_EXECUTION.contains("not a resumed run"));
+    }
+
+    /// A goal's checks restore packages and start containers with what the
+    /// person allowed for the session, and with nothing more.
+    #[test]
+    fn a_conversations_checks_run_with_the_sessions_grants() {
+        use pwr_tools::Approval;
+        let root = tempfile::tempdir().unwrap();
+        let context = |grants: Vec<Approval>| serve::CommandContext {
+            root: root.path().to_path_buf(),
+            conversation_id: pwr_domain::new_id(),
+            acceptance_contract_hash: None,
+            changed_files: Default::default(),
+            session_grants: grants,
+        };
+        let none = session_approvals(root.path(), &context(Vec::new()));
+        assert!(!none.contains(&Approval::NetworkAccess), "{none:?}");
+        assert!(!none.contains(&Approval::ContainerEngine), "{none:?}");
+        let allowed = session_approvals(
+            root.path(),
+            &context(vec![Approval::NetworkAccess, Approval::ContainerEngine]),
+        );
+        assert!(allowed.contains(&Approval::NetworkAccess), "{allowed:?}");
+        assert!(allowed.contains(&Approval::ContainerEngine), "{allowed:?}");
+        // And nothing Settings withhold that the session did not grant.
+        assert!(!allowed.contains(&Approval::Publish), "{allowed:?}");
     }
 
     /// Settings decide what the conversation asks about; everything else is
