@@ -1,0 +1,1 @@
+Implement the library API described in README.md (Spring Boot, package com.example.library) so that `mvn -q test` passes. Don't change the tests or pom.xml. Tell me what you built and the final test result.
