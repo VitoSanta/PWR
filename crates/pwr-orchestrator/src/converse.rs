@@ -765,13 +765,18 @@ pub fn chat_system_prompt(root: &std::path::Path) -> String {
          and say what you did. The repository's own checks run after you edit and you will be \
          told what they said, so do not claim something works before you have seen them pass. \
          Call `complete` when the work is done and `decline` when it should not be done; either \
-         ends your turn and its rationale is what the engineer reads.",
+         ends your turn and its rationale is what the engineer reads.\n\
+         \n\
+         {}",
         // The name, not the absolute path: given the full path, a model reads
         // it as the prefix for every file it asks for, and every read is then
         // refused for escaping the workspace.
         root.file_name()
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| root.display().to_string())
+            .unwrap_or_else(|| root.display().to_string()),
+        // What the machine has and how to add what it lacks: asked for a Go
+        // service on a Mac without Go, a model had no way to learn either.
+        pwr_tools::host_facts(root),
     )
 }
 
@@ -1761,7 +1766,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 phase: ToolPhase::Proposed,
                 diff: None,
             }));
-            let granted_once = match crate::session::gate(
+            let mut granted_once = match crate::session::gate(
                 store,
                 conversation_id,
                 u8::try_from(actions).unwrap_or(u8::MAX),
@@ -1815,6 +1820,8 @@ async fn take_turn_inner<P: ModelProvider>(
             // without a receipt, which is what an effect nobody can vouch for
             // should look like to a restart.
             let interruptible = matches!(action, ActionProposal::RunCommand { .. });
+            // Kept to run again if it turns out the network is what it lacked.
+            let command = interruptible.then(|| action.clone());
             let performing = crate::session::perform(
                 store,
                 conversation_id,
@@ -1836,6 +1843,43 @@ async fn take_turn_inner<P: ModelProvider>(
             } else {
                 performing.await?
             };
+            let mut outcome = outcome;
+            if let Some(command) = command {
+                let offline = crate::session::offline(
+                    store,
+                    conversation_id,
+                    u8::try_from(actions).unwrap_or(u8::MAX),
+                    &command,
+                    &fingerprint,
+                    &mut outcome,
+                    &mut policy,
+                    prompt,
+                    &mut refused_streak,
+                )
+                .await?;
+                if let crate::session::Offline::Allowed { once } = offline {
+                    if once {
+                        granted_once.push(pwr_tools::Approval::NetworkAccess);
+                    }
+                    let again = crate::session::perform(
+                        store,
+                        conversation_id,
+                        &policy,
+                        command,
+                        &mut services,
+                        &mut reads,
+                        u8::try_from(actions).unwrap_or(u8::MAX),
+                        &mut checkpoint,
+                        actions,
+                    );
+                    outcome = tokio::select! {
+                        outcome = again => outcome?,
+                        () = pressed(stop) => {
+                            return stopped(actions, edited, StopReason::Interrupted);
+                        }
+                    };
+                }
+            }
             if let Ok(mut shared) = continuity.checkpoint.lock() {
                 *shared = checkpoint;
             }
@@ -3132,5 +3176,8 @@ mod tests {
         assert!(prompt.contains("relative to the repository root"));
         // The claim the checks exist to stop.
         assert!(prompt.contains("do not claim something works"));
+        // The machine, and where a missing toolchain goes.
+        assert!(prompt.contains(std::env::consts::ARCH), "{prompt}");
+        assert!(prompt.contains(".toolchains/<name>/"), "{prompt}");
     }
 }

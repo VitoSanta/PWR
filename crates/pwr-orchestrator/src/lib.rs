@@ -3737,7 +3737,8 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         // The same trail the conversation leaves: announced, receipted and
         // checkpointed, so an interrupted run can be reconciled the way an
         // interrupted turn is.
-        let outcome = session::perform(
+        let command = matches!(action, ActionProposal::RunCommand { .. }).then(|| action.clone());
+        let mut outcome = session::perform(
             store,
             run_id,
             &policy,
@@ -3749,6 +3750,38 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             usize::from(step) + 1,
         )
         .await?;
+        // The same question the conversation asks when a command failed only
+        // because the sandbox kept it offline.
+        if let Some(command) = command
+            && let session::Offline::Allowed { once } = session::offline(
+                store,
+                run_id,
+                step,
+                &command,
+                &fingerprint,
+                &mut outcome,
+                &mut policy,
+                prompt,
+                &mut refused_streak,
+            )
+            .await?
+        {
+            if once {
+                once_granted.push(pwr_tools::Approval::NetworkAccess);
+            }
+            outcome = session::perform(
+                store,
+                run_id,
+                &policy,
+                command,
+                &mut services,
+                &mut files_read,
+                step,
+                &mut continuity,
+                usize::from(step) + 1,
+            )
+            .await?;
+        }
         let mut outcome = action_outcome(outcome);
         // The rest of a read-only turn, performed here rather than over the
         // next several turns. Each one is executed by the same call, audited by

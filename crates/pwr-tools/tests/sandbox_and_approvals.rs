@@ -1253,3 +1253,47 @@ fn dotnet_runs_in_the_sandbox_on_its_first_run() {
     assert!(!result.stderr.contains("EPERM"), "{result:?}");
     assert_eq!(result.exit_code, Some(0), "{result:?}");
 }
+
+/// What the sandbox's refusal actually looks like from the tools a run
+/// reaches for, so the conversation can tell it from any other failure. No
+/// traffic leaves the machine: the network is denied throughout.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_sandbox_refusing_the_network_is_recognisable() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy
+        .allow_commands
+        .extend(["curl".into(), "python3".into()]);
+    // Written so no argument names a URL: one that does is asked about before
+    // it runs (`names_a_url`), and this is about what happens when it runs.
+    let attempts: [(&str, Vec<String>); 3] = [
+        ("curl", vec!["-sS".into(), "example.com".into()]),
+        (
+            "python3",
+            vec![
+                "-c".into(),
+                "import urllib.request; urllib.request.urlopen('https:' + '//pypi.org/simple/')"
+                    .into(),
+            ],
+        ),
+        (
+            "sh",
+            vec![
+                "-c".into(),
+                "git ls-remote \"$0//github.com/rust-lang/rust\"".into(),
+                "https:".into(),
+            ],
+        ),
+    ];
+    for (program, args) in attempts {
+        let result = block_on(run_command(&policy, program, &args)).unwrap();
+        assert!(result.sandboxed);
+        assert_ne!(result.exit_code, Some(0), "{program}: {result:?}");
+        let output = format!("{}\n{}", result.stdout, result.stderr);
+        assert!(
+            pwr_tools::looks_like_network_denied(&output),
+            "{program} was refused the network and said: {output}"
+        );
+    }
+}

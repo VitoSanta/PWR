@@ -608,9 +608,17 @@ const NETWORK_DENIED_SIGNS: &[&str] = &[
     "UnknownHostException",
     "Could not GET",
     "npm ERR! network",
+    "npm error network",
+    "code ENOTFOUND",
+    "code EAI_AGAIN",
     "unable to access 'http",
     "error sending request for url",
     "failed to download from",
+    // Composer, Bundler, pub, Hex.
+    "curl error 6",
+    "Could not fetch specs from",
+    "Got socket error trying to find package",
+    ":failed_connect",
 ];
 
 /// Whether a command's output says the network was wanted and refused.
@@ -739,9 +747,10 @@ pub fn host_facts(root: &Path) -> String {
          `{TOOLCHAINS_DIRECTORY}/<name>/` from its official release for this machine: every \
          `{TOOLCHAINS_DIRECTORY}/<name>/bin` is put on PATH for your commands and for the checks, \
          so a check that runs `go` or `javac` finds it. Nothing outside the workspace can be \
-         written, so do not install system-wide. Programs the workspace does not list, the \
-         network and installs are asked of the engineer when you run them: run what the task \
-         needs rather than working around it.",
+         written, so do not install system-wide. A program the workspace does not list, a \
+         download and a published change go to the engineer for approval when you run them, \
+         so run what the task needs rather than working around it; if one is refused, say \
+         what it would have taken.",
         present.join(", "),
         if missing.is_empty() {
             "nothing checked for".to_owned()
@@ -846,6 +855,33 @@ pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
         }
     }
     None
+}
+
+/// A command that names a URL, and the network grant it will need.
+///
+/// `run_command_in` refuses one outright without the grant, which left the
+/// model told "requires an explicit grant" with nobody it could ask for it.
+/// Asked before it runs instead, like any other approval.
+pub fn names_a_url(action: &ActionProposal, policy: &ToolPolicy) -> Option<(Approval, String)> {
+    let (ActionProposal::RunCommand {
+        executable, args, ..
+    }
+    | ActionProposal::StartService {
+        executable, args, ..
+    }) = action
+    else {
+        return None;
+    };
+    (!policy.network_allowed()
+        && args
+            .iter()
+            .any(|arg| arg.contains("http://") || arg.contains("https://")))
+    .then(|| {
+        (
+            Approval::NetworkAccess,
+            format!("let `{executable} {}` reach the network", args.join(" ")),
+        )
+    })
 }
 
 /// The program an action would run that this policy does not permit, with the
