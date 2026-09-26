@@ -1114,7 +1114,12 @@ pub fn toolchain_recipes(root: &Path, missing: &[&str]) -> Vec<String> {
             "deno" => format!("deno: https://github.com/denoland/deno/releases/latest/download/deno-{triple}.zip; unzip into {TOOLCHAINS_DIRECTORY}/deno/bin/."),
             "cargo" => format!("cargo: https://static.rust-lang.org/rustup/dist/{triple}/rustup-init; run it with RUSTUP_HOME={TOOLCHAINS_DIRECTORY}/rust/rustup and CARGO_HOME={TOOLCHAINS_DIRECTORY}/rust/cargo: `rustup-init -y --no-modify-path --profile minimal`."),
             "terraform" => format!("terraform: https://releases.hashicorp.com/terraform/ lists the versions; download terraform_<version>_{}.zip and unzip into {TOOLCHAINS_DIRECTORY}/terraform/bin/.", go_arch.replace('-', "_")),
-            "elixir" => "elixir: there is no portable build for this machine; run it in its Docker image (`docker run --rm -v \"$PWD\":/w -w /w elixir:1.18 mix test`), with the engineer's approval for the container engine.".to_owned(),
+            // Checked 2026-09-26: both archives run from any folder, and
+            // `mix test` on a project without dependencies writes nothing
+            // outside it. Docker is no substitute on a Mac: the checks run
+            // `mix` on the host.
+            "elixir" if mac => format!("elixir: Erlang first -- https://github.com/erlef/otp_builds/releases/download/OTP-28.5.0.7/OTP-28.5.0.7-macos-{}.tar.gz, extracted into {TOOLCHAINS_DIRECTORY}/erlang/ (it has bin/erl); then https://github.com/elixir-lang/elixir/releases/download/v1.20.4/elixir-otp-28.zip, unzipped into {TOOLCHAINS_DIRECTORY}/elixir/ (it has bin/mix). Both run where they are extracted.", if arm { "arm64" } else { "amd64" }),
+            "elixir" => "elixir: run it in its Docker image (`docker run --rm -v \"$PWD\":/w -w /w elixir:1.18 mix test`), with the engineer's approval for the container engine.".to_owned(),
             _ => return None,
         })
     };

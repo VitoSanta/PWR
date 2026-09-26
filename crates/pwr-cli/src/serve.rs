@@ -466,7 +466,9 @@ const GOAL_NOTICE_EVERY: usize = 10;
 const GOAL_REVIEW: &str = "The checks pass. Before finishing, hold the work against what was \
     asked, because checks rarely cover every rule: re-read the request and any specification \
     it points to (a README, a spec file), go through each rule it states, and for each one \
-    find where the code does it. Where the request names something -- an image, a version, a \
+    find where the code does it. A rule no check exercises is only known to work once it has \
+    run: try it -- a short script, or a test file of your own -- rather than trusting a \
+    reading of the code. Where the request names something -- an image, a version, a \
     library, a file and where it goes -- the work must use exactly that; something else that \
     behaves the same is not what was asked. Fix any rule that is missing or wrong, run the \
     checks again, then finish. If a named thing could not be used, say so and why instead of \
