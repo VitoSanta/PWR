@@ -455,6 +455,20 @@ const GOAL_SAME_FAILURE_LIMIT: usize = 3;
 /// conversation a column of them while a run was stuck.
 const GOAL_NOTICE_EVERY: usize = 10;
 
+/// What a goal is asked once, the first time its checks pass: to hold the
+/// work against the request before calling it done.
+///
+/// Measured on the stack matrix, 2026-09-26: three of four failed tasks had
+/// every declared check green and broke a rule the request stated plainly and
+/// no visible test covered -- "blank lines are ignored", "copies above N are
+/// deleted". A model makes the checks pass and stops; the checks are rarely
+/// the whole request.
+const GOAL_REVIEW: &str = "The checks pass. Before finishing, hold the work against what was \
+    asked, because checks rarely cover every rule: re-read the request and any specification \
+    it points to (a README, a spec file), go through each rule it states, and for each one \
+    find where the code does it. Fix any rule that is missing or wrong, run the checks again, \
+    then finish. If every rule is met, finish and say so.";
+
 impl Session {
     fn new(
         root: PathBuf,
@@ -1796,6 +1810,11 @@ impl<R: TurnRunner + 'static> Server<R> {
         let mut idle_rounds = 0usize;
         let mut same_failure: (Vec<String>, usize) = (Vec::new(), 0);
         let mut noticed_at: Option<usize> = None;
+        // The verification that passed before the review round, kept so a
+        // review that changes nothing ends on it without re-running checks.
+        let mut reviewed: Option<GoalVerification> = None;
+        let mut review_done = false;
+        let mut goal_edited = false;
         loop {
             let base = highest_call.get();
             let outcome = self
@@ -1852,7 +1871,22 @@ impl<R: TurnRunner + 'static> Server<R> {
                 0
             };
 
+            // A verification from before a change says nothing about after it.
+            goal_edited |= report.edited;
+            if report.edited {
+                reviewed = None;
+            }
             if report.completed {
+                if let Some(verification) = reviewed.take() {
+                    return self.turn_reply(
+                        id,
+                        &session_id,
+                        report,
+                        total_actions,
+                        true,
+                        Some(verification),
+                    );
+                }
                 let context = self
                     .sessions
                     .borrow()
@@ -1862,6 +1896,18 @@ impl<R: TurnRunner + 'static> Server<R> {
                     return error_response(id, -32602, "no such session");
                 };
                 match self.runner.verify_goal(context).await {
+                    Ok(verification) if verification.passed && goal_edited && !review_done => {
+                        review_done = true;
+                        reviewed = Some(verification);
+                        self.update(
+                            &session_id,
+                            message_chunk(
+                                "agent_message_chunk",
+                                "The checks pass. Reviewing the work against the request before finishing.",
+                            ),
+                        );
+                        messages.push(ChatMessage::text("user", GOAL_REVIEW));
+                    }
                     Ok(verification) if verification.passed => {
                         return self.turn_reply(
                             id,
@@ -4464,15 +4510,26 @@ mod tests {
                 }));
                 let response = messages.last().unwrap();
                 assert_eq!(response["result"]["_meta"]["pwr"]["goal"]["verified"], true);
-                assert_eq!(response["result"]["_meta"]["pwr"]["totalActions"], 29);
-                // Two turns under one prompt, each with its own first call:
-                // two distinct actions, so two distinct ids.
+                // The checkpoint, the completion, and the review the first
+                // passing verification asks for: 26 + 3 + 3.
+                assert_eq!(response["result"]["_meta"]["pwr"]["totalActions"], 32);
+                assert!(updates(&messages).iter().any(|update| {
+                    update["content"]["text"]
+                        .as_str()
+                        .is_some_and(|text| text.contains("Reviewing the work against the request"))
+                }));
+                // Three turns under one prompt, each with its own first call:
+                // three distinct actions, so three distinct ids.
                 let ids: Vec<&str> = updates(&messages)
                     .iter()
                     .filter(|update| update["sessionUpdate"] == "tool_call")
                     .filter_map(|update| update["toolCallId"].as_str())
                     .collect();
-                assert_eq!(ids, ["turn1-call1", "turn1-call2"], "{messages:#?}");
+                assert_eq!(
+                    ids,
+                    ["turn1-call1", "turn1-call2", "turn1-call3"],
+                    "{messages:#?}"
+                );
                 // A reply streams while it is generated: reasoning as a
                 // thought, text as a message chunk marked live.
                 assert!(updates(&messages).iter().any(|update| {
@@ -4594,6 +4651,32 @@ mod tests {
                 .as_str()
                 .is_some_and(|text| text.contains(needle))
         })
+    }
+
+    /// The first passing verification asks once for a review against the
+    /// request; a review that changes nothing ends the goal on it.
+    #[tokio::test]
+    async fn a_passing_goal_is_reviewed_once_against_the_request() {
+        let requests: Arc<Mutex<Vec<String>>> = Arc::default();
+        let runner = GoalScripted {
+            runs: std::sync::atomic::AtomicUsize::new(0),
+            ask_on_first: None,
+            grants_seen: Default::default(),
+            script: vec![turn(4, true, None), turn(0, true, None)],
+            requests: Arc::clone(&requests),
+            verification: GoalVerification {
+                passed: true,
+                technical_passed: true,
+                acceptance_available: true,
+                ..GoalVerification::default()
+            },
+        };
+        let (messages, _) = goal_prompt(runner).await;
+        let asked = requests.lock().unwrap().clone();
+        assert_eq!(asked.len(), 2, "{asked:?}");
+        assert_eq!(asked[1], GOAL_REVIEW);
+        let response = messages.last().unwrap();
+        assert_eq!(response["result"]["_meta"]["pwr"]["goal"]["verified"], true);
     }
 
     /// Seen 2026-09-26: Docker allowed for the session on a goal's first turn
