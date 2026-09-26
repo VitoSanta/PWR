@@ -358,7 +358,12 @@ def run_task(task, run_id, attempt, turns_override=None):
     personal.mkdir(exist_ok=True)
     core = Core(PWR_BIN, out / "transcript.jsonl",
                 {"PWR_MLX_PYTHON": MLX_PYTHON, "PWR_MLX_SIDECAR": str(sidecar_path()),
-                 "PWR_HOME": str(personal)})
+                 "PWR_HOME": str(personal),
+                 # The engine's own record of each request -- what the prompt
+                 # cache saved, and where a missed prompt parted from the last.
+                 # It holds model text, so it stays with the run and is never
+                 # published.
+                 "PWR_MLX_TRACE": str(out / "mlx-trace.jsonl")})
     person = Person(core, task.get("allow", []))
     passed, output = False, ""
     watchdog = None
