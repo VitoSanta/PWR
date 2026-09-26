@@ -2783,7 +2783,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
     let mut policy = policy.clone();
     // Owned, because an approved verifier joins it for the rest of the run.
     let mut checks: Vec<(String, Vec<String>)> = checks.to_vec();
-    let mut once_granted: Option<pwr_tools::Approval> = None;
+    let mut once_granted: Vec<pwr_tools::Approval> = Vec::new();
     // A plan pushed once as a message is context, not authority: nothing
     // consults it again, and compaction drops it entirely, so on a long task
     // the decomposition is gone exactly when it would start to matter. Held as
@@ -3698,11 +3698,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 request.messages.push(message);
                 continue;
             }
-            session::Gate::Proceed { granted_once } => {
-                if granted_once.is_some() {
-                    once_granted = granted_once;
-                }
-            }
+            session::Gate::Proceed { granted_once } => once_granted.extend(granted_once),
         }
         // A delete and a move change the workspace as much as an edit does,
         // and the checks have as much to say about them.
@@ -3804,7 +3800,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             also_read.push(entry);
         }
         // A one-time grant expires with the action it was given for.
-        if let Some(approval) = once_granted.take() {
+        for approval in std::mem::take(&mut once_granted) {
             policy.approvals.retain(|granted| *granted != approval);
         }
         // Reaching an outcome means the approval gate let it through, so a

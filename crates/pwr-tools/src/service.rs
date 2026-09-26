@@ -103,6 +103,15 @@ impl ServiceSupervisor {
         port: Option<u16>,
     ) -> Result<ServiceHandle, ToolError> {
         policy.require(Approval::LocalService)?;
+        // The same list `run_command` keeps: a service is a program too, and
+        // starting one was the way around the list until 2026-09-26 -- a run
+        // refused `docker` by run_command started it with start_service.
+        if !policy.permits_program(executable) {
+            return Err(ToolError::Denied(format!(
+                "`{executable}` is not one of this workspace's programs, and running programs \
+                 outside the list has not been granted"
+            )));
+        }
         // A port something already answers on is not this service's. Seen
         // 2026-09-23: with the engineer's own `ng serve` on 4200, the model's
         // `npm start` died with a stack trace ending in "Port 4200 is already

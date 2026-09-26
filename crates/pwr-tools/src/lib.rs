@@ -617,6 +617,40 @@ pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
     None
 }
 
+/// The program an action would run that this policy does not permit, with the
+/// approval that would permit it and a description a person can judge.
+///
+/// The workspace's list of programs is where a run starts, not where it must
+/// stop: a task can need `docker`, `curl`, `javac` or a shell the repository
+/// never declared. So a program outside the list is a question for the person
+/// -- the one [`Approval::ToolchainInstall`] answers -- rather than a refusal
+/// nobody was asked about. The sandbox confines whatever runs either way.
+pub fn unlisted_program(action: &ActionProposal, policy: &ToolPolicy) -> Option<(Approval, String)> {
+    let (executable, args) = match action {
+        ActionProposal::RunCommand { executable, args, .. }
+        | ActionProposal::StartService { executable, args, .. } => (executable, args),
+        _ => return None,
+    };
+    if executable.trim().is_empty() || policy.permits_program(executable) {
+        return None;
+    }
+    let listed = if policy.allow_commands.is_empty() {
+        "it declares none".to_owned()
+    } else {
+        format!("it declares {}", policy.allow_commands.join(", "))
+    };
+    Some((
+        Approval::ToolchainInstall,
+        format!(
+            "run `{}` -- `{executable}` is not one of this workspace's programs ({listed})",
+            std::iter::once(executable.as_str())
+                .chain(args.iter().map(String::as_str))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+    ))
+}
+
 /// What an action requires, and a description a person can judge.
 ///
 /// One place, so the loop can ask before acting rather than each tool
@@ -1044,6 +1078,13 @@ impl ToolPolicy {
             normalized.display(),
             parts[position]
         )))
+    }
+
+    /// Whether this policy lets `executable` run: it is one of the workspace's
+    /// programs, or running programs outside the list has been granted.
+    pub fn permits_program(&self, executable: &str) -> bool {
+        self.approvals.contains(&Approval::ToolchainInstall)
+            || self.allow_commands.iter().any(|allowed| allowed == executable)
     }
 
     pub fn require(&self, approval: Approval) -> Result<(), ToolError> {
@@ -4489,9 +4530,7 @@ pub async fn run_command_in(
     // have: a task that must install a JDK needs an executable no marker in the
     // repository could have implied. The grant is what widens it, and it is
     // recorded in the audit like every other.
-    if !policy.approvals.contains(&Approval::ToolchainInstall)
-        && !policy.allow_commands.iter().any(|x| x == executable)
-    {
+    if !policy.permits_program(executable) {
         // Naming the way out, rather than only the wall. The allowlist is
         // derived from what a repository declares, so a workspace that is not
         // yet a project has an empty one and every command a deployment reaches

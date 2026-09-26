@@ -1839,7 +1839,7 @@ async fn take_turn_inner<P: ModelProvider>(
             if let Ok(mut shared) = continuity.checkpoint.lock() {
                 *shared = checkpoint;
             }
-            if let Some(approval) = granted_once {
+            for approval in granted_once {
                 policy.approvals.retain(|granted| *granted != approval);
             }
             match outcome {
