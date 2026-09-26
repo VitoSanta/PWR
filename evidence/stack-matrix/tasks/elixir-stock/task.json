@@ -1,0 +1,18 @@
+{
+ "id": "elixir-stock",
+ "title": "Elixir + OTP: a GenServer stock ledger with expiring reservations and an injected clock (ExUnit), on a machine without Elixir",
+ "stacks": ["elixir", "otp", "genserver", "exunit"],
+ "category": "concurrency",
+ "split": "heldout",
+ "needs": ["elixir"],
+ "allow": ["container_engine", "network_access", "toolchain_install", "dependency_change"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "elixir:1.18",
+  "command": "mix test 2>&1",
+  "restore": ["test/stock_test.exs", "test/test_helper.exs", "mix.exs"],
+  "timeout": 900,
+  "expect": "\\d+ tests, 0 failures"
+ }
+}
