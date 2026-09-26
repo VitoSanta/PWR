@@ -1,0 +1,19 @@
+{
+ "id": "pg-ledger",
+ "title": "PostgreSQL 17: a double-entry ledger with a deferred balance rule, views and a window-function statement",
+ "stacks": ["postgresql", "sql", "plpgsql", "docker"],
+ "category": "database",
+ "split": "dev",
+ "needs": ["postgres-server"],
+ "allow": ["container_engine", "network_access", "toolchain_install", "local_service"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "postgres:17",
+  "env": {"POSTGRES_PASSWORD": "test", "PGHOST": "127.0.0.1", "PGUSER": "postgres", "PGPASSWORD": "test"},
+  "command": "(docker-entrypoint.sh postgres >/tmp/pg.log 2>&1 &) ; for i in $(seq 1 60); do pg_isready -q -h 127.0.0.1 && break; sleep 1; done; sleep 2; sh scripts/test.sh",
+  "restore": ["tests/01_schema.sql", "tests/02_balance_rule.sql", "tests/03_reports.sql", "scripts/test.sh"],
+  "timeout": 600,
+  "expect": "^ALL TESTS PASSED"
+ }
+}
