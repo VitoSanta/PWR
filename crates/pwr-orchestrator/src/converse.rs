@@ -916,6 +916,7 @@ async fn take_turn_inner<P: ModelProvider>(
     // find afterwards. Per turn, because a turn is what a conversation has in
     // place of a run's action loop.
     let mut refused_streak = crate::repetition::RefusalStreak::new();
+    let mut echoes = crate::repetition::Echoes::default();
     // Acting and getting nowhere is the other half of being stuck, and the
     // conversation had neither half. A turn could spend its whole budget
     // reading the same three files in a circle, or editing a line and putting
@@ -1892,7 +1893,23 @@ async fn take_turn_inner<P: ModelProvider>(
                 policy.approvals.retain(|granted| *granted != approval);
             }
             match outcome {
-                Ok(value) => {
+                Ok(mut value) => {
+                    // Reads are left to `ReadHistory`, which already names a
+                    // re-read of an unchanged file.
+                    if !matches!(
+                        capability.as_str(),
+                        "read_file" | "search" | "list_tree" | "vcs_status" | "vcs_diff"
+                    ) && let Some(seen) = echoes.observe(&fingerprint, &value)
+                        && let Some(object) = value.as_object_mut()
+                    {
+                        object.insert(
+                            "repeated".into(),
+                            serde_json::Value::String(crate::repetition::echo_notice(seen)),
+                        );
+                        on_step(TurnStep::Refused(format!(
+                            "{capability}: the same result {seen} times"
+                        )));
+                    }
                     if let Some(path) = &path
                         && let Some(kept) = &kept
                         && let Ok(mut edits) = continuity.edits.lock()
