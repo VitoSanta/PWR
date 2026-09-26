@@ -2810,10 +2810,18 @@ pub fn delete_path(
                 "stale file hash; the file now hashes to {current}. Reread it before deleting."
             )));
         }
+        // Named, not only required. Measured 2026-09-26 (Qwen3.6-35B-A3B): told
+        // by the whole-file guard to delete and rewrite a script, the model
+        // called delete_path without a hash twice and rewrote the file
+        // unchanged in between -- "needs its current hash" gave it nothing to
+        // send. The stale-hash refusal below already names it; so does this.
         None => {
-            return Err(ToolError::Denied(
-                "deleting a file needs its current hash, as editing one does".into(),
-            ));
+            return Err(ToolError::Denied(format!(
+                "deleting a file needs its current hash, as editing one does: {} hashes to \
+                 {current} now. Send delete_path again with expected_hash {current} if you \
+                 mean to remove it as it is.",
+                relative.display()
+            )));
         }
     }
     if let Some(approval) = edit_approval(relative) {
@@ -2825,6 +2833,65 @@ pub fn delete_path(
         from: None,
         entries: 1,
     })
+}
+
+/// The file name of a program, however it was spelled: `/bin/sh` and `sh`
+/// are the same program for the question of whether args repeat it.
+fn program_name(executable: &str) -> String {
+    Path::new(executable)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| executable.to_owned())
+}
+
+/// The args that follow the program, with a repeat of it taken off the front.
+///
+/// Shared by `run_command` and `start_service`: a service is started from
+/// the same argv misunderstanding as often as a command is. Measured
+/// 2026-09-26 (Qwen3.6-35B-A3B containerising a .NET API): four
+/// `start_service` calls in a row as `/bin/sh` with args `["/bin/sh", "-c",
+/// ...]`, each dying as "/bin/sh: /bin/sh: cannot execute binary file" --
+/// the check compared `sh` with `/bin/sh` and never saw the repeat, and the
+/// service path had no check at all.
+pub fn args_after_program<'a>(
+    executable: &str,
+    args: &'a [String],
+) -> Result<&'a [String], ToolError> {
+    let program = program_name(executable);
+    // The program by its name or by an absolute path to it. A relative path
+    // with the same file name -- `node ./node`, `sh scripts/sh` -- is a file
+    // the program is given, not the program again.
+    let repeats = |arg: &str| {
+        arg == executable
+            || arg == program
+            || (arg.starts_with('/') && program_name(arg) == program)
+    };
+    // The same argv misunderstanding with a launcher in front: `exec ls -la`
+    // as the args of `ls`. Learned, measured on 2026-09-21, from one call
+    // that worked -- `npm exec ng new site` -- and then applied to every
+    // program: `ls exec ls -la dir` fails on `-la`, `find exec find ...` on
+    // `find`, and `node exec node --version` looks for a script named `exec`.
+    // A hundred actions lost to it in one session. When the word after
+    // `exec` is the program itself, both are the prefix.
+    let args: &[String] = match args {
+        [launcher, repeated, rest @ ..]
+            if launcher == "exec" && repeats(repeated) && !rest.is_empty() =>
+        {
+            rest
+        }
+        _ => args,
+    };
+    let args: &[String] = match args.first() {
+        Some(first) if repeats(first) && args.len() > 1 => &args[1..],
+        Some(first) if repeats(first) => {
+            return Err(ToolError::Denied(format!(
+                "args must not repeat the program: `{executable}` is already the executable, so \
+                 args are what follows it, and `{program}` alone is not a command to run."
+            )));
+        }
+        _ => args,
+    };
+    Ok(args)
 }
 
 /// Moves or renames a path within the workspace.
@@ -3028,9 +3095,10 @@ pub fn apply_replace(
             "apply_replace replaces the whole file: {} has {old_lines} lines and this \
              replacement has {new_lines}, so {} lines would be deleted. To change part of the \
              file use replace_text with the exact lines to find. If the file really should \
-             become this, delete_path it and write_file the new content.",
+             become this, delete_path it with expected_hash {} and write_file the new content.",
             relative.display(),
-            old_lines - new_lines
+            old_lines - new_lines,
+            hash_bytes(&existing)
         )));
     }
     let previous_hash = hash_bytes(&existing);
@@ -4958,35 +5026,8 @@ pub async fn run_command_in(
     // repeat is dropped and the command runs. The audit keeps the args as
     // proposed. A repeat with nothing after it is still refused: running the
     // bare program would start an interpreter waiting on input.
-    let program = Path::new(executable)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| executable.to_owned());
-    // The same argv misunderstanding with a launcher in front: `exec ls -la`
-    // as the args of `ls`. Learned, measured on 2026-09-21, from one call
-    // that worked -- `npm exec ng new site` -- and then applied to every
-    // program: `ls exec ls -la dir` fails on `-la`, `find exec find ...` on
-    // `find`, and `node exec node --version` looks for a script named `exec`.
-    // A hundred actions lost to it in one session. When the word after
-    // `exec` is the program itself, both are the prefix.
-    let args: &[String] = match args {
-        [launcher, repeated, rest @ ..]
-            if launcher == "exec" && *repeated == program && !rest.is_empty() =>
-        {
-            rest
-        }
-        _ => args,
-    };
-    let args: &[String] = match args.first() {
-        Some(first) if *first == program && args.len() > 1 => &args[1..],
-        Some(first) if *first == program => {
-            return Err(ToolError::Denied(format!(
-                "args must not repeat the program: `{executable}` is already the executable, so \
-                 args are what follows it, and `{program}` alone is not a command to run."
-            )));
-        }
-        _ => args,
-    };
+    let program = program_name(executable);
+    let args = args_after_program(executable, args)?;
     if program == "npx" && args.first().is_some_and(|arg| arg == "run") {
         return Err(ToolError::Denied(format!(
             "`npx run {}` invokes the package named `run`, not this project's build script. \
@@ -5451,6 +5492,28 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_repeated_program_is_recognised_however_it_is_spelled() {
+        let args = |words: &[&str]| {
+            words
+                .iter()
+                .map(|word| (*word).to_owned())
+                .collect::<Vec<_>>()
+        };
+        let given = args(&["/bin/sh", "-c", "echo hi"]);
+        assert_eq!(args_after_program("/bin/sh", &given).unwrap(), &given[1..]);
+        let given = args(&["/bin/sh", "-c", "echo hi"]);
+        assert_eq!(args_after_program("sh", &given).unwrap(), &given[1..]);
+        let given = args(&["npm", "run", "build"]);
+        assert_eq!(args_after_program("npm", &given).unwrap(), &given[1..]);
+        // A file that shares the program's name is an argument.
+        let given = args(&["./node", "--flag"]);
+        assert_eq!(args_after_program("node", &given).unwrap(), &given[..]);
+        let given = args(&["scripts/sh"]);
+        assert_eq!(args_after_program("sh", &given).unwrap(), &given[..]);
+        assert!(args_after_program("sh", &args(&["/bin/sh"])).is_err());
+    }
+
     #[test]
     fn workspace_toolchains_go_on_path_in_order() {
         let root = tempfile::tempdir().unwrap();

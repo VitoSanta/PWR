@@ -130,6 +130,7 @@ impl ServiceSupervisor {
                  one, or ask the engineer; do not treat this as a failure of the code."
             )));
         }
+        let args = crate::args_after_program(executable, args)?;
         let mut command = policy.prepare_command(executable, args)?;
         command
             .stdin(std::process::Stdio::null())
