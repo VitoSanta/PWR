@@ -697,6 +697,15 @@ class Engine:
             restore(self.cache, self.checkpoint)
             reused = len(self.checkpoint_tokens)
         else:
+            if TRACE and self.checkpoint_tokens:
+                # Where the new prompt stopped being the old one, in text: the
+                # one question a cache miss raises, answered only when tracing.
+                at = common_prefix(self.checkpoint_tokens, base)
+                decode = self.tokenizer.decode
+                trace({"cache_miss_at": at, "checkpoint_tokens": len(self.checkpoint_tokens),
+                       "prompt_tokens": len(base),
+                       "was": decode(self.checkpoint_tokens[max(0, at - 40):at + 80]),
+                       "now": decode(base[max(0, at - 40):at + 80])})
             self.cache = make_prompt_cache(self.model)
             self.checkpoint = None
         # Qwen 3.5/3.6's linear-attention layers, and a model reading images,
@@ -748,6 +757,22 @@ class Engine:
         return len(tokens)
 
     def chat(self, request: dict, reply, cancelled=lambda: False) -> dict:
+        """One request. An `aside` -- a wiki summary written while the person
+        reads the last answer -- runs on a cache of its own and leaves the
+        conversation's where it was. Served on the conversation's, it replaced
+        the one copy there is: measured 2026-09-26, the person's next message
+        after each summary prefilled a 66k- and a 75k-token conversation from
+        nothing, 205 s and 271 s, where the goal's own next turn resumed in 8 s."""
+        if not request.get("aside"):
+            return self.converse(request, reply, cancelled)
+        kept = (self.cache, self.checkpoint, self.checkpoint_tokens)
+        self.cache, self.checkpoint, self.checkpoint_tokens = None, None, []
+        try:
+            return self.converse(request, reply, cancelled)
+        finally:
+            self.cache, self.checkpoint, self.checkpoint_tokens = kept
+
+    def converse(self, request: dict, reply, cancelled=lambda: False) -> dict:
         if self.model is None:
             raise RuntimeError("no model loaded")
         messages = request["messages"]

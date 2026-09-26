@@ -952,6 +952,13 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
         "presence_penalty": number("presence_penalty"),
         "repetition_penalty": number("repetition_penalty"),
         "seed": request.seed,
+        // Work beside the conversation (a wiki summary) runs on a cache of its
+        // own in the engine, so the conversation's is still there for the
+        // person's next message.
+        "aside": sampling
+            .get("aside")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -1950,6 +1957,31 @@ mod tests {
             ),
             Step::Finish(Err(ProviderError::Truncated { .. }))
         ));
+    }
+
+    #[test]
+    fn a_request_beside_the_conversation_says_so() {
+        let mut request = ModelRequest {
+            deployment: DeploymentDescriptor {
+                schema_version: 1,
+                id: pwr_domain::new_id(),
+                provider: "mlx".into(),
+                endpoint: String::new(),
+                model_ref: "m".into(),
+                backend_options: Default::default(),
+                auth_ref: None,
+            },
+            messages: vec![ChatMessage::text("user", "q")],
+            context_tokens: 4096,
+            tools: None,
+            seed: None,
+            sampling: Default::default(),
+        };
+        assert_eq!(chat_body(&request)["aside"], false);
+        request
+            .sampling
+            .insert("aside".into(), serde_json::json!(true));
+        assert_eq!(chat_body(&request)["aside"], true);
     }
 
     #[test]

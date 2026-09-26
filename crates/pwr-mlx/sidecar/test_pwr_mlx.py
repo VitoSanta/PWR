@@ -433,6 +433,31 @@ class Chat(unittest.TestCase):
                                        if e.get("event") == "delta" and e["channel"] == channel)
         return done, text("reasoning"), text("content"), events
 
+    def test_an_aside_leaves_the_conversations_cache_where_it_was(self):
+        cache, copy = object(), object()
+        self.engine.cache, self.engine.checkpoint = cache, copy
+        self.engine.checkpoint_tokens = [1, 2, 3]
+        conversation = (cache, copy, [1, 2, 3])
+        self.module.stream_generate = scripted(list("summary"))
+        self.engine.chat({"messages": [{"role": "user", "content": "describe"}],
+                          "thinking": False, "aside": True}, lambda event: None)
+        self.assertIs(self.engine.cache, conversation[0])
+        self.assertIs(self.engine.checkpoint, conversation[1])
+        self.assertEqual(self.engine.checkpoint_tokens, conversation[2])
+
+    def test_an_aside_that_fails_still_gives_the_conversation_its_cache_back(self):
+        self.engine.cache, self.engine.checkpoint = object(), object()
+        self.engine.checkpoint_tokens = kept = [1, 2, 3]
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("engine fault")
+            yield
+        self.module.stream_generate = broken
+        with self.assertRaises(RuntimeError):
+            self.engine.chat({"messages": [{"role": "user", "content": "describe"}],
+                              "thinking": False, "aside": True}, lambda event: None)
+        self.assertEqual(self.engine.checkpoint_tokens, kept)
+
     def test_sampling_values_reach_the_stream(self):
         seen = {}
         self.module.make_sampler = lambda **kwargs: seen.setdefault("sampler", kwargs)

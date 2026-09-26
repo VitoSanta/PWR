@@ -3631,6 +3631,11 @@ impl serve::TurnRunner for ConsoleTurns {
                 ("think".to_owned(), serde_json::json!(false)),
                 ("max_tokens".to_owned(), serde_json::json!(400)),
                 ("temperature".to_owned(), serde_json::json!(0.3)),
+                // On a cache of its own: served on the conversation's, each
+                // summary evicted it and the person's next message prefilled
+                // the whole conversation again (205 s at 66k tokens, measured
+                // 2026-09-26).
+                ("aside".to_owned(), serde_json::json!(true)),
             ]),
             messages: vec![
                 ChatMessage::text(
