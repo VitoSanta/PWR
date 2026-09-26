@@ -1,0 +1,1 @@
+Implement the bookmarks service described in README.md (app/main.py) so that the tests pass: set up the virtual environment as the README says, then `.venv/bin/python -m pytest -q`. Don't change the tests. Tell me what you built and the final test result.

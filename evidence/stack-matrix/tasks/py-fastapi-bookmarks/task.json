@@ -1,0 +1,18 @@
+{
+ "id": "py-fastapi-bookmarks",
+ "title": "Python + FastAPI: a bookmarks API on sqlite3 with validation, paging and conflicts",
+ "stacks": ["python", "fastapi", "pydantic", "pytest", "sqlite"],
+ "category": "backend-api",
+ "split": "dev",
+ "allow": ["network_access", "dependency_change", "toolchain_install"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "python:3.13-slim",
+  "command": "pip install -q --root-user-action=ignore -r requirements.txt && python -m pytest -q 2>&1",
+  "restore": ["tests/test_bookmarks.py", "requirements.txt"],
+  "cache": ["pip:/root/.cache/pip"],
+  "timeout": 900,
+  "expect": "\\d+ passed"
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "id": "php-cart",
+ "title": "PHP + Composer + PHPUnit: cart pricing with promotions, coupons, shipping bands and tax, on a machine without PHP",
+ "stacks": ["php", "composer", "phpunit"],
+ "category": "business-logic",
+ "split": "dev",
+ "needs": ["php", "composer"],
+ "allow": ["network_access", "dependency_change", "toolchain_install", "container_engine"],
+ "turns": 3,
+ "minutes": 90,
+ "verify": {
+  "image": "composer:2",
+  "command": "composer install -q --no-interaction --no-progress && vendor/bin/phpunit 2>&1",
+  "restore": ["tests/CartTest.php", "composer.json", "phpunit.xml"],
+  "cache": ["composer:/tmp/cache"],
+  "timeout": 900,
+  "expect": "^OK \\("
+ }
+}

@@ -1,0 +1,1 @@
+Implement the cart pricing described in README.md (src/Catalog.php and src/Cart.php) so that `vendor/bin/phpunit` passes after `composer install`. Don't change the tests. Tell me what you built and the final test result.
