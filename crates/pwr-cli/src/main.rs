@@ -3612,54 +3612,33 @@ impl serve::TurnRunner for ConsoleTurns {
     }
 
     async fn summarise(&self, root: &Path, prompt: String) -> Result<(String, String), String> {
-        let root = self.ready(root).await?;
-        let config = load_chat_config(&root).map_err(|error| error.context)?;
-        let model = config.model.clone().ok_or("no model is selected")?;
-        let selection = self
-            .runtime
-            .select(model.clone(), Duration::from_secs(config.timeout_secs))
-            .map_err(|error| error.to_string())?;
         // Short, factual and without reasoning: a summary is a few sentences,
         // and a model thinking for minutes about one would hold the engine
         // the person's next message is waiting for.
-        let request = ModelRequest {
-            deployment: selection.deployment.clone(),
-            context_tokens: config.context_tokens.min(16_384),
-            tools: None,
-            seed: None,
-            sampling: BTreeMap::from([
-                ("think".to_owned(), serde_json::json!(false)),
-                ("max_tokens".to_owned(), serde_json::json!(400)),
-                ("temperature".to_owned(), serde_json::json!(0.3)),
-                // On a cache of its own: served on the conversation's, each
-                // summary evicted it and the person's next message prefilled
-                // the whole conversation again (205 s at 66k tokens, measured
-                // 2026-09-26).
-                ("aside".to_owned(), serde_json::json!(true)),
-            ]),
-            messages: vec![
-                ChatMessage::text(
-                    "system",
-                    "You write short, factual descriptions of source code for a project wiki. \
-                     Describe only what the code shows.",
-                ),
-                ChatMessage::text("user", prompt),
-            ],
-        };
-        let stream = selection
-            .backend
-            .chat(request)
-            .await
-            .map_err(|error| error.to_string())?;
-        let reply = pwr_provider::collect_reply(stream)
-            .await
-            .map_err(|error| error.to_string())?;
-        // A model that reasons anyway writes it inline on some templates.
-        let text = match reply.content.rsplit_once("</think>") {
-            Some((_, after)) => after.trim().to_owned(),
-            None => reply.content.trim().to_owned(),
-        };
-        Ok((text, model))
+        self.aside(
+            root,
+            "You write short, factual descriptions of source code for a project wiki. \
+             Describe only what the code shows.",
+            prompt,
+            400,
+            16_384,
+        )
+        .await
+    }
+
+    async fn review(&self, root: &Path, prompt: String) -> Result<String, String> {
+        self.aside(
+            root,
+            "You review code someone else wrote against the specification it was written to. \
+             You did not write it and have no stake in it being finished. You report only rules \
+             the code does not meet, each with the rule quoted and the code that breaks it; you \
+             never report style, and never a rule the code meets.",
+            prompt,
+            1_500,
+            32_768,
+        )
+        .await
+        .map(|(text, _)| text)
     }
 
     async fn verify_goal(
@@ -3795,6 +3774,59 @@ impl serve::TurnRunner for ConsoleTurns {
 }
 
 impl ConsoleTurns {
+    /// One generation beside the conversation: no tools, no reasoning, on a
+    /// cache of its own in the engine -- (the text, the model that wrote it).
+    async fn aside(
+        &self,
+        root: &Path,
+        system: &str,
+        prompt: String,
+        max_tokens: u32,
+        context_cap: u32,
+    ) -> Result<(String, String), String> {
+        let root = self.ready(root).await?;
+        let config = load_chat_config(&root).map_err(|error| error.context)?;
+        let model = config.model.clone().ok_or("no model is selected")?;
+        let selection = self
+            .runtime
+            .select(model.clone(), Duration::from_secs(config.timeout_secs))
+            .map_err(|error| error.to_string())?;
+        let request = ModelRequest {
+            deployment: selection.deployment.clone(),
+            context_tokens: config.context_tokens.min(context_cap),
+            tools: None,
+            seed: None,
+            sampling: BTreeMap::from([
+                ("think".to_owned(), serde_json::json!(false)),
+                ("max_tokens".to_owned(), serde_json::json!(max_tokens)),
+                ("temperature".to_owned(), serde_json::json!(0.3)),
+                // On a cache of its own: served on the conversation's, each
+                // summary evicted it and the person's next message prefilled
+                // the whole conversation again (205 s at 66k tokens, measured
+                // 2026-09-26).
+                ("aside".to_owned(), serde_json::json!(true)),
+            ]),
+            messages: vec![
+                ChatMessage::text("system", system),
+                ChatMessage::text("user", prompt),
+            ],
+        };
+        let stream = selection
+            .backend
+            .chat(request)
+            .await
+            .map_err(|error| error.to_string())?;
+        let reply = pwr_provider::collect_reply(stream)
+            .await
+            .map_err(|error| error.to_string())?;
+        // A model that reasons anyway writes it inline on some templates.
+        let text = match reply.content.rsplit_once("</think>") {
+            Some((_, after)) => after.trim().to_owned(),
+            None => reply.content.trim().to_owned(),
+        };
+        Ok((text, model))
+    }
+
     /// `root`, canonical, when its configuration names a model. A supervised
     /// manual conversation does not wait for a capability measurement.
     async fn ready(&self, root: &Path) -> Result<PathBuf, String> {

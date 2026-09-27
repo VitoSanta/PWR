@@ -154,6 +154,12 @@ pub trait TurnRunner {
     async fn summarise(&self, _root: &Path, _prompt: String) -> Result<(String, String), String> {
         Err("summaries are not available for this runner".into())
     }
+    /// One reading of the work against its specification by the same model
+    /// with none of the conversation, for the goal's review round: what the
+    /// code does not do that the request and the README say it should.
+    async fn review(&self, _root: &Path, _prompt: String) -> Result<String, String> {
+        Err("reviews are not available for this runner".into())
+    }
     /// Full repository verification for a goal completion. Kept separate from
     /// the user-facing `verify` command so this is structured evidence rather
     /// than prose the server would need to parse.
@@ -474,6 +480,124 @@ const GOAL_REVIEW: &str = "The checks pass. Before finishing, hold the work agai
     behaves the same is not what was asked. Fix any rule that is missing or wrong, run the \
     checks again, then finish. If a named thing could not be used, say so and why instead of \
     counting a substitute as done. If every rule is met, finish and say so.";
+
+/// What a reviewer that has not seen the conversation reads: the person's
+/// requests, the README, and the source this session changed -- tests left
+/// out, each file and the whole bounded. `None` when there is no source.
+///
+/// Why a second reader. Stack matrix c2 (2026-09-27): three of the first ten
+/// tasks failed on a rule the README states plainly -- copies above N deleted,
+/// fields separated by any whitespace, `opts[:name]` registering the process --
+/// each after a review round in which the model listed that very rule as
+/// verified. The model that wrote the code reads it the way it meant it.
+fn review_prompt(
+    root: &Path,
+    requests: &str,
+    changed: &BTreeMap<String, String>,
+) -> Option<String> {
+    const FILE_CHARS: usize = 20_000;
+    const CODE_CHARS: usize = 60_000;
+    const SPEC_CHARS: usize = 16_000;
+    let mut code = String::new();
+    let mut left_out = 0usize;
+    for path in changed.keys().filter(|path| reviewable(path)) {
+        let Ok(text) = std::fs::read_to_string(root.join(path)) else {
+            continue;
+        };
+        let shown: String = text.chars().take(FILE_CHARS).collect();
+        if code.len() + shown.len() > CODE_CHARS {
+            left_out += 1;
+            continue;
+        }
+        code.push_str(&format!("--- {path} ---\n{shown}\n"));
+        if shown.len() < text.len() {
+            code.push_str("(the rest of this file is not shown)\n");
+        }
+    }
+    if code.is_empty() {
+        return None;
+    }
+    if left_out > 0 {
+        code.push_str(&format!("({left_out} more changed file(s) not shown)\n"));
+    }
+    let spec = std::fs::read_to_string(root.join("README.md"))
+        .map(|text| text.chars().take(SPEC_CHARS).collect::<String>())
+        .unwrap_or_else(|_| "(there is no README.md)".into());
+    Some(format!(
+        "The request:\n{requests}\n\nThe specification (README.md):\n{spec}\n\n\
+         The code as it is now:\n{code}\n\
+         Go through the rules the request and the specification state, one by one -- options, \
+         error cases, input forms and edge cases included -- and list each one this code does \
+         not do or does differently. For each: quote the rule, name the file and function, and \
+         say in one line what the code does instead. If the code meets every rule, answer \
+         exactly: NO DISCREPANCIES"
+    ))
+}
+
+/// Source a reviewer should read: not tests, not anything under a hidden
+/// directory (PWR's state, toolchains, scratch).
+fn reviewable(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').collect();
+    let (name, directories) = segments.split_last().unwrap_or((&"", &[]));
+    let name = name.to_ascii_lowercase();
+    !directories.iter().any(|segment| {
+        segment.starts_with('.')
+            || matches!(
+                *segment,
+                "test" | "tests" | "spec" | "__tests__" | "node_modules"
+            )
+    }) && !name.contains("_test.")
+        && !name.contains(".test.")
+        && !name.contains(".spec.")
+        && !name.starts_with("test_")
+        && !name.ends_with(".lock")
+        && name != "package-lock.json"
+}
+
+/// The person's own requests in this conversation, latest last, bounded.
+fn person_requests(messages: &[ChatMessage]) -> String {
+    let requests: Vec<String> = messages
+        .iter()
+        .filter(|message| {
+            message.role == "user"
+                && matches!(
+                    message.purpose,
+                    None | Some(pwr_domain::MessagePurpose::Task)
+                )
+        })
+        .map(|message| {
+            let text = message.content.as_str();
+            text.split_once("\n\nGoal mode is enabled.")
+                .map_or(text, |(request, _)| request)
+                .trim()
+                .to_owned()
+        })
+        .filter(|text| !text.is_empty())
+        .collect();
+    let joined = requests.join("\n---\n");
+    let skip = joined.chars().count().saturating_sub(4_000);
+    joined.chars().skip(skip).collect()
+}
+
+/// The review round's message, with what the reviewer found when it found
+/// something.
+fn review_guidance(findings: Option<&str>) -> String {
+    let findings = findings
+        .map(str::trim)
+        .filter(|found| !found.is_empty() && !found.starts_with("NO DISCREPANCIES"));
+    match findings {
+        None => GOAL_REVIEW.to_owned(),
+        Some(found) => {
+            let found: String = found.chars().take(4_000).collect();
+            format!(
+                "{GOAL_REVIEW}\n\nA reviewer who has not seen this conversation read the \
+                 specification against the code as it is now and reported:\n\n{found}\n\n\
+                 It can be wrong. For each point, read the rule and the code: fix what is really \
+                 missing or wrong, and try it; leave what is not."
+            )
+        }
+    }
+}
 
 /// A message goal mode writes between its own turns, marked as the
 /// harness's so it is not composed, replayed or summarised as a request.
@@ -1909,6 +2033,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 let Some(context) = context else {
                     return error_response(id, -32602, "no such session");
                 };
+                let changed = context.changed_files.clone();
                 match self.runner.verify_goal(context).await {
                     Ok(verification) if verification.passed && goal_edited && !review_done => {
                         review_done = true;
@@ -1920,7 +2045,12 @@ impl<R: TurnRunner + 'static> Server<R> {
                                 "The checks pass. Reviewing the work against the request before finishing.",
                             ),
                         );
-                        messages.push(goal_guidance(GOAL_REVIEW));
+                        let findings =
+                            match review_prompt(&root, &person_requests(&messages), &changed) {
+                                Some(prompt) => self.runner.review(&root, prompt).await.ok(),
+                                None => None,
+                            };
+                        messages.push(goal_guidance(review_guidance(findings.as_deref())));
                     }
                     Ok(verification) if verification.passed => {
                         return self.turn_reply(
@@ -4666,6 +4796,87 @@ mod tests {
 
     /// The first passing verification asks once for a review against the
     /// request; a review that changes nothing ends the goal on it.
+    #[test]
+    fn the_reviewer_reads_source_not_tests_or_pwr_state() {
+        for path in [
+            "lib/stock.ex",
+            "bin/rotate",
+            "Dockerfile",
+            ".dockerignore",
+            "src/app/app.ts",
+        ] {
+            assert!(reviewable(path), "{path}");
+        }
+        for path in [
+            "test/cron_extra_test.dart",
+            "tests/test_rotate.py",
+            "src/app/todo-list.spec.ts",
+            "src/app/store.test.ts",
+            "test_hidden.py",
+            ".pwr-scratch/check.sh",
+            ".toolchains/elixir/bin/mix",
+            "package-lock.json",
+            "Cargo.lock",
+        ] {
+            assert!(!reviewable(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn the_reviewer_gets_the_request_the_readme_and_the_changed_source() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("README.md"),
+            "`opts[:name]` registers the process",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.path().join("lib")).unwrap();
+        std::fs::create_dir_all(root.path().join("test")).unwrap();
+        std::fs::write(root.path().join("lib/stock.ex"), "def start_link(opts)").unwrap();
+        std::fs::write(root.path().join("test/extra_test.exs"), "assert true").unwrap();
+        let changed = BTreeMap::from([
+            ("lib/stock.ex".to_owned(), "h1".to_owned()),
+            ("test/extra_test.exs".to_owned(), "h2".to_owned()),
+        ]);
+        let prompt = review_prompt(root.path(), "Implement Stock", &changed).unwrap();
+        assert!(prompt.contains("Implement Stock"));
+        assert!(prompt.contains("`opts[:name]` registers the process"));
+        assert!(prompt.contains("--- lib/stock.ex ---\ndef start_link(opts)"));
+        assert!(!prompt.contains("extra_test"));
+        let only_tests = BTreeMap::from([("test/extra_test.exs".to_owned(), "h2".to_owned())]);
+        assert!(review_prompt(root.path(), "Implement Stock", &only_tests).is_none());
+    }
+
+    #[test]
+    fn the_person_s_requests_are_theirs_without_the_goal_s_instructions() {
+        let mut guidance = ChatMessage::text("user", "The checks pass. Before finishing...");
+        guidance.purpose = Some(pwr_domain::MessagePurpose::GoalGuidance);
+        let messages = vec![
+            ChatMessage::text("system", "you are PWR"),
+            ChatMessage::text(
+                "user",
+                "Implement the cron parser\n\nGoal mode is enabled. Keep working.",
+            ),
+            ChatMessage::text("assistant", "done"),
+            guidance,
+            ChatMessage::text("user", "Also accept tabs"),
+        ];
+        assert_eq!(
+            person_requests(&messages),
+            "Implement the cron parser\n---\nAlso accept tabs"
+        );
+    }
+
+    #[test]
+    fn what_the_reviewer_found_is_added_to_the_review_and_nothing_else_is() {
+        assert_eq!(review_guidance(None), GOAL_REVIEW);
+        assert_eq!(review_guidance(Some("  NO DISCREPANCIES\n")), GOAL_REVIEW);
+        let found = review_guidance(Some("- \"`opts[:name]` registers\": start_link ignores it"));
+        assert!(found.starts_with(GOAL_REVIEW));
+        assert!(found.contains("start_link ignores it"));
+        assert!(found.contains("It can be wrong"));
+    }
+
     #[tokio::test]
     async fn a_passing_goal_is_reviewed_once_against_the_request() {
         let requests: Arc<Mutex<Vec<String>>> = Arc::default();
