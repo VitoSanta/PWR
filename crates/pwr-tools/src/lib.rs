@@ -572,6 +572,53 @@ pub const TOOLCHAINS_DIRECTORY: &str = ".toolchains";
 /// nothing more.
 const RUNTIME_WRITABLE: [&str; 2] = ["/private/tmp/.dotnet", BROWSER_SCRATCH];
 
+/// Programs whose toolchain writes to macOS's per-user temporary directory
+/// whatever `TMPDIR` says.
+const APPLE_TOOLCHAIN_PROGRAMS: [&str; 3] = ["swift", "xcodebuild", "xcrun"];
+
+/// macOS's per-user temporary directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`,
+/// `/private/var/folders/.../T`), canonical, looked up once.
+///
+/// Apple's toolchain uses it whatever the environment says. Measured
+/// 2026-09-27 (stack matrix c2, swift-lru): in the sandbox, `swift test` could
+/// never run -- xcrun's cache, Foundation's atomic saves (`TemporaryItems`) and
+/// Swift Build's `swbuild.tmp.*` are all made there, and each was refused, so
+/// a Swift task could not check a line of its own work in 34 attempts.
+fn darwin_user_temp_dir() -> Option<&'static Path> {
+    static DIRECTORY: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    DIRECTORY
+        .get_or_init(|| {
+            let output = std::process::Command::new("/usr/bin/getconf")
+                .arg("DARWIN_USER_TEMP_DIR")
+                .output()
+                .ok()?;
+            let path = PathBuf::from(String::from_utf8(output.stdout).ok()?.trim());
+            path.canonicalize()
+                .ok()
+                .filter(|path| path.starts_with("/private/var/folders"))
+        })
+        .as_deref()
+}
+
+/// A command's arguments for running inside PWR's sandbox.
+///
+/// SwiftPM runs `Package.swift` and plugins inside a sandbox of its own, and a
+/// process in PWR's cannot apply another: measured 2026-09-27, every sandboxed
+/// `swift test` died on `sandbox_apply: Operation not permitted`. PWR's
+/// sandbox confines the same process more tightly than SwiftPM's would, so
+/// SwiftPM is told not to add its own.
+fn without_nested_sandbox(executable: &str, args: &[String]) -> Vec<String> {
+    let mut args = args.to_vec();
+    let subcommand = args.first().map(String::as_str);
+    if program_name(executable) == "swift"
+        && matches!(subcommand, Some("build" | "test" | "run" | "package"))
+        && !args.iter().any(|arg| arg == "--disable-sandbox")
+    {
+        args.insert(1, "--disable-sandbox".to_owned());
+    }
+    args
+}
+
 /// Where `look_at`'s browser keeps its temporary files, sockets among them.
 ///
 /// Outside the workspace because a Unix socket's path may be no longer than
@@ -1914,6 +1961,16 @@ impl ToolPolicy {
                 .iter()
                 .filter_map(|path| quotable(Path::new(path))),
         );
+        // Only where the workspace runs Apple's toolchain: it is every
+        // application's temporary directory, and nothing else needs it.
+        let apple_temp = self
+            .allow_commands
+            .iter()
+            .any(|program| APPLE_TOOLCHAIN_PROGRAMS.contains(&program.as_str()))
+            .then(darwin_user_temp_dir)
+            .flatten()
+            .and_then(quotable);
+        readable.extend(apple_temp.clone());
         readable.extend(
             self.extra_readable
                 .iter()
@@ -2064,6 +2121,7 @@ impl ToolPolicy {
         let runtime_writes: String = RUNTIME_WRITABLE
             .iter()
             .filter_map(|path| quotable(Path::new(path)))
+            .chain(apple_temp)
             .map(|path| format!("(allow file-write* {path})"))
             .collect();
         Some(format!(
@@ -2116,7 +2174,11 @@ impl ToolPolicy {
         let mut command = match &profile {
             Some(profile) => {
                 let mut wrapped = Command::new(SEATBELT);
-                wrapped.arg("-p").arg(profile).arg(executable).args(args);
+                wrapped
+                    .arg("-p")
+                    .arg(profile)
+                    .arg(executable)
+                    .args(without_nested_sandbox(executable, args));
                 wrapped
             }
             None => {
@@ -2163,6 +2225,13 @@ impl ToolPolicy {
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
             .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
             .env("TMPDIR", &scratch)
+            // Clang's module cache (Swift's too) defaults to the per-user
+            // cache directory, shared by every build on the machine; inside
+            // the workspace it can neither be refused nor poison another.
+            .env(
+                "CLANG_MODULE_CACHE_PATH",
+                scratch.join("clang-module-cache"),
+            )
             .env("TMP", &scratch)
             .env("TEMP", &scratch)
             // Output is read by a model, not a terminal. Measured 2026-09-22:
@@ -6340,6 +6409,54 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn swiftpm_is_told_not_to_nest_a_sandbox_and_nothing_else_is() {
+        let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            super::without_nested_sandbox("swift", &args(&["test", "--filter", "X"])),
+            args(&["test", "--disable-sandbox", "--filter", "X"])
+        );
+        assert_eq!(
+            super::without_nested_sandbox("/usr/bin/swift", &args(&["build"])),
+            args(&["build", "--disable-sandbox"])
+        );
+        for (program, words) in [
+            ("swift", &["--version"][..]),
+            ("swift", &["test", "--disable-sandbox"][..]),
+            ("swiftc", &["main.swift"][..]),
+            ("cargo", &["test"][..]),
+        ] {
+            assert_eq!(
+                super::without_nested_sandbox(program, &args(words)),
+                args(words)
+            );
+        }
+    }
+
+    /// Every application's temporary directory is opened only to a workspace
+    /// that runs Apple's toolchain.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_per_user_temporary_directory_is_opened_only_for_apple_s_toolchain() {
+        let (Some(temp), Some(_)) = (
+            super::darwin_user_temp_dir(),
+            std::path::Path::new(super::SEATBELT)
+                .is_file()
+                .then_some(()),
+        ) else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        let mut policy = super::PolicyProfile::Safe.build(root.path().to_path_buf());
+        let temp = temp.to_str().unwrap();
+        // The exact rule: a tempdir workspace lives under that directory too.
+        let rule = format!("(allow file-write* (subpath \"{temp}\"))");
+        policy.allow_commands = vec!["swift".into()];
+        assert!(policy.sandbox_profile().unwrap().contains(&rule));
+        policy.allow_commands = vec!["cargo".into()];
+        assert!(!policy.sandbox_profile().unwrap().contains(&rule));
+    }
+
     /// Seen 2026-09-27: `sh test -- x_ranges` was asked about while the
     /// script sh would run went unshown.
     #[test]

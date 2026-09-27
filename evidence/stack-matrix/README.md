@@ -74,3 +74,8 @@ compared with results after it.
 - 2026-09-27 `ts-ledger`: the README says a line break is `\n` or `\r`. It
   said "a newline", and a hidden test quotes a field holding a bare `\r`; a
   c2 run quoted only `\n`, a reading the text allowed.
+- 2026-09-27 `swift-lru` moved from `heldout` to `dev`: its c2 failure was
+  read and PWR changed because of it -- `swift test` could not run inside
+  PWR's sandbox at all (macOS's per-user temporary directory refused, and
+  SwiftPM's own sandbox unable to nest), so the model could never check its
+  work on the Mac.

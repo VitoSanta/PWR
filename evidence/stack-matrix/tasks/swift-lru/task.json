@@ -3,7 +3,7 @@
  "title": "Swift: a generic LRU cache with expiry, eviction callbacks and O(1) operations (SwiftPM, XCTest)",
  "stacks": ["swift", "swiftpm", "xctest"],
  "category": "systems-library",
- "split": "heldout",
+ "split": "dev",
  "allow": ["network_access", "toolchain_install"],
  "turns": 3,
  "minutes": 60,

@@ -62,7 +62,15 @@ On macOS a tool runs under a seatbelt profile:
   `/private/tmp/pwr-look`, where `look_at`'s headless browser keeps its
   temporary files; it is also the only place a sandboxed command may bind or
   connect to a Unix socket (with the local-service grant), because a socket
-  path under a workspace is too long for macOS.
+  path under a workspace is too long for macOS. And in a workspace whose
+  checks run Apple's toolchain (`swift`, `xcodebuild`, `xcrun`) -- and only
+  there -- macOS's per-user temporary directory (`/private/var/folders/.../T`)
+  is readable and writable: Swift, xcrun and Foundation make their temporary
+  files there whatever `TMPDIR` says, and without it no Swift package could
+  build. Clang's module cache is always redirected into the workspace, so the
+  machine's shared cache is never written, and SwiftPM is run with
+  `--disable-sandbox` because its own sandbox cannot be nested inside PWR's,
+  which confines the same process more tightly.
 - **Toolchains a task needs** are installed into the workspace, under
   `.toolchains/<name>/`, whose `bin` goes first on `PATH` for the agent's
   commands and for the checks alike. The host is not modified.
