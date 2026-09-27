@@ -183,6 +183,55 @@ pub async fn withheld(
     else {
         return Ok(Withheld::Nothing);
     };
+    // A dependency fetch that the sandbox kept offline does not always fail:
+    // package managers retry. Measured 2026-09-27 (stack matrix c3,
+    // react-datatable): `npm install` ran until the time limit three times,
+    // the network question never came, and the model fetched sixty-seven
+    // packages by hand from the registry for half an hour.
+    if let Err(ActionExecutionError::TimedOut(said)) = outcome {
+        let offline = !policy.network_allowed() && policy.will_sandbox().unwrap_or(false);
+        if !offline
+            || !(pwr_tools::fetches_dependencies(executable, args)
+                || pwr_tools::looks_like_network_denied(said))
+        {
+            return Ok(Withheld::Nothing);
+        }
+        let command = pwr_tools::command_line(executable, args);
+        let description = format!(
+            "let `{command}` reach the network -- it ran offline until it was stopped at the time \
+             limit, as a package manager does while it waits for a network the sandbox withholds"
+        );
+        let decision = prompt.ask(Approval::NetworkAccess, &description).await;
+        store
+            .append(
+                Some(id),
+                "approval.decision",
+                serde_json::json!({
+                    "approval": Approval::NetworkAccess,
+                    "description": description,
+                    "decision": decision,
+                    "step": step,
+                }),
+            )
+            .map_err(|e| e.to_string())?;
+        return Ok(match decision {
+            ApprovalDecision::AllowOnce | ApprovalDecision::AllowForRun => {
+                policy.approvals.push(Approval::NetworkAccess);
+                Withheld::Allowed {
+                    approval: Approval::NetworkAccess,
+                    once: matches!(decision, ApprovalDecision::AllowOnce),
+                }
+            }
+            ApprovalDecision::Deny => {
+                said.push_str(
+                    "\nThe engineer did not let this command reach the network; do it another \
+                     way or say what it needs.",
+                );
+                refused.refused(fingerprint);
+                Withheld::Refused
+            }
+        });
+    }
     let Ok(value) = outcome else {
         return Ok(Withheld::Nothing);
     };
@@ -377,6 +426,73 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    /// Measured 2026-09-27 (stack matrix c3): `npm install` offline ran to the
+    /// time limit three times and the network question never came.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_dependency_fetch_stopped_offline_at_the_limit_is_asked_about() {
+        let store = Store::open(":memory:").unwrap();
+        let mut policy = policy(&["npm", "cargo"]);
+        policy.sandbox = pwr_tools::SandboxPolicy::Required;
+        if !policy.will_sandbox().unwrap_or(false) {
+            return;
+        }
+        let stopped = || {
+            Err(ActionExecutionError::TimedOut(
+                "the command did not finish within 120 s and was stopped.".into(),
+            ))
+        };
+        let prompt = Answer::with(&[ApprovalDecision::AllowForRun]);
+        let mut outcome = stopped();
+        let answered = super::withheld(
+            &store,
+            pwr_domain::new_id(),
+            1,
+            &command("npm", &["install"]),
+            "npm install",
+            &mut outcome,
+            &mut policy,
+            &prompt,
+            &mut RefusalStreak::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            answered,
+            Withheld::Allowed {
+                approval: Approval::NetworkAccess,
+                once: false
+            }
+        );
+        assert!(
+            prompt.asked.lock().unwrap()[0]
+                .1
+                .contains("`npm install` reach the network")
+        );
+        assert!(policy.network_allowed());
+
+        // A test run that hangs is not a fetch: nothing to ask.
+        let mut policy = self::policy(&["cargo"]);
+        policy.sandbox = pwr_tools::SandboxPolicy::Required;
+        let prompt = Answer::with(&[]);
+        let mut outcome = stopped();
+        let answered = super::withheld(
+            &store,
+            pwr_domain::new_id(),
+            1,
+            &command("pytest", &["-x"]),
+            "pytest",
+            &mut outcome,
+            &mut policy,
+            &prompt,
+            &mut RefusalStreak::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(answered, Withheld::Nothing);
+        assert!(prompt.asked.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

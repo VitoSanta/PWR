@@ -727,6 +727,44 @@ pub fn looks_like_network_denied(output: &str) -> bool {
         .any(|sign| output.contains(sign))
 }
 
+/// Whether a command fetches dependencies: what a package manager does
+/// before anything else, and what it keeps retrying, sometimes for minutes,
+/// when the network is withheld.
+pub fn fetches_dependencies(executable: &str, args: &[String]) -> bool {
+    let args = args_after_program(executable, args).unwrap_or(args);
+    let first = args.first().map(String::as_str).unwrap_or_default();
+    let second = args.get(1).map(String::as_str).unwrap_or_default();
+    match program_name(executable).as_str() {
+        "npm" | "pnpm" | "yarn" | "bun" => {
+            first.is_empty()
+                || matches!(first, "install" | "i" | "ci" | "add" | "update" | "upgrade")
+        }
+        "pip" | "pip3" | "uv" | "poetry" | "pipenv" => {
+            matches!(first, "install" | "sync" | "add" | "lock" | "update")
+        }
+        "cargo" => matches!(
+            first,
+            "build" | "test" | "run" | "check" | "fetch" | "update" | "install" | "add"
+        ),
+        "go" => {
+            matches!(first, "build" | "test" | "run" | "get" | "install")
+                || (first == "mod" && matches!(second, "download" | "tidy"))
+        }
+        "mvn" | "mvnw" | "gradle" | "gradlew" => true,
+        "composer" => matches!(first, "install" | "update" | "require"),
+        "bundle" => first.is_empty() || first == "install",
+        "gem" => first == "install",
+        "mix" => matches!(first, "deps.get" | "test" | "compile"),
+        "dart" | "flutter" => first == "pub" && matches!(second, "get" | "upgrade"),
+        "dotnet" => matches!(first, "restore" | "build" | "test" | "run"),
+        "swift" => {
+            matches!(first, "build" | "test" | "run")
+                || (first == "package" && matches!(second, "resolve" | "update"))
+        }
+        _ => false,
+    }
+}
+
 /// Programs whose work is done by a container engine's daemon.
 const CONTAINER_CLIENTS: &[&str] = &[
     "docker",
@@ -6420,6 +6458,37 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_dependency_fetch_is_told_from_a_test_run() {
+        let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        for (program, words) in [
+            ("npm", &["install"][..]),
+            ("npm", &[][..]),
+            ("pip", &["install", "-r", "requirements.txt"][..]),
+            ("mvn", &["-q", "test"][..]),
+            ("go", &["mod", "download"][..]),
+            ("dart", &["pub", "get"][..]),
+            ("cargo", &["build"][..]),
+        ] {
+            assert!(
+                super::fetches_dependencies(program, &args(words)),
+                "{program} {words:?}"
+            );
+        }
+        for (program, words) in [
+            ("npm", &["test"][..]),
+            ("pytest", &["-x"][..]),
+            ("python3", &["-m", "unittest"][..]),
+            ("go", &["vet"][..]),
+            ("make", &["test"][..]),
+        ] {
+            assert!(
+                !super::fetches_dependencies(program, &args(words)),
+                "{program} {words:?}"
+            );
+        }
+    }
+
     #[test]
     fn swiftpm_is_told_not_to_nest_a_sandbox_and_nothing_else_is() {
         let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
