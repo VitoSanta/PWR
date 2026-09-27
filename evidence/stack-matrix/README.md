@@ -71,3 +71,6 @@ compared with results after it.
   host install recipe for Elixir (Docker cannot satisfy a check that runs
   `mix` on the host), and a review round that runs a rule no check covers
   rather than reading the code for it.
+- 2026-09-27 `ts-ledger`: the README says a line break is `\n` or `\r`. It
+  said "a newline", and a hidden test quotes a field holding a bare `\r`; a
+  c2 run quoted only `\n`, a reading the text allowed.

@@ -14,7 +14,7 @@ Rules the finance team signed off (the tests encode them):
 - A due date counts business days (Monday to Friday) after the issue date;
   the issue date itself never counts, whatever day it is.
 - Functions never modify the objects or arrays they are given.
-- The CSV export follows RFC 4180: fields with a comma, a quote or a newline
-  are quoted, quotes doubled; lines end with CRLF.
+- The CSV export follows RFC 4180: fields with a comma, a quote or a line
+  break (`\n` or `\r`) are quoted, quotes doubled; lines end with CRLF.
 
 Run the tests with `npm test` (Node 22.6 or later runs the TypeScript directly).
