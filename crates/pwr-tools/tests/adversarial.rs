@@ -183,7 +183,33 @@ fn a_command_that_outruns_the_policy_timeout_is_stopped() {
     let result = tokio::runtime::Runtime::new()
         .unwrap()
         .block_on(run_command(&policy, "sleep", &["30".into()]));
-    assert!(matches!(result, Err(ToolError::Timeout)));
+    assert!(matches!(result, Err(ToolError::CommandTimedOut(_))));
+}
+
+/// A bare "timed out" did not say where a command was stuck: a hanging test
+/// run came back six times with nothing but that (stack matrix c2).
+#[test]
+fn a_command_stopped_at_its_limit_says_what_it_printed() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands = vec!["sh".into()];
+    policy.timeout = Duration::from_millis(300);
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(run_command(
+            &policy,
+            "sh",
+            &[
+                "-c".into(),
+                "echo Running LimiterTest; echo waiting >&2; sleep 30".into(),
+            ],
+        ));
+    let Err(ToolError::CommandTimedOut(said)) = result else {
+        panic!("{result:?}");
+    };
+    assert!(said.contains("Running LimiterTest"), "{said}");
+    assert!(said.contains("waiting"), "{said}");
+    assert!(said.contains("was stopped"), "{said}");
 }
 
 #[cfg(unix)]
@@ -200,7 +226,7 @@ fn timing_out_kills_descendants_before_they_can_mutate_the_workspace() {
             "sh",
             &["-c".into(), "sleep 0.2; echo orphan > marker".into()],
         ));
-    assert!(matches!(result, Err(ToolError::Timeout)));
+    assert!(matches!(result, Err(ToolError::CommandTimedOut(_))));
     std::thread::sleep(Duration::from_millis(300));
     assert!(
         !root.path().join("marker").exists(),

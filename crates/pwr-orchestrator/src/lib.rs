@@ -1134,6 +1134,8 @@ pub enum ActionExecutionError {
     Denied(String),
     Io(String),
     Timeout,
+    /// A command stopped at its time limit, said with what it printed.
+    TimedOut(String),
     Invalid(String),
     Serialization(String),
     Audit(String),
@@ -1145,6 +1147,7 @@ impl std::fmt::Display for ActionExecutionError {
             Self::Denied(reason) => write!(formatter, "policy denied: {reason}"),
             Self::Io(reason) => write!(formatter, "tool I/O failure: {reason}"),
             Self::Timeout => formatter.write_str("tool timed out"),
+            Self::TimedOut(said) => formatter.write_str(said),
             Self::Invalid(reason) => write!(formatter, "invalid action: {reason}"),
             Self::Serialization(reason) => {
                 write!(formatter, "could not serialize tool outcome: {reason}")
@@ -1166,7 +1169,7 @@ impl ActionExecutionError {
     fn outcome_class(&self) -> &'static str {
         match self {
             Self::Denied(_) => "policy_denial",
-            Self::Timeout => "timeout",
+            Self::Timeout | Self::TimedOut(_) => "timeout",
             Self::Io(_) => "io_failure",
             Self::Invalid(_) | Self::Serialization(_) | Self::Audit(_) => "protocol_failure",
         }
@@ -1176,7 +1179,7 @@ impl ActionExecutionError {
         match self {
             Self::Denied(_) => "policy",
             Self::Io(_) => "io",
-            Self::Timeout => "timeout",
+            Self::Timeout | Self::TimedOut(_) => "timeout",
             Self::Invalid(_) => "invalid_action",
             Self::Serialization(_) => "serialization",
             Self::Audit(_) => "audit",
@@ -1190,6 +1193,7 @@ impl From<ToolError> for ActionExecutionError {
             ToolError::Denied(reason) => Self::Denied(reason),
             ToolError::Io(error) => Self::Io(error.to_string()),
             ToolError::Timeout => Self::Timeout,
+            ToolError::CommandTimedOut(said) => Self::TimedOut(said),
         }
     }
 }

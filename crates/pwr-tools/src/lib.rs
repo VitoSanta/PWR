@@ -28,6 +28,10 @@ pub enum ToolError {
     Io(#[from] std::io::Error),
     #[error("tool timed out")]
     Timeout,
+    /// A command stopped at the policy's time limit, with the end of what it
+    /// had printed: a bare "timed out" does not say where it was stuck.
+    #[error("{0}")]
+    CommandTimedOut(String),
 }
 /// What `search` returns when its call names no bound.
 pub const DEFAULT_SEARCH_MATCHES: usize = 30;
@@ -5981,7 +5985,36 @@ async fn run_command_once(
             process_group.terminate();
             let _ = child.kill().await;
             let _ = child.wait().await;
-            return Err(ToolError::Timeout);
+            // What it printed before it was stopped. Measured 2026-09-27
+            // (stack matrix c2, java-ratelimit): `mvn test` hung on a test
+            // six times and each time came back as "tool timed out" alone;
+            // with no way to see which test, the model spent forty minutes
+            // building its own runner. Surefire had printed the test's name.
+            // Bounded, in case a process outside the group holds a pipe.
+            let settle = std::time::Duration::from_secs(2);
+            let mut printed = String::new();
+            for (name, task) in [("stdout", stdout_task), ("stderr", stderr_task)] {
+                if let Ok(Ok(Ok(capture))) = timeout(settle, task).await {
+                    let (text, _) = policy.redact(&String::from_utf8_lossy(&capture.retained));
+                    let text = text.trim_end();
+                    if !text.is_empty() {
+                        let skip = text.chars().count().saturating_sub(2_000);
+                        let tail: String = text.chars().skip(skip).collect();
+                        printed.push_str(&format!("\n--- end of {name} ---\n{tail}"));
+                    }
+                }
+            }
+            return Err(ToolError::CommandTimedOut(format!(
+                "the command did not finish within {} s and was stopped. A command that hangs is \
+                 usually waiting for something that never comes -- a test blocked on a lock, a \
+                 wait or a loop, a server that is never stopped, input it expects. {}",
+                policy.timeout.as_secs(),
+                if printed.is_empty() {
+                    "It printed nothing before it was stopped.".to_owned()
+                } else {
+                    format!("The end of what it printed shows where it was:{printed}")
+                }
+            )));
         }
     };
     process_group.disarm();

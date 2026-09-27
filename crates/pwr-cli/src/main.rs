@@ -10060,7 +10060,9 @@ async fn verify_in(
         .map_err(|e| SafeError {
             category: match e {
                 pwr_tools::ToolError::Denied(_) => "policy_denied",
-                pwr_tools::ToolError::Timeout => "verification_timeout",
+                pwr_tools::ToolError::Timeout | pwr_tools::ToolError::CommandTimedOut(_) => {
+                    "verification_timeout"
+                }
                 pwr_tools::ToolError::Io(_) => "verification_io",
             },
             context: e.to_string(),
