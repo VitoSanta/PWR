@@ -42,6 +42,13 @@ Each task writes, under `~/Desktop/pwr-evidence/runs/<run>/<task>/`, the full
 protocol transcript, the result, the diff against the seed and the verifier's
 output.
 
+## Tasks kept outside the repository
+
+`PWR_EVIDENCE_TASKS` names further task folders (separated by `:`), laid out
+like `tasks/`. It is how held-out tasks are written by someone other than
+whoever tunes PWR, who then never reads them: `run.py reference` and
+`run.py run` take them like any other task, and an id may not repeat.
+
 ## Splits
 
 `dev` tasks are the ones PWR is improved against. `heldout` tasks are run only

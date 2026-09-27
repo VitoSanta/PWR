@@ -141,6 +141,15 @@ def events_of(transcript, workspace):
     return events
 
 
+def task_folder(task_id):
+    """Where a task lives: the suite's own tasks, or an extra folder."""
+    from run import EXTRA_TASKS
+    for folder in [HERE.parent / "tasks", *EXTRA_TASKS]:
+        if (folder / task_id).is_dir():
+            return folder / task_id
+    return HERE.parent / "tasks" / task_id
+
+
 def task_readme(run_dir, task_id):
     """The README as it was handed over in that run: the workspace's first
     commit is the seed, so a task revised since does not rewrite history."""
@@ -152,14 +161,14 @@ def task_readme(run_dir, task_id):
                                capture_output=True, text=True)
         if shown.returncode == 0:
             return shown.stdout
-    path = HERE.parent / "tasks" / task_id / "workspace" / "README.md"
+    path = task_folder(task_id) / "workspace" / "README.md"
     return path.read_text() if path.exists() else "(not found)"
 
 
 def revised_since(result):
     """Whether the task has changed since the result was produced. A result
     from before digests were recorded cannot say, and is marked unknown."""
-    task_dir = HERE.parent / "tasks" / result["task"]
+    task_dir = task_folder(result["task"])
     if not task_dir.exists():
         return "unknown"
     recorded = result.get("task_digest")

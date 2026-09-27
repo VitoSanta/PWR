@@ -30,6 +30,11 @@ HERE = pathlib.Path(__file__).resolve().parent
 SUITE = HERE.parent
 REPO = SUITE.parent.parent
 TASKS = SUITE / "tasks"
+# Further task folders, outside this repository: held-out tasks written by
+# someone other than whoever tunes PWR, so that person never reads them.
+# Separated by the platform's path separator.
+EXTRA_TASKS = [pathlib.Path(p).expanduser() for p in
+               os.environ.get("PWR_EVIDENCE_TASKS", "").split(os.pathsep) if p]
 RESULTS = pathlib.Path(os.environ.get("PWR_EVIDENCE_RESULTS", pathlib.Path.home() / "Desktop/pwr-evidence/runs"))
 PWR_BIN = os.environ.get("PWR_BIN", str(REPO / "target/release/pwr"))
 MLX_PYTHON = os.environ.get(
@@ -75,9 +80,12 @@ def say(*parts):
 
 def load_tasks(names=None, split=None):
     tasks = []
-    for path in sorted(TASKS.glob("*/task.json")):
+    paths = sorted(p for folder in [TASKS, *EXTRA_TASKS] for p in folder.glob("*/task.json"))
+    for path in sorted(paths, key=lambda p: p.parent.name):
         task = json.loads(path.read_text())
         task["dir"] = path.parent
+        if task["id"] in {t["id"] for t in tasks}:
+            sys.exit(f"task {task['id']} is defined twice ({path.parent})")
         if names and task["id"] not in names:
             continue
         if split and task.get("split") != split:
