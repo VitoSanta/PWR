@@ -681,6 +681,77 @@ fn annotate(
     }
 }
 
+/// Says which programs a command just put on PATH, by installing a toolchain
+/// under `.toolchains/`.
+///
+/// Measured 2026-09-27 (stack matrix c3, cpp-ini): CMake unpacked to
+/// `.toolchains/cmake-3.31.6-macos-universal/CMake.app/Contents/bin`, which the
+/// harness put on PATH -- and the model, not knowing, linked and then wrapped
+/// `cmake` and `ctest` in the project root. A file named `cmake` beside
+/// `CMakeLists.txt` is what CMake then took for itself, on Linux too, and the
+/// build failed in the verifier with "Could not find CMAKE_ROOT".
+fn note_new_toolchains(
+    outcome: &mut serde_json::Value,
+    root: &std::path::Path,
+    before: &[std::path::PathBuf],
+) {
+    let added: Vec<std::path::PathBuf> = pwr_tools::toolchain_paths(root)
+        .into_iter()
+        .filter(|path| !before.contains(path))
+        .collect();
+    if added.is_empty() {
+        return;
+    }
+    let mut programs: Vec<String> = Vec::new();
+    for directory in &added {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            continue;
+        };
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter(|entry| is_executable_file(&entry.path()))
+            .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+            .collect();
+        names.sort();
+        programs.extend(names);
+    }
+    programs.truncate(16);
+    let shown: Vec<String> = added
+        .iter()
+        .map(|path| {
+            path.strip_prefix(root)
+                .unwrap_or(path)
+                .display()
+                .to_string()
+        })
+        .collect();
+    if let Some(object) = outcome.as_object_mut() {
+        object.insert(
+            "toolchain".into(),
+            serde_json::json!({
+                "on_path": shown,
+                "programs": programs,
+                "note": "These now run by name -- in every command from here on and in the checks. \
+                         Nothing needs linking, wrapping or exporting; a wrapper named after a tool \
+                         in the project would shadow the real one wherever the project is built.",
+            }),
+        );
+    }
+}
+
+fn is_executable_file(path: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
+}
+
 /// Characters that make a query read as a pattern rather than as text.
 ///
 /// Deliberately not every regex metacharacter: `.` and `-` appear in ordinary
@@ -1084,12 +1155,17 @@ pub async fn execute_action_recorded(
 ) -> Result<serde_json::Value, ActionExecutionError> {
     let action = reads.with_known_hash(policy, action);
     reads.remember_original(policy, &action);
+    let toolchains_before = matches!(action, ActionProposal::RunCommand { .. })
+        .then(|| pwr_tools::toolchain_paths(&policy.root));
     let mut result = match &action {
         ActionProposal::RestoreFile { path } => reads.restore(policy, path),
         _ => attempt_action(policy, &action, services).await,
     };
     if let Ok(outcome) = &mut result {
         annotate(outcome, &action, reads, step);
+        if let Some(before) = toolchains_before {
+            note_new_toolchains(outcome, &policy.root, &before);
+        }
     }
     let result = result;
     let payload = match &result {
@@ -6706,6 +6782,59 @@ mod tests {
         };
         assert!(action_from_reply(&pwr_compat::CanonicalReply::verbatim(&reply)).is_err());
     }
+    #[tokio::test]
+    async fn a_command_that_installs_a_toolchain_is_told_what_now_runs_by_name() {
+        let root = tempfile::tempdir().unwrap();
+        let policy = ToolPolicy {
+            root: root.path().to_path_buf(),
+            extra_readable: Vec::new(),
+            protected: Vec::new(),
+            allow_commands: vec!["sh".into()],
+            output_limit: 1024,
+            timeout: Duration::from_secs(10),
+            sandbox: pwr_tools::SandboxPolicy::Disabled,
+            approvals: Vec::new(),
+        };
+        let store = Store::open(":memory:").unwrap();
+        let mut services = pwr_tools::service::ServiceSupervisor::new();
+        let mut reads = ReadHistory::default();
+        let install = r#"{"capability":"run_command","executable":"sh","args":["-c","mkdir -p .toolchains/demo-1.0/Demo.app/Contents/bin && printf '#!/bin/sh\n' > .toolchains/demo-1.0/Demo.app/Contents/bin/demo && chmod +x .toolchains/demo-1.0/Demo.app/Contents/bin/demo"]}"#;
+        let outcome = execute_action_recorded(
+            &store,
+            new_id(),
+            &policy,
+            parse_action_proposal(install).unwrap(),
+            &mut services,
+            &mut reads,
+            0,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            outcome["toolchain"]["on_path"],
+            serde_json::json!([".toolchains/demo-1.0/Demo.app/Contents/bin"])
+        );
+        assert_eq!(
+            outcome["toolchain"]["programs"],
+            serde_json::json!(["demo"])
+        );
+        let again = execute_action_recorded(
+            &store,
+            new_id(),
+            &policy,
+            parse_action_proposal(
+                r#"{"capability":"run_command","executable":"sh","args":["-c","true"]}"#,
+            )
+            .unwrap(),
+            &mut services,
+            &mut reads,
+            0,
+        )
+        .await
+        .unwrap();
+        assert!(again.get("toolchain").is_none());
+    }
+
     /// Measured 2026-09-27 (stack matrix c2, dart-cron): scratch tests the
     /// model had written and run were each refused once when it deleted them,
     /// for want of a hash the harness already knew.
