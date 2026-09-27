@@ -1,5 +1,105 @@
 # Research roadmap
 
+## Reconciliation — 2026-09-27
+
+Reviewed committed `develop` at `3a1170ba66552c4a3c5169aac31c33b6c329afb4`.
+This is a code/commit reconciliation, not a fresh model evaluation, remote CI
+result or assertion that the checkout matches a released DMG. Uncommitted
+model-manager work in the main checkout is excluded. No models or PWR runs
+were started for this review, and no workspace-wide build/test was performed.
+
+The [backlog reconciliation](backlog.md#reconciliation--2026-09-27) assigns
+**fatto / parziale / proposto** and a source reference to all 127 original
+checklist entries, preserves closed records, and adds the C.22c proposal.
+Here **fatto** closes the stated bounded work or historical decision, not a
+broader capability claim; **parziale** means implementation or validation is
+unfinished; **proposto** means not implemented/adopted. Superseded plans are
+retained under **Closed planning snapshots / Chiuse**, with their reasons.
+This section takes precedence over the retained dated planning text below.
+The generated M0–M6 block remains unchanged as historical evidence.
+
+### Product and capability position
+
+| Track | State | Evidence on develop | Remaining boundary |
+|---|---|---|---|
+| Mac desktop coding loop | **fatto** for the first alpha | `apps/desktop`, `crates/pwr-cli/src/serve.rs`, 875ceec3 | Alpha implementation is not the R5 reliability gate or a Windows product. |
+| Desktop CI/tests | **fatto** | `.github/workflows/ci.yml`, `apps/desktop/src/app/core/agent.store.spec.ts`, 881f3978, 07e3ab25 | R.8's old no-tests/no-build statement is closed; latest CI outcome not queried here. |
+| Model Manager / host fit / downloads | **parziale** | `crates/pwr-models`, `window.rs`, `model-manager.ts`, 390ec34a, b6ded274 | Core Mac flow exists; measured hardware catalogue, 16 GB validation and backend/platform completion remain. |
+| Profile / workspace memory / wiki / graph | **parziale** | `personal.rs`, `wiki.rs`, `graph.rs`, 5763def8, b2d56c9a, f49083fe, 299bbe71 | Confirmed memory and project recall exist; full procedural memory, complete call graph and validated rehydration do not. |
+| Workbench / queue / rewind | **fatto** for the first implementation | `apps/desktop/src/app/ui/workbench`, `serve.rs`, 763c8b2a, 391a48e6, fde0545c | Rewind is not rollback of arbitrary commands; user preview is not model page inspection. |
+| Prompt cache and compaction | **parziale** | `pwr_mlx.py`, `compaction.rs`, 05b3beb7 | Cache retained across messages; run/chat compaction differs. Wiki-summary interference fix is unmerged. |
+| Framework packets / document filter | **parziale** | `context.rs`, `semantic.rs`, `pwr_embed.py` | Angular packet and opt-in hybrid retrieval exist; generic packs and repeatable coding benefit are unproven. |
+| Model compatibility / Reasoning Effort | **parziale** | `crates/pwr-cli/src/compatibility.rs`, `crates/pwr-models/verified-models.json` | Provisional/Quick Calibration exists; Verified registry is empty and backend coverage incomplete. |
+| Local images | **parziale** | `crates/pwr-mlx/sidecar/pwr_mlx.py` | Experimental vision input exists; screenshot tool on unmerged branch, image compaction/GGUF incomplete. |
+| Evidence after compaction / document RAG / KV precision | **proposto** | backlog C.22b/C.22c; 6b03dd75 records C.22b | Consolidate runtime/context first. KV quantization is distinct from weight quantization and does not extend native length. |
+| Adaptive single-agent modes / learned policy | **proposto** | backlog C.23/C.7, `baseline.rs` control | FAST/STANDARD/DEEP and adaptive selection must beat fixed controls; no automatic advantage claimed. |
+| Windows and persistent GGUF serving | **parziale** for GGUF, **proposto** for Windows isolation | `crates/pwr-llama/src/lib.rs`, `crates/pwr-tools/src/lib.rs` | Server starts per generation; Windows sandbox and full desktop path remain open. |
+
+Paths in abbreviated cells refer to the source modules linked from the
+backlog's per-item table; the commit IDs are all ancestors of the pinned develop.
+
+### Research milestones and surface tracks
+
+| Item | State | Source / decision evidence | What is still required |
+|---|---|---|---|
+| R0 trustworthy comparison | **parziale** | `crates/pwr-eval/src/lib.rs` (`compare_strict`), `crates/pwr-cli/build.rs` | Strict pairing exists; unresolved artifact migration, provenance repair and full incremental accounting remain in A.11/A.13/A.16. |
+| R1 session contract | **parziale** | `session.rs`, `crates/pwr-cli/src/two_loops.rs` | The original shared action-boundary increment is done; full runtime equivalence is not (R.11/C.1). |
+| R2 local failure regimes | **parziale** | `suites/a1-tool-calls.json`, `suites/a2-navigation.json`, recorded diagnostics | Recorded narrow diagnoses exist; target-cohort repeated coverage still needed. |
+| R3 mechanism trial | **proposto** for confirmatory resumption | backlog C.10 and retained historical records | Freeze intervention/control and distinguish development runs from confirmation. |
+| R4 adaptation | **proposto** | `baseline.rs`, backlog C.7 | Compare against best fixed policies at equal budgets; no passed adaptive gate. |
+| R5 product gate | **proposto** | `docs/local-agent-research.md`, backlog C.8 | Held-out realistic tasks, sustained completion and user-facing acceptance. |
+| R6 extensions | **parziale** | vision in `pwr_mlx.py`, dependency search in `pwr-tools/src/lib.rs` | Some bounded extensions exist; generic web/MCP/apps and their benefit are not admitted wholesale. |
+| S1 protocol | **fatto** | `crates/pwr-cli/src/serve.rs` and protocol fixtures | First ACP surface exists; new capabilities require their own fixtures. |
+| S2 toolkit decision | **fatto** | `apps/desktop/package.json`, 954e7b49 | Tauri/Angular replaced the Slint spike; closed as a decision, not cross-platform validation. |
+| S3 desktop product | **parziale** | `scripts/release-macos.sh`, 875ceec3, `apps/desktop` | Mac alpha exists; notarization, Windows and full product gate remain. |
+
+### Disposition of the original ten steps
+
+| Original step | State | Evidence and remaining scope |
+|---|---|---|
+| 1 Outside reference | **fatto** | Historical A.1 diagnostic retained in closed snapshot; no rerun or transferable model ranking. |
+| 2 Loading/window | **fatto** | `crates/pwr-orchestrator/src/window.rs`, main.rs; computed admission implemented, estimates remain estimates. |
+| 3 First realistic-window diagnostic | **fatto**, superseded | Recorded interrupted diagnostic led to A.17 and step 5; do not schedule its original rerun again. |
+| 4 Minimal MLX engine | **fatto** | `crates/pwr-mlx`, now the Mac product engine rather than a future spike. |
+| 5 Part E rerun | **fatto** | Original A.2 diagnostic record preserved; not a current-revision benchmark. |
+| 6 A1–A4 suites | **parziale** | `suites/a1-tool-calls.json` through `a4-verification.json` exist; live/discriminating/product-path criteria remain. |
+| 7 Hardware catalogue | **parziale** | `crates/pwr-models` and `selection.rs`; small-host and paired-quantization measurements still open. |
+| 8 Remaining engine / weights | **parziale** | MLX and downloads built, HTTP backends removed; llama.cpp lifecycle/Windows unfinished. |
+| 9 R3 resumption | **proposto** | Confirmatory campaign is deferred; context/vision/skill work recorded inside the old step is classified separately above. |
+| 10 S2 then S3 | **parziale** | S2 closed; Mac S3 alpha implemented, full platform/product scope open. |
+
+### Disposition of the six former open decisions
+
+| Decision | State | Evidence / reason |
+|---|---|---|
+| Needle recall as an admission gate | **parziale** | `window.rs` removes old probe gating; B.11 retains optional provenance-scoped Quick Calibration. Catalogue measurement policy still open; this no longer blocks loading. |
+| Rust-to-MLX interface | **fatto** | Python sidecar in `crates/pwr-mlx/src/lib.rs` and `sidecar/pwr_mlx.py`; no pending C-API choice. |
+| 16 GB testing strategy | **proposto** | B.4 remains open; `host.rs` detects memory but does not replace a validated cohort. |
+| Own engine versus HTTP backends | **fatto** as direction | Cargo workspace/README use own MLX and experimental llama.cpp; removed Ollama/LM Studio are historical. Remaining GGUF work stays B.7/R.4. |
+| Fine-tuning / LoRA | **proposto**, deferred | No training pipeline in the current runtime; only revisit a specific measured failure mechanism, not a blanket next step. |
+| Larger 4-bit versus smaller 8-bit weights | **proposto** as experiment | B.3b has no adopted general winner. Keep separate from C.22c KV-cache precision; bit width alone is not a quality result. |
+
+### Unmerged branch work and execution order
+
+`git log develop..feature/agent-tools --oneline` was inspected through
+`6cf6bf749fb9373c70022cf19312f52a4ab5ccc6`. The branch contains additional
+approval/toolchain work (46441e8b, ed56c03b, 8ac3bcd6), goal review (631d1e79,
+2dcea407, aeb9e52c), local screenshot inspection (9bab8a52, 0786af57), cache
+and trace fixes (0c207654, 638b821a, 0b90a4ef), tool/parser/output fixes, and
+stack-matrix evaluation infrastructure including external task directories
+(6cf6bf74). The [backlog theme table](backlog.md#work-not-yet-merged-featureagent-tools)
+has the fuller grouping. None is marked done on develop merely because it
+exists there. This review does not touch or merge the branch, inspect ongoing
+campaign results, or publish private held-out task content.
+
+The 2026-09-23 sequence is retained with already-built work removed from its
+pending scope: alpha correctness/remaining licence and distribution work;
+R.10 controlled baseline comparison (B0 already exists); R.4 before Windows
+performance claims; remaining C.24 and page-inspection validation after review
+of branch work; R.11/C.1 consolidation. C.22b/C.22c stay behind consolidation,
+and C.23/R4 stay conditional on fixed-policy evidence. Windows isolation is
+an independent platform track. This does not change the running campaign.
+
 **Decision — 2026-09-25: defer encoder-ranked compaction.** The possible use
 of the existing local encoder to select verbatim evidence after compaction is
 recorded as the future experiment [C.22b](backlog.md). It needs a controlled
@@ -7,16 +107,6 @@ comparison with current compaction and recency fill at the same token budget;
 there is no implementation or default-policy change now. Consolidate the
 existing runtime and context paths first, including the still separate
 conversation and scripted compaction paths (C.1/R.11).
-
-**Update — 2026-09-24: first public alpha preparation.** Work resumed on 2026-09-18 and the pause below ended with it. PWR v0.1.0-alpha is prepared for a public alpha release for Apple-silicon Macs; the GitHub release has not yet been published. The desktop app bundles the core, the MLX engine's scripts and an installer for the engine's Python; Revert goes through the core (`_pwr/revert`); the webview has a Content Security Policy; models live in `~/.pwr/models`; the app runs MLX only on a Mac, with llama.cpp kept for Windows and bound to loopback. The order of work after the release is the 2026-09-23 update's, below. The current description of the product is [PWR_PRODUCT_SOURCE_OF_TRUTH.md](PWR_PRODUCT_SOURCE_OF_TRUTH.md).
-
-**PAUSED, 2026-09-17 (ended 2026-09-18).** PWR is paused while the maintainer follows a study plan. Where it stands: [the redesign](redesign-2026-09-17.md) is proposed with its first decisions taken (six evaluation areas, the host's largest window for end-to-end tests, MLX first, a hardware catalogue of models) and six decisions open; R3 is shelved; the MLX engine spike is done (`experiments/engine-spike-mlx-20260917/analysis.md`) and found LM Studio's MLX path as fast as in-process MLX. **First step on resuming is the outside reference, not a build** — see "Where we are and what is left" immediately below, which is the current statement of order and supersedes the sequencing in the milestone sections.
-
-**Old regime, 2026-09-17.** Every campaign recorded below up to `experiments/r3-h2-dev-20260917` ran under the old regime (*sotto vecchia gestione*): one calibrated 16,384-token window for every question, a calibration probe before any run, a single blended completion rate, and models served through Ollama or LM Studio. Their defect fixes and mechanism observations stand; their completion rates are not capability claims and their sample sizes are not carried forward. The proposed replacement -- evaluation sectioned by harness area, models loaded without a probe, an embedded local engine -- is [the redesign](redesign-2026-09-17.md), under review.
-
-**Authoritative sequence, updated 2026-09-16.** R0 and R1 are **COMPLETED** against their engineering exits; R2 is **COMPLETED as a measurement** — 204 trials, no uplift established, the choice rule names `unfinished`, and a quarter of the sampled tasks flip outcome on the seed alone, which is why a confirmation needs about a hundred paired tasks rather than thirty; R3 is **SHELVED** since 2026-09-17 (it read as PREPARED and next until then); R4–R6 remain **PLANNED**. These entries describe implementation readiness, not model-quality results. The old M0–M6 table and dated campaign notes are preserved below as historical evidence. Their labels do not establish readiness for the new project.
-
-Implementation follows an experimentally justified boundary, not a calendar. [Research hypotheses](local-agent-research.md) provide rejection decisions; [evaluation](evaluation.md) specifies pairing, resource accounting and uncertainty. Numeric gates below are proposed practical criteria to freeze before confirmation, not measurements of current performance.
 
 ## Update — 2026-09-23: context filter, dependencies, review, permissions
 
@@ -146,390 +236,13 @@ Until this is undone and re-measured, no intervention — context policy, engine
 adapter, retrieval — can be credited or dismissed, because every measurement of
 it is taken under starvation. See the redesign, Part E.
 
-### The order of work, and why it is this order
+### Historical sequence moved to closed records
 
-1. **The outside reference. DONE 2026-09-18: 4 of 5 in Bionic at 262,144
-   tokens against 0 of 5 for PWR at 16,384, same model, same tasks — the gap
-   is ours** (`experiments/a1-bionic-reference-20260918/results.md`). Five
-   A6-shaped tasks by hand in Bionic, same model, same machine. *Half a day.* It is first because it is the only step
-   that de-risks all the others: it says whether the gap is PWR's
-   configuration or the model's ceiling, and the answer changes what steps 2–5
-   are worth.
-2. **Loading without a probe** (redesign Part B) with the computed window
-   (Part D). **DONE 2026-09-18 in code, not yet run live**: every command
-   computes the window from the model's config and this host's memory when no
-   calibration is named, and records every ceiling and the binding one. Open
-   decision 1 did not block it after all -- both answers drop the probe as a
-   gate -- and now decides only how much of the calibration code F.3 removes.
-   Still open inside it: the latency ceiling from observed turns, and the
-   prefill-transient constant (backlog B.2).
-3. **Re-measure at a realistic window** (Part E): the same tasks, the host's
-   window, with `HISTORY_BUDGET_SHARE`, the action budget and the stall guard
-   revisited. A **diagnostic**, not a campaign — small n, no preregistered gate,
-   no capability claim — asked only whether the starvation hypothesis holds.
-   This is the measurement that tells us whether the rest of the plan is the
-   right plan. It also yields the first, cheap version of the product thesis'
-   own measurement (backlog A.15) for free, since running the old inherited
-   16,384 against the computed window *is* a naive configuration against an
-   automatic one. **Stopped after three tasks, 2026-09-18** (1 of 3 resolved;
-   `experiments/part-e-diagnostic-20260918/analysis.md`): nothing compacted
-   at the computed window, and the time went to runaway reasoning instead.
-   Backlog A.17 then found why, by controlled tests: sampling is not the
-   cause; reasoning is, and through the endpoint PWR uses it cannot be
-   switched off. With it off, Qwen3.6 was faster and right on the same
-   prompt. **To be re-run after step 4**, with the tool fixes of `6c0cec2`.
-4. **The minimal embedded MLX engine -- moved up from step 7 on 2026-09-18,
-   and a first version DONE the same day** (`--backend mlx`; capability probe
-   on Qwen3.6 in 148 s with edits 3 of 3, against over ten minutes and 1 of 3
-   through LM Studio; `experiments/mlx-engine-20260918`),
-   by the maintainer, on A.17's evidence. Only a caller that renders the chat
-   template controls reasoning -- off, or a real budget that closes the think
-   block after N tokens and lets the answer follow -- and without that control
-   every measurement of PWR is confounded by runaway turns. Scope: the
-   `Engine` boundary, MLX generation with PWR rendering the template,
-   reasoning off and a reasoning budget, tool calls parsed by the existing
-   family adapters, the computed window. *Interim until it lands:* `/no_think`
-   for the Qwen family through the LM Studio path. Not in scope yet: llama.cpp,
-   HuggingFace downloads, removing the HTTP backends (step 8).
-5. **Re-run the Part E diagnostic -- done 2026-09-18: 4 of 5, all declared,
-   the same four tasks Bionic resolved** (`experiments/part-e-orient64-mlx-20260918`,
-   binary `9fa4dab`, 64 actions). On the fifth, idna, Bionic declared success
-   over two rewritten tests; PWR claimed nothing. Six runs to get there,
-   each named by the last one's traces: reasoning control (own engine) →
-   files JSON-escaped and a prefill crash (fixed) → orientation cost (check
-   commands shown, enclosing definitions, restore_file, destructive
-   whole-file replacements refused) → the action budget (64 for this model).
-   Full path in the run's `analysis.md`. Open from it: the shared default of
-   26 (C.2, decided from A6), and the engine's slow long prefill.
-6. **A1–A4 suites -- DONE 2026-09-19 for Qwen3.6-35B-A3B** (`suites/`,
-   `pwr eval suite`, `sh suites/run.sh a2|a3|a4`; A1 runs in `cargo test`).
-   A1 by replay: 47 cases, seconds; closing its gaps raised the decoded rate on
-   794 real replies from 97.4% to 98.2%. A2 navigation: the corpora's nine
-   repository questions plus one built from Part E's forty-action search, 10 of
-   10 (that one now in 5 turns). A3 editing: 6 tasks, 6 of 6. A4 verification:
-   3 shortcut tasks, 3 of 3, no false completion. Building and running them
-   found and fixed five harness faults: CRLF files, the shrink guard missing
-   small files, numbers for text fields, the engine's loop guard cutting code,
-   and nine decoder gaps. **Carried into step 7:** A3/A4 cannot yet tell two
-   harness revisions apart on this model (the binary with the escaping bug
-   passes A3 too) -- step 7's smaller models are the discriminating runs --
-   and A1's live half (valid-call rate on short scripted tasks).
-7. **Catalogue measurements**: small, medium and large models on this Mac
-   (redesign Part D). *Open decision 3 -- how a 16 GB class is tested -- blocks the
-   small tier only.* **MLX catalogue pass closed 2026-09-19** (`experiments/catalogue-20260919/notes.md`):
-   Qwen3.6-35B-A3B 9/9 and fast, the practical model here; Qwen3.8-27B 9/9 but
-   4-7x slower (dense); Seed-OSS-36B excluded (62 tokens/s prefill, prose instead
-   of calls with reasoning off); gpt-oss-20b being re-run after its adapter
-   fixes. Building it fixed the engine's window arithmetic, streaming,
-   cancellation and two adapters. *Later the same day:* gpt-oss 8/9 after its
-   adapter and hint fixes; Nemotron 3.5 Lightning 30B-A3B 8/9 and fast, the
-   second choice; GLM-4.7-Flash excluded (loops copying hashes, never
-   declares). Table in the notes. This is enough to choose the default and the
-   fallback for this host and move to the engine work in step 8. Deferred from
-   the catalogue rather than blocking that move: A2 per promising model, the
-   small tier (open decision 3), and any quantisation pair at equal memory
-   (open decision 6). **Criteria agreed for further models:** decoder-only
-   Instruct/Coder with native tool calls, preferably MoE with few active
-   parameters, weights within ~35-45 GB, checked on paper before any download;
-   the maintainer names the candidates.
-8. **The rest of the engine**: llama.cpp for GGUF (and Windows), HuggingFace
-   weights, **then Ollama and LM Studio removed** (open decision 4). *The
-   removal came first, 2026-09-19, at the maintainer's request:* both crates
-   and the endpoint flags are gone, the engine is the only backend and the
-   default, and `last-with-http-backends` tags the last revision with them.
-   *Started 2026-09-20:* `pwr-llama` is a GGUF/llama.cpp backend reachable
-   as `--backend llama`; it discovers `.gguf` files, reads their metadata and
-   feeds `ModelFacts` so the same computed-window path applies to GGUF. The
-   next increments fixed the planned `llama-server` launch arguments with a
-   concrete loopback endpoint, the OpenAI-compatible chat-completions request
-   body, an offline parser for OpenAI-style stream events, and the HTTP path
-   that turns an SSE response into PWR's `ModelStream` against a local
-   fixture. `chat` now starts a managed server on demand with readiness polling
-   and kill-on-drop, and `backend_version` records the server's `--version`
-   output. Provider cancellation now stops an in-flight SSE stream against a
-   live fixture. The real smoke was unblocked 2026-09-20 by installing
-   Homebrew's `llama.cpp` 0.4.1 (`llama-server` build 10964) and pointing the
-   ignored smoke test at an existing local Qwen3 0.6B Q4_K_M GGUF; it passed.
-   This makes llama.cpp usable as an engine path, but not yet a measured model
-   path: the smoke model is a tiny base model. The first follow-up, output
-   hygiene for GGUF inspect artifacts, is done: large tokenizer arrays are
-   summarized in routine inspection evidence while full metadata still feeds
-   digest and window computation. Until a proper GGUF candidate is chosen and
-   measured, MLX remains the live measured path on Apple silicon. B.8 has
-   started with deterministic HuggingFace download plans and a guarded
-   downloader: the registry can render pinned Hub URLs and local destinations,
-   declare per-file byte counts and blake3 or SHA-256 hashes, and execute only
-   artifacts that can be verified, with `.part` resume; that execution path is
-   tested against a local HTTP fixture for fresh download, already-present and
-   resumed-part cases. The registry now has two real, pinned GGUF candidates
-   with byte counts and SHA-256 from HuggingFace resolve headers: Qwen3.6
-   35B-A3B Q4_K_M and Nemotron 3.5 Lightning 30B-A3B Q4_0. Nemotron's 18.9 GB
-   GGUF has been downloaded, SHA-256 verified, inspected and probed through
-   `--backend llama`, and measured with `llama-server`: A4 3/3, A3 6/6, no
-   false completions, 0.9-2.9 minutes per task
-   (`.pwr/suite-runs/a4-42cc39b-llama-ggml-org_NVIDIA-Nemotron-3.5-Lightning-30B-20260920-155604`,
-   `.pwr/suite-runs/a3-42cc39b-llama-ggml-org_NVIDIA-Nemotron-3.5-Lightning-30B-20260920-155936`).
-   `suites/run.sh` now accepts `PWR_SUITE_BACKEND`, so that measurement
-   uses the same suite wrapper instead of a one-off command. The run found one
-   harness gate bug: `llama-server` enforces a controlled context window but
-   does not report prompt token counts, so `context_boundary` can be
-   unmeasurable while `context_window_control` is observed; the admission gate
-   now accepts that exact case. The CLI also has
-   a free-space preflight with a 5 GiB margin before download, while
-   licence-gated access and product-level disk UX remain open. The evidence
-   gathered through the removed backends -- experiments, the Bionic reference,
-   the profiles in `strategies/models.json` -- stays as it was. Also the A6
-   suite at the host's window, read against step 1, carrying the full form of
-   backlog A.15 -- the product thesis stated as a number.
-   *CLI repair, 2026-09-20:* the terminal console remains the development and
-   research control surface until the frontend lab exists. `chat --model` now
-   saves an explicit engine/model choice and opens a supervised chat on its
-   computed window without making a capability probe a gate; the probe remains
-   an optional catalogue diagnostic. The current manual GGUF instructions are
-   in [`current-cli.md`](current-cli.md). Scripted `run` and `eval` still carry
-   the old evidence admission and are documented as an explicit follow-up,
-   rather than silently presented as the manual product path.
-   *B.9 done, 2026-09-20:* when llama.cpp receives the agent's tool catalogue,
-   PWR now requires a native tool choice and the server constrains generation
-   to that catalogue's tool grammar. An offline request-body test and a live
-   Nemotron smoke both hold: asking for an unavailable write with only a read
-   tool offered yields one well-formed read call, never an invented tool name.
-   The constraint guarantees call syntax, while the harness retains semantic,
-   policy and filesystem checks.
-9. **R3 resumed**, split into R3-A5 and R3-A6. After B.9, start a narrow
-   frontend lab before the polished product: one local app that can select an
-   installed model, launch a run, show live actions/logs, stop it, and surface
-   artifacts. **B10 started 2026-09-20:** `_pwr/models` now safely selects a
-   discovered model for the active workspace. **D.6 status increment:** it also
-   exposes declared artifact final/partial byte state to the Slint lab without a
-   network request or expensive hash. **2026-09-21:** the Slint bridge now starts
-   the core in the selected workspace, keeping registry and workspace-local
-   configuration resolution stable when the app is launched elsewhere.
-   **2026-09-21:** `_pwr/download` accepts only `cwd` plus a client operation
-   id, emits byte progress, and `_pwr/download_cancel` preserves the `.part`
-   file; the Slint lab exposes Download / resume. A later app refresh recovers
-   the state from disk. Slint now exposes per-artifact resume and a sequential
-   Download all queue.
-   The conversation also queues a workspace file as a read-only `resource_link`
-   for the next prompt; drag/drop and citation rendering remain.
-   **Frontend integration checkpoint 2026-09-21:** the planned pre-manual
-   surfaces are wired in Slint. The next activity is the consolidated manual
-   pass; further work should be driven by findings from that pass.
-   **Launcher follow-up 2026-09-21:** MLX remains the preferred macOS engine;
-   the Slint app now defaults to MLX on macOS and keeps explicit `llama` for
-   GGUF testing. The repository launcher opens the app in the invocation
-   directory and preserves direct terminal access through `pwr --cli`.
-   **Frontend startup fix 2026-09-21:** the launcher now routes the app's
-   development-default `PWR ... serve --stdio` invocation to the core
-   binary, preventing recursive app windows and the resulting false
-   "Waiting for the local core" state.
-   **Frontend UX iteration 2026-09-21:** the Slint lab now has a task-first
-   two-level layout: workspace and assistant selection stay visible, while
-   context, downloads and permissions move behind Advanced settings; activity,
-   review and permissions live in a contextual inspector. The core connection
-   state is no longer overwritten by catalog status. This is the first UX
-   pass, not the final visual validation; manual desktop review must still
-   refine responsive sizing, empty/error states and motion.
-   **Desktop window fix 2026-09-21:** the app now uses preferred rather than
-   fixed dimensions, exposes an explicit Full screen action, and the global
-   launcher resolves the workspace with `pwd -P` at invocation time. The
-   previously displayed root workspace came from an older app process started
-   from the PWR repository; this path is now deterministic for fresh runs.
-   **First-task flow fix 2026-09-21:** selecting a model immediately updates
-   the visible assistant state. Sending a non-empty task now creates the first
-   session automatically, so the composer is the primary path rather than a
-   disabled control behind a separate session-start action.
-   **Assistant picker refinement 2026-09-21:** the installed-model list is now
-   a native dropdown with an explicit unselected state, reducing sidebar
-   density while preserving the full selected artifact name as supporting
-   detail.
-   **Interaction styling increment 2026-09-21:** primary task actions now use
-   a custom accent treatment with hover, press and color transitions; advanced
-   settings expose their open state through a checked control. Motion remains
-   intentionally state-led and will expand with live action and streaming
-   views rather than as decorative animation.
-   **Protocol/catalog fix 2026-09-21:** `serve --stdio` no longer writes
-   console context-status lines to its JSON-RPC stdout while refreshing a
-   workspace. The assistant picker can therefore render the discovered catalog
-   reliably; its refresh action is now an option inside the native dropdown.
-   **Layout coherence increment 2026-09-21:** assistant artifacts are rendered
-   with concise human-readable labels while the bridge retains their canonical
-   identifiers. The desktop layout uses stable desktop columns and consistent
-   40px action controls, with elision or word wrapping at the text boundary.
-   It deliberately avoids width-driven visibility bindings: those caused Slint
-   layout feedback loops during resize. A later narrow-window design can add a
-   deliberate compact navigation state rather than silently hiding activity.
-   **Conversation visibility fix 2026-09-21:** the Slint bridge now renders
-   the user's submitted prompt and ACP `agent_message_chunk` updates in the
-   central transcript. A turn has an explicit working state until its response
-   completes; it is no longer possible for a successful response to appear as
-   only the opaque activity message `Turn completed.`.
-   **Conversation feedback increment 2026-09-21:** the composer now grows from
-   a compact starting height to a capped editor with internal scrolling. While
-   a turn is active, a transient status describes the real operational phase
-   (thinking, chosen tool, running tool, or reviewing output), then clears when
-   the durable agent message arrives. The current core collects each model reply
-   before it acts, so this is explicitly progress feedback rather than fake
-   token streaming; true token streaming needs a provider-to-ACP chunk relay.
-   **Desktop E2E evidence 2026-09-21:** an isolated JavaScript fixture was
-   launched through the desktop entry point with the workspace path visible in
-   the app, then exercised against Nemotron through the same `serve --stdio`
-   core. It read three files, made the requested implementation/test changes,
-   ran `npm test`, reread the result and completed Goal mode after 9 actions;
-   full verification discovered `npm test --silent` and passed 1/1. This is
-   evidence for launch, model selection, tools and goal verification on a small
-   task, not a substitute for the planned Angular usability, full-screen,
-   resize and long-task acceptance pass.
-   **Desktop observability finding 2026-09-21:** app conversations persist in
-   `<workspace>/.pwr/state.sqlite` and are correctly listed by the ACP
-   `session/list` endpoint (the Angular workspace contained six recorded
-   sessions). The legacy CLI `session list` does not yet expose those ACP
-   conversation ids, and the desktop interface has no exportable diagnostic
-   bundle. Treat this as an R5 frontend requirement: a user must be able to
-   copy/export one session's transcript, tool events, verification evidence,
-   environment facts and redacted error details for support analysis. Do the
-   visual-system redesign before adding that surface, so the export and session
-   history belong to the final information architecture rather than another
-   temporary panel.
-   **Goal-verification correction 2026-09-21:** a real Angular manual task
-   produced green `npm run build` and `npm test -- --watch=false` evidence while
-   the browser still rendered the generated Angular welcome screen. This is a
-   false acceptance: compilation and repository tests establish technical
-   health, not that a requested user-facing, API, CLI, desktop or migration
-   outcome exists. Goal mode now requires an executed, repository-declared
-   `.pwr/checks.json` check with `"kind": "acceptance"` before it may say
-   **Goal verified**. The same contract applies across stacks; browser/e2e,
-   API contract, workflow, smoke and invariant commands are all valid evidence.
-   The contract is snapshotted at session start and must remain unchanged, so a
-   model cannot create or weaken the evidence that certifies its own work.
-   Without one it reports technical checks passed but leaves the goal
-   unverified. R5 still needs held-out semantic acceptance and visual review:
-   this prevents the misleading claim; it cannot fabricate a test the project
-   has not defined.
-   **Angular entrypoint finding 2026-09-21:** the same manual task was stopped
-   correctly as unverified, then inspected rather than repaired by hand. The
-   app bootstraps standalone `App` from `src/main.ts`, whose `app.html` still
-   contains the generated Angular page and a router outlet. The model instead
-   concentrated changes in a second `app.component.*` tree and lazy pages;
-   it also left a self-redirecting root route and the original unit assertion
-   for `Hello, pwr-app`. Build passed because these are valid compiled lazy
-   chunks, and unit tests passed because they tested the untouched active root.
-   Trace evidence shows `app.component.html` was retrieved nine times versus
-   `main.ts` once, with a roughly 62k-token prompt; pre-existing dirty model
-   output therefore reinforced a lexical but wrong architecture. This is a
-   product-path retrieval/topology finding, not evidence that an Angular skill
-   packet alone will solve it. R5 needs an entrypoint map, dirty-tree provenance
-   in retrieval and browser-level acceptance before claiming web task success.
-   **Entrypoint preflight increment 2026-09-21:** the shared context composer
-   now emits a deterministic `workspace_topology` section for Angular
-   standalone workspaces, naming bootstrap, active root component/template and
-   router configuration before lexical passages. A compact
-   `framework_guidance` section reinforces reachable-component, router-import,
-   generated-test and browser-check requirements. These are recorded prompt
-   sections, not hidden model knowledge or evidence of completion. The remaining
-   dirty-tree provenance and browser acceptance work stays explicit; C.21 must
-   evaluate the packet against a no-packet control rather than declare an uplift.
-   **MLX launcher fix 2026-09-21:** the desktop launcher now exports the
-   repository's measured MLX Python when no `PWR_MLX_PYTHON` was supplied.
-   The generic macOS `python3` lacks `mlx-lm` on this host; without this
-   fallback the catalog could be discovered but every model turn failed at the
-   sidecar boundary. An explicitly configured interpreter remains authoritative.
-   **Cross-workspace launcher fix 2026-09-21:** the global `pwr` launcher
-   now passes PWR's own `Cargo.toml` when it needs to rebuild. Previously a
-   stale build attempted Cargo discovery in the user's current workspace and
-   failed for non-Rust projects before the app could open. The current directory
-   remains the app workspace; only compilation is anchored to PWR itself.
-   **Turn outcome and layout containment 2026-09-21:** a terminal action-budget
-   outcome now appears in the transcript as a check-in rather than the false
-   label "Turn completed." The compose area has a stable height so the
-   conversation owns available full-screen space. The activity rail records a
-   concise changed-file summary instead of embedding whole diffs, which had
-   forced long source text through the desktop layout and made it feel slow.
-   A full change-review view remains a required R5 surface.
-   **Manual-task preparation 2026-09-21:** the action checkpoint is now a
-   visible Continue / Stop here decision in the desktop conversation, so long
-   real-workspace tasks preserve their session and can carry on deliberately
-   rather than appearing to complete silently. The composer is compact like a
-   chat input and uses native file/folder pickers. A selected folder becomes a
-   bounded read-only text snapshot (32 files, no `.git`, `.pwr`, dependency
-   or build directories), not a live external filesystem grant. This is ready
-   for the consolidated manual pass; drag/drop, citation rendering, a full
-   diff review and narrow-window navigation remain R5 work.
-   **Goal-mode experiment 2026-09-21:** the desktop composer can now opt a
-   substantial task into server-owned continuation. The normal 26-action turn
-   checkpoint becomes an internal handoff, not a completion decision: the
-   model must use structured `complete`, then PWR runs the workspace's full
-   declared checks. A failed build/test/lint result is returned as evidence for
-   another iteration; prose alone cannot close the goal. Stop remains live and
-   a 208-action aggregate guard pauses for review without claiming success.
-   This is deliberately a goal-completion experiment, not a claim that generic
-   static analysis can prove every product requirement: route coverage and
-   dead-code evidence require checks the repository actually declares or that
-   the model adds and runs. It needs a real long-workspace manual measurement
-   before becoming the normal default.
-   **D.9 increment:** the Slint lab can now set the workspace approval policy
-   to all supported kinds or none through `_pwr/approvals`.
-   **D.8 increment:** it also lists workspace sessions and resumes one through
-   `session/list` and `session/resume`; branch drift and interrupted-run detail
-   remain to be surfaced.
-   **D.11 increment:** the action area can request Changes, Verify, Report and
-   Diagnose from the active session and show the core's evidence text.
-   **D.12 increment:** the header distinguishes core connection, backend
-   unavailability, cancellation requests and request errors; empty and recovery
-   states remain to be polished.
-   **D.7 increment:** `_pwr/models` now applies a requested context window
-   through the selected backend and returns the granted value/options, binding
-   ceiling, memory budget and rationale; Slint exposes controls and displays
-   those details. A richer calibration history remains.
-   **D.6 packaging increment:** the pinned artifact registry is embedded as a
-   distribution fallback, with a workspace-local registry taking precedence.
-   Automated tests remain part of each implementation increment, but the full
-   manual pass is deliberately deferred until the frontend integration is
-   complete. That avoids retesting a moving surface after every protocol
-   change; the manual checkpoint will cover the whole product flow in one
-   coherent pass.
-10. **S2, then S3.** S2 can start once step 5 has told us whether a context
-   policy is going to survive to be shown in a UI.
-
-Fine-tuning and LoRA appear nowhere in this list on purpose; open decision 5
-says when they may.
-
-### The six open decisions
-
-Restated from the redesign so this section stands alone. Nothing above step 2
-can start without the first of them.
-
-1. **Needle recall**: keep it once per (model, quantisation, engine, window) as a
-   catalogue measurement, or drop it with the probe? *Blocks step 2.*
-2. **How the Rust core reaches MLX**: Python sidecar over `mlx-lm`, or the C API
-   through bindings? *Blocks step 7 only.*
-3. **How the 16 GB class is tested**: a 16 GB machine, or an engine-enforced
-   memory cap on this one? *Blocks the small tier of step 5.*
-4. **Build the embedded engine now**, together with fetching weights from
-   HuggingFace, or keep LM Studio's MLX path until constrained decoding or
-   self-containment is needed? **Direction decided 2026-09-18 by the
-   maintainer: yes -- MLX and GGUF embedded, and once they work well Ollama
-   and LM Studio are removed.** Step 7 therefore exists, and ends with the
-   HTTP backends deleted rather than kept optional. Its place in the order
-   does not move: it follows the measurement steps, because the spike showed
-   no speed gain to win and the gain it buys is self-containment for the app.
-   The window computation, `ModelFacts` and the config and GGUF readers built
-   for step 2 are the parts of it that already exist.
-5. **Fine-tuning or a LoRA adapter — when, and for what?** Not for tool calls
-   (one malformed call in 1,027 turns; a grammar gives a guarantee an adapter
-   cannot), not from our own traces (2 of 35 resolved would distil a weak
-   policy). Possibly for behaviour a grammar cannot impose, which is A2 and A4.
-   *Revisit after step 4, never before step 3.* *2026-09-19, reaffirmed with
-   the maintainer:* the models chosen are already tool-use trained (Instruct
-   with native calls); suite A1 shows 98% of real replies decode, and what
-   was lost was the harness's. A LoRA gets a target only if a promising model
-   fails A1 systematically.
-6. **Quantisation strategy**: a larger model at 4-bit, or a smaller one at
-   8-bit, at equal memory? Published work says 8-bit is near-lossless while
-   4-bit loses most on exactly the long-context agentic behaviour PWR
-   depends on; every plan so far has silently assumed the larger model at
-   4-bit. *Decided cheaply inside step 4, not by a campaign; see
-   [`backlog.md`](backlog.md) Part 0b.*
+The original ten steps and six open decisions are preserved in
+[Closed planning snapshots / Chiuse](#closed-planning-snapshots--chiuse).
+Their reconciled states and references are in the 2026-09-27 tables above;
+old statements that the sidecar choice or toolkit decision still block work
+must not be used as current scheduling rules.
 
 ### What must not be done again
 
@@ -1167,3 +880,413 @@ The division this project should hold to: the deployment decides semantics — w
 Manifest and dependency discovery, finding the call sites and tests related to a file, ranking and de-duplicating what goes into the context, token accounting, selecting which checks a change requires, correlating a diagnostic to a file and a line, generating a diff, counting edits and recovery attempts, classifying a failure, reproducing a flaky one, detecting that a run has stopped progressing, and retrying at a lower context tier — all of these are the runtime's to do, and several are the P1 and P2 rows above under a different name.
 
 Two boundaries are deliberate. **Which semantic correction to make stays the deployment's**, and inferring that a plan step is finished stays out of the harness — the harness recording that work happened would be the harness doing it. **Whether the conclusion is accepted is the harness's**, and that one moved on 2026-09-03: a completion is now refused where nothing can verify it.
+
+## Closed planning snapshots / Chiuse
+
+### Alpha preparation and resumed-work snapshot
+
+**Closure reason:** preparation of the first Mac alpha and the old pause are
+completed historical states. Develop has release records through v0.1.2 and
+later product commits. They no longer define present work order.
+
+**Update — 2026-09-24: first public alpha preparation.** Work resumed on 2026-09-18 and the pause below ended with it. PWR v0.1.0-alpha is prepared for a public alpha release for Apple-silicon Macs; the GitHub release has not yet been published. The desktop app bundles the core, the MLX engine's scripts and an installer for the engine's Python; Revert goes through the core (`_pwr/revert`); the webview has a Content Security Policy; models live in `~/.pwr/models`; the app runs MLX only on a Mac, with llama.cpp kept for Windows and bound to loopback. The order of work after the release is the 2026-09-23 update's, below. The current description of the product is [PWR_PRODUCT_SOURCE_OF_TRUTH.md](PWR_PRODUCT_SOURCE_OF_TRUTH.md).
+
+**PAUSED, 2026-09-17 (ended 2026-09-18).** PWR is paused while the maintainer follows a study plan. Where it stands: [the redesign](redesign-2026-09-17.md) is proposed with its first decisions taken (six evaluation areas, the host's largest window for end-to-end tests, MLX first, a hardware catalogue of models) and six decisions open; R3 is shelved; the MLX engine spike is done (`experiments/engine-spike-mlx-20260917/analysis.md`) and found LM Studio's MLX path as fast as in-process MLX. **First step on resuming is the outside reference, not a build** — see "Where we are and what is left" immediately below, which is the current statement of order and supersedes the sequencing in the milestone sections.
+
+**Old regime, 2026-09-17.** Every campaign recorded below up to `experiments/r3-h2-dev-20260917` ran under the old regime (*sotto vecchia gestione*): one calibrated 16,384-token window for every question, a calibration probe before any run, a single blended completion rate, and models served through Ollama or LM Studio. Their defect fixes and mechanism observations stand; their completion rates are not capability claims and their sample sizes are not carried forward. The proposed replacement -- evaluation sectioned by harness area, models loaded without a probe, an embedded local engine -- is [the redesign](redesign-2026-09-17.md), under review.
+
+**Authoritative sequence, updated 2026-09-16.** R0 and R1 are **COMPLETED** against their engineering exits; R2 is **COMPLETED as a measurement** — 204 trials, no uplift established, the choice rule names `unfinished`, and a quarter of the sampled tasks flip outcome on the seed alone, which is why a confirmation needs about a hundred paired tasks rather than thirty; R3 is **SHELVED** since 2026-09-17 (it read as PREPARED and next until then); R4–R6 remain **PLANNED**. These entries describe implementation readiness, not model-quality results. The old M0–M6 table and dated campaign notes are preserved below as historical evidence. Their labels do not establish readiness for the new project.
+
+Implementation follows an experimentally justified boundary, not a calendar. [Research hypotheses](local-agent-research.md) provide rejection decisions; [evaluation](evaluation.md) specifies pairing, resource accounting and uncertainty. Numeric gates below are proposed practical criteria to freeze before confirmation, not measurements of current performance.
+
+
+### Original sequencing and decision snapshot
+
+**Closure reason:** the old sequence mixes completed diagnostics, the now-chosen
+sidecar/toolkit and still-open research. Keep every original step and decision
+for provenance; use their reconciled tables above to plan remaining work.
+
+### The order of work, and why it is this order
+
+1. **The outside reference. DONE 2026-09-18: 4 of 5 in Bionic at 262,144
+   tokens against 0 of 5 for PWR at 16,384, same model, same tasks — the gap
+   is ours** (`experiments/a1-bionic-reference-20260918/results.md`). Five
+   A6-shaped tasks by hand in Bionic, same model, same machine. *Half a day.* It is first because it is the only step
+   that de-risks all the others: it says whether the gap is PWR's
+   configuration or the model's ceiling, and the answer changes what steps 2–5
+   are worth.
+2. **Loading without a probe** (redesign Part B) with the computed window
+   (Part D). **DONE 2026-09-18 in code, not yet run live**: every command
+   computes the window from the model's config and this host's memory when no
+   calibration is named, and records every ceiling and the binding one. Open
+   decision 1 did not block it after all -- both answers drop the probe as a
+   gate -- and now decides only how much of the calibration code F.3 removes.
+   Still open inside it: the latency ceiling from observed turns, and the
+   prefill-transient constant (backlog B.2).
+3. **Re-measure at a realistic window** (Part E): the same tasks, the host's
+   window, with `HISTORY_BUDGET_SHARE`, the action budget and the stall guard
+   revisited. A **diagnostic**, not a campaign — small n, no preregistered gate,
+   no capability claim — asked only whether the starvation hypothesis holds.
+   This is the measurement that tells us whether the rest of the plan is the
+   right plan. It also yields the first, cheap version of the product thesis'
+   own measurement (backlog A.15) for free, since running the old inherited
+   16,384 against the computed window *is* a naive configuration against an
+   automatic one. **Stopped after three tasks, 2026-09-18** (1 of 3 resolved;
+   `experiments/part-e-diagnostic-20260918/analysis.md`): nothing compacted
+   at the computed window, and the time went to runaway reasoning instead.
+   Backlog A.17 then found why, by controlled tests: sampling is not the
+   cause; reasoning is, and through the endpoint PWR uses it cannot be
+   switched off. With it off, Qwen3.6 was faster and right on the same
+   prompt. **To be re-run after step 4**, with the tool fixes of `6c0cec2`.
+4. **The minimal embedded MLX engine -- moved up from step 7 on 2026-09-18,
+   and a first version DONE the same day** (`--backend mlx`; capability probe
+   on Qwen3.6 in 148 s with edits 3 of 3, against over ten minutes and 1 of 3
+   through LM Studio; `experiments/mlx-engine-20260918`),
+   by the maintainer, on A.17's evidence. Only a caller that renders the chat
+   template controls reasoning -- off, or a real budget that closes the think
+   block after N tokens and lets the answer follow -- and without that control
+   every measurement of PWR is confounded by runaway turns. Scope: the
+   `Engine` boundary, MLX generation with PWR rendering the template,
+   reasoning off and a reasoning budget, tool calls parsed by the existing
+   family adapters, the computed window. *Interim until it lands:* `/no_think`
+   for the Qwen family through the LM Studio path. Not in scope yet: llama.cpp,
+   HuggingFace downloads, removing the HTTP backends (step 8).
+5. **Re-run the Part E diagnostic -- done 2026-09-18: 4 of 5, all declared,
+   the same four tasks Bionic resolved** (`experiments/part-e-orient64-mlx-20260918`,
+   binary `9fa4dab`, 64 actions). On the fifth, idna, Bionic declared success
+   over two rewritten tests; PWR claimed nothing. Six runs to get there,
+   each named by the last one's traces: reasoning control (own engine) →
+   files JSON-escaped and a prefill crash (fixed) → orientation cost (check
+   commands shown, enclosing definitions, restore_file, destructive
+   whole-file replacements refused) → the action budget (64 for this model).
+   Full path in the run's `analysis.md`. Open from it: the shared default of
+   26 (C.2, decided from A6), and the engine's slow long prefill.
+6. **A1–A4 suites -- DONE 2026-09-19 for Qwen3.6-35B-A3B** (`suites/`,
+   `pwr eval suite`, `sh suites/run.sh a2|a3|a4`; A1 runs in `cargo test`).
+   A1 by replay: 47 cases, seconds; closing its gaps raised the decoded rate on
+   794 real replies from 97.4% to 98.2%. A2 navigation: the corpora's nine
+   repository questions plus one built from Part E's forty-action search, 10 of
+   10 (that one now in 5 turns). A3 editing: 6 tasks, 6 of 6. A4 verification:
+   3 shortcut tasks, 3 of 3, no false completion. Building and running them
+   found and fixed five harness faults: CRLF files, the shrink guard missing
+   small files, numbers for text fields, the engine's loop guard cutting code,
+   and nine decoder gaps. **Carried into step 7:** A3/A4 cannot yet tell two
+   harness revisions apart on this model (the binary with the escaping bug
+   passes A3 too) -- step 7's smaller models are the discriminating runs --
+   and A1's live half (valid-call rate on short scripted tasks).
+7. **Catalogue measurements**: small, medium and large models on this Mac
+   (redesign Part D). *Open decision 3 -- how a 16 GB class is tested -- blocks the
+   small tier only.* **MLX catalogue pass closed 2026-09-19** (`experiments/catalogue-20260919/notes.md`):
+   Qwen3.6-35B-A3B 9/9 and fast, the practical model here; Qwen3.8-27B 9/9 but
+   4-7x slower (dense); Seed-OSS-36B excluded (62 tokens/s prefill, prose instead
+   of calls with reasoning off); gpt-oss-20b being re-run after its adapter
+   fixes. Building it fixed the engine's window arithmetic, streaming,
+   cancellation and two adapters. *Later the same day:* gpt-oss 8/9 after its
+   adapter and hint fixes; Nemotron 3.5 Lightning 30B-A3B 8/9 and fast, the
+   second choice; GLM-4.7-Flash excluded (loops copying hashes, never
+   declares). Table in the notes. This is enough to choose the default and the
+   fallback for this host and move to the engine work in step 8. Deferred from
+   the catalogue rather than blocking that move: A2 per promising model, the
+   small tier (open decision 3), and any quantisation pair at equal memory
+   (open decision 6). **Criteria agreed for further models:** decoder-only
+   Instruct/Coder with native tool calls, preferably MoE with few active
+   parameters, weights within ~35-45 GB, checked on paper before any download;
+   the maintainer names the candidates.
+8. **The rest of the engine**: llama.cpp for GGUF (and Windows), HuggingFace
+   weights, **then Ollama and LM Studio removed** (open decision 4). *The
+   removal came first, 2026-09-19, at the maintainer's request:* both crates
+   and the endpoint flags are gone, the engine is the only backend and the
+   default, and `last-with-http-backends` tags the last revision with them.
+   *Started 2026-09-20:* `pwr-llama` is a GGUF/llama.cpp backend reachable
+   as `--backend llama`; it discovers `.gguf` files, reads their metadata and
+   feeds `ModelFacts` so the same computed-window path applies to GGUF. The
+   next increments fixed the planned `llama-server` launch arguments with a
+   concrete loopback endpoint, the OpenAI-compatible chat-completions request
+   body, an offline parser for OpenAI-style stream events, and the HTTP path
+   that turns an SSE response into PWR's `ModelStream` against a local
+   fixture. `chat` now starts a managed server on demand with readiness polling
+   and kill-on-drop, and `backend_version` records the server's `--version`
+   output. Provider cancellation now stops an in-flight SSE stream against a
+   live fixture. The real smoke was unblocked 2026-09-20 by installing
+   Homebrew's `llama.cpp` 0.4.1 (`llama-server` build 10964) and pointing the
+   ignored smoke test at an existing local Qwen3 0.6B Q4_K_M GGUF; it passed.
+   This makes llama.cpp usable as an engine path, but not yet a measured model
+   path: the smoke model is a tiny base model. The first follow-up, output
+   hygiene for GGUF inspect artifacts, is done: large tokenizer arrays are
+   summarized in routine inspection evidence while full metadata still feeds
+   digest and window computation. Until a proper GGUF candidate is chosen and
+   measured, MLX remains the live measured path on Apple silicon. B.8 has
+   started with deterministic HuggingFace download plans and a guarded
+   downloader: the registry can render pinned Hub URLs and local destinations,
+   declare per-file byte counts and blake3 or SHA-256 hashes, and execute only
+   artifacts that can be verified, with `.part` resume; that execution path is
+   tested against a local HTTP fixture for fresh download, already-present and
+   resumed-part cases. The registry now has two real, pinned GGUF candidates
+   with byte counts and SHA-256 from HuggingFace resolve headers: Qwen3.6
+   35B-A3B Q4_K_M and Nemotron 3.5 Lightning 30B-A3B Q4_0. Nemotron's 18.9 GB
+   GGUF has been downloaded, SHA-256 verified, inspected and probed through
+   `--backend llama`, and measured with `llama-server`: A4 3/3, A3 6/6, no
+   false completions, 0.9-2.9 minutes per task
+   (`.pwr/suite-runs/a4-42cc39b-llama-ggml-org_NVIDIA-Nemotron-3.5-Lightning-30B-20260920-155604`,
+   `.pwr/suite-runs/a3-42cc39b-llama-ggml-org_NVIDIA-Nemotron-3.5-Lightning-30B-20260920-155936`).
+   `suites/run.sh` now accepts `PWR_SUITE_BACKEND`, so that measurement
+   uses the same suite wrapper instead of a one-off command. The run found one
+   harness gate bug: `llama-server` enforces a controlled context window but
+   does not report prompt token counts, so `context_boundary` can be
+   unmeasurable while `context_window_control` is observed; the admission gate
+   now accepts that exact case. The CLI also has
+   a free-space preflight with a 5 GiB margin before download, while
+   licence-gated access and product-level disk UX remain open. The evidence
+   gathered through the removed backends -- experiments, the Bionic reference,
+   the profiles in `strategies/models.json` -- stays as it was. Also the A6
+   suite at the host's window, read against step 1, carrying the full form of
+   backlog A.15 -- the product thesis stated as a number.
+   *CLI repair, 2026-09-20:* the terminal console remains the development and
+   research control surface until the frontend lab exists. `chat --model` now
+   saves an explicit engine/model choice and opens a supervised chat on its
+   computed window without making a capability probe a gate; the probe remains
+   an optional catalogue diagnostic. The current manual GGUF instructions are
+   in [`current-cli.md`](current-cli.md). Scripted `run` and `eval` still carry
+   the old evidence admission and are documented as an explicit follow-up,
+   rather than silently presented as the manual product path.
+   *B.9 done, 2026-09-20:* when llama.cpp receives the agent's tool catalogue,
+   PWR now requires a native tool choice and the server constrains generation
+   to that catalogue's tool grammar. An offline request-body test and a live
+   Nemotron smoke both hold: asking for an unavailable write with only a read
+   tool offered yields one well-formed read call, never an invented tool name.
+   The constraint guarantees call syntax, while the harness retains semantic,
+   policy and filesystem checks.
+9. **R3 resumed**, split into R3-A5 and R3-A6. After B.9, start a narrow
+   frontend lab before the polished product: one local app that can select an
+   installed model, launch a run, show live actions/logs, stop it, and surface
+   artifacts. **B10 started 2026-09-20:** `_pwr/models` now safely selects a
+   discovered model for the active workspace. **D.6 status increment:** it also
+   exposes declared artifact final/partial byte state to the Slint lab without a
+   network request or expensive hash. **2026-09-21:** the Slint bridge now starts
+   the core in the selected workspace, keeping registry and workspace-local
+   configuration resolution stable when the app is launched elsewhere.
+   **2026-09-21:** `_pwr/download` accepts only `cwd` plus a client operation
+   id, emits byte progress, and `_pwr/download_cancel` preserves the `.part`
+   file; the Slint lab exposes Download / resume. A later app refresh recovers
+   the state from disk. Slint now exposes per-artifact resume and a sequential
+   Download all queue.
+   The conversation also queues a workspace file as a read-only `resource_link`
+   for the next prompt; drag/drop and citation rendering remain.
+   **Frontend integration checkpoint 2026-09-21:** the planned pre-manual
+   surfaces are wired in Slint. The next activity is the consolidated manual
+   pass; further work should be driven by findings from that pass.
+   **Launcher follow-up 2026-09-21:** MLX remains the preferred macOS engine;
+   the Slint app now defaults to MLX on macOS and keeps explicit `llama` for
+   GGUF testing. The repository launcher opens the app in the invocation
+   directory and preserves direct terminal access through `pwr --cli`.
+   **Frontend startup fix 2026-09-21:** the launcher now routes the app's
+   development-default `PWR ... serve --stdio` invocation to the core
+   binary, preventing recursive app windows and the resulting false
+   "Waiting for the local core" state.
+   **Frontend UX iteration 2026-09-21:** the Slint lab now has a task-first
+   two-level layout: workspace and assistant selection stay visible, while
+   context, downloads and permissions move behind Advanced settings; activity,
+   review and permissions live in a contextual inspector. The core connection
+   state is no longer overwritten by catalog status. This is the first UX
+   pass, not the final visual validation; manual desktop review must still
+   refine responsive sizing, empty/error states and motion.
+   **Desktop window fix 2026-09-21:** the app now uses preferred rather than
+   fixed dimensions, exposes an explicit Full screen action, and the global
+   launcher resolves the workspace with `pwd -P` at invocation time. The
+   previously displayed root workspace came from an older app process started
+   from the PWR repository; this path is now deterministic for fresh runs.
+   **First-task flow fix 2026-09-21:** selecting a model immediately updates
+   the visible assistant state. Sending a non-empty task now creates the first
+   session automatically, so the composer is the primary path rather than a
+   disabled control behind a separate session-start action.
+   **Assistant picker refinement 2026-09-21:** the installed-model list is now
+   a native dropdown with an explicit unselected state, reducing sidebar
+   density while preserving the full selected artifact name as supporting
+   detail.
+   **Interaction styling increment 2026-09-21:** primary task actions now use
+   a custom accent treatment with hover, press and color transitions; advanced
+   settings expose their open state through a checked control. Motion remains
+   intentionally state-led and will expand with live action and streaming
+   views rather than as decorative animation.
+   **Protocol/catalog fix 2026-09-21:** `serve --stdio` no longer writes
+   console context-status lines to its JSON-RPC stdout while refreshing a
+   workspace. The assistant picker can therefore render the discovered catalog
+   reliably; its refresh action is now an option inside the native dropdown.
+   **Layout coherence increment 2026-09-21:** assistant artifacts are rendered
+   with concise human-readable labels while the bridge retains their canonical
+   identifiers. The desktop layout uses stable desktop columns and consistent
+   40px action controls, with elision or word wrapping at the text boundary.
+   It deliberately avoids width-driven visibility bindings: those caused Slint
+   layout feedback loops during resize. A later narrow-window design can add a
+   deliberate compact navigation state rather than silently hiding activity.
+   **Conversation visibility fix 2026-09-21:** the Slint bridge now renders
+   the user's submitted prompt and ACP `agent_message_chunk` updates in the
+   central transcript. A turn has an explicit working state until its response
+   completes; it is no longer possible for a successful response to appear as
+   only the opaque activity message `Turn completed.`.
+   **Conversation feedback increment 2026-09-21:** the composer now grows from
+   a compact starting height to a capped editor with internal scrolling. While
+   a turn is active, a transient status describes the real operational phase
+   (thinking, chosen tool, running tool, or reviewing output), then clears when
+   the durable agent message arrives. The current core collects each model reply
+   before it acts, so this is explicitly progress feedback rather than fake
+   token streaming; true token streaming needs a provider-to-ACP chunk relay.
+   **Desktop E2E evidence 2026-09-21:** an isolated JavaScript fixture was
+   launched through the desktop entry point with the workspace path visible in
+   the app, then exercised against Nemotron through the same `serve --stdio`
+   core. It read three files, made the requested implementation/test changes,
+   ran `npm test`, reread the result and completed Goal mode after 9 actions;
+   full verification discovered `npm test --silent` and passed 1/1. This is
+   evidence for launch, model selection, tools and goal verification on a small
+   task, not a substitute for the planned Angular usability, full-screen,
+   resize and long-task acceptance pass.
+   **Desktop observability finding 2026-09-21:** app conversations persist in
+   `<workspace>/.pwr/state.sqlite` and are correctly listed by the ACP
+   `session/list` endpoint (the Angular workspace contained six recorded
+   sessions). The legacy CLI `session list` does not yet expose those ACP
+   conversation ids, and the desktop interface has no exportable diagnostic
+   bundle. Treat this as an R5 frontend requirement: a user must be able to
+   copy/export one session's transcript, tool events, verification evidence,
+   environment facts and redacted error details for support analysis. Do the
+   visual-system redesign before adding that surface, so the export and session
+   history belong to the final information architecture rather than another
+   temporary panel.
+   **Goal-verification correction 2026-09-21:** a real Angular manual task
+   produced green `npm run build` and `npm test -- --watch=false` evidence while
+   the browser still rendered the generated Angular welcome screen. This is a
+   false acceptance: compilation and repository tests establish technical
+   health, not that a requested user-facing, API, CLI, desktop or migration
+   outcome exists. Goal mode now requires an executed, repository-declared
+   `.pwr/checks.json` check with `"kind": "acceptance"` before it may say
+   **Goal verified**. The same contract applies across stacks; browser/e2e,
+   API contract, workflow, smoke and invariant commands are all valid evidence.
+   The contract is snapshotted at session start and must remain unchanged, so a
+   model cannot create or weaken the evidence that certifies its own work.
+   Without one it reports technical checks passed but leaves the goal
+   unverified. R5 still needs held-out semantic acceptance and visual review:
+   this prevents the misleading claim; it cannot fabricate a test the project
+   has not defined.
+   **Angular entrypoint finding 2026-09-21:** the same manual task was stopped
+   correctly as unverified, then inspected rather than repaired by hand. The
+   app bootstraps standalone `App` from `src/main.ts`, whose `app.html` still
+   contains the generated Angular page and a router outlet. The model instead
+   concentrated changes in a second `app.component.*` tree and lazy pages;
+   it also left a self-redirecting root route and the original unit assertion
+   for `Hello, pwr-app`. Build passed because these are valid compiled lazy
+   chunks, and unit tests passed because they tested the untouched active root.
+   Trace evidence shows `app.component.html` was retrieved nine times versus
+   `main.ts` once, with a roughly 62k-token prompt; pre-existing dirty model
+   output therefore reinforced a lexical but wrong architecture. This is a
+   product-path retrieval/topology finding, not evidence that an Angular skill
+   packet alone will solve it. R5 needs an entrypoint map, dirty-tree provenance
+   in retrieval and browser-level acceptance before claiming web task success.
+   **Entrypoint preflight increment 2026-09-21:** the shared context composer
+   now emits a deterministic `workspace_topology` section for Angular
+   standalone workspaces, naming bootstrap, active root component/template and
+   router configuration before lexical passages. A compact
+   `framework_guidance` section reinforces reachable-component, router-import,
+   generated-test and browser-check requirements. These are recorded prompt
+   sections, not hidden model knowledge or evidence of completion. The remaining
+   dirty-tree provenance and browser acceptance work stays explicit; C.21 must
+   evaluate the packet against a no-packet control rather than declare an uplift.
+   **MLX launcher fix 2026-09-21:** the desktop launcher now exports the
+   repository's measured MLX Python when no `PWR_MLX_PYTHON` was supplied.
+   The generic macOS `python3` lacks `mlx-lm` on this host; without this
+   fallback the catalog could be discovered but every model turn failed at the
+   sidecar boundary. An explicitly configured interpreter remains authoritative.
+   **Cross-workspace launcher fix 2026-09-21:** the global `pwr` launcher
+   now passes PWR's own `Cargo.toml` when it needs to rebuild. Previously a
+   stale build attempted Cargo discovery in the user's current workspace and
+   failed for non-Rust projects before the app could open. The current directory
+   remains the app workspace; only compilation is anchored to PWR itself.
+   **Turn outcome and layout containment 2026-09-21:** a terminal action-budget
+   outcome now appears in the transcript as a check-in rather than the false
+   label "Turn completed." The compose area has a stable height so the
+   conversation owns available full-screen space. The activity rail records a
+   concise changed-file summary instead of embedding whole diffs, which had
+   forced long source text through the desktop layout and made it feel slow.
+   A full change-review view remains a required R5 surface.
+   **Manual-task preparation 2026-09-21:** the action checkpoint is now a
+   visible Continue / Stop here decision in the desktop conversation, so long
+   real-workspace tasks preserve their session and can carry on deliberately
+   rather than appearing to complete silently. The composer is compact like a
+   chat input and uses native file/folder pickers. A selected folder becomes a
+   bounded read-only text snapshot (32 files, no `.git`, `.pwr`, dependency
+   or build directories), not a live external filesystem grant. This is ready
+   for the consolidated manual pass; drag/drop, citation rendering, a full
+   diff review and narrow-window navigation remain R5 work.
+   **Goal-mode experiment 2026-09-21:** the desktop composer can now opt a
+   substantial task into server-owned continuation. The normal 26-action turn
+   checkpoint becomes an internal handoff, not a completion decision: the
+   model must use structured `complete`, then PWR runs the workspace's full
+   declared checks. A failed build/test/lint result is returned as evidence for
+   another iteration; prose alone cannot close the goal. Stop remains live and
+   a 208-action aggregate guard pauses for review without claiming success.
+   This is deliberately a goal-completion experiment, not a claim that generic
+   static analysis can prove every product requirement: route coverage and
+   dead-code evidence require checks the repository actually declares or that
+   the model adds and runs. It needs a real long-workspace manual measurement
+   before becoming the normal default.
+   **D.9 increment:** the Slint lab can now set the workspace approval policy
+   to all supported kinds or none through `_pwr/approvals`.
+   **D.8 increment:** it also lists workspace sessions and resumes one through
+   `session/list` and `session/resume`; branch drift and interrupted-run detail
+   remain to be surfaced.
+   **D.11 increment:** the action area can request Changes, Verify, Report and
+   Diagnose from the active session and show the core's evidence text.
+   **D.12 increment:** the header distinguishes core connection, backend
+   unavailability, cancellation requests and request errors; empty and recovery
+   states remain to be polished.
+   **D.7 increment:** `_pwr/models` now applies a requested context window
+   through the selected backend and returns the granted value/options, binding
+   ceiling, memory budget and rationale; Slint exposes controls and displays
+   those details. A richer calibration history remains.
+   **D.6 packaging increment:** the pinned artifact registry is embedded as a
+   distribution fallback, with a workspace-local registry taking precedence.
+   Automated tests remain part of each implementation increment, but the full
+   manual pass is deliberately deferred until the frontend integration is
+   complete. That avoids retesting a moving surface after every protocol
+   change; the manual checkpoint will cover the whole product flow in one
+   coherent pass.
+10. **S2, then S3.** S2 can start once step 5 has told us whether a context
+   policy is going to survive to be shown in a UI.
+
+Fine-tuning and LoRA appear nowhere in this list on purpose; open decision 5
+says when they may.
+
+### The six open decisions
+
+Restated from the redesign so this section stands alone. Nothing above step 2
+can start without the first of them.
+
+1. **Needle recall**: keep it once per (model, quantisation, engine, window) as a
+   catalogue measurement, or drop it with the probe? *Blocks step 2.*
+2. **How the Rust core reaches MLX**: Python sidecar over `mlx-lm`, or the C API
+   through bindings? *Blocks step 7 only.*
+3. **How the 16 GB class is tested**: a 16 GB machine, or an engine-enforced
+   memory cap on this one? *Blocks the small tier of step 5.*
+4. **Build the embedded engine now**, together with fetching weights from
+   HuggingFace, or keep LM Studio's MLX path until constrained decoding or
+   self-containment is needed? **Direction decided 2026-09-18 by the
+   maintainer: yes -- MLX and GGUF embedded, and once they work well Ollama
+   and LM Studio are removed.** Step 7 therefore exists, and ends with the
+   HTTP backends deleted rather than kept optional. Its place in the order
+   does not move: it follows the measurement steps, because the spike showed
+   no speed gain to win and the gain it buys is self-containment for the app.
+   The window computation, `ModelFacts` and the config and GGUF readers built
+   for step 2 are the parts of it that already exist.
+5. **Fine-tuning or a LoRA adapter — when, and for what?** Not for tool calls
+   (one malformed call in 1,027 turns; a grammar gives a guarantee an adapter
+   cannot), not from our own traces (2 of 35 resolved would distil a weak
+   policy). Possibly for behaviour a grammar cannot impose, which is A2 and A4.
+   *Revisit after step 4, never before step 3.* *2026-09-19, reaffirmed with
+   the maintainer:* the models chosen are already tool-use trained (Instruct
+   with native calls); suite A1 shows 98% of real replies decode, and what
+   was lost was the harness's. A LoRA gets a target only if a promising model
+   fails A1 systematically.
+6. **Quantisation strategy**: a larger model at 4-bit, or a smaller one at
+   8-bit, at equal memory? Published work says 8-bit is near-lossless while
+   4-bit loses most on exactly the long-context agentic behaviour PWR
+   depends on; every plan so far has silently assumed the larger model at
+   4-bit. *Decided cheaply inside step 4, not by a campaign; see
+   [`backlog.md`](backlog.md) Part 0b.*
