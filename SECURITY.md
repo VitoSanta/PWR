@@ -55,7 +55,9 @@ On macOS a tool runs under a seatbelt profile:
 - **Credentials** — `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.kube`,
   `Library/Keychains` and others — are denied to every run, grant or no grant.
 - **`HOME` and `TMPDIR`** point inside the workspace, so a package manager's
-  caches stay inside the boundary rather than widening it. The one path
+  caches stay inside the boundary rather than widening it. A JVM, which reads
+  neither, is told the same through `JAVA_TOOL_OPTIONS` (`user.home`,
+  `java.io.tmpdir`), and Gradle through `GRADLE_USER_HOME`. The one path
   outside it a command may write is `/private/tmp/.dotnet`, where .NET keeps
   the lock files of its named mutexes whatever `TMPDIR` says; without it no
   `dotnet` command could start in the sandbox. The other is
