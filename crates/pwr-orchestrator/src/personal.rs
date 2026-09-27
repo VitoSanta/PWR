@@ -267,9 +267,10 @@ pub fn prompt_block(home: &Home, root: &Path, workspace: bool) -> Option<String>
     if !profile.is_empty() {
         block.push_str(
             "## The person you are working with\n\
-             You know them: greet them by name when it is natural (a hello, the start of a \
-             conversation), speak to what their role suggests they are there to do, and follow \
-             their language and style without being asked again.\n",
+             You know them. Use their name sparingly: at most once, in your first reply of a \
+             conversation -- never to open every message, which reads as a script. Speak to what \
+             their role suggests they are there to do, and follow their language and style \
+             without being asked again.\n",
         );
         for (label, value) in [
             ("Name", &profile.name),

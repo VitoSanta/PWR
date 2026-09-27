@@ -280,12 +280,48 @@ pub fn work_entries(root: &Path) -> Vec<crate::graph::WorkEntry> {
 }
 
 /// The projects PWR knows, most recently worked on first.
+///
+/// Not a folder that is gone, nor one that only ever lived in a temporary
+/// directory -- unless the home is itself temporary, as a test's is. Seen
+/// 2026-09-28: the maintainer's registry held 75 projects, 37 of them test
+/// workspaces under /var/folders (long deleted) that filled the fifteen a
+/// conversation is told about, so a project named in chat went unfound.
 pub fn projects(home: &Home) -> Vec<Project> {
-    std::fs::read(home.0.join("projects.json"))
+    let all: Vec<Project> = std::fs::read(home.0.join("projects.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Registry>(&bytes).ok())
         .map(|registry| registry.projects)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if is_temporary(&home.0) {
+        return all;
+    }
+    all.into_iter()
+        .filter(|project| !is_temporary(&project.path) && project.path.is_dir())
+        .collect()
+}
+
+/// A folder that lasts only a while: a test's workspace, a scratch copy.
+fn is_temporary(path: &Path) -> bool {
+    let system = std::env::temp_dir();
+    let system = system.canonicalize().unwrap_or(system);
+    [
+        system.as_path(),
+        Path::new("/private/var/folders"),
+        Path::new("/var/folders"),
+        Path::new("/private/tmp"),
+        Path::new("/tmp"),
+    ]
+    .iter()
+    .any(|directory| path.starts_with(directory))
+}
+
+/// A name as a person says it: letters and digits only, lower case, so
+/// "pwr Learning", "pwr-learning" and "PWR_learning" are one name.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// Forgets a project: its entry in the registry, not its folder or its wiki.
@@ -296,6 +332,10 @@ pub fn forget(home: &Home, path: &Path) -> Result<(), String> {
 }
 
 fn register(home: &Home, project: Project) -> Result<(), String> {
+    // A temporary folder is not a project a person comes back to.
+    if is_temporary(&project.path) && !is_temporary(&home.0) {
+        return Ok(());
+    }
     let mut all = projects(home);
     all.retain(|known| known.path != project.path);
     all.insert(0, project);
@@ -321,14 +361,27 @@ fn save_registry(home: &Home, projects: Vec<Project>) -> Result<(), String> {
 /// names none of them.
 pub fn recall(home: &Home, name: &str) -> String {
     let all = projects(home);
-    let wanted = name.trim().to_lowercase();
+    let wanted = plain(name);
+    // Every word of the name as asked, in the name as kept: "pwr Learning"
+    // finds pwr-learning, which comparing the text as written did not.
+    let words: Vec<String> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .map(plain)
+        .filter(|word| !word.is_empty())
+        .collect();
     let found = (!wanted.is_empty())
         .then(|| {
             all.iter()
-                .find(|project| project.name.to_lowercase() == wanted)
+                .find(|project| plain(&project.name) == wanted)
                 .or_else(|| {
                     all.iter()
-                        .find(|project| project.name.to_lowercase().contains(&wanted))
+                        .find(|project| plain(&project.name).contains(&wanted))
+                })
+                .or_else(|| {
+                    all.iter().find(|project| {
+                        let kept = plain(&project.name);
+                        words.iter().all(|word| kept.contains(word.as_str()))
+                    })
                 })
         })
         .flatten();
@@ -626,6 +679,48 @@ fn write(path: &Path, text: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Seen 2026-09-28: asked about "pwr Learning", the conversation was
+    /// told there was no such project; it is kept as `pwr-learning`.
+    #[test]
+    fn a_project_is_found_by_its_name_however_it_is_written() {
+        let folder = tempfile::tempdir().unwrap();
+        let home = Home(folder.path().join("home"));
+        let project = folder.path().join("pwr-learning");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(
+            project.join("README.md"),
+            "# PWR Learning\n\nA wiki about PWR.\n",
+        )
+        .unwrap();
+        refresh(&home, &project, None).unwrap();
+        for asked in [
+            "pwr Learning",
+            "PWR_learning",
+            "pwrlearning",
+            "learning pwr",
+            "learning",
+        ] {
+            assert!(
+                recall(&home, asked).contains("A wiki about PWR"),
+                "{asked}: {}",
+                recall(&home, asked)
+            );
+        }
+        assert!(recall(&home, "stress test").contains("No project named"));
+    }
+
+    #[test]
+    fn a_temporary_folder_is_told_from_a_project() {
+        assert!(is_temporary(&std::env::temp_dir().join("x")));
+        assert!(is_temporary(Path::new(
+            "/private/var/folders/ts/abc/T/.tmpTpx7Xt"
+        )));
+        assert!(is_temporary(Path::new("/tmp/scratch")));
+        assert!(!is_temporary(Path::new(
+            "/Users/someone/Desktop/pwr-learning"
+        )));
+    }
 
     #[test]
     fn a_project_worked_on_in_one_folder_is_recalled_from_anywhere() {
