@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { tokens } from '../core/format';
 import { ModelsStore } from '../core/models.store';
@@ -42,7 +42,7 @@ interface Figure {
     </button>
 
     @if (open()) {
-      <pa-popover [anchor]="trigger" anchorAlign="end" width="360px" ariaLabel="Runtime metrics" (closed)="open.set(false)" animate.leave="anim-pop-out">
+      <pa-popover [anchor]="trigger" [anchorAlign]="align()" [side]="side()" width="360px" ariaLabel="Runtime metrics" (closed)="open.set(false)" animate.leave="anim-pop-out">
         <div class="popover-head">
           <h2 class="popover-title">Runtime metrics</h2>
           <button class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
@@ -75,6 +75,9 @@ interface Figure {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RunMetricsChip {
+  /** Where its panel opens: below the chip in a top bar, above it in a status bar. */
+  readonly side = input<'bottom' | 'top'>('bottom');
+  readonly align = input<'start' | 'end'>('end');
   protected readonly store = inject(AgentStore);
   private readonly models = inject(ModelsStore);
   protected readonly open = signal(false);

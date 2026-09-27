@@ -1,0 +1,980 @@
+/*
+ * The layouts beyond Studio. Each block is a variant: its tokens (in both
+ * themes, keyed on <html data-variant data-theme>) and its layout. The
+ * components are the same in all of them; a variant only moves, redraws
+ * and re-colours them.
+ */
+
+/* Shared by every shell's root. */
+.shell-instrument,
+.shell-paper,
+.shell-islands,
+.shell-mission,
+.shell-focus {
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.shell-instrument.is-resizing,
+.shell-paper.is-resizing,
+.shell-islands.is-resizing,
+.shell-focus.is-resizing {
+  cursor: col-resize;
+}
+
+.shell-instrument.is-resizing *,
+.shell-paper.is-resizing *,
+.shell-islands.is-resizing *,
+.shell-focus.is-resizing * {
+  user-select: none !important;
+}
+
+/* =================================================================
+ * Instrument -- monochrome, a rail of tools, a status bar.
+ * Colour is kept for state alone: a green check, an amber question,
+ * a red failure read at a glance because nothing else is coloured.
+ * ================================================================= */
+:root[data-variant='instrument'] {
+  --radius-xs: 3px;
+  --radius-inline: 4px;
+  --radius-control: 6px;
+  --radius-control-inner: 4px;
+  --radius-card: 8px;
+  --radius-panel: 10px;
+  --radius-modal: 12px;
+}
+
+:root[data-variant='instrument'][data-theme='dark'] {
+  --bg-app: #0a0a0a;
+  --bg-sidebar: #0d0d0d;
+  --surface-primary: #111111;
+  --surface-secondary: #161616;
+  --surface-elevated: #1a1a1a;
+  --surface-inset: #080808;
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --surface-active: rgba(255, 255, 255, 0.1);
+  --scrim: rgba(0, 0, 0, 0.66);
+  --input-bg: #0d0d0d;
+  --tooltip-bg: #262626;
+  --tooltip-text: #fafafa;
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.17);
+  --text-primary: #ededed;
+  --text-secondary: #a3a3a3;
+  --text-muted: #808080;
+  --text-on-accent: #0a0a0a;
+  --accent-primary: #ededed;
+  --accent-text: #ffffff;
+  --accent-solid: #ededed;
+  --accent-solid-hover: #ffffff;
+  --accent-soft: rgba(255, 255, 255, 0.08);
+  --accent-border: rgba(255, 255, 255, 0.32);
+  --accent-secondary: #d4d4d4;
+  --accent-secondary-soft: rgba(255, 255, 255, 0.06);
+  --accent-secondary-text: #d4d4d4;
+  --brand-gradient: linear-gradient(#ededed, #ededed);
+  --focus-ring: rgba(255, 255, 255, 0.55);
+  --success: #22c55e;
+  --success-text: #4ade80;
+  --success-soft: rgba(34, 197, 94, 0.1);
+  --success-border: rgba(34, 197, 94, 0.35);
+  --warning: #eab308;
+  --warning-text: #facc15;
+  --warning-soft: rgba(234, 179, 8, 0.1);
+  --warning-border: rgba(234, 179, 8, 0.38);
+  --danger: #ef4444;
+  --danger-text: #f87171;
+  --danger-soft: rgba(239, 68, 68, 0.1);
+  --danger-border: rgba(239, 68, 68, 0.4);
+  --danger-solid: #dc2626;
+  --danger-solid-hover: #ef4444;
+  --diff-add-bg: rgba(34, 197, 94, 0.08);
+  --diff-add-text: #bbf7d0;
+  --diff-del-bg: rgba(239, 68, 68, 0.08);
+  --diff-del-text: #fecaca;
+  --data-1: #ededed;
+  --data-2: #b5b5b5;
+  --data-3: #8c8c8c;
+  --data-4: #6b6b6b;
+  --data-5: #d4d4d4;
+  --data-6: #525252;
+  --data-7: #a3a3a3;
+  --shadow-sm: none;
+  --shadow-popover: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 16px 40px rgba(0, 0, 0, 0.6);
+  --shadow-modal: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 64px rgba(0, 0, 0, 0.7);
+  --shadow-overlay-panel: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 40px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-variant='instrument'][data-theme='light'] {
+  --bg-app: #fafafa;
+  --bg-sidebar: #f4f4f4;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f5f5f5;
+  --surface-elevated: #ffffff;
+  --surface-inset: #f2f2f2;
+  --surface-hover: rgba(0, 0, 0, 0.045);
+  --surface-active: rgba(0, 0, 0, 0.08);
+  --scrim: rgba(0, 0, 0, 0.3);
+  --input-bg: #ffffff;
+  --tooltip-bg: #171717;
+  --tooltip-text: #fafafa;
+  --border-subtle: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.17);
+  --text-primary: #0a0a0a;
+  --text-secondary: #525252;
+  --text-muted: #6b6b6b;
+  --text-on-accent: #ffffff;
+  --accent-primary: #0a0a0a;
+  --accent-text: #0a0a0a;
+  --accent-solid: #0a0a0a;
+  --accent-solid-hover: #262626;
+  --accent-soft: rgba(0, 0, 0, 0.06);
+  --accent-border: rgba(0, 0, 0, 0.35);
+  --accent-secondary: #404040;
+  --accent-secondary-soft: rgba(0, 0, 0, 0.05);
+  --accent-secondary-text: #262626;
+  --brand-gradient: linear-gradient(#0a0a0a, #0a0a0a);
+  --focus-ring: rgba(0, 0, 0, 0.45);
+  --success: #16a34a;
+  --success-text: #15803d;
+  --warning: #ca8a04;
+  --warning-text: #854d0e;
+  --danger: #dc2626;
+  --danger-text: #b91c1c;
+  --data-1: #0a0a0a;
+  --data-2: #404040;
+  --data-3: #737373;
+  --data-4: #a3a3a3;
+  --data-5: #262626;
+  --data-6: #c4c4c4;
+  --data-7: #595959;
+  --shadow-sm: none;
+  --shadow-popover: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.1);
+  --shadow-modal: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 24px 64px rgba(0, 0, 0, 0.16);
+  --shadow-overlay-panel: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 0 32px rgba(0, 0, 0, 0.1);
+}
+
+.shell-instrument {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) var(--right-col, 0px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  transition: grid-template-columns var(--dur-slow) var(--ease);
+}
+
+.shell-instrument.is-resizing {
+  transition: none;
+}
+
+.inst-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 0;
+  padding-bottom: var(--space-2);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+}
+
+.inst-rail-head {
+  flex: none;
+  width: 100%;
+  height: var(--titlebar-h);
+}
+
+.inst-rail-sep {
+  flex: none;
+  width: 20px;
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border-subtle);
+}
+
+.inst-head {
+  gap: var(--space-4);
+  padding: 0 var(--space-3) 0 var(--space-5);
+}
+
+/* The traffic lights sit over the rail and the start of this row. */
+.shell-instrument.is-mac:not(.is-fullscreen) .inst-head {
+  padding-left: 36px;
+}
+
+.inst-title {
+  flex: 0 1 auto;
+  max-width: 32%;
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-semibold);
+}
+
+/* A container only where the strip is given the row's width: inline-size
+   containment takes away its own, which would collapse it anywhere it is
+   sized by its content. */
+.inst-head > pa-phase-strip {
+  flex: 1;
+  container: phase-strip / inline-size;
+}
+
+.shell-instrument > pa-status-bar {
+  grid-column: 1 / -1;
+}
+
+/* Everything the harness measured reads in the mono face -- the bar's own
+   items, not the panels that open from it. */
+[data-variant='instrument'] .status-bar > .status-item,
+[data-variant='instrument'] .status-bar .topbar-chip,
+[data-variant='instrument'] .phase-strip,
+[data-variant='instrument'] .turn-meta,
+[data-variant='instrument'] .t-meta,
+[data-variant='instrument'] .topbar-chip .num {
+  font-family: var(--mono);
+}
+
+[data-variant='instrument'] .message-user {
+  border-radius: var(--radius-control);
+}
+
+/* =================================================================
+ * Paper -- a document. Warm paper, one ink, and a serif voice for
+ * what PWR writes; the person's words stay in the interface's sans.
+ * ================================================================= */
+:root[data-variant='paper'] {
+  --radius-control: 8px;
+  --radius-control-inner: 6px;
+  --radius-card: 10px;
+  --radius-panel: 12px;
+  --radius-modal: 14px;
+}
+
+:root[data-variant='paper'][data-theme='light'] {
+  --bg-app: #f6f4ef;
+  --bg-sidebar: #efece5;
+  --surface-primary: #fbfaf7;
+  --surface-secondary: #f1eee7;
+  --surface-elevated: #fffdf9;
+  --surface-inset: #f2efe8;
+  --surface-hover: rgba(60, 48, 30, 0.05);
+  --surface-active: rgba(60, 48, 30, 0.09);
+  --scrim: rgba(40, 32, 20, 0.28);
+  --input-bg: #fffdf9;
+  --tooltip-bg: #2a2621;
+  --tooltip-text: #f6f4ef;
+  --border-subtle: rgba(60, 48, 30, 0.12);
+  --border-strong: rgba(60, 48, 30, 0.22);
+  --text-primary: #1f1c18;
+  --text-secondary: #57514a;
+  --text-muted: #7b7468;
+  --text-on-accent: #ffffff;
+  --accent-primary: #c2410c;
+  --accent-text: #a8370a;
+  --accent-solid: #c2410c;
+  --accent-solid-hover: #a8370a;
+  --accent-soft: rgba(194, 65, 12, 0.08);
+  --accent-border: rgba(194, 65, 12, 0.36);
+  --accent-secondary: #3f6b5a;
+  --accent-secondary-soft: rgba(63, 107, 90, 0.1);
+  --accent-secondary-text: #2f5446;
+  --brand-gradient: linear-gradient(#c2410c, #c2410c);
+  --focus-ring: rgba(194, 65, 12, 0.5);
+  --success: #2f7d4f;
+  --success-text: #256b41;
+  --success-soft: rgba(47, 125, 79, 0.1);
+  --success-border: rgba(47, 125, 79, 0.32);
+  --warning: #a86b0f;
+  --warning-text: #8a560a;
+  --danger: #b42318;
+  --danger-text: #a01f15;
+  --danger-solid: #b42318;
+  --danger-solid-hover: #9b1e14;
+  --diff-add-bg: rgba(47, 125, 79, 0.09);
+  --diff-add-text: #1f5a37;
+  --diff-del-bg: rgba(180, 35, 24, 0.08);
+  --diff-del-text: #8a1c13;
+  --data-1: #c2410c;
+  --data-2: #3f6b5a;
+  --data-3: #8a6d3b;
+  --data-4: #6b5b95;
+  --data-5: #a3a19a;
+  --data-6: #5c7ea3;
+  --data-7: #b8807a;
+  --shadow-sm: 0 1px 2px rgba(60, 48, 30, 0.06);
+  --shadow-popover: 0 12px 32px rgba(60, 48, 30, 0.14), 0 2px 6px rgba(60, 48, 30, 0.06);
+  --shadow-modal: 0 24px 64px rgba(60, 48, 30, 0.2), 0 4px 12px rgba(60, 48, 30, 0.08);
+  --shadow-overlay-panel: -12px 0 40px rgba(60, 48, 30, 0.14);
+}
+
+:root[data-variant='paper'][data-theme='dark'] {
+  --bg-app: #171614;
+  --bg-sidebar: #1c1a17;
+  --surface-primary: #1f1d1a;
+  --surface-secondary: #25221e;
+  --surface-elevated: #2a2723;
+  --surface-inset: #131210;
+  --surface-hover: rgba(240, 228, 208, 0.06);
+  --surface-active: rgba(240, 228, 208, 0.1);
+  --scrim: rgba(8, 7, 6, 0.6);
+  --input-bg: #1a1916;
+  --tooltip-bg: #34302a;
+  --tooltip-text: #f2ede4;
+  --border-subtle: rgba(240, 228, 208, 0.11);
+  --border-strong: rgba(240, 228, 208, 0.2);
+  --text-primary: #ede8de;
+  --text-secondary: #b6ae9f;
+  --text-muted: #8c8577;
+  --text-on-accent: #1a1714;
+  --accent-primary: #e8804f;
+  --accent-text: #f09a6e;
+  --accent-solid: #e8804f;
+  --accent-solid-hover: #f0915f;
+  --accent-soft: rgba(232, 128, 79, 0.12);
+  --accent-border: rgba(232, 128, 79, 0.4);
+  --accent-secondary: #86b8a2;
+  --accent-secondary-soft: rgba(134, 184, 162, 0.12);
+  --accent-secondary-text: #9cc9b5;
+  --brand-gradient: linear-gradient(#e8804f, #e8804f);
+  --focus-ring: rgba(232, 128, 79, 0.6);
+  --data-1: #e8804f;
+  --data-2: #86b8a2;
+  --data-3: #c9a86a;
+  --data-4: #a597cf;
+  --data-5: #8c8577;
+  --data-6: #8fb0d1;
+  --data-7: #d69a93;
+  --shadow-overlay-panel: -12px 0 40px rgba(0, 0, 0, 0.45);
+}
+
+.shell-paper {
+  display: flex;
+  flex-direction: column;
+}
+
+.paper-head {
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-bottom-color: transparent;
+}
+
+.shell-paper.is-mac:not(.is-fullscreen) .paper-head {
+  padding-left: 84px;
+}
+
+/* The page between two margins of one width, so it stays centred; the
+   left margin holds the run. */
+.paper-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(150px, 1fr) minmax(0, 860px) minmax(150px, 1fr);
+  min-height: 0;
+  container: paper / inline-size;
+}
+
+.paper-margin {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 0;
+  padding: var(--space-8) 0 0 var(--space-5);
+  overflow-y: auto;
+}
+
+.paper-margin > pa-phase-strip {
+  width: 150px;
+}
+
+.paper-main {
+  grid-column: 2;
+}
+
+@container paper (max-width: 1100px) {
+  .paper-body {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+
+  .paper-margin {
+    display: none;
+  }
+}
+
+/* The drawer comes in over the page, whatever room there is. */
+.shell-paper > pa-inspector.paper-drawer {
+  right: 0;
+  width: min(var(--right-w, 340px), calc(100vw - 64px));
+}
+
+/* The page reads like one: PWR's answers in the serif, a quote rule for
+   the person's words, a single-line composer on the page's own paper. */
+[data-variant='paper'] .turn-body .markdown,
+[data-variant='paper'] .t-display,
+[data-variant='paper'] .switcher-title,
+[data-variant='paper'] .run-board-prompt p {
+  font-family: var(--serif);
+}
+
+[data-variant='paper'] .turn-body .markdown {
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+
+[data-variant='paper'] .switcher-title {
+  font-size: var(--fs-heading);
+  font-weight: var(--fw-regular);
+}
+
+[data-variant='paper'] .t-display {
+  font-weight: var(--fw-regular);
+  letter-spacing: -0.01em;
+}
+
+[data-variant='paper'] .message-user-group {
+  align-self: stretch;
+}
+
+[data-variant='paper'] .message-user {
+  max-width: 100%;
+  border: 0;
+  border-left: 2px solid var(--accent-primary);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+[data-variant='paper'] .composer {
+  border-width: 0 0 1px;
+  border-color: var(--border-strong);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-variant='paper'] .composer:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 1px 0 var(--accent-primary);
+}
+
+/* =================================================================
+ * Islands -- floating surfaces on a canvas, with room between them.
+ * ================================================================= */
+:root[data-variant='islands'] {
+  --radius-control: 11px;
+  --radius-control-inner: 8px;
+  --radius-card: 16px;
+  --radius-panel: 20px;
+  --radius-modal: 24px;
+  --island-gap: 10px;
+}
+
+:root[data-variant='islands'][data-theme='light'] {
+  --bg-app: #e8ebf0;
+  --bg-sidebar: #ffffff;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f3f5f8;
+  --surface-elevated: #ffffff;
+  --surface-inset: #f4f6f9;
+  --surface-hover: rgba(16, 24, 40, 0.045);
+  --surface-active: rgba(16, 24, 40, 0.08);
+  --input-bg: #ffffff;
+  --border-subtle: rgba(16, 24, 40, 0.08);
+  --border-strong: rgba(16, 24, 40, 0.16);
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --accent-primary: #2f5bff;
+  --accent-text: #2449e0;
+  --accent-solid: #2f5bff;
+  --accent-solid-hover: #2449e0;
+  --accent-soft: rgba(47, 91, 255, 0.1);
+  --accent-border: rgba(47, 91, 255, 0.36);
+  --accent-secondary: #0ea5a4;
+  --accent-secondary-soft: rgba(14, 165, 164, 0.1);
+  --accent-secondary-text: #0b7f7e;
+  --brand-gradient: linear-gradient(135deg, #2f5bff, #0ea5a4);
+  --focus-ring: rgba(47, 91, 255, 0.5);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-island: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px rgba(16, 24, 40, 0.06);
+  --shadow-popover: 0 16px 40px rgba(16, 24, 40, 0.14), 0 2px 6px rgba(16, 24, 40, 0.06);
+}
+
+:root[data-variant='islands'][data-theme='dark'] {
+  --bg-app: #0b0d10;
+  --bg-sidebar: #15181d;
+  --surface-primary: #15181d;
+  --surface-secondary: #1b1f25;
+  --surface-elevated: #1f242b;
+  --surface-inset: #111418;
+  --surface-hover: rgba(214, 222, 235, 0.06);
+  --surface-active: rgba(214, 222, 235, 0.1);
+  --input-bg: #121519;
+  --border-subtle: rgba(214, 222, 235, 0.09);
+  --border-strong: rgba(214, 222, 235, 0.17);
+  --text-primary: #e8ebf0;
+  --text-secondary: #a4acb8;
+  --text-muted: #7f8896;
+  --accent-primary: #5b7cff;
+  --accent-text: #8aa2ff;
+  --accent-solid: #4a6cf7;
+  --accent-solid-hover: #5b7cff;
+  --accent-soft: rgba(91, 124, 255, 0.14);
+  --accent-border: rgba(91, 124, 255, 0.42);
+  --accent-secondary: #2dd4bf;
+  --accent-secondary-soft: rgba(45, 212, 191, 0.12);
+  --accent-secondary-text: #5eead4;
+  --brand-gradient: linear-gradient(135deg, #5b7cff, #2dd4bf);
+  --focus-ring: rgba(91, 124, 255, 0.6);
+  --shadow-island: 0 0 0 1px rgba(214, 222, 235, 0.05), 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.shell-islands {
+  display: grid;
+  grid-template-columns: var(--left-col, 288px) minmax(0, 1fr) var(--right-col, 0px);
+  grid-template-rows: minmax(0, 1fr);
+  padding: var(--island-gap);
+  transition: grid-template-columns var(--dur-slow) var(--ease);
+}
+
+.shell-islands.is-resizing {
+  transition: none;
+}
+
+.shell-islands .island {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-primary);
+  box-shadow: var(--shadow-island);
+}
+
+/* Each column keeps the gap on its inner side, so a closed workbench
+   leaves no gap behind. */
+.shell-islands > pa-sidebar.island,
+.shell-islands > pa-rail.island {
+  margin-right: var(--island-gap);
+  overflow: hidden;
+}
+
+.shell-islands > pa-rail.island {
+  border-right: 1px solid var(--border-subtle);
+}
+
+.islands-main {
+  overflow: hidden;
+}
+
+.islands-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-2);
+  height: 48px;
+  padding: 0 var(--space-3) 0 var(--space-5);
+}
+
+.shell-islands.is-mac:not(.left-docked):not(.is-fullscreen) .islands-head {
+  padding-left: 44px;
+}
+
+.islands-title {
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-semibold);
+}
+
+/* The composer as a pill, the engine's chips on the line under it. */
+.islands-dock {
+  flex: none;
+}
+
+.shell-islands .composer {
+  border-radius: 24px;
+  margin-bottom: var(--space-2);
+}
+
+.islands-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: min(
+    calc(var(--content-max) - 2 * var(--column-inset)),
+    calc(100% - 2 * var(--column-inset))
+  );
+  margin: 0 auto var(--space-4);
+  padding: 0 var(--space-2);
+}
+
+.islands-chips .topbar-chip {
+  height: 28px;
+  border-radius: var(--radius-pill);
+}
+
+/* The workbench has no panel of its own: its cards are the islands. */
+.shell-islands > pa-inspector.islands-workbench {
+  margin-left: var(--island-gap);
+  border-left: 0;
+  background: transparent;
+}
+
+.shell-islands > pa-inspector.islands-workbench.is-overlay {
+  top: var(--island-gap);
+  right: var(--island-gap);
+  bottom: var(--island-gap);
+  margin: 0;
+  border-radius: var(--radius-panel);
+  background: var(--bg-app);
+}
+
+.islands-workbench .workbench-head {
+  height: 40px;
+  border-bottom: 0;
+}
+
+.islands-workbench .workbench-body {
+  padding: 0;
+}
+
+.islands-workbench .wb-card {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-island);
+}
+
+/* =================================================================
+ * Mission -- the run is the main surface: the conversation in a
+ * column, the board of what the agent does beside it, the tools
+ * rising from under the board.
+ * ================================================================= */
+:root[data-variant='mission'] {
+  --radius-control: 8px;
+  --radius-card: 10px;
+  --radius-panel: 12px;
+}
+
+:root[data-variant='mission'][data-theme='dark'] {
+  --bg-app: #0e1012;
+  --bg-sidebar: #121417;
+  --surface-primary: #16191c;
+  --surface-secondary: #1b1f23;
+  --surface-elevated: #20252a;
+  --surface-inset: #0b0d0f;
+  --surface-hover: rgba(220, 230, 240, 0.06);
+  --surface-active: rgba(220, 230, 240, 0.1);
+  --input-bg: #111316;
+  --border-subtle: rgba(220, 230, 240, 0.09);
+  --border-strong: rgba(220, 230, 240, 0.17);
+  --text-primary: #e6e9ec;
+  --text-secondary: #a0a9b2;
+  --text-muted: #7a838d;
+  --text-on-accent: #0e1012;
+  --accent-primary: #b8f36b;
+  --accent-text: #c9f78e;
+  --accent-solid: #b8f36b;
+  --accent-solid-hover: #c9f78e;
+  --accent-soft: rgba(184, 243, 107, 0.1);
+  --accent-border: rgba(184, 243, 107, 0.38);
+  --accent-secondary: #5ad1e6;
+  --accent-secondary-soft: rgba(90, 209, 230, 0.12);
+  --accent-secondary-text: #7ddcee;
+  --brand-gradient: linear-gradient(#b8f36b, #b8f36b);
+  --focus-ring: rgba(184, 243, 107, 0.55);
+  --data-1: #b8f36b;
+  --data-2: #5ad1e6;
+  --data-3: #8aa0b6;
+  --data-4: #e6b35a;
+  --data-5: #6fcf97;
+  --data-6: #7a838d;
+  --data-7: #d08ad6;
+}
+
+:root[data-variant='mission'][data-theme='light'] {
+  --bg-app: #f3f4f1;
+  --bg-sidebar: #ebece8;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f4f5f2;
+  --surface-elevated: #ffffff;
+  --surface-inset: #eceee9;
+  --text-primary: #15181b;
+  --text-secondary: #4a525a;
+  --text-muted: #69717a;
+  --accent-primary: #4d7c0f;
+  --accent-text: #3f6212;
+  --accent-solid: #4d7c0f;
+  --accent-solid-hover: #3f6212;
+  --accent-soft: rgba(77, 124, 15, 0.1);
+  --accent-border: rgba(77, 124, 15, 0.38);
+  --accent-secondary: #0e7490;
+  --accent-secondary-soft: rgba(14, 116, 144, 0.1);
+  --accent-secondary-text: #0e7490;
+  --brand-gradient: linear-gradient(#4d7c0f, #4d7c0f);
+  --focus-ring: rgba(77, 124, 15, 0.5);
+}
+
+.shell-mission {
+  display: grid;
+  grid-template-columns: minmax(400px, 32%) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.mission-head {
+  grid-column: 1 / -1;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) 0 var(--space-3);
+}
+
+.shell-mission.is-mac:not(.is-fullscreen) .mission-head {
+  padding-left: 80px;
+}
+
+/* A narrow column: the conversation keeps a smaller inset, so the
+   composer's controls still fit on one line at 400px. */
+.mission-chat {
+  --column-inset: var(--space-4);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.mission-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-sidebar);
+}
+
+/* The workbench rises from under the board, its cards side by side. */
+.shell-mission pa-inspector.mission-workbench {
+  flex: 0 0 46%;
+  min-height: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-left: 0;
+  animation: pa-rise-in var(--dur-slow) var(--ease-out) backwards;
+}
+
+.shell-mission pa-inspector.mission-workbench.is-leaving {
+  animation: pa-sink-out var(--dur-fast) var(--ease) both;
+}
+
+.mission-workbench pa-resize-handle,
+.mission-workbench .workbench-head {
+  display: none;
+}
+
+.mission-workbench .workbench-body {
+  flex-direction: row;
+  padding-top: var(--space-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.mission-workbench .wb-card.fills,
+.mission-workbench .wb-card.collapsed {
+  flex: 1 1 0;
+  min-width: 300px;
+  min-height: 0;
+}
+
+.mission-dock {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+}
+
+/* =================================================================
+ * Focus -- no chrome. The page fills the window; where you are, the
+ * run, the engine and the tools float over it on glass.
+ * ================================================================= */
+:root[data-variant='focus'] {
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-panel: 18px;
+  --radius-modal: 20px;
+}
+
+:root[data-variant='focus'][data-theme='dark'] {
+  --bg-app: #050506;
+  --bg-sidebar: #0b0b0d;
+  --surface-primary: #0f0f12;
+  --surface-secondary: #151519;
+  --surface-elevated: #1a1a1f;
+  --surface-inset: #08080a;
+  --text-primary: #f2f2f4;
+  --text-secondary: #a6a6ae;
+  --text-muted: #7e7e87;
+  --accent-primary: #a78bfa;
+  --accent-text: #c4b5fd;
+  --accent-solid: #8b5cf6;
+  --accent-solid-hover: #9b72f8;
+  --accent-soft: rgba(167, 139, 250, 0.12);
+  --accent-border: rgba(167, 139, 250, 0.4);
+  --accent-secondary: #67e8f9;
+  --accent-secondary-soft: rgba(103, 232, 249, 0.1);
+  --accent-secondary-text: #a5f3fc;
+  --brand-gradient: linear-gradient(135deg, #a78bfa, #67e8f9);
+  --glass: rgba(24, 24, 30, 0.62);
+  --glass-strong: rgba(16, 16, 20, 0.92);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-variant='focus'][data-theme='light'] {
+  --bg-app: #f7f7f8;
+  --bg-sidebar: #f1f1f3;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f4f4f6;
+  --surface-elevated: #ffffff;
+  --surface-inset: #f0f0f2;
+  --text-primary: #121216;
+  --text-secondary: #4c4c55;
+  --text-muted: #6c6c75;
+  --accent-primary: #7c3aed;
+  --accent-text: #6d28d9;
+  --accent-solid: #7c3aed;
+  --accent-solid-hover: #6d28d9;
+  --accent-soft: rgba(124, 58, 237, 0.08);
+  --accent-border: rgba(124, 58, 237, 0.35);
+  --accent-secondary: #0891b2;
+  --accent-secondary-soft: rgba(8, 145, 178, 0.1);
+  --accent-secondary-text: #0e7490;
+  --brand-gradient: linear-gradient(135deg, #7c3aed, #0891b2);
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-strong: rgba(255, 255, 255, 0.93);
+  --glass-border: rgba(18, 18, 22, 0.08);
+  --glass-shadow: 0 8px 28px rgba(18, 18, 22, 0.1);
+}
+
+.shell-focus {
+  display: flex;
+}
+
+.shell-focus .glass {
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+}
+
+/* The window's title bar is invisible here: a strip to drag by. */
+.focus-drag {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: var(--titlebar-h);
+}
+
+.focus-main {
+  flex: 1;
+}
+
+/* Room under the floating HUD, and past the dock at the left. */
+.shell-focus .conversation {
+  padding-top: 76px;
+}
+
+.focus-hud,
+.focus-engine,
+.focus-dock {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-pill);
+}
+
+.focus-hud {
+  top: 10px;
+  left: 12px;
+  max-width: calc(100% - 480px);
+  padding-right: var(--space-2);
+}
+
+/* Past the traffic lights, which float over the page's corner. */
+.shell-focus.is-mac:not(.is-fullscreen) .focus-hud {
+  left: 84px;
+}
+
+.focus-hud .phase-stage-note {
+  display: none;
+}
+
+.focus-hud .switcher-trigger {
+  height: var(--control-h);
+  border-radius: var(--radius-pill);
+}
+
+.focus-hud-sep,
+.focus-dock-sep {
+  flex: none;
+  background: var(--glass-border);
+}
+
+.focus-hud-sep {
+  width: 1px;
+  height: 18px;
+}
+
+.focus-engine {
+  top: 10px;
+  right: 12px;
+}
+
+.focus-engine .topbar-chip {
+  height: var(--control-h-sm);
+  border-color: transparent;
+  border-radius: var(--radius-pill);
+}
+
+.focus-dock {
+  top: 50%;
+  left: 12px;
+  flex-direction: column;
+  padding: var(--space-1);
+  border-radius: 22px;
+  transform: translateY(-50%);
+}
+
+.focus-dock-sep {
+  width: 18px;
+  height: 1px;
+  margin: var(--space-1) 0;
+}
+
+/* The workbench hovers: inset from the edges, rounded, on glass. */
+.shell-focus > pa-inspector.focus-workbench {
+  top: 60px;
+  right: 12px;
+  bottom: 12px;
+  width: min(var(--right-w, 340px), calc(100vw - 96px));
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  /* A panel of content: glass that still reads where blur is missing. */
+  background: var(--glass-strong);
+}
+
+.focus-workbench .workbench-head {
+  height: 44px;
+  background: transparent;
+}
+
+.focus-workbench .workbench-body {
+  background: transparent;
+}
+
+/* Narrow windows: the phases give up their counts, then their place. */
+@media (max-width: 1100px) {
+  .focus-hud pa-phase-strip {
+    display: none;
+  }
+
+  .focus-hud-sep {
+    display: none;
+  }
+
+  .focus-hud {
+    max-width: calc(100% - 520px);
+  }
+}

@@ -1,42 +1,42 @@
-import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, isDevMode, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnInit, inject } from '@angular/core';
 import { AgentStore } from './core/agent.store';
 import { bridge, inTauri } from './core/bridge';
-import { LayoutService, RAIL } from './core/layout';
+import { LayoutService } from './core/layout';
+import { WindowState } from './core/navigation';
 import { ThemeService } from './core/theme';
 import { ActivityStore } from './core/activity';
+import { VariantService } from './core/variant';
 import { WorkbenchStore } from './core/workbench';
-import { DialogStack, SHORTCUTS, ToastService, UiStore, isMac } from './core/ui';
+import { DialogStack, ToastService, UiStore, isMac } from './core/ui';
 import { CommandPalette } from './ui/command-palette';
-import { Composer } from './ui/composer';
-import { MemoryProposals } from './ui/personal';
-import { ContextMeter } from './ui/context-meter';
-import { RunMetricsChip } from './ui/run-metrics';
-import { Conversation } from './ui/conversation';
-import { Inspector } from './ui/inspector';
-import { Icon } from './ui/kit/icon';
 import { ConfirmHost, Toasts } from './ui/kit/overlays';
-import { Tooltip } from './ui/kit/tooltip';
 import { ModelManager } from './ui/model-manager';
-import { ModelPicker } from './ui/model-picker';
 import { Permission } from './ui/permission';
 import { EngineSetup } from './ui/engine-setup';
 import { Settings } from './ui/settings';
-import { Rail, Sidebar } from './ui/sidebar';
 import { WorkspaceTrust } from './ui/workspace-trust';
+import { FocusShell } from './ui/shells/focus';
+import { InstrumentShell } from './ui/shells/instrument';
+import { IslandsShell } from './ui/shells/islands';
+import { MissionShell } from './ui/shells/mission';
+import { PaperShell } from './ui/shells/paper';
+import { StudioShell } from './ui/shells/studio';
 
+/**
+ * The app: one set of stores, dialogs and shortcuts, under whichever shell
+ * the person chose (Settings → Appearance → Layout). The shells arrange the
+ * same components; none owns a feature the others lack.
+ */
 @Component({
   selector: 'app-root',
   imports: [
-    Sidebar,
-    Rail,
-    Conversation,
-    Composer,
-    MemoryProposals,
-    Inspector,
+    StudioShell,
+    InstrumentShell,
+    PaperShell,
+    IslandsShell,
+    MissionShell,
+    FocusShell,
     Permission,
-    ContextMeter,
-    RunMetricsChip,
-    ModelPicker,
     ModelManager,
     WorkspaceTrust,
     Settings,
@@ -44,8 +44,6 @@ import { WorkspaceTrust } from './ui/workspace-trust';
     CommandPalette,
     ConfirmHost,
     Toasts,
-    Icon,
-    Tooltip,
   ],
   templateUrl: './app.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -53,23 +51,13 @@ import { WorkspaceTrust } from './ui/workspace-trust';
 export class App implements OnInit {
   protected readonly store = inject(AgentStore);
   protected readonly layout = inject(LayoutService);
+  protected readonly variants = inject(VariantService);
+  /** Followed from the first frame: in full screen macOS gives the traffic lights' space back. */
+  protected readonly win = inject(WindowState);
   private readonly ui = inject(UiStore);
   private readonly dialogs = inject(DialogStack);
   private readonly toast = inject(ToastService);
   private readonly work = inject(WorkbenchStore);
-  protected readonly isMac = isMac;
-  protected readonly developmentExport = isDevMode() && inTauri();
-  protected readonly rail = RAIL;
-  protected readonly keys = SHORTCUTS;
-  /** In full screen macOS hides the traffic lights, so their space is given back. */
-  protected readonly fullscreen = signal(false);
-
-  /** The open conversation's title, as the history lists it. */
-  protected readonly title = computed(() => {
-    const id = this.store.sessionId();
-    if (!id) return 'New conversation';
-    return this.store.sessions().find((session) => session.sessionId === id)?.title || 'Conversation';
-  });
 
   constructor() {
     // Created now so the theme is applied and followed from the first frame.
@@ -81,38 +69,6 @@ export class App implements OnInit {
 
   ngOnInit(): void {
     void this.store.boot();
-    void this.followFullscreen();
-  }
-
-  protected async exportDiagnostic(): Promise<void> {
-    const timeline = this.store.timeline();
-    if (!this.developmentExport || !timeline.length || this.store.turnActive()) return;
-    const destination = await bridge.pickDebugExport();
-    if (!destination) return;
-    const from = timeline[0].at;
-    const to = timeline[timeline.length - 1].at + 2000;
-    try {
-      await bridge.debugExportChat(destination, {
-        session_id: this.store.sessionId(),
-        workspace: this.store.workspace(),
-        model: this.store.model(),
-        timeline,
-        core_log: this.store.logLines().filter((line) => line.at >= from && line.at <= to),
-      });
-      this.toast.show('Diagnostic chat exported.', 'success');
-    } catch (error) {
-      this.toast.show(`Export failed: ${String(error)}`, 'danger', 6000);
-    }
-  }
-
-  private async followFullscreen(): Promise<void> {
-    if (!inTauri()) return;
-    const { getCurrentWindow } = await import('@tauri-apps/api/window');
-    const window = getCurrentWindow();
-    const check = async () => this.fullscreen.set(await window.isFullscreen());
-    await check();
-    // Entering and leaving full screen both resize the window.
-    await window.onResized(() => void check());
   }
 
   /**
@@ -162,11 +118,17 @@ export class App implements OnInit {
     else if (this.dialogs.open) handled = false;
     else if (key === 'n' && !event.shiftKey && !event.altKey) this.store.newConversation();
     else if (code === 'KeyB' && event.altKey) this.layout.toggleRight();
-    else if (code === 'KeyB' && !event.shiftKey) this.layout.toggleLeft();
+    else if (code === 'KeyB' && !event.shiftKey) this.toggleNavigation();
     else if (key === ',') this.ui.settingsOpen.set(true);
     else if (code === 'KeyT' && event.shiftKey && !event.altKey) this.work.toggle('browser');
     else if (code === 'KeyP' && !event.shiftKey && !event.altKey) this.work.toggle('files');
     else handled = false;
     if (handled) event.preventDefault();
+  }
+
+  /** ⌘B: the sidebar where the shell has one, the conversation switcher where it has not. */
+  private toggleNavigation(): void {
+    if (this.variants.info().sidebar) this.layout.toggleLeft();
+    else this.ui.sessionsOpen.update((open) => !open);
   }
 }

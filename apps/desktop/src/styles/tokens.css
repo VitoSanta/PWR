@@ -39,6 +39,10 @@
 
   --titlebar-h: 52px;
   --content-max: 820px;
+  /* The conversation column's side inset; the composer shares it. A shell
+     with a narrow column sets a smaller one on its container. */
+  --column-inset: var(--space-8);
+  --serif: ui-serif, 'New York', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
 
   /* -------------------------------------------------------- typography */
   --font:

@@ -5,6 +5,7 @@ import { LayoutService } from '../core/layout';
 import { modelLabel } from '../core/model';
 import { ModelsStore } from '../core/models.store';
 import { ThemeService } from '../core/theme';
+import { VARIANTS, VariantService } from '../core/variant';
 import { SHORTCUTS, UiStore, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
@@ -97,6 +98,7 @@ export class CommandPalette {
   private readonly work = inject(WorkbenchStore);
   private readonly models = inject(ModelsStore);
   private readonly theme = inject(ThemeService);
+  private readonly variants = inject(VariantService);
   protected readonly shortcut = shortcut;
   protected readonly query = signal('');
   protected readonly active = signal(0);
@@ -234,6 +236,14 @@ export class CommandPalette {
         icon: card.icon as IconName,
         keys: card.keys,
         run: () => this.work.show(card.id),
+      })),
+      ...VARIANTS.map((variant) => ({
+        id: `variant-${variant.id}`,
+        label: `Layout: ${variant.label}`,
+        group: 'View',
+        icon: 'panel-left' as IconName,
+        hint: this.variants.variant() === variant.id ? 'current' : undefined,
+        run: () => this.variants.set(variant.id),
       })),
       {
         id: 'theme-system',

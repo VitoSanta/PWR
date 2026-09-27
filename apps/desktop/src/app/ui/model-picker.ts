@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import {
   capabilityResult,
@@ -43,7 +43,8 @@ import { Tooltip } from './kit/tooltip';
     @if (open()) {
       <pa-popover
         [anchor]="chip"
-        anchorAlign="end"
+        [anchorAlign]="align()"
+        [side]="side()"
         width="380px"
         ariaLabel="Model"
         (closed)="open.set(false)"
@@ -217,6 +218,9 @@ import { Tooltip } from './kit/tooltip';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ModelPicker {
+  /** Where its panel opens: below the chip in a top bar, above it in a status bar. */
+  readonly side = input<'bottom' | 'top'>('bottom');
+  readonly align = input<'start' | 'end'>('end');
   protected readonly store = inject(AgentStore);
   private readonly models = inject(ModelsStore);
   protected readonly open = signal(false);

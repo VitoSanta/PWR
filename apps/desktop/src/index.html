@@ -15,6 +15,10 @@
       try { mode = localStorage.getItem('pwr:theme'); } catch (e) {}
       var dark = mode === 'dark' || (mode !== 'light' && (!window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches));
       document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      // The layout too (VariantService takes over); ?variant= wins, as there.
+      var variant = null;
+      try { variant = new URLSearchParams(location.search).get('variant') || localStorage.getItem('pwr:variant'); } catch (e) {}
+      if (variant) document.documentElement.setAttribute('data-variant', variant);
     })();
   </script>
 </head>
