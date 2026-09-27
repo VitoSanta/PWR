@@ -186,7 +186,8 @@ Block D is empty is no longer true.
 ### New proposal retained from the 2026-09-27 discussion
 
 - [ ] **C.22c Versioned documentation RAG and KV-cache quantization.**
-  **proposto.** The code foundation is
+  **proposto.** Analysis: [Documentation RAG and KV-cache quantization](documentation-rag-and-kv-cache.md).
+  The code foundation is
   [`retrieve_with`](../crates/pwr-repo/src/lib.rs),
   [`EmbeddingRanker`](../crates/pwr-cli/src/semantic.rs),
   [`compaction`](../crates/pwr-orchestrator/src/compaction.rs) and
