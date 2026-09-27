@@ -298,6 +298,15 @@ fn parse_xml_call(body: &str) -> Option<ToolCall> {
         let from = &rest[open + OPEN_PARAMETER.len()..];
         let key_end = from.find('>')?;
         let key = from[..key_end].trim().to_owned();
+        // A name that is not a name is an opening tag that never closed
+        // (`<parameter=rationale` and then `</parameter>`): not a call to guess at.
+        if key.is_empty()
+            || !key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
+            return None;
+        }
         let value_from = &from[key_end + 1..];
         // Where this parameter's value can end at the latest: the next
         // parameter or the end of the function. Within that, the value is
@@ -325,6 +334,13 @@ fn parse_xml_call(body: &str) -> Option<ToolCall> {
             (value, boundary)
         } else if let Some(close) = segment.find(CLOSE_PARAMETER) {
             (&segment[..close], close + CLOSE_PARAMETER.len())
+        } else if trimmed
+            .rfind("</")
+            .is_some_and(|tag| !trimmed[tag..].contains('>'))
+        {
+            // Closed by half a tag (`3750\n</`): the value's end was lost,
+            // and what is left of it is not the value.
+            return None;
         } else {
             (trimmed, boundary)
         };
@@ -750,6 +766,25 @@ pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehavi
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// The two readings suite A1 records as unreadable (2026-09-18 traces):
+    /// a value closed by half a tag, and an opening tag that never closed.
+    #[test]
+    fn half_a_tag_is_not_a_call_to_guess_at() {
+        for body in [
+            "<tool_call>\n<function=read_file>\n<parameter=first_line>\n3750\n</\n</function>\n</tool_call>",
+            "<tool_call>\n<function=complete>\n<parameter=rationale\n</parameter>\n</function>\n</tool_call>",
+        ] {
+            let canonical = QwenFamilyAdapter.normalize(&reply(body));
+            assert!(canonical.tool_calls.is_empty(), "{body}");
+            assert_eq!(canonical.diagnostics[0].kind, "qwen_undecodable_tool_call");
+        }
+        // A value that ends in a whole tag is a value.
+        let canonical = QwenFamilyAdapter.normalize(&reply(
+            "<tool_call>\n<function=write_file>\n<parameter=path>\na.html\n</parameter>\n<parameter=content>\n<p>hi</p>\n</function>\n</tool_call>",
+        ));
+        assert_eq!(canonical.tool_calls[0].arguments["content"], "<p>hi</p>");
+    }
+
     #[test]
     fn a_parameter_closed_by_its_own_name_or_not_at_all_still_reads() {
         let adapter = QwenFamilyAdapter;

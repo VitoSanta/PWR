@@ -838,10 +838,17 @@
    "model_ref": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
    "content": "The fix is in place. Let me verify it works correctly by running a quick test:\n\n<tool_call>\n<function=run_command>\n<parameter=args>\n[\"python3\", \"-c\", \"\nimport pyparsing as pp\n\npr = pp.ParseResults(['a', 'b'])\n\n# Test 1: += with another ParseResults should still work\npr2 = pp.ParseResults(['c'])\npr += pr2\nprint('ParseResults += ParseResults:', list(pr))\n\n# Test 2: += with a list should raise TypeError (not AttributeError)\npr3 = pp.ParseResults(['x', 'y'])\ntry:\n    pr3 += [1]\n    print('ERROR: no exception raised for += [1]')\nexcept TypeError as e:\n    print('+= [1] raises TypeError:', e)\nexcept AttributeError as e:\n    print('ERROR: += [1] raises AttributeError:', e)\n\n# Test 3: += with an int should raise TypeError (not AttributeError)\npr4 = pp.ParseResults(['x', 'y'])\ntry:\n    pr4 += 1\n    print('ERROR: no exception raised for += 1')\nexcept TypeError as e:\n    print('+= 1 raises TypeError:', e)\nexcept AttributeError as e:\n    print('ERROR: += 1 raises AttributeError:', e)\n\n# Test 4: += with a string should raise TypeError\npr5 = pp.ParseResults(['x', 'y'])\ntry:\n    pr5 += 'extra'\n    print('ERROR: no exception raised for += str')\nexcept TypeError as e:\n    print('+= str raises TypeError:', e)\nexcept AttributeError as e:\n    print('ERROR: += str raises AttributeError:', e)\n\n# Test 5: += with empty ParseResults should still work\npr6 = pp.ParseResults(['a', 'b'])\npr6 += pp.ParseResults([])\nprint('+= empty ParseResults:', list(pr6))\n\"\n</parameter>\n<parameter=executable>\npython3\n</parameter>\n</function>\n</tool_call>",
    "expect": {
-    "kind": "malformed",
-    "malformed": "argument_shape"
+    "kind": "actions",
+    "actions": [
+     {
+      "capability": "run_command",
+      "fields": {
+       "executable": "python3"
+      }
+     }
+    ]
    },
-   "why": "args is a multi-line array that never closes (no `]`): no reading of it is certain."
+   "why": "args is a multi-line array that never closes (no `]`). Refused until 2026-09-26, as having no certain reading; but its last element is a complete string followed by `</parameter>`, so closing the list after it is the only reading, and the list repair now takes it."
   },
   {
    "type": "replay",
