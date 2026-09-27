@@ -3622,6 +3622,7 @@ impl serve::TurnRunner for ConsoleTurns {
             prompt,
             400,
             16_384,
+            None,
         )
         .await
     }
@@ -3634,8 +3635,14 @@ impl serve::TurnRunner for ConsoleTurns {
              the code does not meet, each with the rule quoted and the code that breaks it; you \
              never report style, and never a rule the code meets.",
             prompt,
-            1_500,
+            6_000,
             32_768,
+            // Reasoning on, bounded. Measured 2026-09-27 on the c2 workspaces
+            // that failed on a README rule: without it the reviewer found the
+            // missed rule in one of five, with it in two (and a third real
+            // gap), at about 75 s a review; neither flagged anything in the
+            // two passing controls.
+            Some(4_000),
         )
         .await
         .map(|(text, _)| text)
@@ -3774,8 +3781,9 @@ impl serve::TurnRunner for ConsoleTurns {
 }
 
 impl ConsoleTurns {
-    /// One generation beside the conversation: no tools, no reasoning, on a
-    /// cache of its own in the engine -- (the text, the model that wrote it).
+    /// One generation beside the conversation: no tools, reasoning only when
+    /// given a budget, on a cache of its own in the engine -- (the text, the
+    /// model that wrote it).
     async fn aside(
         &self,
         root: &Path,
@@ -3783,6 +3791,7 @@ impl ConsoleTurns {
         prompt: String,
         max_tokens: u32,
         context_cap: u32,
+        reasoning_budget: Option<u32>,
     ) -> Result<(String, String), String> {
         let root = self.ready(root).await?;
         let config = load_chat_config(&root).map_err(|error| error.context)?;
@@ -3797,7 +3806,14 @@ impl ConsoleTurns {
             tools: None,
             seed: None,
             sampling: BTreeMap::from([
-                ("think".to_owned(), serde_json::json!(false)),
+                (
+                    "think".to_owned(),
+                    serde_json::json!(reasoning_budget.is_some()),
+                ),
+                (
+                    "reasoning_budget".to_owned(),
+                    serde_json::json!(reasoning_budget),
+                ),
                 ("max_tokens".to_owned(), serde_json::json!(max_tokens)),
                 ("temperature".to_owned(), serde_json::json!(0.3)),
                 // On a cache of its own: served on the conversation's, each

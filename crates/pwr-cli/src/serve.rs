@@ -526,11 +526,13 @@ fn review_prompt(
     Some(format!(
         "The request:\n{requests}\n\nThe specification (README.md):\n{spec}\n\n\
          The code as it is now:\n{code}\n\
-         Go through the rules the request and the specification state, one by one -- options, \
-         error cases, input forms and edge cases included -- and list each one this code does \
-         not do or does differently. For each: quote the rule, name the file and function, and \
-         say in one line what the code does instead. If the code meets every rule, answer \
-         exactly: NO DISCREPANCIES"
+         Go through the specification and the request rule by rule -- every option, error case, \
+         input form and edge case they state -- and write one line per rule:\n\
+         - <the rule> -- MET: <file and function that does it>\n\
+         or\n\
+         - <the rule> -- NOT MET: <what the code does instead>\n\
+         Judge each rule against the code as it is written, reading the lines that would do it, \
+         not against what the code seems meant to do. Write only the list."
     ))
 }
 
@@ -579,19 +581,28 @@ fn person_requests(messages: &[ChatMessage]) -> String {
     joined.chars().skip(skip).collect()
 }
 
-/// The review round's message, with what the reviewer found when it found
-/// something.
+/// The review round's message, with the rules the reviewer marked NOT MET.
+///
+/// A checklist, not a question: asked instead to list what the code does not
+/// do "or answer NO DISCREPANCIES", the same model answered that in three
+/// seconds for all seven c2 workspaces probed, five of which had failed on a
+/// rule their README states. Made to mark every rule, it found them.
 fn review_guidance(findings: Option<&str>) -> String {
-    let findings = findings
+    let unmet: Vec<&str> = findings
+        .unwrap_or_default()
+        .lines()
         .map(str::trim)
-        .filter(|found| !found.is_empty() && !found.starts_with("NO DISCREPANCIES"));
-    match findings {
-        None => GOAL_REVIEW.to_owned(),
-        Some(found) => {
-            let found: String = found.chars().take(4_000).collect();
+        .filter(|line| line.contains("NOT MET"))
+        .take(12)
+        .collect();
+    match unmet.as_slice() {
+        [] => GOAL_REVIEW.to_owned(),
+        lines => {
+            let found: String = lines.join("\n").chars().take(4_000).collect();
             format!(
                 "{GOAL_REVIEW}\n\nA reviewer who has not seen this conversation read the \
-                 specification against the code as it is now and reported:\n\n{found}\n\n\
+                 specification against the code as it is now and marked these rules not met:\n\n\
+                 {found}\n\n\
                  It can be wrong. For each point, read the rule and the code: fix what is really \
                  missing or wrong, and try it; leave what is not."
             )
@@ -4871,9 +4882,17 @@ mod tests {
     fn what_the_reviewer_found_is_added_to_the_review_and_nothing_else_is() {
         assert_eq!(review_guidance(None), GOAL_REVIEW);
         assert_eq!(review_guidance(Some("  NO DISCREPANCIES\n")), GOAL_REVIEW);
-        let found = review_guidance(Some("- \"`opts[:name]` registers\": start_link ignores it"));
+        assert_eq!(
+            review_guidance(Some("- ids are never reused -- MET: lib/stock.ex next_id")),
+            GOAL_REVIEW
+        );
+        let found = review_guidance(Some(
+            "- ids are never reused -- MET: lib/stock.ex next_id\n\
+             - `opts[:name]` registers the process -- NOT MET: start_link ignores it",
+        ));
         assert!(found.starts_with(GOAL_REVIEW));
-        assert!(found.contains("start_link ignores it"));
+        assert!(found.contains("NOT MET: start_link ignores it"));
+        assert!(!found.contains("next_id"));
         assert!(found.contains("It can be wrong"));
     }
 
