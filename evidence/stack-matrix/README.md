@@ -86,3 +86,8 @@ compared with results after it.
   PWR's sandbox at all (macOS's per-user temporary directory refused, and
   SwiftPM's own sandbox unable to nest), so the model could never check its
   work on the Mac.
+- 2026-09-27 `spring-library` and `kotlin-rules` moved from `heldout` to
+  `dev`: their c3 runs were read and PWR changed because of them -- a JVM in
+  the sandbox took its home from the account (Maven's repository refused in
+  the real home) and its temporary directory from the system (refused in
+  `/var/folders`), whatever HOME and TMPDIR said.

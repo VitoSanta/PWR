@@ -3,7 +3,7 @@
  "title": "Spring Boot 3 + JPA + Bean Validation: a lending library API with loan rules and an injected clock",
  "stacks": ["java", "spring-boot", "jpa", "h2", "maven", "junit"],
  "category": "backend-framework",
- "split": "heldout",
+ "split": "dev",
  "needs": ["jdk", "maven"],
  "allow": ["network_access", "toolchain_install", "dependency_change"],
  "turns": 3,

@@ -2294,7 +2294,26 @@ impl ToolPolicy {
             // widening it, and makes a run hermetic: nothing it downloads
             // persists into the next one, and nothing in the real home
             // directory is read.
-            .env("HOME", &scratch);
+            .env("HOME", &scratch)
+            // Gradle's caches, which it keeps under `user.home`, not HOME.
+            .env("GRADLE_USER_HOME", scratch.join(".gradle"));
+        // A JVM takes `user.home` from the account, not from HOME, and on
+        // macOS its temporary directory from the system, not from TMPDIR.
+        // Measured 2026-09-27 (stack matrix c3): Maven tried to create its
+        // repository in the real home and was refused (java-ratelimit, four
+        // times; spring-library until the model found -Dmaven.repo.local),
+        // and Maven's jansi lock was refused in /var/folders (kotlin-rules,
+        // spring-library). Only a path without whitespace: the JVM splits
+        // these options on it.
+        if let Some(scratch) = scratch
+            .to_str()
+            .filter(|path| !path.contains(char::is_whitespace))
+        {
+            command.env(
+                "JAVA_TOOL_OPTIONS",
+                format!("-Duser.home={scratch} -Djava.io.tmpdir={scratch}"),
+            );
+        }
         // After the clear, or it would take them away again.
         for (variable, home) in toolchain_homes(&canonical_root) {
             command.env(variable, home);

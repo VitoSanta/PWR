@@ -186,6 +186,33 @@ fn a_command_that_outruns_the_policy_timeout_is_stopped() {
     assert!(matches!(result, Err(ToolError::CommandTimedOut(_))));
 }
 
+/// A JVM takes its home and temporary directory from the account and the
+/// system, not from HOME and TMPDIR: both are named for it (stack matrix c3).
+#[test]
+fn a_jvm_is_given_the_workspace_s_home_and_temporary_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands = vec!["sh".into()];
+    let output = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(run_command(
+            &policy,
+            "sh",
+            &[
+                "-c".into(),
+                "printf '%s|%s' \"$JAVA_TOOL_OPTIONS\" \"$GRADLE_USER_HOME\"".into(),
+            ],
+        ))
+        .unwrap();
+    let (java, gradle) = output.stdout.split_once('|').unwrap();
+    assert!(
+        java.contains("-Duser.home=") && java.contains("-Djava.io.tmpdir="),
+        "{java}"
+    );
+    assert!(java.contains(".pwr-scratch"), "{java}");
+    assert!(gradle.ends_with(".pwr-scratch/.gradle"), "{gradle}");
+}
+
 /// Command output is capped on its own; a file the policy allows is not.
 /// Seen 2026-09-27: one limit for both refused a 26 KB test file three times.
 #[test]
