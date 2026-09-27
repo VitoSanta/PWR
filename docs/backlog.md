@@ -8,7 +8,240 @@ and should be fixed.
 Each item says which block it belongs to and what it depends on. Nothing here
 has a date: this project's sequencing follows evidence, not a calendar.
 
-## At a glance — 2026-09-24
+
+## Reconciliation — 2026-09-27
+
+**Scope:** committed `develop` at `3a1170ba66552c4a3c5169aac31c33b6c329afb4`.
+Source paths below refer to that revision. This is a read-only source/commit
+review, not a test run or a new capability measurement. Dirty main-checkout
+changes in `crates/pwr-models` are deliberately excluded. The app checkout is
+not necessarily the contents of the latest published DMG.
+
+Status vocabulary: **fatto** = the bounded implementation or historical
+investigation is complete; **parziale** = a working part exists but the stated
+scope or validation remains open; **proposto** = a planned experiment or
+implementation, not an available capability. A closed/rejected proposal is
+labelled explicitly; it is not promoted to implemented. Existing dated results
+are preserved as records, not re-certified by this audit.
+
+This reconciliation supersedes undated/current-tense claims in the retained
+older text. Every pre-existing checklist item has a row below (B.5 includes
+the original joint B.6 item). Closed items have been moved, without deleting
+their text, to **Closed records / Chiuse**. Open-item prose remains as dated
+history where it explains the proposal; use the row's remaining scope today.
+The old critical-path diagram is also retained there because its claim that
+Block D is empty is no longer true.
+
+### Changes the old backlog missed
+
+- Desktop tests/build and MLX sidecar tests are in CI: R.8 is closed by
+  `.github/workflows/ci.yml` and `agent.store.spec.ts` (881f3978, 07e3ab25).
+  No fresh remote CI result is claimed.
+- Personal/workspace memories, project wiki, graph queries and summaries exist
+  (5763def8, b2d56c9a, f49083fe, 391a48e6, 299bbe71). C.6/C.13 are partial,
+  not absent, and not a complete validated semantic memory or call graph.
+- The workbench, local preview, terminal, queue editing and rewind exist
+  (763c8b2a, fde0545c, 391a48e6). Preview for a person is not screenshot
+  inspection by the model. Rewind cannot reverse arbitrary command effects.
+- Prompt cache work spans messages (05b3beb7). The separate unmerged fix
+  0b90a4ef prevents wiki summaries from evicting that cache; do not attribute
+  it to develop.
+- Catalogue filters/sorting/size handling and installer recovery are built
+  (390ec34a, b6ded274, d5d535bb); Windows/backend preparation remain open.
+- Mac release records reach v0.1.2-alpha (875ceec3); the old "release not yet
+  published" / "Model Manager still to build" wording is historical.
+
+### Item-by-item disposition
+
+| Item | Status | Source or recorded decision | Current boundary / reason |
+|---|---|---|---|
+| A.1 | **fatto** | [docs/roadmap.md](roadmap.md) | Historical outside-reference diagnostic recorded in roadmap step 1; no new run or general capability claim. |
+| A.2 | **fatto** | [docs/roadmap.md](roadmap.md) | Historical Part E diagnostic recorded in step 5; the original measurement remains revision-scoped. |
+| A.3 | **parziale** | [suites/a1-tool-calls.json](../suites/a1-tool-calls.json) | Replay suite exists; representative live multi-family coverage is still open. |
+| A.4 | **fatto** | [suites/a2-navigation.json](../suites/a2-navigation.json) | First navigation suite exists; recorded completion closes that first version, not all navigation research. |
+| A.5 | **parziale** | [suites/a3-editing.json](../suites/a3-editing.json) | Editing fixtures exist; discriminating repeated small-model comparison is open. |
+| A.6 | **parziale** | [suites/a4-verification.json](../suites/a4-verification.json) | Verification fixtures exist; full product-path verifier adoption remains open. |
+| A.7 | **parziale** | [crates/pwr-orchestrator/tests/context_compaction.rs](../crates/pwr-orchestrator/tests/context_compaction.rs) | Compaction regression fixtures exist; a frozen A5 area, metrics and promotion gate are not complete. |
+| A.8 | **parziale** | [crates/pwr-eval/src/suite.rs](../crates/pwr-eval/src/suite.rs) | Evaluation machinery and earlier corpora exist; the new stack matrix is on the unmerged tools branch, not develop evidence. |
+| A.9 | **parziale** | [suites/a2-navigation.json](../suites/a2-navigation.json) | Some existing corpus tasks have been recast into area suites; full six-area re-audit remains open. |
+| A.10 | **parziale** | [crates/pwr-eval/src/suite.rs](../crates/pwr-eval/src/suite.rs) | Suite/area representation exists; not all six areas have their intended metrics and gates. |
+| A.11 | **proposto** | [crates/pwr-eval/src/lib.rs](../crates/pwr-eval/src/lib.rs) | Campaign reports exist; full durable per-task incremental campaign reporting is not established on develop. Branch runner work is separate. |
+| A.12 | **parziale** | [crates/pwr-mlx/sidecar/pwr_mlx.py](../crates/pwr-mlx/sidecar/pwr_mlx.py) | Engine peak-memory telemetry exists; this is not continuous resident-memory accounting for every evaluator campaign. |
+| A.13 | **proposto** | [crates/pwr-domain/src/lib.rs](../crates/pwr-domain/src/lib.rs) | check_schema_version rejects unsupported versions; general artifact upgrades remain to implement. |
+| A.15 | **parziale** | [crates/pwr-orchestrator/src/window.rs](../crates/pwr-orchestrator/src/window.rs) | Computed configuration exists and historical diagnostics motivate it; controlled product-level comparison remains open. |
+| A.16 | **parziale** | [crates/pwr-cli/build.rs](../crates/pwr-cli/build.rs) | Empty-source fingerprints are rejected at build time; historical report attribution and evaluator admission remain separate follow-ups. |
+| A.17 | **parziale** | [crates/pwr-mlx/sidecar/pwr_mlx.py](../crates/pwr-mlx/sidecar/pwr_mlx.py) | Reasoning control and cache reuse are implemented, including 05b3beb7; long-prefill/per-deployment performance still needs measurement. |
+| A.14 | **proposto** | [docs/local-agent-research.md](local-agent-research.md) | Research contract names legibility; no adopted human-rating rubric/procedure was found in the reviewed tree. |
+| R.1 | **fatto** | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | Rust gates are configured; 07e3ab25 includes later CI fixes. This audit does not assert a fresh green remote run. |
+| R.2 | **fatto** | [crates/pwr-cli/src/serve.rs](../crates/pwr-cli/src/serve.rs) | Ask/Auto settings and approval handling exist; branch changes to grant propagation are not merged. |
+| R.3 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Unsupported command confinement is refused; this does not implement Windows isolation. |
+| R.4 | **proposto** | [crates/pwr-llama/src/lib.rs](../crates/pwr-llama/src/lib.rs) | LlamaProvider::chat still starts LlamaServer per generation; persistent-server lifecycle remains open. |
+| R.5 | **fatto** | [README.md](../README.md) | README now describes the macOS MLX alpha and experimental GGUF path; historical wording is superseded. |
+| R.6 | **proposto** | [Cargo.lock](../Cargo.lock) | Dependency manifest exists, but a generated distributable licence inventory was not found. |
+| R.7 | **fatto** | [.gitignore](../.gitignore) | Secret/weight exclusions exist; this does not certify historical commits contain no secrets. |
+| R.8 | **fatto** | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | Desktop npm tests/build and sidecar unit tests are configured; agent.store.spec.ts and other specs exist. Old no-tests/no-CI statement is obsolete (881f3978, 07e3ab25). |
+| R.9 | **parziale** | [.gitignore](../.gitignore) | Private research artifacts remain excluded; policy for publishing anonymized evidence remains open. |
+| R.10 | **parziale** | [crates/pwr-orchestrator/src/baseline.rs](../crates/pwr-orchestrator/src/baseline.rs) | B0 exists; the paired small-model campaign and declared semantic-retrieval treatment are still not completed evidence on develop. |
+| R.11 | **parziale** | [crates/pwr-cli/src/two_loops.rs](../crates/pwr-cli/src/two_loops.rs) | Shared boundary fixtures exist, but conversation/run planning, compaction and recovery are not one complete contract. |
+| B.1 | **fatto** | [crates/pwr-cli/src/main.rs](../crates/pwr-cli/src/main.rs) | Computed-profile path allows loading without the old calibration gate; Quick Calibration remains optional evidence, not that old gate. |
+| B.2 | **fatto** | [crates/pwr-orchestrator/src/window.rs](../crates/pwr-orchestrator/src/window.rs) | Window arithmetic and binding-limit explanation exist; prefill estimates and latency limits remain refinements, not measured guarantees. |
+| B.3 | **parziale** | [crates/pwr-models/src/hub.rs](../crates/pwr-models/src/hub.rs) | Model catalogue and fit metadata exist; a measured multi-hardware capability catalogue does not. Only committed develop is reviewed. |
+| B.3a | **parziale** | [crates/pwr-cli/src/selection.rs](../crates/pwr-cli/src/selection.rs) | Selection and public metadata support shortlisting; a refreshed evidence-backed shortlist remains an ongoing research deliverable. |
+| B.3b | **proposto** | [docs/local-agent-research.md](local-agent-research.md) | Equal-memory weight-quantization comparison is unmeasured; distinct from proposed KV-cache quantization. |
+| B.4 | **proposto** | [crates/pwr-runtime/src/host.rs](../crates/pwr-runtime/src/host.rs) | Host detection exists; no validated 16 GB cohort/campaign is established by it. |
+| B.5 / B.6 | **fatto** | [crates/pwr-mlx/sidecar/pwr_mlx.py](../crates/pwr-mlx/sidecar/pwr_mlx.py) | Own MLX engine and template/reasoning/cache lifecycle exist; joint original item B.5/B.6. |
+| B.7 | **parziale** | [crates/pwr-llama/src/lib.rs](../crates/pwr-llama/src/lib.rs) | GGUF generation adapter exists; persistent serving, Windows isolation and desktop admission are incomplete. |
+| B.8 | **parziale** | [crates/pwr-models/src/loader.rs](../crates/pwr-models/src/loader.rs) | Downloads, resume and verification exist; gated-access UX and full disk-pressure handling remain open. Uncommitted main-checkout edits excluded. |
+| B.9a | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Guard tolerances and safe editing checks exist; original bounded repair is closed. |
+| B.9 | **fatto** | [crates/pwr-llama/src/lib.rs](../crates/pwr-llama/src/lib.rs) | llama.cpp requests required native tool choice when a catalogue is sent; the original grammar-backed increment is closed. This is not a claim of constrained MLX decoding or semantically correct actions. |
+| B.10 | **fatto** | [apps/desktop/package.json](../apps/desktop/package.json) | Separate frontend lab superseded by Tauri/Angular; closed by replacement, not by finishing Slint. |
+| B.11 | **parziale** | [crates/pwr-cli/src/compatibility.rs](../crates/pwr-cli/src/compatibility.rs) | Unknown-model states, calibration and reasoning controls exist; Verified registry remains empty and backend coverage incomplete. |
+| C.1 | **parziale** | [crates/pwr-orchestrator/src/compaction.rs](../crates/pwr-orchestrator/src/compaction.rs) | Automatic/manual conversation compaction share a function; scripted-run ledger compaction remains separate. |
+| C.2 | **parziale** | [crates/pwr-orchestrator/src/stall.rs](../crates/pwr-orchestrator/src/stall.rs) | Budgets and stall guards exist; shared defaults still need evidence. Branch goal-review changes are not develop. |
+| C.3 | **parziale** | [crates/pwr-orchestrator/src/converse.rs](../crates/pwr-orchestrator/src/converse.rs) | Workspace compact_at threshold exists; historical HISTORY_BUDGET_SHARE=0.5 is not the current universal conversation policy. Evidence-based allocation remains open. |
+| C.4 | **proposto** | [crates/pwr-orchestrator/src/session.rs](../crates/pwr-orchestrator/src/session.rs) | Deterministic execution decisions exist; the proposed learned/constrained small-decision classifier is not adopted. |
+| C.5 | **parziale** | [crates/pwr-verify/src/lib.rs](../crates/pwr-verify/src/lib.rs) | Check discovery, diffs, hashes and repository indexing already offload mechanical work; the full proposed diagnostic/check-selection scope remains open. |
+| C.6 | **parziale** | [crates/pwr-orchestrator/src/personal.rs](../crates/pwr-orchestrator/src/personal.rs) | Confirmed memories, wiki and recall exist (5763def8, b2d56c9a, 299bbe71); full semantic/procedural memory and evidence rehydration do not. |
+| C.11 | **parziale** | [crates/pwr-observe/src/lib.rs](../crates/pwr-observe/src/lib.rs) | Audit/replay metrics and engine traces exist; consolidated live operating-regime diagnosis is not established. |
+| C.13 | **parziale** | [crates/pwr-orchestrator/src/graph.rs](../crates/pwr-orchestrator/src/graph.rs) | Graph, path-rule import resolution, certainty labels and wiki_query exist (f49083fe, 391a48e6); complete language/call graph and measured retrieval benefit remain open. |
+| C.14 | **proposto** | [crates/pwr-orchestrator/src/plan.rs](../crates/pwr-orchestrator/src/plan.rs) | Plan structures exist; staged clean-context node execution as the proposed experiment is not adopted. |
+| C.15 | **parziale** | [crates/pwr-mlx/sidecar/pwr_mlx.py](../crates/pwr-mlx/sidecar/pwr_mlx.py) | Reasoning budgets and bounded close exist; general recovery by returning a runaway reasoning tail remains experimental/unimplemented. |
+| C.21 | **parziale** | [crates/pwr-orchestrator/src/context.rs](../crates/pwr-orchestrator/src/context.rs) | Angular topology/framework guidance exists; general skill-pack library, admission and held-out validation remain open. |
+| C.22 | **parziale** | [crates/pwr-cli/src/semantic.rs](../crates/pwr-cli/src/semantic.rs) | Offline encoder fusion exists, opt-in; modest recorded results do not close repeated coding-uplift validation. |
+| D.E2E-28 | **fatto** | [docs/roadmap.md](roadmap.md) | Closed original finding: historical empty-workspace diagnostic. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-29 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Closed original finding: read-only installed dependencies. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-30 | **fatto** | [crates/pwr-cli/src/main.rs](../crates/pwr-cli/src/main.rs) | Closed original finding: protected-path policy in scripted runs. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-32 | **fatto** | [crates/pwr-orchestrator/src/converse.rs](../crates/pwr-orchestrator/src/converse.rs) | Closed original finding: short answer presentation. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-31 | **fatto** | [crates/pwr-cli/src/serve.rs](../crates/pwr-cli/src/serve.rs) | Closed original finding: baseline-aware goal verification and stop handling. Recorded runs remain historical and were not repeated for this audit. |
+| C.22a | **fatto** | [docs/backlog.md](backlog.md) | Historical decider trial closed with non-adoption; no new trial or capability claim. Retained evidence record references the private experiment. |
+| C.22b | **proposto** | [docs/backlog.md](backlog.md) | Recorded by 6b03dd75; encoder-ranked evidence after compaction has no implementation/campaign yet. |
+| C.23 | **proposto** | [crates/pwr-orchestrator/src/converse.rs](../crates/pwr-orchestrator/src/converse.rs) | Single conversation loop exists; FAST/STANDARD/DEEP router and adaptive skill/tool switching are not implemented as a system. |
+| C.24 | **parziale** | [scripts/model_forms.py](../scripts/model_forms.py) | Audit reports and first form repairs exist; learned per-model configuration and full loop parity remain open. |
+| C.26 | **fatto** | [crates/pwr-orchestrator/src/converse.rs](../crates/pwr-orchestrator/src/converse.rs) | No-workspace chat exists; later commits 256bd457 and 299bbe71 add appropriate tools and read-only project knowledge. |
+| C.25 | **parziale** | [crates/pwr-mlx/sidecar/pwr_mlx.py](../crates/pwr-mlx/sidecar/pwr_mlx.py) | Vision input is supported experimentally; autonomous page screenshot tool is only on feature/agent-tools. Image retention through compaction/GGUF remain open. |
+| C.12 | **parziale** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Dependency search and existing URL-fetch primitives exist; full web search/versioned documentation retrieval is not complete. Branch fetch/toolchain work is separate. |
+| C.7 | **proposto** | [crates/pwr-orchestrator/src/baseline.rs](../crates/pwr-orchestrator/src/baseline.rs) | Fixed controls exist; adaptive-policy advantage has not passed a confirmatory gate. |
+| C.8 | **proposto** | [docs/local-agent-research.md](local-agent-research.md) | Product gate remains a research contract, not a completed held-out result; branch campaign is not merged evidence. |
+| C.9 | **parziale** | [crates/pwr-provider/src/lib.rs](../crates/pwr-provider/src/lib.rs) | Vision is an admitted experimental path; browser/MCP/apps breadth is not generally implemented or validated. |
+| C.10 | **proposto** | [docs/roadmap.md](roadmap.md) | R3 confirmatory resumption remains deferred; historical development runs are not promotion evidence. |
+| C.5a | **fatto** | [crates/pwr-orchestrator/src/lib.rs](../crates/pwr-orchestrator/src/lib.rs) | Check-discovery guidance is included in the runtime's work context. |
+| C.16a | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | File-result content handling fix exists; original JSON-escaping issue is a closed implementation record. |
+| C.16 | **fatto** | [crates/pwr-repo/src/lib.rs](../crates/pwr-repo/src/lib.rs) | Symbol extraction/enclosing context exists; scope remains shallow rather than full semantic analysis. |
+| C.17 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | restore_file exists, with core-backed app revert added later. |
+| C.18 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Whole-file shrink guard exists; bounded guard is not proof against every destructive edit. |
+| C.19 | **parziale** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Hash/read history and tolerance exist; broad acceptance of a superseded hash must not be inferred. Proposed same-run recovery remains open. |
+| C.20 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Root-anchored path resolution exists; later path-boundary fixes at 881f3978 are included. |
+| D.1 | **fatto** | [apps/desktop/package.json](../apps/desktop/package.json) | Tauri/Angular chosen and implemented; Slint/GPUI comparison is a closed decision, Windows validation remains elsewhere. |
+| D.2 | **fatto** | [apps/desktop/src/app/ui/conversation.ts](../apps/desktop/src/app/ui/conversation.ts) | Conversation UI exists, with later phases/action layout at 7db13afc and 3a1170ba. |
+| D.3 | **fatto** | [apps/desktop/src/app/ui/trace.ts](../apps/desktop/src/app/ui/trace.ts) | Live action display exists; layout refined rather than still awaiting first implementation. |
+| D.4 | **parziale** | [apps/desktop/src/app/ui/permission.ts](../apps/desktop/src/app/ui/permission.ts) | Permission interaction exists; usability evidence from unfamiliar users is still open. |
+| D.5 | **fatto** | [apps/desktop/src/app/ui/diff.ts](../apps/desktop/src/app/ui/diff.ts) | Diff/revert surface exists; workbench supersedes the old inspector layout. |
+| D.6 | **parziale** | [apps/desktop/src/app/ui/model-manager.ts](../apps/desktop/src/app/ui/model-manager.ts) | Hub catalogue, filters, sorting, downloads and fit exist (390ec34a); Windows/backend switching/preparation scope remains open. |
+| D.7 | **fatto** | [apps/desktop/src/app/ui/context-meter.ts](../apps/desktop/src/app/ui/context-meter.ts) | Context/window controls exist; usage updates were refined in 33cd9c1e. |
+| D.8 | **fatto** | [crates/pwr-cli/src/serve.rs](../crates/pwr-cli/src/serve.rs) | Session persistence/resume exists; remaining past-action replay/rewind limits are refinements, not absence of sessions. |
+| D.9 | **parziale** | [apps/desktop/src/app/ui/settings.ts](../apps/desktop/src/app/ui/settings.ts) | Settings pages/profile controls exist (29dccd62); full per-kind permission configuration is not established. |
+| D.10 | **parziale** | [apps/desktop/src/app/ui/engine-setup.ts](../apps/desktop/src/app/ui/engine-setup.ts) | Installer, retry/recovery and first-run entry exist (d5d535bb); guided first task remains open. |
+| D.11 | **parziale** | [apps/desktop/src/app/ui/workbench/cards.ts](../apps/desktop/src/app/ui/workbench/cards.ts) | Workbench exposes evidence and related views (fde0545c); complete verification/stop-class usability remains open. |
+| D.12 | **parziale** | [apps/desktop/src/app/core/agent.store.ts](../apps/desktop/src/app/core/agent.store.ts) | Error/empty/cancel paths and tests exist; comprehensive offline/recovery UX remains ongoing alpha work. |
+| D.13 | **fatto** | [crates/pwr-orchestrator/src/converse.rs](../crates/pwr-orchestrator/src/converse.rs) | Streaming chunks are produced and rendered; the old yes/no decision is closed. |
+| D.14 | **proposto** | [crates/pwr-cli/src/serve.rs](../crates/pwr-cli/src/serve.rs) | Persistent reject_always interaction was not found; keep distinct from rejecting one approval. |
+| D.15 | **parziale** | [crates/pwr-orchestrator/src/converse.rs](../crates/pwr-orchestrator/src/converse.rs) | Read-only chat/known-project recall exists; a dedicated read-only mode for an active coding workspace is a separate unfinished scope. |
+| D.16 | **parziale** | [crates/pwr-orchestrator/src/personal.rs](../crates/pwr-orchestrator/src/personal.rs) | Preferred response language exists; whole-app localization/product-language decision remains open. |
+| D.17 | **parziale** | [scripts/release-macos.sh](../scripts/release-macos.sh) | Mac alpha packaging and release notes exist through v0.1.2; not merely a prepared v0.1.0. Notarization, Windows and full product acceptance remain open. |
+| D.E2E-1 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Closed original finding: argv-only execution and shell-operator handling. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-2 | **fatto** | [crates/pwr-orchestrator/src/stall.rs](../crates/pwr-orchestrator/src/stall.rs) | Closed original finding: no-progress detection. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-3 | **fatto** | [crates/pwr-cli/src/serve.rs](../crates/pwr-cli/src/serve.rs) | Closed original finding: workspace context setting. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-4 | **fatto** | [crates/pwr-tools/src/service.rs](../crates/pwr-tools/src/service.rs) | Closed original finding: supervised process cleanup. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-6 | **fatto** | [crates/pwr-orchestrator/src/converse.rs](../crates/pwr-orchestrator/src/converse.rs) | Closed original finding: tool-call identity handling. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-7 | **fatto** | [docs/roadmap.md](roadmap.md) | Closed original finding: historical website diagnostic, not current-revision acceptance. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-8 | **fatto** | [docs/backlog.md](backlog.md) | Closed original finding: historical website diagnostic and documented fixes. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-9 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Closed original finding: read-only reference folder resolution. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-11 | **fatto** | [crates/pwr-orchestrator/src/context.rs](../crates/pwr-orchestrator/src/context.rs) | Closed original finding: Angular topology and framework guidance. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-12 | **proposto** | [apps/desktop/src/app/ui/workbench/cards.ts](../apps/desktop/src/app/ui/workbench/cards.ts) | User-facing preview exists; model-facing look_at is on the unmerged branch only, so this is not done on develop. |
+| D.E2E-13 | **fatto** | [docs/backlog.md](backlog.md) | Closed original finding: historical maintainer website rerun, not a new benchmark. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-10 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Closed original finding: command-output normalization. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-14 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Closed original finding: path containment handling, further hardened by 881f3978. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-15 | **parziale** | [crates/pwr-tools/src/document.rs](../crates/pwr-tools/src/document.rs) | Document outline/bounded reads exist; repeated cost/quality evidence is still outstanding. |
+| D.E2E-16 | **fatto** | [apps/desktop/src/app/ui/conversation.ts](../apps/desktop/src/app/ui/conversation.ts) | Closed original finding: live conversation rendering. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-17 | **fatto** | [crates/pwr-mlx/src/lib.rs](../crates/pwr-mlx/src/lib.rs) | Closed original finding: engine liveness/failure handling. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-18 | **fatto** | [crates/pwr-verify/src/lib.rs](../crates/pwr-verify/src/lib.rs) | Closed original finding: repository verification boundary; model-facing screenshot work remains separate. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-19 | **fatto** | [apps/desktop/src/app/core/agent.store.ts](../apps/desktop/src/app/core/agent.store.ts) | Closed original finding: conversation state handling and regression fixtures. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-20 | **fatto** | [crates/pwr-cli/src/serve.rs](../crates/pwr-cli/src/serve.rs) | Closed original finding: goal continuation handling; later review changes are unmerged. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-21 | **fatto** | [crates/pwr-mlx/sidecar/pwr_mlx.py](../crates/pwr-mlx/sidecar/pwr_mlx.py) | Closed original finding: prompt-cache lifecycle, extended across messages by 05b3beb7. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-22 | **fatto** | [crates/pwr-orchestrator/src/converse.rs](../crates/pwr-orchestrator/src/converse.rs) | Closed original finding: generation and failure records. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-23 | **fatto** | [docs/backlog.md](backlog.md) | Closed original finding: historical intervention analysis; no new autonomous capability claim. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-24 | **fatto** | [crates/pwr-orchestrator/src/lib.rs](../crates/pwr-orchestrator/src/lib.rs) | Closed original finding: model-profile application beyond checkout. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-25 | **fatto** | [docs/backlog.md](backlog.md) | Closed original finding: historical completion/intervention record. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-26 | **fatto** | [crates/pwr-tools/src/service.rs](../crates/pwr-tools/src/service.rs) | Closed original finding: service readiness and command handling. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-27 | **fatto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Closed original finding: reference-folder matching. Recorded runs remain historical and were not repeated for this audit. |
+| D.E2E-5 | **proposto** | [docs/backlog.md](backlog.md) | Recorded model-specific corrupted-code investigation remains unresolved; no repair inferred from generic safeguards. |
+| E.1 | **proposto** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | macOS confinement exists; no Windows isolation adapter established on develop. |
+| E.2 | **proposto** | [.github/workflows/ci.yml](../.github/workflows/ci.yml) | Current CI is macOS; a supported Windows core path has not been validated here. |
+| E.3 | **parziale** | [scripts/release-macos.sh](../scripts/release-macos.sh) | Ad-hoc signed Mac distribution exists; notarization and signed Windows installer are not complete. |
+| E.4 | **parziale** | [crates/pwr-tools/src/lib.rs](../crates/pwr-tools/src/lib.rs) | Authorization/confinement checks exist on macOS; cross-platform guarantees remain open. |
+| F.1 | **parziale** | [crates/pwr-orchestrator/src/lib.rs](../crates/pwr-orchestrator/src/lib.rs) | Several responsibilities extracted to modules; lib.rs still has 7,705 lines at the audited revision, so structural debt remains. |
+| F.2 | **proposto** | [crates/pwr-store/src/lib.rs](../crates/pwr-store/src/lib.rs) | Two migration versions and event persistence exist; no general artifact table/migration system found. |
+| F.3 | **proposto** | [crates/pwr-cli/src/compatibility.rs](../crates/pwr-cli/src/compatibility.rs) | Closed as superseded: removing all calibration would contradict B.11 Quick Calibration. Any removal must target obsolete gate code only, with a new bounded scope. |
+
+### New proposal retained from the 2026-09-27 discussion
+
+- [ ] **C.22c Versioned documentation RAG and KV-cache quantization.**
+  **proposto.** The code foundation is
+  [`retrieve_with`](../crates/pwr-repo/src/lib.rs),
+  [`EmbeddingRanker`](../crates/pwr-cli/src/semantic.rs),
+  [`compaction`](../crates/pwr-orchestrator/src/compaction.rs) and
+  [`window`](../crates/pwr-orchestrator/src/window.rs); the new integration is
+  not implemented. Import versioned reference documents and verified examples,
+  preserve full requirements/revisions durably, expose document lookup during
+  work, and coordinate post-compaction evidence recovery with C.22b. Fix
+  encoder-length/chunk mismatch and give sources provenance/version filters.
+  Separately investigate opt-in KV-cache quantization, starting at 8-bit:
+  integrate it in custom prefill and cache restoration, account for actual
+  cache format without assuming prefill scratch memory shrinks proportionally,
+  and retain native model-length bounds. Compare retrieval and memory policies
+  at equal token budget, cache precision at fixed window, then larger windows
+  under fixed memory. Judge verified completion, requirement retention, latency
+  and peak memory with repeated protected acceptance tasks. R.11/C.1 are
+  consolidation dependencies; no campaign or priority change is authorized by
+  recording the idea. The longer draft in the main checkout is uncommitted and
+  intentionally not required by this docs-only branch.
+
+### Work not yet merged: feature/agent-tools
+
+Reviewed with `git log develop..feature/agent-tools --oneline`, ending at
+`6cf6bf749fb9373c70022cf19312f52a4ab5ccc6`. These are branch capabilities and
+experiment infrastructure, **not develop implementations or validated results**.
+The branch may advance after this snapshot; this audit neither edits nor merges it.
+No private held-out content or outcomes are included here.
+
+| Theme | Representative unmerged commits | Related items |
+|---|---|---|
+| Program/network/container approvals and workspace-local toolchains; grants used by checks | 46441e8b, ed56c03b, 4a43dfe7, 8795ee24, 948725fb, 72e4056f, 1ced8e6c, 8ac3bcd6 | R.2, C.5, platform policy |
+| Goal completion/review against named requirements, independent review, repeated/no-progress actions | 6c6969f7, 631d1e79, 2dcea407, aeb9e52c, 4f035f49, 59dfeb25 | C.2, C.8, verification |
+| Local-page screenshot tool wired to conversations | 9bab8a52, 0786af57 | C.25 step 3, D.E2E-12 |
+| Cache checkpoint/telemetry and wiki-summary cache interference | 0c207654, 638b821a, 0b90a4ef | A.12, A.17, D.E2E-21 |
+| Tool-call parsing, bounded output, timeouts, service/command feedback, URL/download behaviour, Swift sandbox | f8d2986e, d1baab66, be3e48dc, ea92cc74, 5d363988, fbbfb102, 79000b28, 03ec5090 | A.3, C.12, C.24, tools |
+| Stack-matrix runner, pinned binary/sidecar, independent verification, task digests, protocol versions, external task directories and reporting | d2825d99, 57c1f174, 1218fbae, 88aa711d, c02360ec, 6cf6bf74 | A.8, A.11, A.16, R.10 |
+
+### Remaining work order
+
+1. Keep public-alpha correctness, CI, licence inventory (R.6), packaging and
+   installer recovery distinct from model-quality claims; R.8 is no longer a
+   missing implementation.
+2. R.10's fixed baseline already exists. Complete the declared, repeated
+   small-model comparison and discriminating context-filter evaluation once
+   the measurement regime is frozen; do not rebuild the baseline needlessly.
+3. Keep R.4 persistent llama.cpp serving ahead of Windows/GGUF performance claims.
+4. Finish C.24's configuration/loop parity and evaluate model-facing page
+   inspection only after its branch work is reviewed and merged.
+5. Continue R.11/C.1 runtime/context consolidation. C.22b/C.22c remain behind
+   that consolidation; C.23 adaptation remains an experiment against fixed
+   controls. Windows isolation is an independent platform workstream.
+
+This reconciles the existing 2026-09-23 order with completed work; it does not
+restart, alter or interpret the running evaluation campaign.
+
+## Historical at-a-glance — 2026-09-24
 
 `- [x]` is done, `- [ ]` is open; an open item that is partly built starts with
 a **Status** line. The order of work is in [`roadmap.md`](roadmap.md), "Update
@@ -40,7 +273,7 @@ a **Status** line. The order of work is in [`roadmap.md`](roadmap.md), "Update
 | Unknown models, Quick Calibration, Reasoning Effort | built 2026-09-24: five profile states (no model is Verified yet), provenance-scoped evidence with deterministic reuse rules, a nine-request mechanical calibration, Low/Medium/High thinking budgets clamped by the context and enforced by the MLX engine with one bounded forced close ([model-compatibility.md](model-compatibility.md)) | B.11 |
 | Hardware profile, Model Manager, fit rating | built 2026-09-23: normalized host profile, Hub search (JSON API only), per-variant fit from the window arithmetic, verified resumable downloads into the engine's folder; not yet run on Windows | D.6, B.4, B.8 |
 
-**Largest open blocks**: Windows (E.1, E.2, B.7/R.4), packaging and signing
+**Historical list (superseded by the reconciliation above)**: Windows (E.1, E.2, B.7/R.4), packaging and signing
 (D.17), first run and onboarding (D.10), model downloads in the app (D.6,
 B.8), suites A5/A6 and the product gate (A.7, A.8, C.8), the 16 GB class
 (B.4), one runtime for chat and scripted runs (R.11, C.1).
@@ -337,19 +570,10 @@ belongs in the contract is the maintainer's call.
 Nothing here produces a product feature. It produces the ability to tell whether
 anything else worked.
 
-- [x] **A.1 Outside reference -- done 2026-09-18.**
-      `experiments/a1-bionic-reference-20260918`. Qwen3.6-35B-A3B (MLX 4-bit)
-      in Bionic at a 262,144-token window resolved **4 of 5**; PWR on the same
-      model and tasks at 16,384 resolved 0. The fifth was a false completion:
-      a wrong change to one-shot `decode()` hidden by rewriting two tests
-      outside the allowed files. By the preregistered rule: **the gap is
-      ours.**
-- [x] **A.2 Part E diagnostic -- done 2026-09-18.** At the host's window on
-      PWR's MLX engine, 4 of 5 with 64 actions: the same four Bionic
-      resolved (roadmap step 5; `experiments/part-e-orient64-mlx-20260918`).
-      Was: the same tasks at the host's window, with
-      `HISTORY_BUDGET_SHARE`, the action budget and the stall guard revisited.
-      Explicitly a diagnostic, not a campaign.
+<!-- A.1: retained under Closed records below. -->
+
+<!-- A.2: retained under Closed records below. -->
+
 - [ ] **A.3 Suite A1 — tool calls.** **Status 2026-09-23:** replay half built and in `cargo test` (roadmap step 6); open for the live half (valid-call rate on short scripted tasks). Record: Valid-call rate, malformed calls by kind,
       turns lost, recovery rate. Replay of recorded malformed outputs.
       *Replay half built 2026-09-19:* `suites/a1-tool-calls.json`, 46 cases
@@ -367,13 +591,8 @@ anything else worked.
       cutting legitimate code (fixed: the guard now requires back-to-back
       repetition). Still to add: other families' replies, and the live half
       (valid-call rate on short scripted tasks).
-- [x] **A.4 Suite A2 — navigation -- first version 2026-09-19.** Correct location found, actions and tokens
-      to find it, re-reads of unchanged files. `suites/a2-navigation.json`:
-      the nine repository questions of external-v1/v2, m6-hard-v1 and
-      m5-frozen-v1, re-audited, plus one built from Part E's forty-action
-      search for a test's class. First run 9 of 10: the miss was a decoder
-      fault (an XML `1000` read as a number for search's text field; fixed,
-      and added to A1); re-run of that case on the fixed binary, 10 of 10.
+<!-- A.4: retained under Closed records below. -->
+
 - [ ] **A.5 Suite A3 — editing.** **Status 2026-09-23:** first version built and run 6/6 (roadmap step 6); open because it does not yet tell two harness revisions apart on Qwen3.6 -- smaller models are the discriminating runs. Record: Applied first time, escape and whitespace
       failures, out-of-scope changes. *First version 2026-09-19:*
       `suites/a3-editing.json` over six self-contained tasks built by
@@ -546,60 +765,12 @@ Each item was checked against the code before being written here; the
 verdicts are in [`external-review-2026-09-23.md`](external-review-2026-09-23.md).
 Ordered by what they protect, not by size.
 
-- [x] **R.1 CI green again, and checked the way CI checks (2026-09-23).** The
-      public `main` went red with the 2026-09-23 push (`cargo fmt --check`),
-      and clippy with `-D warnings` had never been run on the branch. Fixed
-      locally (formatting, four lints); a change is now verified with `fmt
-      --check`, `clippy --all-targets -D warnings`, `cargo test` and the
-      milestone check, judged by exit codes. Pushed; the first CI run of the
-      branch's code then failed two tests that pass on the maintainer's Mac,
-      and CI now names failing tests as annotations, readable without an
-      account (job logs are not). Both were real: the sandbox allowed reads
-      of `/Applications/Xcode.app` only, so `git` from a renamed Xcode
-      (`Xcode_15.4.app` on the runner, `Xcode-beta.app` on some Macs) could
-      not read its own configuration -- every `/Applications/Xcode*.app` is
-      readable now; and the GGUF routing test asserted a 262K window that only
-      a large-memory host computes, where the runner correctly refuses it --
-      the test now accepts either the trained length or an explained refusal.
-- [x] **R.2 Conversation defaults that ask before they reach -- done 2026-09-23,
-      as two modes the maintainer chose.** `permission_mode` in the workspace's
-      chat config: **Ask** (the default) asks before `DependencyChange`,
-      `NetworkAccess`, `ToolchainInstall`, `HistoryRewrite` and `Publish`;
-      **Auto** grants every permission -- the question is lifted, the sandbox
-      and the policy's limits are not. A config saved before the modes that
-      still holds the old default nobody chose is migrated to Ask; a list
-      someone chose is kept. `_pwr/approvals` takes and returns `mode` (and
-      `asking`, what is actually asked now); the app has an Ask/Auto switch
-      beside Goal, amber in Auto. Tests:
-      `chat_approvals_follow_settings_and_session_grants`,
-      `configurations_from_before_the_modes_are_migrated_to_ask`. With Ask as
-      the default, the installed-dependency guard (D.E2E-29) holds in the app.
-      Was: **R.2 Conversation defaults that ask before they reach.** The
-      conversation pre-grants every approval except history rewrite and
-      publish -- so dependency changes, network access, toolchain installs,
-      local services and verifier adoption happen without a question, and
-      the installed-dependency guard (D.E2E-29) is inert in the app. Proposed
-      default: ask before `DependencyChange`, `NetworkAccess` and
-      `ToolchainInstall`; keep `LocalService` and `VerifierProposal` granted
-      within the workspace. Settings already carry `ask_before`, so this is a
-      default and a migration for existing configs, not new machinery.
-      **The maintainer's decision.**
-- [x] **R.3 Say when commands are not confined -- done 2026-09-23.**
-      `SandboxPolicy::Preferred` now **refuses** a command it cannot confine,
-      unless the person sets `PWR_ALLOW_UNCONFINED=1`; one decision shared
-      by `will_sandbox` and `prepare_command` so they cannot disagree
-      (`a_command_that_cannot_be_confined_is_refused_by_default`).
-      `_pwr/approvals` reports `sandboxed`, and the app shows "commands not
-      sandboxed". SECURITY.md rewritten to the current policy; its section on
-      an unconfined re-run described a fallback removed on 2026-09-13 and is
-      now history. Left: a sandbox state in the terminal console's header, and
-      the Linux and Windows adapters themselves. Was: **R.3 Say when commands
-      are not confined.** `SandboxPolicy::Preferred`
-      runs a command unconfined where the platform has no sandbox (every
-      platform but macOS), and nothing tells the person. Show the sandbox
-      state in the app and the CLI header; refuse by default outside macOS
-      until an adapter exists (Linux: bubblewrap or Landlock; Windows: a job
-      object and AppContainer), with an explicit opt-out.
+<!-- R.1: retained under Closed records below. -->
+
+<!-- R.2: retained under Closed records below. -->
+
+<!-- R.3: retained under Closed records below. -->
+
 - [ ] **R.4 Keep llama.cpp's server alive across turns.** **Status 2026-09-24:** not needed for the macOS release, where the app runs MLX only; required before Windows. `llama-server` now binds `127.0.0.1` only (`PWR_LLAMA_HOST` removed). `LlamaProvider::chat`
       starts `llama-server` per generation and kills it after one stream, so
       every turn pays the model load and loses the KV cache; `prepare_context`
@@ -607,26 +778,15 @@ Ordered by what they protect, not by size.
       llama/Windows performance claim: one server per deployment and window,
       reused across turns, and the served context read back. Validate with a
       multi-turn live smoke counting loads and time to first token.
-- [x] **R.5 README and platform claims that match the code -- done
-      2026-09-23:** status table as of that day (what runs live, what is
-      opt-in, llama.cpp as limited because its server reloads every turn),
-      setup through `setup-mlx.sh` and the Tauri app, the two permission modes
-      and the macOS-only sandbox. Was: **R.5 README and platform claims that
-      match the code.** The README
-      describes code "inspected on 2026-09-13", says nothing has run against a
-      live model, and calls llama "metadata inspection". Rewrite the status
-      from `roadmap.md`'s current table; state supported platforms plainly
-      (macOS on Apple silicon today; llama.cpp and Windows in progress).
+<!-- R.5: retained under Closed records below. -->
+
 - [ ] **R.6 A licence inventory.** Generate the Rust (`cargo-deny` or
       `cargo-about`), npm and Python licence lists, check them in CI against
       an allow list compatible with Apache-2.0.
-- [x] **R.7 `.gitignore` for secrets and weights -- done 2026-09-23.** Was: Add `.env`, `.env.*`
-      (keeping `.env.example`), `*.gguf`, `*.ggml`, `*.safetensors`, `*.pem`,
-      `*.key`, `*.p12`, `*.pfx`. Nothing of the kind is tracked today.
-- [ ] **R.8 The app in CI, with tests.** The Angular client has no spec files
-      and CI does not build it. First: a build job and tests for the agent
-      store (queue, steer, streaming, tool upserts), which is where the app's
-      bugs of 2026-09-22 were.
+<!-- R.7: retained under Closed records below. -->
+
+<!-- R.8: retained under Closed records below. -->
+
 - [ ] **R.9 Decide what research evidence is public -- first step done
       2026-09-23, by the maintainer's decision: removed from the public
       repository for now.** `.pwr/models` and `.pwr/calibrations` (108
@@ -668,63 +828,10 @@ Ordered by what they protect, not by size.
 
 ## Block B — Model and engine
 
-- [x] **B.1 Loading without a probe -- done 2026-09-18, not yet run against a
-      live backend.** `pwr run`, `eval run` (`--profile` now optional),
-      automatic routing and the console's model preparation no longer require
-      or run a calibration. Without one they compute the window (B.2), load
-      the model at it, read back what the backend served, and build an
-      execution profile labelled `Computed` whose id is derived from what
-      decided the window, so two campaigns under the same conditions still
-      pair. The run and campaign outputs carry a `window` record: every
-      ceiling, the binding one, where the facts came from. A named
-      calibration is still honoured and checked. `bootstrap_profile` is gone;
-      its label stays readable in old artifacts. Open decision 1 turned out
-      not to block this -- both of its answers drop the probe as a gate -- and
-      now only decides what F.3 deletes. **Found on the way: the console's
-      chat defaulted to 8,192 tokens**, below even the campaigns' 16,384, and
-      its "maximise" step raised it to the model's trained length with no
-      memory check. Both now go through the computed window; a console saved
-      under calibration is recomputed once on its next start. *Remaining:
-      speed observed from real turns (the latency ceiling), and the first
-      live run, which is step 3.*
-- [x] **B.2 Computed window** (Part D), wired into every command 2026-09-18
-      with LM Studio reading the model's `config.json` from disk (through its
-      hub manifest, narrowed by variant, local endpoints only) and Ollama its
-      GGUF metadata; an unknown memory ceiling brings in a 32,768 fallback
-      unless a window was chosen explicitly. *Still open: GGUF under LM
-      Studio has no config and falls back; the transient constant.* *First
-      increment done 2026-09-18:*
-      `pwr_orchestrator::window` computes the window from a model's
-      `config.json` and the host's memory, keeps every ceiling and names the
-      one that bound it; 12 tests, and it parses all four configs on disk
-      (Qwen3.6-35B-A3B 20,480 B/token as the spike measured; Qwen3.8-27B,
-      Seed-OSS-36B dense, gpt-oss-20b with sliding layers). *Not yet wired
-      into any command.* *2026-09-18: the engine's own prefill proved the
-      point -- a fixed 8,192-token step materialised 41.9 GB of attention
-      scores at ~160k tokens and crashed a run the window said fitted; the
-      sidecar now shrinks the step with the context. That removes the crash but
-      not the cost: a cold 240,916-token prefill took 1,323 s (182 tokens/s),
-      because the scores are still materialised per step. A fused attention
-      path for prefill is the engine's next performance item.* *2026-09-19,
-      measured and replaced for the engine:* MLX 0.32 fuses prefill attention
-      for head dimensions 64, 80 and 128 and materialises scores for the rest
-      (Qwen3.5/3.6/3.8 use 256). The engine's peak is weights + cache + the
-      larger of a cache copy (while it grows) and the scores, when not fused:
-      Qwen3.6 at 240,916 tokens 36.1 GB measured vs 35.7 predicted, Seed-OSS
-      at 60,112 tokens 52.0 vs 51.9. The sidecar answers `attention` for a
-      head dimension without loading anything, `ModelFacts` carries
-      `prefill_scores_bytes`, and `window::decide` uses it; the step shrinks
-      only when attention is not fused. Windows on a 64 GiB M2 Max: Qwen3.8
-      107,520 -> 262,144, Seed-OSS 23,552 -> 59,392. The 4x rule remains for
-      backends that cannot say (LM Studio, Ollama). Its weakest constant was the prefill transient,
-      modelled as 4x the cache from one observation: it decides Seed-OSS's
-      window between about 23k and 119k tokens, so it is the first thing to
-      measure per architecture. Original scope: KV bytes per token from the model
-      config, less sliding-window and hybrid layers, plus the prefill transient
-      the spike measured at roughly four times the cache; latency ceiling from
-      observed prefill; **and a third ceiling from published effective context**,
-      because a trained maximum is an optimistic number (Part 0b). Which ceiling
-      bound the window is recorded and shown.
+<!-- B.1: retained under Closed records below. -->
+
+<!-- B.2: retained under Closed records below. -->
+
 - [ ] **B.3 Hardware catalogue.** Entries of (model, quantisation, engine) with
       weights' memory, KV bytes per token, trained maximum, measured speed, and
       the areas each has been evaluated in. The redesign's tiers are
@@ -749,21 +856,8 @@ Ordered by what they protect, not by size.
       assumed. *Blocked by open decision 6.*
 - [ ] **B.4 The 16 GB class.** *Blocked by open decision 3: a 16 GB machine, or
       a memory cap the engine enforces on this one.*
-- [x] **B.5 / B.6 The embedded MLX engine -- first version done 2026-09-18**
-      (roadmap step 4, moved up). `crates/pwr-mlx`: a Python sidecar over
-      `mlx-lm` (open decision 2 taken: sidecar, not C-API bindings, because
-      mlx-lm is the reference implementation of the architectures) that
-      renders the chat template itself -- reasoning off or budgeted, which LM
-      Studio's endpoint ignores -- reuses the prompt cache across turns through
-      a checkpoint, and stops a generation that loops; one sidecar per PWR
-      process; calls read with the family adapter so they arrive structured.
-      `--backend mlx`. The capability probe passes on Qwen3.6 in 148 s, edits 3
-      of 3 (`experiments/mlx-engine-20260918`). It is a backend beside the HTTP
-      ones rather than behind a separate `Engine` trait: the provider traits
-      already were that boundary. *Remaining:* shipping a Python runtime with
-      the app; the probe applying the model profile. *Done 2026-09-19:*
-      streaming the answer text up to where a call may begin; stopping a
-      generation on cancel (0.02 s) rather than draining it.
+<!-- B.5: retained under Closed records below. -->
+
 - [ ] **B.7 llama.cpp engine** **Status 2026-09-23:** generation works through a managed `llama-server`, but the server is started per generation (R.4); not a performance path yet. Record: (Windows, and comparable on macOS). *Required by
       the Windows build.* *Started 2026-09-20:* `pwr-llama` reads GGUF
       metadata and exposes it through the runtime backend as `--backend llama`;
@@ -832,39 +926,11 @@ Ordered by what they protect, not by size.
       wrote deployment evidence, the same GGUF passed A4 3/3 and A3 6/6 on
       `llama-server`, with all completions declared, none false, and task
       times between 0.9 and 2.9 minutes.
-- [x] **B.9a Tool-guard tolerance, found through the engine (2026-09-18).**
-      Edits carry the file's 64-character hash, which the model has to copy;
-      Qwen3.6 at 4-bit doubled one letter and every edit was refused as stale.
-      A claim within two edits of the current hash, or a twelve-character
-      prefix, now names the file; a changed file's hash is sixty-odd edits
-      away, so the guard keeps its purpose. The same run found Qwen3.6 writes
-      calls as XML, which the Qwen adapter now reads (`qwen-v2`).
-- [x] **B.9 Constrained decoding of tool calls -- done 2026-09-20.** The
-      llama.cpp backend now marks native tool choice as required whenever it
-      sends a tool catalogue. `llama-server` derives the tool grammar from that
-      catalogue, so the generated call is restricted to an offered name and
-      argument schema instead of asking the harness to parse a prose-shaped
-      request. The backend advertises `constrained_tool_calls`, its request
-      body is pinned by unit tests, and a live Nemotron smoke asked for an
-      unoffered `write_file` while exposing only `read_file`: it returned one
-      valid `read_file` object. This is a syntax guarantee, not a semantic one:
-      the harness still rejects an inappropriate but well-formed action through
-      its policy and tool guards. *CLI alignment, 2026-09-20:* the terminal
-      console is kept as the thin manual/research control surface rather than
-      removed before the app. `chat --model` now records an explicit MLX or
-      llama.cpp selection,
-      computes its window and opens a supervised chat without a probe;
-      capability probes are optional research diagnostics. The current manual
-      GGUF command is in `docs/current-cli.md`. Scripted `run` and `eval` still
-      have their legacy evidence admission and must be aligned with B.1 before
-      the frontend lab treats them as product-ready.
-- [x] **B.10 Frontend lab after constrained decoding.** **Closed 2026-09-23 as superseded:** the Tauri app became the manual-test surface directly (streaming, actions, stop, sessions, permissions), without a separate lab. Record: Start once B.9 has made
-      the tool-call channel stable enough not to redesign the UI every week.
-      This is not the final product surface: it is the manual-test app for the
-      next phase, covering local model selection/download status, run launch,
-      live action/log streaming, stop/cancel, artifacts, and suite/manual task
-      replay. Its job is to make engine and harness behaviour visible while R3
-      resumes and before S2/S3 harden the toolkit/product decisions.
+<!-- B.9a: retained under Closed records below. -->
+
+<!-- B.9: retained under Closed records below. -->
+
+<!-- B.10: retained under Closed records below. -->
 
 - [ ] **B.11 Unknown models and Reasoning Effort -- built 2026-09-24,
       alpha hardening.** A model without a profile is Provisional and usable
@@ -1146,120 +1212,18 @@ Ordered by what they protect, not by size.
       does not fix is the case for the encoder: requests whose answering
       section shares no content word with the question ("why does this project
       exist" -> "Definition and initial user").
-- [x] **D.E2E-28 Unattended end to end, from an empty workspace (2026-09-22).**
-      One `pwr run` on a fresh `cargo init --lib` outside any repository,
-      Qwen3.6-35B-A3B, no steering: an ISO-8601 duration parser with 18 tests,
-      **verified** against the workspace's own `cargo test` at step 18, 19 tool
-      actions, 5 minutes, two malformed calls recovered from. This is what
-      "works end to end" means here -- with a check to answer to. The same
-      task inside `experiments/` **declined**, correctly: `cargo` could not
-      read the parent workspace's `Cargo.toml` from inside the sandbox, so the
-      check could not run, and the model said so rather than claiming success.
-      A crate created inside another repository is a real case (the sandbox
-      denies the parent), and the refusal should name it before a person has
-      to work it out; the model's own diagnosis was right but cost the run.
-- [x] **D.E2E-29 A run made the checks pass by editing the library (2026-09-23).**
-      Built to answer "does dependency search change an outcome"
-      (`experiments/dependency-search-20260923`, three runs, n=1 each, no
-      capability claim): an in-house package installed in `node_modules`, an
-      acceptance test written first, and the right answer one line long.
-      Without the dependency search a run could not find the library by
-      searching -- `node_modules` is gitignored -- so it **edited the library**,
-      changing one character of its alphabet until the expected string came
-      out, and the audit recorded `verified: true` about a workspace whose
-      library no longer does what it says. Installed dependencies are now
-      read-only unless the run holds `DependencyChange`, which a manifest edit
-      already required; reading and searching them stay open
-      (`an_installed_dependency_cannot_be_edited_without_the_approval`).
-      Two more findings from the same three runs: the model reached for
-      `search in_dependencies` **at its fourth action, unprompted** (the open
-      question when it shipped), and neither arm that passed used the
-      library's behaviour -- one fitted a formula to the test's two cases. **A
-      check that names two expected strings is satisfied by fitting two
-      expected strings**; a contract for this task has to compare against the
-      library's own output over inputs the run cannot enumerate.
-- [x] **D.E2E-30 Protection that protected nothing, and a suite read wrongly (2026-09-23).**
-      Three faults found while preparing the small-model experiment. (1) The
-      scripted run (`pwr run`) built its policy with `protected` empty, so
-      `.pwr/protected.json` was honoured in the conversation and never in a
-      run: a run could rewrite the test it was measured by. (2) A protection
-      file that failed to parse, or used any key but `protected`, protected
-      nothing in silence -- the dependency-search runs wrote `{"paths": ...}`
-      and their acceptance tests were editable throughout (none was edited,
-      which is luck). Now absent means nothing protected, and present-but-
-      unreadable stops the work with the expected shape
-      (`a_protection_file_that_cannot_be_read_stops_the_work`). (3) From
-      `bf18ddb2` to this fix the full suite was read by grepping for
-      `FAILED|panicked`, which a compile error does not print: the
-      orchestrator's `audit` test target did not compile after
-      `in_dependencies` was added, and three commits were reported green.
-      The suite is now judged by cargo's exit code (975 passed, 0 failed).
-- [x] **D.E2E-32 A greeting answered mid-word (2026-09-23).** "Ciao" to
-      Qwen3-14B came back as "Ciao! How can I a". The engine produced the
-      whole reply (reproduced: "Ciao! Come posso aiutarti?", finish `stop`);
-      the core lost the tail. Qwen3-14B writes its own `<think>` block, so the
-      answer shown live began with the blank line after `</think>`, while the
-      adapter's reading of the whole reply was trimmed; `Live::finish` looked
-      for the shown text as a prefix of the whole, found none, and added
-      nothing. The two are now compared without leading whitespace
-      (`an_answer_after_an_inline_think_block_arrives_whole`). Any model whose
-      template does not pre-open the think block was exposed to it.
-- [x] **D.E2E-31 A fixed page, then fifty actions on a test setup nobody asked
-      about (2026-09-23).** The maintainer asked, in the app with Goal on and
-      Qwen3.6-35B-A3B, why the PWR site showed no text. The model found it
-      (every element carried `animate-on-scroll`, `opacity: 0`, and no script
-      ever added `.visible`), fixed it, and the build passed. It then ran
-      `npm test`, which had been failing since before the request (`ng test`:
-      "Cannot determine project or target"), and spent the next ~50 actions
-      and three check-ins rebuilding the test setup -- a karma target, then
-      vitest, rewriting `package.json` -- while the maintainer asked "it works
-      now, why are you still changing things?". The engineer's own `ng serve`
-      on port 4200 was **not** the cause: the model's `npm start` failed on the
-      busy port once, early, and it moved on. Read from the audit
-      (`experiments/web_pwr/.pwr/state.sqlite`), five faults, all fixed:
-      (1) **goal mode had no notion of a check already failing** -- it now runs
-      the checks once when a goal starts, tells the model which were already
-      failing and that they are outside the goal (not to be repaired unless the
-      engineer asks), and a completion whose only failures are those ends
-      instead of sending the model back (`already_failing_note`, serve.rs);
-      (2) **a copied hash with the right head and a borrowed tail** was refused
-      five times running although each refusal carried the right hash, until
-      the model rewrote the whole file -- `hash_matches` now also accepts a
-      claim whose first sixteen characters are the current hash's (64 bits);
-      (3) **a busy port** is refused before anything starts, named as probably
-      the engineer's server -- before, a readiness check could have taken the
-      engineer's server for the model's; (4) **the permission switch read
-      backwards**: it showed "Ask" with its knob off, which reads as "asking is
-      off", and the maintainer saw prompts they believed disabled (they were in
-      Ask mode, and the prompts were `DependencyChange` for `package.json`, as
-      Ask intends). It is now one label, **Auto-approve**, knob on = Auto, like
-      the Goal switch; (5) **stop did not stop**: the old run, still going,
-      hung on `npm install` and stop did nothing for minutes, because the turn
-      read the flag only between actions -- stop now interrupts a running
-      command, whose whole process group is killed with it
-      (`ProcessGroupGuard`); an edit is still never dropped half-written.
-      *Open:* a question steered into a goal turn ("why are
-      you still changing things?") was not answered before the next edit; the
-      goal prompt's "add focused deterministic checks" invited the new spec
-      file, and should be weighed against a request that asked for none.
-- [x] **C.22a Rizzo Flow as the context decider -- trial, 2026-09-23.** An
-      open, local System One implementation (Rizzo AI Academy, Apache-2.0,
-      Spark-X2.5-4B on llama.cpp), proposed by the maintainer. Run on the
-      M2 Max's Metal backend (untried by its authors), reranking the best
-      candidate list measured (section BM25 fused with e5-small, top 20).
-      **Every variant lowered precision** -- boolean with the request as
-      state 0.17, with every candidate in the state 0.14, abstention off
-      0.14, a 4-level score 0.17 -- against 0.28 for the fused order it was
-      given, at 5-7 s per request against 5 ms; it abstained on 42% of
-      answers with abstention on, and its probabilities were sharply peaked.
-      **Not adopted** for context selection, by the criterion fixed
-      beforehand; a reference like Jev. Short classifications (task kind,
-      "is the evidence enough") would be separate trials. **Protocol fix
-      found on the way:** the labels name sections by line, the day's
-      documentation pass shifted 16 of 45, and every arm now reads a pinned
-      copy of the tree at the labelling revision; the encoder and fusion
-      numbers reproduce exactly on it. Details:
-      `experiments/jev-context-filter-20260922/results-rizzo-flow.md`.
+<!-- D.E2E-28: retained under Closed records below. -->
+
+<!-- D.E2E-29: retained under Closed records below. -->
+
+<!-- D.E2E-30: retained under Closed records below. -->
+
+<!-- D.E2E-32: retained under Closed records below. -->
+
+<!-- D.E2E-31: retained under Closed records below. -->
+
+<!-- C.22a: retained under Closed records below. -->
+
 - [ ] **C.22b Encoder-ranked evidence after compaction -- future experiment,
       proposed 2026-09-25.** Inspired by
       [fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction):
@@ -1355,28 +1319,8 @@ Ordered by what they protect, not by size.
       and a fallback after a denial is refused and logged. Related: C.4, C.22
       (1) -- the profile can also carry "this model copes with at most N
       tools", and the encoder then chooses which N.
-- [x] **C.26 Chat mode: a conversation with no workspace -- decided and built
-      2026-09-23 with the maintainer.** Asked whether a "chat only" mode made
-      sense after a question turned into fifty actions (D.E2E-31), the
-      maintainer chose one **detached from any workspace**, to which only
-      files, folders and images can be attached for reading. Built that way:
-      the core keeps chat mode's conversations, settings and images in a folder
-      of its own (`~/.pwr/chat`, `PWR_CHAT_HOME`), advertised in
-      `initialize` as `_meta.pwr.chatHome`; a session opened there gets a
-      catalogue of `read_file` and `list_tree` only (a write or a command is
-      refused as unavailable, `chat_only_tool_catalog`), a policy with no
-      commands and no grants, its own short prompt, no checks, no repository
-      passages and no goal mode. Attached folders become read-only reference
-      folders -- `list_tree` now lists one given its path (it listed only the
-      workspace), and a new chat starts with none of the last one's. In the
-      app: "Chat without a workspace" under the workspace, "Open a workspace"
-      to go back; the model in use comes along; Goal and Auto-approve are
-      hidden. **Measured end to end** (`pwr serve`, Qwen3-14B MLX 4-bit): a
-      folder attached with a question -- one `read_file`, the right answer,
-      38 s; "add a function to calc.py" -- refused in words, the file
-      unchanged, no permission asked; the first prompt was 733 tokens, against
-      2,888 for "Ciao" in a workspace. *Open:* `search` inside attached
-      folders; the second answer came in English to an Italian request.
+<!-- C.26: retained under Closed records below. -->
+
 - [ ] **C.25 Images, for the models that can see -- idea, proposed 2026-09-23 by
       the maintainer.** **Status 2026-09-23: steps 1 and 2 built; step 3
       open.** *Step 2, built the same day -- the unified engine:* when a
@@ -1487,41 +1431,15 @@ Ordered by what they protect, not by size.
       MCP integration, scoped workers. *Blocked behind R5.*
 - [ ] **C.10 R3 resumed**, split into R3-A5 (mechanism, small window) and
       R3-A6 (completion, host's window). *Campaign: blocked.*
-- [x] **C.5a The model is told how the checks run -- done 2026-09-18.**
-      `latest_verification.commands` carries the check commands, and the
-      system prompt says the checks run by themselves after an edit. Runs had
-      spent 5-10 of 26 actions rediscovering the test command.
-- [x] **C.16a Tool results carry files as they are -- done 2026-09-18.** A
-      tool result held a file as a JSON string inside JSON, so the model saw
-      `\\.` for `\.` and every file as one line. JSON calls undid it on decode;
-      Qwen3.6's XML calls on the engine did not, and broke every edit near a
-      backslash (Part E budget variant, tomli-optional-seconds). `content`,
-      `stdout`, `stderr` and search hits now follow a one-line JSON envelope
-      verbatim. Every engine result before this fix carries the bug.
-- [x] **C.16 Enclosing symbol -- done 2026-09-18.** Search hits and read
-      windows carry `within` (`line 234: class T > line 3764: def test_x`),
-      read from indentation and definition keywords, no parser. Was: "which
-      class or function holds line N", as a
-      tool or as a field on read and search results. In the budget variant a
-      model spent forty actions reading a test file backwards to learn the
-      class of a test it had already found, with the answer on screen. Belongs
-      to A2 (navigation) and to step 7's tool catalogue.
-- [x] **C.17 Restore a file -- done 2026-09-18.** `restore_file` puts a file
-      back as the run first read or changed it; the run keeps those bytes
-      itself, because evaluation workspaces have their `.git` removed (so
-      the model cannot read the fix from history) and a git-based restore
-      would never have worked there. Was: twice in one run set a model broke a file with a
-      whole-file replacement and had no way back. A3 (editing) and A5 (recovery).
-      *Also found:* `vcs_status`/`vcs_diff` failed in the sandbox through
-      macOS's xcrun git shim; the harness now runs the installed git directly.
-      In evaluation workspaces they still have no repository to answer from.
-- [x] **C.18 Question a whole-file replacement that shrinks the file -- done
-      2026-09-18.** Refused, with the line counts, when a file of 40+ lines
-      would keep under half of them; a partial read now says its hash is the
-      whole file's and which tool edits only part. Was:
-      `apply_replace` accepted a 49-line body for an 800-line `results.py`. A
-      replacement losing most of a file should be refused with the numbers, or
-      at least named, before it lands. A3.
+<!-- C.5a: retained under Closed records below. -->
+
+<!-- C.16a: retained under Closed records below. -->
+
+<!-- C.16: retained under Closed records below. -->
+
+<!-- C.17: retained under Closed records below. -->
+
+<!-- C.18: retained under Closed records below. -->
 
 - [ ] **C.19 A hash superseded only by the run's own last edit.** Proposed
       2026-09-19, not decided: gpt-oss re-sends the hash it read before its
@@ -1532,16 +1450,7 @@ Ordered by what they protect, not by size.
       edit. A safety question for the maintainer before it is built;
       measurable on A3 with gpt-oss.
 
-- [x] **C.20 Root-anchored paths -- decided and done 2026-09-19.** A path
-      written as if the workspace were the filesystem root (`/slugify.py`, or
-      `/workspace/slugify.py` after the container convention) is read as the
-      workspace path it names, only when that exists inside the workspace;
-      anything else absolute is still refused, now naming the rule. The
-      protected-file guard normalises the same way (`/spec.md`, `./spec.md`
-      cannot reach a protected `spec.md`; tested). Why: Nemotron 3.5 wrote
-      such paths throughout the catalogue runs and kept them after a refusal
-      that named the right path, then spent its budget on
-      `os.path.abspath('.')`.
+<!-- C.20: retained under Closed records below. -->
 
 ## Block D — Product surface: UX and UI
 
@@ -1549,33 +1458,19 @@ Ordered by what they protect, not by size.
 application does not, and the terminal console is not a product surface by
 decision. By volume this is plausibly more work than every other block together.
 
-- [x] **D.1 S2 — toolkit spike.** **Closed 2026-09-23 -- decided 2026-09-22: Tauri 2 + Angular (signals), `apps/desktop`,** after the Slint candidate proved unsatisfactory in use; its prototype has since been removed. Windows evidence moves to D.17. Historical record of the spike: **Started 2026-09-20:** the Slint candidate
-      lives in `crates/pwr-app-slint/` and drives model catalog/selection,
-      session launch, task send and cancellation through `serve`; it is isolated
-      because its compiler conflicts with the terminal's exact Ratatui dependency.
-      **GPUI excluded provisionally:** 0.2.2 upstream supports macOS/Linux,
-      not the product's required Windows path. Slint still needs Windows and
-      fixed-manual-check evidence after the frontend integration pass. Both build
-      the same screen as `serve` clients on macOS and Windows, judged against
-      criteria fixed before the spike. The clarified product --
-      conversation-first, Windows required -- favours Slint; the spike decides.
-      No web UI.
-- [x] **D.2 Conversation view.** **Closed 2026-09-23 -- in the Tauri app:** a streamed conversation (reply and reasoning as they are written), one unified assistant turn, attachment cards for files and folders, drag and drop, reference folders. Record: **Attachment increment 2026-09-21:** the
-      Slint conversation can queue a workspace file path and sends it as a
-      read-only `resource_link` with the next prompt. Drag/drop and repository
-      citation presentation remain.
-- [x] **D.3 Action feed.** **Closed 2026-09-23 -- in the Tauri app:** each turn's actions grouped under it, live, with reads, edits and commands counted and retries shown; refinements belong to D.17. Record: What the agent is doing, now. This is the product's
-      central promise and the hardest thing on this list to get right.
+<!-- D.1: retained under Closed records below. -->
+
+<!-- D.2: retained under Closed records below. -->
+
+<!-- D.3: retained under Closed records below. -->
+
 - [ ] **D.4 Permission prompt.** **Status 2026-09-23:** built in the Tauri app (allow once, allow for the session, reject), and two permission modes, Ask and Auto (R.2). Still open: the S2 criterion -- clear to someone who has never used PWR -- has not been tested on anyone. Record: **Spike control implemented 2026-09-20:** the
       Slint client displays an incoming request and forwards allow-once,
       allow-for-run or reject-once; a turn waits rather than accepting silently.
       The S2 criterion is that it be clear *to someone who has never used
       PWR*; nobody has tested that on anyone.
-- [x] **D.5 Diff view.** **Closed 2026-09-23 -- in the Tauri app:** a Changes inspector with per-file diffs and +/- counts, the latest file open. Record: **Spike increment 2026-09-20:** the Slint client
-      renders the latest core-emitted diff (path, old text and new text), without
-      reading or writing workspace files. Still needs file navigation/history and
-      a review-quality view. Files and diffs stay inside the core's sandbox and
-      audit, and the app never writes them.
+<!-- D.5: retained under Closed records below. -->
+
 - [ ] **D.6 Model choice, download and preparation.** **Status 2026-09-23 (later):** the Tauri app has a Model Manager -- Hub search, per-variant fit for this machine, verified and resumable downloads into the engine's models folder, selectable at once for the running engine ([`models-and-context.md`](models-and-context.md)). Open: a Windows run, switching engine from the app, and preparing a GGUF for a workspace on MLX. Earlier: selection and the computed window are in the Tauri app; the download controls exist only in the Slint lab and still have to move. Record: **Selection increment
       implemented 2026-09-20:** `_pwr/models` reads the active catalog and
       selects only a discovered artifact for its workspace; it also returns the
@@ -1595,16 +1490,10 @@ decision. By volume this is plausibly more work than every other block together.
       multi-artifact queue management is now sequentially exposed by the Slint
       lab with per-artifact Download / resume and Download all controls. With
       B.8 it also becomes a download manager.
-- [x] **D.7 Window setting.** **Closed 2026-09-23 -- in the Tauri app:** smaller/larger window controls with the computed decision and its rationale, and a context meter (used / window / percent) fed by `_pwr/usage`. Record: **Core-backed setting increment 2026-09-21:**
-      `_pwr/models` accepts `contextTokens`, applies it through the selected
-      backend and returns the granted value plus supported options, binding
-      ceiling, memory budget and rationale. The Slint lab exposes
-      smaller/larger controls and displays those details. A richer calibration
-      history remains.
-- [x] **D.8 Sessions.** **Closed 2026-09-23 -- in the Tauri app:** conversations listed per workspace and resumed; the last workspace reopens. Still missing, tracked in D.17: replaying a resumed conversation's past actions in the timeline. Record: **List/resume increment 2026-09-21:** the Slint lab
-      lists workspace sessions through `session/list` and resumes one through
-      `session/resume`. Branch drift and interrupted-run state are still only
-      visible in the core response and need a dedicated view.
+<!-- D.7: retained under Closed records below. -->
+
+<!-- D.8: retained under Closed records below. -->
+
 - [ ] **D.9 Settings.** **Status 2026-09-23:** the Tauri app has the window and the Ask/Auto permission switch, and shows when commands are not sandboxed; the per-kind ask list is not exposed yet. Record: **Approval control increment 2026-09-21:** the Slint
       lab can replace the workspace's ask-before list with all supported action
       kinds or an empty list through `_pwr/approvals`. Model and window are
@@ -1622,9 +1511,8 @@ decision. By volume this is plausibly more work than every other block together.
       unavailable, cancellation requested and request errors; the catalog and
       action feed retain their detailed messages. Empty-catalog and recovery
       presentation still need dedicated copy and layout.
-- [x] **D.13 Token-level streaming?** **Closed 2026-09-22 -- yes:** `TurnStep::Streaming` carries reasoning and reply chunks, sent as ACP `agent_thought_chunk` and live `agent_message_chunk`; the app renders them as they arrive. Record: *`serve` open question 1: worth changing
-      `collect_reply` for, or reply-sized chunks until a client shows it
-      matters?*
+<!-- D.13: retained under Closed records below. -->
+
 - [ ] **D.14 `reject_always`.** *`serve` open question 2: it needs a session
       denylist PWR does not have. Add it, or keep the three options PWR
       can honour?*
@@ -1635,6 +1523,709 @@ decision. By volume this is plausibly more work than every other block together.
       not a detail to leave to the end.
 - [ ] **D.17 S3 — the app itself**, **Status 2026-09-24:** v0.1.0-alpha release packaging is prepared for macOS on Apple silicon: ad-hoc signed DMG with the core, the engine scripts and `uv` bundled; not notarized (first launch goes through System Settings → Privacy & Security → Open Anyway). The GitHub release is not yet published. Notarization and Windows remain. Record: covering everything the console does, on
       both platforms, with signed installable builds.
+
+<!-- D.E2E-1: retained under Closed records below. -->
+
+<!-- D.E2E-2: retained under Closed records below. -->
+
+<!-- D.E2E-3: retained under Closed records below. -->
+
+<!-- D.E2E-4: retained under Closed records below. -->
+
+<!-- D.E2E-6: retained under Closed records below. -->
+
+<!-- D.E2E-7: retained under Closed records below. -->
+
+<!-- D.E2E-8: retained under Closed records below. -->
+
+<!-- D.E2E-9: retained under Closed records below. -->
+
+<!-- D.E2E-11: retained under Closed records below. -->
+
+- [ ] **D.E2E-12 A way to see the rendered page (open).** Style is written
+      blind. Qwen3.6-35B-A3B and Qwen3.8-27B carry a vision encoder, but the
+      sidecar serves text through mlx-lm. Candidate: a `render_page` tool
+      (headless Chrome over CDP, as `experiments/site-e2e-contract/mobile-layout.mjs`
+      does) returning layout facts first, and a screenshot once the engine can
+      pass images (mlx-vlm). Measure against D.E2E-8 before adopting.
+<!-- D.E2E-13: retained under Closed records below. -->
+
+<!-- D.E2E-10: retained under Closed records below. -->
+
+<!-- D.E2E-14: retained under Closed records below. -->
+
+- [ ] **D.E2E-15 Whole documents cost minutes of prefill (measured, treatment built, 2026-09-22).**
+      Maintainer's rerun (D.E2E-13), Qwen3.6-35B-A3B on the M2 Max: the prefix
+      cache holds across steps and check-ins (242 new tokens in 3.7 s), but new
+      tokens at 20-56K context prefill at about 75 tok/s. The model read
+      `docs/roadmap.md` whole (~28K tokens): 21K -> 38K context in one step,
+      222 s. Nine documents read before the first edit, ~26 actions and ~11
+      minutes. A section-level read (headings first, then the part needed) or
+      a cached per-document digest is the obvious treatment -- the context
+      engine in the maintainer's single-agent proposal -- and should be
+      measured on this task.
+      **First treatment built, not yet measured (2026-09-22):** a Markdown
+      document over 24 KB asked for whole (no `first_line`/`max_lines`) comes
+      back as its first 80 lines plus its outline -- every heading outside
+      code fences with its line number and the document's size in tokens --
+      and the `read_file` description says to read sections by window. Code,
+      short documents and windowed reads are unchanged
+      (`a_long_document_read_whole_returns_its_outline`). To measure: the
+      website task's time to first edit and context at first edit, against
+      the D.E2E-13 rerun (~26 actions, ~11 min).
+<!-- D.E2E-16: retained under Closed records below. -->
+
+<!-- D.E2E-17: retained under Closed records below. -->
+
+<!-- D.E2E-18: retained under Closed records below. -->
+
+<!-- D.E2E-19: retained under Closed records below. -->
+
+<!-- D.E2E-20: retained under Closed records below. -->
+
+<!-- D.E2E-21: retained under Closed records below. -->
+
+<!-- D.E2E-22: retained under Closed records below. -->
+
+<!-- D.E2E-23: retained under Closed records below. -->
+
+<!-- D.E2E-24: retained under Closed records below. -->
+
+<!-- D.E2E-25: retained under Closed records below. -->
+
+<!-- D.E2E-26: retained under Closed records below. -->
+
+<!-- D.E2E-27: retained under Closed records below. -->
+
+- [ ] **D.E2E-5 Corrupted code from GLM-4.7-Flash (open, 2026-09-22).** A
+      session on the site workspace with `GLM-4.7-Flash-MLX-4bit` at 16K wrote
+      `ngOnInit0 {`, `styleUrl: '...css0;`, `</section2>` and dropped `</ul>`
+      tags -- present already in the tool-call payload, so not the write path.
+      Unknown whether it is the model at 4-bit or GLM detokenisation in the
+      sidecar; reproduce with `PWR_MLX_TRACE` before attributing it.
+
+## Block E — Platform and security
+
+- [ ] **E.1 Execution isolation on Windows.** The sandbox is macOS Seatbelt
+      only; Linux and Windows have probes, not equivalent confinement.
+      **PWR does not ship where it cannot confine what the agent runs**, so
+      this blocks the entire Windows half of the product. Nobody is working on
+      it, and it is the most underweighted risk in the plan.
+- [ ] **E.2 The core on Windows**, independently of the sandbox.
+- [ ] **E.3 Signed, installable builds** for macOS and Windows.
+- [ ] **E.4 Authorization claims** extended past macOS, with the same
+      confinement tests Seatbelt passes.
+
+## Block F — Structural debt
+
+Declared rather than hidden; none of it blocks an alpha.
+
+- [ ] **F.1 `pwr-orchestrator/src/lib.rs`** is about 7,000 lines and
+      **`pwr-cli/src/main.rs`** about 10,000. The CLI still holds
+      orchestration -- hardware probing, profile resolution, prompt
+      construction, the evaluation runner -- that belongs behind the
+      orchestrator's boundary.
+- [ ] **F.2 No artifact table**, and migrations are two `execute_batch` calls
+      rather than a mechanism.
+<!-- F.3: retained under Closed records below. -->
+
+## Closed records / Chiuse
+
+The following entries are retained verbatim apart from the explicit R.8
+checkbox closure. Their original dates and measurements belong to their
+recorded revisions. Closure reasons distinguish completed work, investigated
+findings and superseded proposals.
+
+### A.1 — closed record
+
+**Closure rationale (2026-09-27):** Historical outside-reference diagnostic recorded in roadmap step 1; no new run or general capability claim.
+
+- [x] **A.1 Outside reference -- done 2026-09-18.**
+      `experiments/a1-bionic-reference-20260918`. Qwen3.6-35B-A3B (MLX 4-bit)
+      in Bionic at a 262,144-token window resolved **4 of 5**; PWR on the same
+      model and tasks at 16,384 resolved 0. The fifth was a false completion:
+      a wrong change to one-shot `decode()` hidden by rewriting two tests
+      outside the allowed files. By the preregistered rule: **the gap is
+      ours.**
+
+### A.2 — closed record
+
+**Closure rationale (2026-09-27):** Historical Part E diagnostic recorded in step 5; the original measurement remains revision-scoped.
+
+- [x] **A.2 Part E diagnostic -- done 2026-09-18.** At the host's window on
+      PWR's MLX engine, 4 of 5 with 64 actions: the same four Bionic
+      resolved (roadmap step 5; `experiments/part-e-orient64-mlx-20260918`).
+      Was: the same tasks at the host's window, with
+      `HISTORY_BUDGET_SHARE`, the action budget and the stall guard revisited.
+      Explicitly a diagnostic, not a campaign.
+
+### A.4 — closed record
+
+**Closure rationale (2026-09-27):** First navigation suite exists; recorded completion closes that first version, not all navigation research.
+
+- [x] **A.4 Suite A2 — navigation -- first version 2026-09-19.** Correct location found, actions and tokens
+      to find it, re-reads of unchanged files. `suites/a2-navigation.json`:
+      the nine repository questions of external-v1/v2, m6-hard-v1 and
+      m5-frozen-v1, re-audited, plus one built from Part E's forty-action
+      search for a test's class. First run 9 of 10: the miss was a decoder
+      fault (an XML `1000` read as a number for search's text field; fixed,
+      and added to A1); re-run of that case on the fixed binary, 10 of 10.
+
+### R.1 — closed record
+
+**Closure rationale (2026-09-27):** Rust gates are configured; 07e3ab25 includes later CI fixes. This audit does not assert a fresh green remote run.
+
+- [x] **R.1 CI green again, and checked the way CI checks (2026-09-23).** The
+      public `main` went red with the 2026-09-23 push (`cargo fmt --check`),
+      and clippy with `-D warnings` had never been run on the branch. Fixed
+      locally (formatting, four lints); a change is now verified with `fmt
+      --check`, `clippy --all-targets -D warnings`, `cargo test` and the
+      milestone check, judged by exit codes. Pushed; the first CI run of the
+      branch's code then failed two tests that pass on the maintainer's Mac,
+      and CI now names failing tests as annotations, readable without an
+      account (job logs are not). Both were real: the sandbox allowed reads
+      of `/Applications/Xcode.app` only, so `git` from a renamed Xcode
+      (`Xcode_15.4.app` on the runner, `Xcode-beta.app` on some Macs) could
+      not read its own configuration -- every `/Applications/Xcode*.app` is
+      readable now; and the GGUF routing test asserted a 262K window that only
+      a large-memory host computes, where the runner correctly refuses it --
+      the test now accepts either the trained length or an explained refusal.
+
+### R.2 — closed record
+
+**Closure rationale (2026-09-27):** Ask/Auto settings and approval handling exist; branch changes to grant propagation are not merged.
+
+- [x] **R.2 Conversation defaults that ask before they reach -- done 2026-09-23,
+      as two modes the maintainer chose.** `permission_mode` in the workspace's
+      chat config: **Ask** (the default) asks before `DependencyChange`,
+      `NetworkAccess`, `ToolchainInstall`, `HistoryRewrite` and `Publish`;
+      **Auto** grants every permission -- the question is lifted, the sandbox
+      and the policy's limits are not. A config saved before the modes that
+      still holds the old default nobody chose is migrated to Ask; a list
+      someone chose is kept. `_pwr/approvals` takes and returns `mode` (and
+      `asking`, what is actually asked now); the app has an Ask/Auto switch
+      beside Goal, amber in Auto. Tests:
+      `chat_approvals_follow_settings_and_session_grants`,
+      `configurations_from_before_the_modes_are_migrated_to_ask`. With Ask as
+      the default, the installed-dependency guard (D.E2E-29) holds in the app.
+      Was: **R.2 Conversation defaults that ask before they reach.** The
+      conversation pre-grants every approval except history rewrite and
+      publish -- so dependency changes, network access, toolchain installs,
+      local services and verifier adoption happen without a question, and
+      the installed-dependency guard (D.E2E-29) is inert in the app. Proposed
+      default: ask before `DependencyChange`, `NetworkAccess` and
+      `ToolchainInstall`; keep `LocalService` and `VerifierProposal` granted
+      within the workspace. Settings already carry `ask_before`, so this is a
+      default and a migration for existing configs, not new machinery.
+      **The maintainer's decision.**
+
+### R.3 — closed record
+
+**Closure rationale (2026-09-27):** Unsupported command confinement is refused; this does not implement Windows isolation.
+
+- [x] **R.3 Say when commands are not confined -- done 2026-09-23.**
+      `SandboxPolicy::Preferred` now **refuses** a command it cannot confine,
+      unless the person sets `PWR_ALLOW_UNCONFINED=1`; one decision shared
+      by `will_sandbox` and `prepare_command` so they cannot disagree
+      (`a_command_that_cannot_be_confined_is_refused_by_default`).
+      `_pwr/approvals` reports `sandboxed`, and the app shows "commands not
+      sandboxed". SECURITY.md rewritten to the current policy; its section on
+      an unconfined re-run described a fallback removed on 2026-09-13 and is
+      now history. Left: a sandbox state in the terminal console's header, and
+      the Linux and Windows adapters themselves. Was: **R.3 Say when commands
+      are not confined.** `SandboxPolicy::Preferred`
+      runs a command unconfined where the platform has no sandbox (every
+      platform but macOS), and nothing tells the person. Show the sandbox
+      state in the app and the CLI header; refuse by default outside macOS
+      until an adapter exists (Linux: bubblewrap or Landlock; Windows: a job
+      object and AppContainer), with an explicit opt-out.
+
+### R.5 — closed record
+
+**Closure rationale (2026-09-27):** README now describes the macOS MLX alpha and experimental GGUF path; historical wording is superseded.
+
+- [x] **R.5 README and platform claims that match the code -- done
+      2026-09-23:** status table as of that day (what runs live, what is
+      opt-in, llama.cpp as limited because its server reloads every turn),
+      setup through `setup-mlx.sh` and the Tauri app, the two permission modes
+      and the macOS-only sandbox. Was: **R.5 README and platform claims that
+      match the code.** The README
+      describes code "inspected on 2026-09-13", says nothing has run against a
+      live model, and calls llama "metadata inspection". Rewrite the status
+      from `roadmap.md`'s current table; state supported platforms plainly
+      (macOS on Apple silicon today; llama.cpp and Windows in progress).
+
+### R.7 — closed record
+
+**Closure rationale (2026-09-27):** Secret/weight exclusions exist; this does not certify historical commits contain no secrets.
+
+- [x] **R.7 `.gitignore` for secrets and weights -- done 2026-09-23.** Was: Add `.env`, `.env.*`
+      (keeping `.env.example`), `*.gguf`, `*.ggml`, `*.safetensors`, `*.pem`,
+      `*.key`, `*.p12`, `*.pfx`. Nothing of the kind is tracked today.
+
+### R.8 — closed record
+
+**Closure rationale (2026-09-27):** Desktop npm tests/build and sidecar unit tests are configured; agent.store.spec.ts and other specs exist. Old no-tests/no-CI statement is obsolete (881f3978, 07e3ab25).
+
+- [x] **R.8 The app in CI, with tests.** The Angular client has no spec files
+      and CI does not build it. First: a build job and tests for the agent
+      store (queue, steer, streaming, tool upserts), which is where the app's
+      bugs of 2026-09-22 were.
+
+### B.1 — closed record
+
+**Closure rationale (2026-09-27):** Computed-profile path allows loading without the old calibration gate; Quick Calibration remains optional evidence, not that old gate.
+
+- [x] **B.1 Loading without a probe -- done 2026-09-18, not yet run against a
+      live backend.** `pwr run`, `eval run` (`--profile` now optional),
+      automatic routing and the console's model preparation no longer require
+      or run a calibration. Without one they compute the window (B.2), load
+      the model at it, read back what the backend served, and build an
+      execution profile labelled `Computed` whose id is derived from what
+      decided the window, so two campaigns under the same conditions still
+      pair. The run and campaign outputs carry a `window` record: every
+      ceiling, the binding one, where the facts came from. A named
+      calibration is still honoured and checked. `bootstrap_profile` is gone;
+      its label stays readable in old artifacts. Open decision 1 turned out
+      not to block this -- both of its answers drop the probe as a gate -- and
+      now only decides what F.3 deletes. **Found on the way: the console's
+      chat defaulted to 8,192 tokens**, below even the campaigns' 16,384, and
+      its "maximise" step raised it to the model's trained length with no
+      memory check. Both now go through the computed window; a console saved
+      under calibration is recomputed once on its next start. *Remaining:
+      speed observed from real turns (the latency ceiling), and the first
+      live run, which is step 3.*
+
+### B.2 — closed record
+
+**Closure rationale (2026-09-27):** Window arithmetic and binding-limit explanation exist; prefill estimates and latency limits remain refinements, not measured guarantees.
+
+- [x] **B.2 Computed window** (Part D), wired into every command 2026-09-18
+      with LM Studio reading the model's `config.json` from disk (through its
+      hub manifest, narrowed by variant, local endpoints only) and Ollama its
+      GGUF metadata; an unknown memory ceiling brings in a 32,768 fallback
+      unless a window was chosen explicitly. *Still open: GGUF under LM
+      Studio has no config and falls back; the transient constant.* *First
+      increment done 2026-09-18:*
+      `pwr_orchestrator::window` computes the window from a model's
+      `config.json` and the host's memory, keeps every ceiling and names the
+      one that bound it; 12 tests, and it parses all four configs on disk
+      (Qwen3.6-35B-A3B 20,480 B/token as the spike measured; Qwen3.8-27B,
+      Seed-OSS-36B dense, gpt-oss-20b with sliding layers). *Not yet wired
+      into any command.* *2026-09-18: the engine's own prefill proved the
+      point -- a fixed 8,192-token step materialised 41.9 GB of attention
+      scores at ~160k tokens and crashed a run the window said fitted; the
+      sidecar now shrinks the step with the context. That removes the crash but
+      not the cost: a cold 240,916-token prefill took 1,323 s (182 tokens/s),
+      because the scores are still materialised per step. A fused attention
+      path for prefill is the engine's next performance item.* *2026-09-19,
+      measured and replaced for the engine:* MLX 0.32 fuses prefill attention
+      for head dimensions 64, 80 and 128 and materialises scores for the rest
+      (Qwen3.5/3.6/3.8 use 256). The engine's peak is weights + cache + the
+      larger of a cache copy (while it grows) and the scores, when not fused:
+      Qwen3.6 at 240,916 tokens 36.1 GB measured vs 35.7 predicted, Seed-OSS
+      at 60,112 tokens 52.0 vs 51.9. The sidecar answers `attention` for a
+      head dimension without loading anything, `ModelFacts` carries
+      `prefill_scores_bytes`, and `window::decide` uses it; the step shrinks
+      only when attention is not fused. Windows on a 64 GiB M2 Max: Qwen3.8
+      107,520 -> 262,144, Seed-OSS 23,552 -> 59,392. The 4x rule remains for
+      backends that cannot say (LM Studio, Ollama). Its weakest constant was the prefill transient,
+      modelled as 4x the cache from one observation: it decides Seed-OSS's
+      window between about 23k and 119k tokens, so it is the first thing to
+      measure per architecture. Original scope: KV bytes per token from the model
+      config, less sliding-window and hybrid layers, plus the prefill transient
+      the spike measured at roughly four times the cache; latency ceiling from
+      observed prefill; **and a third ceiling from published effective context**,
+      because a trained maximum is an optimistic number (Part 0b). Which ceiling
+      bound the window is recorded and shown.
+
+### B.5 — closed record
+
+**Closure rationale (2026-09-27):** Own MLX engine and template/reasoning/cache lifecycle exist; joint original item B.5/B.6.
+
+- [x] **B.5 / B.6 The embedded MLX engine -- first version done 2026-09-18**
+      (roadmap step 4, moved up). `crates/pwr-mlx`: a Python sidecar over
+      `mlx-lm` (open decision 2 taken: sidecar, not C-API bindings, because
+      mlx-lm is the reference implementation of the architectures) that
+      renders the chat template itself -- reasoning off or budgeted, which LM
+      Studio's endpoint ignores -- reuses the prompt cache across turns through
+      a checkpoint, and stops a generation that loops; one sidecar per PWR
+      process; calls read with the family adapter so they arrive structured.
+      `--backend mlx`. The capability probe passes on Qwen3.6 in 148 s, edits 3
+      of 3 (`experiments/mlx-engine-20260918`). It is a backend beside the HTTP
+      ones rather than behind a separate `Engine` trait: the provider traits
+      already were that boundary. *Remaining:* shipping a Python runtime with
+      the app; the probe applying the model profile. *Done 2026-09-19:*
+      streaming the answer text up to where a call may begin; stopping a
+      generation on cancel (0.02 s) rather than draining it.
+
+### B.9a — closed record
+
+**Closure rationale (2026-09-27):** Guard tolerances and safe editing checks exist; original bounded repair is closed.
+
+- [x] **B.9a Tool-guard tolerance, found through the engine (2026-09-18).**
+      Edits carry the file's 64-character hash, which the model has to copy;
+      Qwen3.6 at 4-bit doubled one letter and every edit was refused as stale.
+      A claim within two edits of the current hash, or a twelve-character
+      prefix, now names the file; a changed file's hash is sixty-odd edits
+      away, so the guard keeps its purpose. The same run found Qwen3.6 writes
+      calls as XML, which the Qwen adapter now reads (`qwen-v2`).
+
+### B.9 — closed record
+
+**Closure rationale (2026-09-27):** First constrained tool-call/repair implementation is present; label applies to that implementation, not universal valid tool generation.
+
+- [x] **B.9 Constrained decoding of tool calls -- done 2026-09-20.** The
+      llama.cpp backend now marks native tool choice as required whenever it
+      sends a tool catalogue. `llama-server` derives the tool grammar from that
+      catalogue, so the generated call is restricted to an offered name and
+      argument schema instead of asking the harness to parse a prose-shaped
+      request. The backend advertises `constrained_tool_calls`, its request
+      body is pinned by unit tests, and a live Nemotron smoke asked for an
+      unoffered `write_file` while exposing only `read_file`: it returned one
+      valid `read_file` object. This is a syntax guarantee, not a semantic one:
+      the harness still rejects an inappropriate but well-formed action through
+      its policy and tool guards. *CLI alignment, 2026-09-20:* the terminal
+      console is kept as the thin manual/research control surface rather than
+      removed before the app. `chat --model` now records an explicit MLX or
+      llama.cpp selection,
+      computes its window and opens a supervised chat without a probe;
+      capability probes are optional research diagnostics. The current manual
+      GGUF command is in `docs/current-cli.md`. Scripted `run` and `eval` still
+      have their legacy evidence admission and must be aligned with B.1 before
+      the frontend lab treats them as product-ready.
+
+### B.10 — closed record
+
+**Closure rationale (2026-09-27):** Separate frontend lab superseded by Tauri/Angular; closed by replacement, not by finishing Slint.
+
+- [x] **B.10 Frontend lab after constrained decoding.** **Closed 2026-09-23 as superseded:** the Tauri app became the manual-test surface directly (streaming, actions, stop, sessions, permissions), without a separate lab. Record: Start once B.9 has made
+      the tool-call channel stable enough not to redesign the UI every week.
+      This is not the final product surface: it is the manual-test app for the
+      next phase, covering local model selection/download status, run launch,
+      live action/log streaming, stop/cancel, artifacts, and suite/manual task
+      replay. Its job is to make engine and harness behaviour visible while R3
+      resumes and before S2/S3 harden the toolkit/product decisions.
+
+### D.E2E-28 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: historical empty-workspace diagnostic. Recorded runs remain historical and were not repeated for this audit.
+
+- [x] **D.E2E-28 Unattended end to end, from an empty workspace (2026-09-22).**
+      One `pwr run` on a fresh `cargo init --lib` outside any repository,
+      Qwen3.6-35B-A3B, no steering: an ISO-8601 duration parser with 18 tests,
+      **verified** against the workspace's own `cargo test` at step 18, 19 tool
+      actions, 5 minutes, two malformed calls recovered from. This is what
+      "works end to end" means here -- with a check to answer to. The same
+      task inside `experiments/` **declined**, correctly: `cargo` could not
+      read the parent workspace's `Cargo.toml` from inside the sandbox, so the
+      check could not run, and the model said so rather than claiming success.
+      A crate created inside another repository is a real case (the sandbox
+      denies the parent), and the refusal should name it before a person has
+      to work it out; the model's own diagnosis was right but cost the run.
+
+### D.E2E-29 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: read-only installed dependencies. Recorded runs remain historical and were not repeated for this audit.
+
+- [x] **D.E2E-29 A run made the checks pass by editing the library (2026-09-23).**
+      Built to answer "does dependency search change an outcome"
+      (`experiments/dependency-search-20260923`, three runs, n=1 each, no
+      capability claim): an in-house package installed in `node_modules`, an
+      acceptance test written first, and the right answer one line long.
+      Without the dependency search a run could not find the library by
+      searching -- `node_modules` is gitignored -- so it **edited the library**,
+      changing one character of its alphabet until the expected string came
+      out, and the audit recorded `verified: true` about a workspace whose
+      library no longer does what it says. Installed dependencies are now
+      read-only unless the run holds `DependencyChange`, which a manifest edit
+      already required; reading and searching them stay open
+      (`an_installed_dependency_cannot_be_edited_without_the_approval`).
+      Two more findings from the same three runs: the model reached for
+      `search in_dependencies` **at its fourth action, unprompted** (the open
+      question when it shipped), and neither arm that passed used the
+      library's behaviour -- one fitted a formula to the test's two cases. **A
+      check that names two expected strings is satisfied by fitting two
+      expected strings**; a contract for this task has to compare against the
+      library's own output over inputs the run cannot enumerate.
+
+### D.E2E-30 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: protected-path policy in scripted runs. Recorded runs remain historical and were not repeated for this audit.
+
+- [x] **D.E2E-30 Protection that protected nothing, and a suite read wrongly (2026-09-23).**
+      Three faults found while preparing the small-model experiment. (1) The
+      scripted run (`pwr run`) built its policy with `protected` empty, so
+      `.pwr/protected.json` was honoured in the conversation and never in a
+      run: a run could rewrite the test it was measured by. (2) A protection
+      file that failed to parse, or used any key but `protected`, protected
+      nothing in silence -- the dependency-search runs wrote `{"paths": ...}`
+      and their acceptance tests were editable throughout (none was edited,
+      which is luck). Now absent means nothing protected, and present-but-
+      unreadable stops the work with the expected shape
+      (`a_protection_file_that_cannot_be_read_stops_the_work`). (3) From
+      `bf18ddb2` to this fix the full suite was read by grepping for
+      `FAILED|panicked`, which a compile error does not print: the
+      orchestrator's `audit` test target did not compile after
+      `in_dependencies` was added, and three commits were reported green.
+      The suite is now judged by cargo's exit code (975 passed, 0 failed).
+
+### D.E2E-32 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: short answer presentation. Recorded runs remain historical and were not repeated for this audit.
+
+- [x] **D.E2E-32 A greeting answered mid-word (2026-09-23).** "Ciao" to
+      Qwen3-14B came back as "Ciao! How can I a". The engine produced the
+      whole reply (reproduced: "Ciao! Come posso aiutarti?", finish `stop`);
+      the core lost the tail. Qwen3-14B writes its own `<think>` block, so the
+      answer shown live began with the blank line after `</think>`, while the
+      adapter's reading of the whole reply was trimmed; `Live::finish` looked
+      for the shown text as a prefix of the whole, found none, and added
+      nothing. The two are now compared without leading whitespace
+      (`an_answer_after_an_inline_think_block_arrives_whole`). Any model whose
+      template does not pre-open the think block was exposed to it.
+
+### D.E2E-31 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: baseline-aware goal verification and stop handling. Recorded runs remain historical and were not repeated for this audit.
+
+- [x] **D.E2E-31 A fixed page, then fifty actions on a test setup nobody asked
+      about (2026-09-23).** The maintainer asked, in the app with Goal on and
+      Qwen3.6-35B-A3B, why the PWR site showed no text. The model found it
+      (every element carried `animate-on-scroll`, `opacity: 0`, and no script
+      ever added `.visible`), fixed it, and the build passed. It then ran
+      `npm test`, which had been failing since before the request (`ng test`:
+      "Cannot determine project or target"), and spent the next ~50 actions
+      and three check-ins rebuilding the test setup -- a karma target, then
+      vitest, rewriting `package.json` -- while the maintainer asked "it works
+      now, why are you still changing things?". The engineer's own `ng serve`
+      on port 4200 was **not** the cause: the model's `npm start` failed on the
+      busy port once, early, and it moved on. Read from the audit
+      (`experiments/web_pwr/.pwr/state.sqlite`), five faults, all fixed:
+      (1) **goal mode had no notion of a check already failing** -- it now runs
+      the checks once when a goal starts, tells the model which were already
+      failing and that they are outside the goal (not to be repaired unless the
+      engineer asks), and a completion whose only failures are those ends
+      instead of sending the model back (`already_failing_note`, serve.rs);
+      (2) **a copied hash with the right head and a borrowed tail** was refused
+      five times running although each refusal carried the right hash, until
+      the model rewrote the whole file -- `hash_matches` now also accepts a
+      claim whose first sixteen characters are the current hash's (64 bits);
+      (3) **a busy port** is refused before anything starts, named as probably
+      the engineer's server -- before, a readiness check could have taken the
+      engineer's server for the model's; (4) **the permission switch read
+      backwards**: it showed "Ask" with its knob off, which reads as "asking is
+      off", and the maintainer saw prompts they believed disabled (they were in
+      Ask mode, and the prompts were `DependencyChange` for `package.json`, as
+      Ask intends). It is now one label, **Auto-approve**, knob on = Auto, like
+      the Goal switch; (5) **stop did not stop**: the old run, still going,
+      hung on `npm install` and stop did nothing for minutes, because the turn
+      read the flag only between actions -- stop now interrupts a running
+      command, whose whole process group is killed with it
+      (`ProcessGroupGuard`); an edit is still never dropped half-written.
+      *Open:* a question steered into a goal turn ("why are
+      you still changing things?") was not answered before the next edit; the
+      goal prompt's "add focused deterministic checks" invited the new spec
+      file, and should be weighed against a request that asked for none.
+
+### C.22a — closed record
+
+**Closure rationale (2026-09-27):** Historical decider trial closed with non-adoption; no new trial or capability claim. Retained evidence record references the private experiment.
+
+- [x] **C.22a Rizzo Flow as the context decider -- trial, 2026-09-23.** An
+      open, local System One implementation (Rizzo AI Academy, Apache-2.0,
+      Spark-X2.5-4B on llama.cpp), proposed by the maintainer. Run on the
+      M2 Max's Metal backend (untried by its authors), reranking the best
+      candidate list measured (section BM25 fused with e5-small, top 20).
+      **Every variant lowered precision** -- boolean with the request as
+      state 0.17, with every candidate in the state 0.14, abstention off
+      0.14, a 4-level score 0.17 -- against 0.28 for the fused order it was
+      given, at 5-7 s per request against 5 ms; it abstained on 42% of
+      answers with abstention on, and its probabilities were sharply peaked.
+      **Not adopted** for context selection, by the criterion fixed
+      beforehand; a reference like Jev. Short classifications (task kind,
+      "is the evidence enough") would be separate trials. **Protocol fix
+      found on the way:** the labels name sections by line, the day's
+      documentation pass shifted 16 of 45, and every arm now reads a pinned
+      copy of the tree at the labelling revision; the encoder and fusion
+      numbers reproduce exactly on it. Details:
+      `experiments/jev-context-filter-20260922/results-rizzo-flow.md`.
+
+### C.26 — closed record
+
+**Closure rationale (2026-09-27):** No-workspace chat exists; later commits 256bd457 and 299bbe71 add appropriate tools and read-only project knowledge.
+
+- [x] **C.26 Chat mode: a conversation with no workspace -- decided and built
+      2026-09-23 with the maintainer.** Asked whether a "chat only" mode made
+      sense after a question turned into fifty actions (D.E2E-31), the
+      maintainer chose one **detached from any workspace**, to which only
+      files, folders and images can be attached for reading. Built that way:
+      the core keeps chat mode's conversations, settings and images in a folder
+      of its own (`~/.pwr/chat`, `PWR_CHAT_HOME`), advertised in
+      `initialize` as `_meta.pwr.chatHome`; a session opened there gets a
+      catalogue of `read_file` and `list_tree` only (a write or a command is
+      refused as unavailable, `chat_only_tool_catalog`), a policy with no
+      commands and no grants, its own short prompt, no checks, no repository
+      passages and no goal mode. Attached folders become read-only reference
+      folders -- `list_tree` now lists one given its path (it listed only the
+      workspace), and a new chat starts with none of the last one's. In the
+      app: "Chat without a workspace" under the workspace, "Open a workspace"
+      to go back; the model in use comes along; Goal and Auto-approve are
+      hidden. **Measured end to end** (`pwr serve`, Qwen3-14B MLX 4-bit): a
+      folder attached with a question -- one `read_file`, the right answer,
+      38 s; "add a function to calc.py" -- refused in words, the file
+      unchanged, no permission asked; the first prompt was 733 tokens, against
+      2,888 for "Ciao" in a workspace. *Open:* `search` inside attached
+      folders; the second answer came in English to an Italian request.
+
+### C.5a — closed record
+
+**Closure rationale (2026-09-27):** Check-discovery guidance is included in the runtime's work context.
+
+- [x] **C.5a The model is told how the checks run -- done 2026-09-18.**
+      `latest_verification.commands` carries the check commands, and the
+      system prompt says the checks run by themselves after an edit. Runs had
+      spent 5-10 of 26 actions rediscovering the test command.
+
+### C.16a — closed record
+
+**Closure rationale (2026-09-27):** File-result content handling fix exists; original JSON-escaping issue is a closed implementation record.
+
+- [x] **C.16a Tool results carry files as they are -- done 2026-09-18.** A
+      tool result held a file as a JSON string inside JSON, so the model saw
+      `\\.` for `\.` and every file as one line. JSON calls undid it on decode;
+      Qwen3.6's XML calls on the engine did not, and broke every edit near a
+      backslash (Part E budget variant, tomli-optional-seconds). `content`,
+      `stdout`, `stderr` and search hits now follow a one-line JSON envelope
+      verbatim. Every engine result before this fix carries the bug.
+
+### C.16 — closed record
+
+**Closure rationale (2026-09-27):** Symbol extraction/enclosing context exists; scope remains shallow rather than full semantic analysis.
+
+- [x] **C.16 Enclosing symbol -- done 2026-09-18.** Search hits and read
+      windows carry `within` (`line 234: class T > line 3764: def test_x`),
+      read from indentation and definition keywords, no parser. Was: "which
+      class or function holds line N", as a
+      tool or as a field on read and search results. In the budget variant a
+      model spent forty actions reading a test file backwards to learn the
+      class of a test it had already found, with the answer on screen. Belongs
+      to A2 (navigation) and to step 7's tool catalogue.
+
+### C.17 — closed record
+
+**Closure rationale (2026-09-27):** restore_file exists, with core-backed app revert added later.
+
+- [x] **C.17 Restore a file -- done 2026-09-18.** `restore_file` puts a file
+      back as the run first read or changed it; the run keeps those bytes
+      itself, because evaluation workspaces have their `.git` removed (so
+      the model cannot read the fix from history) and a git-based restore
+      would never have worked there. Was: twice in one run set a model broke a file with a
+      whole-file replacement and had no way back. A3 (editing) and A5 (recovery).
+      *Also found:* `vcs_status`/`vcs_diff` failed in the sandbox through
+      macOS's xcrun git shim; the harness now runs the installed git directly.
+      In evaluation workspaces they still have no repository to answer from.
+
+### C.18 — closed record
+
+**Closure rationale (2026-09-27):** Whole-file shrink guard exists; bounded guard is not proof against every destructive edit.
+
+- [x] **C.18 Question a whole-file replacement that shrinks the file -- done
+      2026-09-18.** Refused, with the line counts, when a file of 40+ lines
+      would keep under half of them; a partial read now says its hash is the
+      whole file's and which tool edits only part. Was:
+      `apply_replace` accepted a 49-line body for an 800-line `results.py`. A
+      replacement losing most of a file should be refused with the numbers, or
+      at least named, before it lands. A3.
+
+### C.20 — closed record
+
+**Closure rationale (2026-09-27):** Root-anchored path resolution exists; later path-boundary fixes at 881f3978 are included.
+
+- [x] **C.20 Root-anchored paths -- decided and done 2026-09-19.** A path
+      written as if the workspace were the filesystem root (`/slugify.py`, or
+      `/workspace/slugify.py` after the container convention) is read as the
+      workspace path it names, only when that exists inside the workspace;
+      anything else absolute is still refused, now naming the rule. The
+      protected-file guard normalises the same way (`/spec.md`, `./spec.md`
+      cannot reach a protected `spec.md`; tested). Why: Nemotron 3.5 wrote
+      such paths throughout the catalogue runs and kept them after a refusal
+      that named the right path, then spent its budget on
+      `os.path.abspath('.')`.
+
+### D.1 — closed record
+
+**Closure rationale (2026-09-27):** Tauri/Angular chosen and implemented; Slint/GPUI comparison is a closed decision, Windows validation remains elsewhere.
+
+- [x] **D.1 S2 — toolkit spike.** **Closed 2026-09-23 -- decided 2026-09-22: Tauri 2 + Angular (signals), `apps/desktop`,** after the Slint candidate proved unsatisfactory in use; its prototype has since been removed. Windows evidence moves to D.17. Historical record of the spike: **Started 2026-09-20:** the Slint candidate
+      lives in `crates/pwr-app-slint/` and drives model catalog/selection,
+      session launch, task send and cancellation through `serve`; it is isolated
+      because its compiler conflicts with the terminal's exact Ratatui dependency.
+      **GPUI excluded provisionally:** 0.2.2 upstream supports macOS/Linux,
+      not the product's required Windows path. Slint still needs Windows and
+      fixed-manual-check evidence after the frontend integration pass. Both build
+      the same screen as `serve` clients on macOS and Windows, judged against
+      criteria fixed before the spike. The clarified product --
+      conversation-first, Windows required -- favours Slint; the spike decides.
+      No web UI.
+
+### D.2 — closed record
+
+**Closure rationale (2026-09-27):** Conversation UI exists, with later phases/action layout at 7db13afc and 3a1170ba.
+
+- [x] **D.2 Conversation view.** **Closed 2026-09-23 -- in the Tauri app:** a streamed conversation (reply and reasoning as they are written), one unified assistant turn, attachment cards for files and folders, drag and drop, reference folders. Record: **Attachment increment 2026-09-21:** the
+      Slint conversation can queue a workspace file path and sends it as a
+      read-only `resource_link` with the next prompt. Drag/drop and repository
+      citation presentation remain.
+
+### D.3 — closed record
+
+**Closure rationale (2026-09-27):** Live action display exists; layout refined rather than still awaiting first implementation.
+
+- [x] **D.3 Action feed.** **Closed 2026-09-23 -- in the Tauri app:** each turn's actions grouped under it, live, with reads, edits and commands counted and retries shown; refinements belong to D.17. Record: What the agent is doing, now. This is the product's
+      central promise and the hardest thing on this list to get right.
+
+### D.5 — closed record
+
+**Closure rationale (2026-09-27):** Diff/revert surface exists; workbench supersedes the old inspector layout.
+
+- [x] **D.5 Diff view.** **Closed 2026-09-23 -- in the Tauri app:** a Changes inspector with per-file diffs and +/- counts, the latest file open. Record: **Spike increment 2026-09-20:** the Slint client
+      renders the latest core-emitted diff (path, old text and new text), without
+      reading or writing workspace files. Still needs file navigation/history and
+      a review-quality view. Files and diffs stay inside the core's sandbox and
+      audit, and the app never writes them.
+
+### D.7 — closed record
+
+**Closure rationale (2026-09-27):** Context/window controls exist; usage updates were refined in 33cd9c1e.
+
+- [x] **D.7 Window setting.** **Closed 2026-09-23 -- in the Tauri app:** smaller/larger window controls with the computed decision and its rationale, and a context meter (used / window / percent) fed by `_pwr/usage`. Record: **Core-backed setting increment 2026-09-21:**
+      `_pwr/models` accepts `contextTokens`, applies it through the selected
+      backend and returns the granted value plus supported options, binding
+      ceiling, memory budget and rationale. The Slint lab exposes
+      smaller/larger controls and displays those details. A richer calibration
+      history remains.
+
+### D.8 — closed record
+
+**Closure rationale (2026-09-27):** Session persistence/resume exists; remaining past-action replay/rewind limits are refinements, not absence of sessions.
+
+- [x] **D.8 Sessions.** **Closed 2026-09-23 -- in the Tauri app:** conversations listed per workspace and resumed; the last workspace reopens. Still missing, tracked in D.17: replaying a resumed conversation's past actions in the timeline. Record: **List/resume increment 2026-09-21:** the Slint lab
+      lists workspace sessions through `session/list` and resumes one through
+      `session/resume`. Branch drift and interrupted-run state are still only
+      visible in the core response and need a dedicated view.
+
+### D.13 — closed record
+
+**Closure rationale (2026-09-27):** Streaming chunks are produced and rendered; the old yes/no decision is closed.
+
+- [x] **D.13 Token-level streaming?** **Closed 2026-09-22 -- yes:** `TurnStep::Streaming` carries reasoning and reply chunks, sent as ACP `agent_thought_chunk` and live `agent_message_chunk`; the app renders them as they arrive. Record: *`serve` open question 1: worth changing
+      `collect_reply` for, or reply-sized chunks until a client shows it
+      matters?*
+
+### D.E2E-1 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: argv-only execution and shell-operator handling. Recorded runs remain historical and were not repeated for this audit.
 
 - [x] **D.E2E-1 Commands without a shell reported false success (2026-09-22).**
       A Goal-mode session building the Angular site (Qwen3.6-35B-A3B, 169
@@ -1649,6 +2240,11 @@ decision. By volume this is plausibly more work than every other block together.
       with a message naming `cwd`; an `exec <program>` prefix repeating the
       executable is dropped like the existing leading repeat. Tested in
       `sandbox_and_approvals.rs`.
+
+### D.E2E-2 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: no-progress detection. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-2 No-progress detection never stopped a goal (2026-09-22).**
       `no_progress.detected` fired five times in the same session and changed
       nothing: the tracker was created per turn, so every Goal-mode check-in
@@ -1657,6 +2253,11 @@ decision. By volume this is plausibly more work than every other block together.
       windows end the turn with the new `StopReason::NoProgress`, which the
       goal loop does not continue past. A new operator prompt resets only the
       window count (`Continuity::operator_spoke`).
+
+### D.E2E-3 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: workspace context setting. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-3 The app could not change the context window (2026-09-22).**
       `_pwr/models` saved the requested window and then `compute_context`
       overwrote it on the same request (and on every refresh). The choice is
@@ -1667,17 +2268,32 @@ decision. By volume this is plausibly more work than every other block together.
       `CHAT_CONTEXT_DEFAULT`, left in place when the model's facts could not be
       read; the computed window for Qwen3.6-35B-A3B on this 64 GB host is
       262,144 (trained length binds).
+
+### D.E2E-4 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: supervised process cleanup. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-4 Process cleanup on close, verified (2026-09-22).** Closing the
       core's stdin (the app exiting) and `kill -9` on the core both left no
       `pwr serve` and no MLX sidecar behind: each link exits on EOF. A
       generation in flight when the parent dies ends at its next emit
       (broken pipe).
+
+### D.E2E-6 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: tool-call identity handling. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-6 Tool-call ids repeated across goal turns (2026-09-22).**
       Each turn numbers its calls from one and a goal runs several turns under
       one prompt, so after a check-in `turn1-call8` named a different action
       than before and a client could merge them. The goal loop now offsets each
       turn's ids past the highest already sent; asserted in
       `goal_mode_continues_past_a_checkpoint_and_requires_full_verification`.
+
+### D.E2E-7 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: historical website diagnostic, not current-revision acceptance. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-7 The project website, built by PWR in Goal mode (2026-09-22).**
       Workspace `pwr-website/` (not the repository root, so completion is
       judged by the site's checks rather than the whole Rust suite), sources
@@ -1697,6 +2313,11 @@ decision. By volume this is plausibly more work than every other block together.
       Observed and left open: the model bypassed the "would delete 290 lines"
       guard on a whole-file replace with `delete_path` then `write_file`,
       which was a legitimate rewrite here but defeats the guard's intent.
+
+### D.E2E-8 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: historical website diagnostic and documented fixes. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-8 What damages the website task, measured (2026-09-22).**
       Two runs, same model (Qwen3.6-35B-A3B, 262K), same prompt (the
       maintainer's own), same clean Angular scaffold in `pwr-website/`,
@@ -1724,6 +2345,11 @@ decision. By volume this is plausibly more work than every other block together.
       mlx-lm); (4) prompt/intent mismatch on motion; (5) completion judged by
       a test the model wrote itself (it replaced the root spec with a
       `router-outlet` check, and tried to cut it to one line).
+
+### D.E2E-9 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: read-only reference folder resolution. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-9 Read-only reference folders (2026-09-22).** `chat-config.json`
       takes `reference_roots` (e.g. `[".."]`); they become the policy's
       `extra_readable`, `read_file` accepts `../` paths inside them (canonical,
@@ -1736,17 +2362,21 @@ decision. By volume this is plausibly more work than every other block together.
       truncated snapshot (`an_attached_parent_folder_becomes_a_readable_reference`),
       and the app queues several attachments, so a CV and the project folder
       go together.
+
+### D.E2E-11 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: Angular topology and framework guidance. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-11 Honest framework guidance (2026-09-22).** The Angular packet
       asked the model to "exercise routes through a browser" and "inspect the
       rendered result" with no tool able to; it now says it cannot see the
       page, must not claim visual verification, and must test the real home
       and navigation rather than `<router-outlet>`.
-- [ ] **D.E2E-12 A way to see the rendered page (open).** Style is written
-      blind. Qwen3.6-35B-A3B and Qwen3.8-27B carry a vision encoder, but the
-      sidecar serves text through mlx-lm. Candidate: a `render_page` tool
-      (headless Chrome over CDP, as `experiments/site-e2e-contract/mobile-layout.mjs`
-      does) returning layout facts first, and a screenshot once the engine can
-      pass images (mlx-vlm). Measure against D.E2E-8 before adopting.
+
+### D.E2E-13 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: historical maintainer website rerun, not a new benchmark. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-13 Rerun of the website task by the maintainer (passed 2026-09-22).**
       After D.E2E-14 to D.E2E-19, run through the desktop app with the CV
       and the project folder attached and Qwen3.6-35B-A3B: in the
@@ -1757,34 +2387,30 @@ decision. By volume this is plausibly more work than every other block together.
       start the app there, attach the CV and the PWR folder, Goal mode,
       prompt in `experiments/site-e2e-contract/PROMPT.md` (CV for the bio only;
       the documentation is the authority on PWR; animations required).
+
+### D.E2E-10 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: command-output normalization. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-10 Command output without colour codes (2026-09-22).** Commands
       now run with `NO_COLOR=1`, `FORCE_COLOR=0`, `CI=1`; a failing `ng test`
       had reached the model wrapped in ANSI escapes.
+
+### D.E2E-14 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: path containment handling, further hardened by 881f3978. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-14 A path out through the parent and back in (2026-09-22).**
       With `..` declared as a reference folder the model read its own
       attachment as `../pwr-website/.pwr/chat-attachments/...` and was
       refused twice (`.pwr` is closed in reference folders). A path that
       normalises back inside the workspace is now resolved as the workspace
       path it is.
-- [ ] **D.E2E-15 Whole documents cost minutes of prefill (measured, treatment built, 2026-09-22).**
-      Maintainer's rerun (D.E2E-13), Qwen3.6-35B-A3B on the M2 Max: the prefix
-      cache holds across steps and check-ins (242 new tokens in 3.7 s), but new
-      tokens at 20-56K context prefill at about 75 tok/s. The model read
-      `docs/roadmap.md` whole (~28K tokens): 21K -> 38K context in one step,
-      222 s. Nine documents read before the first edit, ~26 actions and ~11
-      minutes. A section-level read (headings first, then the part needed) or
-      a cached per-document digest is the obvious treatment -- the context
-      engine in the maintainer's single-agent proposal -- and should be
-      measured on this task.
-      **First treatment built, not yet measured (2026-09-22):** a Markdown
-      document over 24 KB asked for whole (no `first_line`/`max_lines`) comes
-      back as its first 80 lines plus its outline -- every heading outside
-      code fences with its line number and the document's size in tokens --
-      and the `read_file` description says to read sections by window. Code,
-      short documents and windowed reads are unchanged
-      (`a_long_document_read_whole_returns_its_outline`). To measure: the
-      website task's time to first edit and context at first edit, against
-      the D.E2E-13 rerun (~26 actions, ~11 min).
+
+### D.E2E-16 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: live conversation rendering. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-16 The conversation shows the reply as it is written (2026-09-22).**
       Maintainer's rerun on Qwen3.8-27B: after a check-in the app showed
       nothing for 30+ minutes (one generation, reasoning that did not
@@ -1802,6 +2428,11 @@ decision. By volume this is plausibly more work than every other block together.
       Open: progress while tool-call arguments are generated needs a field on
       `ModelChunk` (86 literals); a reasoning budget for a generation that
       does not converge.
+
+### D.E2E-17 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: engine liveness/failure handling. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-17 A stuck engine was waited on forever, then orphaned (2026-09-22).**
       Correcting the first reading of the 27B rerun: it was not reasoning. A
       `sample` of the sidecar showed its main thread blocked in
@@ -1818,6 +2449,11 @@ decision. By volume this is plausibly more work than every other block together.
       Qwen3.6-35B-A3B: 16,510 tokens of prefill reported every ~14 s; test
       `ParentGone`. Open: why MLX hung (Qwen3.8-27B, ~57K context, after a
       check-in) -- not reproduced.
+
+### D.E2E-18 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: repository verification boundary; model-facing screenshot work remains separate. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-18 A layout check that crashed Chrome once per turn (2026-09-22).**
       The maintainer's Send "crashed PWR": macOS showed "Google Chrome quit
       unexpectedly" (parent process `node`). Every chat turn runs the
@@ -1835,6 +2471,11 @@ decision. By volume this is plausibly more work than every other block together.
       Found on the way, open: an executable given as an absolute path
       containing spaces (`.../Google Chrome.app/...`) is refused as "a command
       line".
+
+### D.E2E-19 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: conversation state handling and regression fixtures. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-19 The app crashed on Send (2026-09-22).** Reproduced without
       driving the window: `PWR_APP_SELFTEST=prompt:attachment:...` queues
       the attachments and presses Send after start-up, and a panic hook now
@@ -1844,6 +2485,11 @@ decision. By volume this is plausibly more work than every other block together.
       viewport-y`) closed a binding loop through the conversation layout on
       the first message. Removed; the app survives Send with the CV and the
       project folder attached. Auto-scroll is not implemented.
+
+### D.E2E-20 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: goal continuation handling; later review changes are unmerged. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-20 A game from scratch stopped after two files (2026-09-22).**
       First maintainer task in the Tauri app: an original platformer in plain
       HTML/CSS/JS, Qwen3.6-35B-A3B, empty workspace. `index.html` and
@@ -1868,6 +2514,11 @@ decision. By volume this is plausibly more work than every other block together.
       content) ever applied to a chat turn. `converse::decode` now delegates
       to `action_from_tool_call`, keeping only its own refusal of run-only
       capabilities (`a_conversation_accepts_file_content_sent_as_an_object`).
+
+### D.E2E-21 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: prompt-cache lifecycle, extended across messages by 05b3beb7. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-21 The prefix cache missed within a turn (measured, fixed 2026-09-22).**
       Game run, Qwen3.6-35B-A3B, 37-44K context: steps whose prompts added
       only 2-3K tokens spent 103, 103 and 132 s in prefill, against 10 s for a
@@ -1900,6 +2551,11 @@ decision. By volume this is plausibly more work than every other block together.
       against 910 s of generation; the largest single cost was one step that
       added 14.7K tokens (69 s), which is D.E2E-15's territory, not the
       cache's.
+
+### D.E2E-22 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: generation and failure records. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-22 Generations that produce no action leave no trace (fixed 2026-09-22).**
       Game run: from 14:36 to 14:48 the engine generated twice (CPU ~70%)
       and the audit holds nothing -- no `turn.generated`, no error -- because
@@ -1913,6 +2569,11 @@ decision. By volume this is plausibly more work than every other block together.
       and how long it took, numbered in the same sequence as
       `turn.generated`; `pwr diagnose` names them as `failed_generations`
       with the time they cost.
+
+### D.E2E-23 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: historical intervention analysis; no new autonomous capability claim. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-23 What the game run needed from a person (2026-09-22).**
       Qwen3.6-35B-A3B wrote a 14-file platformer and 37 tests, then spent
       ~40 minutes on 3-4 failing collision tests: first moving the player in
@@ -1926,6 +2587,11 @@ decision. By volume this is plausibly more work than every other block together.
       single test with printed state -- is worth offering explicitly; and
       edits to the model's own tests after they fail deserve to be surfaced
       to the person, not judged by the core.
+
+### D.E2E-24 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: model-profile application beyond checkout. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-24 Model profiles never applied outside the checkout (2026-09-22).**
       `strategies/models.json` was read by a path relative to the working
       directory, and the core runs in the workspace, so in every workspace but
@@ -1942,6 +2608,11 @@ decision. By volume this is plausibly more work than every other block together.
       run of 2026-09-22 ran without its profile and should be read as such;
       the reasoning budget (D.E2E-20) was a treatment of this symptom and is
       moot for profiles that turn reasoning off.
+
+### D.E2E-25 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: historical completion/intervention record. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-25 The game finished; what the last hour added (2026-09-22).**
       With the profiles applied (D.E2E-24) Qwen3.6 generated in 1-3 s per step
       with no reasoning and the prefix cache held; told the two numeric fixes,
@@ -1952,6 +2623,11 @@ decision. By volume this is plausibly more work than every other block together.
       edit only that block (`loose_region`); `apply_patch`'s refusal names
       where the text diverges, as `replace_text`'s did
       (`an_edit_matches_its_block_despite_a_dropped_blank_line`).
+
+### D.E2E-26 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: service readiness and command handling. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-26 Servers and commands that were never run (2026-09-22).**
       Asked how to start the game, Nemotron 3.5 ran `python3 -m http.server`
       through `run_command` twice, each held to the 2-minute timeout: a
@@ -1965,6 +2641,11 @@ decision. By volume this is plausibly more work than every other block together.
       Goal mode defaults off (a question is not a task), and messages written
       while a turn runs are queued and sent when it ends, or delivered into it
       with "↳ now" through `_pwr/steer`.
+
+### D.E2E-27 — closed record
+
+**Closure rationale (2026-09-27):** Closed original finding: reference-folder matching. Recorded runs remain historical and were not repeated for this audit.
+
 - [x] **D.E2E-27 A reference folder the refusal said did not exist (2026-09-22).**
       The Nemotron 3.5 website run (`web_pwr`, 146 actions, ended
       Unparseable) had the project folder attached as a read-only reference and
@@ -1982,41 +2663,22 @@ decision. By volume this is plausibly more work than every other block together.
       folders, so from the first turn on the model was no longer told where
       the project's documents were; it keeps them now. Not fixed by the harness: the prompt
       told the model the workspace *contained* PWR, when it was empty.
-- [ ] **D.E2E-5 Corrupted code from GLM-4.7-Flash (open, 2026-09-22).** A
-      session on the site workspace with `GLM-4.7-Flash-MLX-4bit` at 16K wrote
-      `ngOnInit0 {`, `styleUrl: '...css0;`, `</section2>` and dropped `</ul>`
-      tags -- present already in the tool-call payload, so not the write path.
-      Unknown whether it is the model at 4-bit or GLM detokenisation in the
-      sidecar; reproduce with `PWR_MLX_TRACE` before attributing it.
 
-## Block E — Platform and security
+### F.3 — closed record
 
-- [ ] **E.1 Execution isolation on Windows.** The sandbox is macOS Seatbelt
-      only; Linux and Windows have probes, not equivalent confinement.
-      **PWR does not ship where it cannot confine what the agent runs**, so
-      this blocks the entire Windows half of the product. Nobody is working on
-      it, and it is the most underweighted risk in the plan.
-- [ ] **E.2 The core on Windows**, independently of the sandbox.
-- [ ] **E.3 Signed, installable builds** for macOS and Windows.
-- [ ] **E.4 Authorization claims** extended past macOS, with the same
-      confinement tests Seatbelt passes.
+**Closure rationale (2026-09-27):** Closed as superseded: removing all calibration would contradict B.11 Quick Calibration. Any removal must target obsolete gate code only, with a new bounded scope.
 
-## Block F — Structural debt
-
-Declared rather than hidden; none of it blocks an alpha.
-
-- [ ] **F.1 `pwr-orchestrator/src/lib.rs`** is about 7,000 lines and
-      **`pwr-cli/src/main.rs`** about 10,000. The CLI still holds
-      orchestration -- hardware probing, profile resolution, prompt
-      construction, the evaluation runner -- that belongs behind the
-      orchestrator's boundary.
-- [ ] **F.2 No artifact table**, and migrations are two `execute_batch` calls
-      rather than a mechanism.
 - [ ] **F.3 Remove the calibration subsystem** once B.1 lands and open decision
       1 is settled. It touches sixteen files today and is obsolete by decision,
       but removing it is Part B's refactor, not a cleanup.
 
 ---
+
+### Superseded critical-path snapshot
+
+**Closed as an ordering snapshot:** the initial toolkit and Mac app now exist;
+the old Block D-empty statement cannot describe develop. The reconciliation
+above carries current dependencies. Original text follows unchanged.
 
 ## The critical path
 
