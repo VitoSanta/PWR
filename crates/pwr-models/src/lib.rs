@@ -578,6 +578,7 @@ impl loader::Catalogue for HubCatalogue<'_> {
             self.capacity,
             self.models_root,
             self.installed,
+            self.filters.compatible_only,
         )
         .await?;
         Ok(apply_filters(entries, self.filters))
@@ -596,6 +597,7 @@ async fn enrich(
     capacity: &Capacity,
     models_root: &Path,
     installed: &[String],
+    compatible_only: bool,
 ) -> Result<Vec<CatalogEntry>, hub::HubError> {
     use futures_util::StreamExt;
     // GGUF repositories carry no config.json; their base model's describes
@@ -629,7 +631,21 @@ async fn enrich(
                 return (model, Ok(Vec::new()), Ok(None));
             };
             let files = hub.tree(&model.repository, &revision).await;
-            let config = if format == Format::Mlx {
+            // File sizes alone can prove that a model cannot fit. Do not spend
+            // a second Hub request on its config when the fit filter will
+            // discard it regardless of the context cost.
+            let too_large = compatible_only
+                && !installed.contains(&model.repository)
+                && fit::budget(capacity, format).is_some_and(|budget| {
+                    files.as_ref().ok().is_some_and(|files| {
+                        let variants = catalog::variants(&model.repository, format, files, None);
+                        !variants.is_empty()
+                            && variants.iter().all(|variant| {
+                                variant.bytes.saturating_add(fit::RUNTIME_OVERHEAD_BYTES) > budget
+                            })
+                    })
+                });
+            let config = if format == Format::Mlx && !too_large {
                 hub.config(&model.repository, &revision).await
             } else {
                 Ok(None)

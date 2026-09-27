@@ -19,19 +19,18 @@ use crate::ordered::{self, Listing};
 use crate::{CatalogOrder, Filters, SEARCH_LIMIT};
 use serde::{Deserialize, Serialize};
 
-/// Enrichments one page may spend: each is two requests, and the Hub limits
-/// how many an address makes (measured on the Mac: seven searches in a row
-/// were rate-limited at sixty a page).
-const ENRICHED_PER_PAGE: usize = 40;
-/// Listings (of the Hub's order, or walk batches) one page may read.
-const READS_PER_PAGE: usize = 24;
-/// A page that has something stops reading after this long; one that has
-/// nothing yet goes on to [`LONGEST`]. A walk down past models too large
-/// for this Mac read for four batches and returned an empty page (measured
-/// on the Mac): a page that says nothing was found while more exists is the
-/// wrong answer, so the budget is time, not a count of batches.
+/// Candidates one page may examine. Oversized MLX candidates only need a
+/// tree request; their config is skipped before the exact fit filter.
+const ENRICHED_PER_PAGE: usize = 80;
+/// Listings (of the Hub's order, or walk batches) one page may read. The
+/// ordered walk can use all 24 of its own reads without finding a candidate,
+/// so the outer limit must leave room for several such batches.
+const READS_PER_PAGE: usize = 64;
+/// A useful page stops after this long; a sparse page keeps looking until
+/// [`LONGEST`] or a request budget is reached.
 const ENOUGH: std::time::Duration = std::time::Duration::from_secs(6);
 const LONGEST: std::time::Duration = std::time::Duration::from_secs(20);
+const MIN_RESULTS: usize = 8;
 /// Bits per weight below which no model is stored: the floor a listing's
 /// size is estimated at when its name does not say its quantization.
 const FLOOR_BITS: f64 = 1.5;
@@ -108,7 +107,7 @@ pub async fn fill<C: Catalogue>(
     let started = std::time::Instant::now();
     let out_of_time = |shown: usize| {
         let spent = started.elapsed();
-        spent >= LONGEST || (shown > 0 && spent >= ENOUGH)
+        spent >= LONGEST || (shown >= MIN_RESULTS && spent >= ENOUGH)
     };
     while shown.len() < SEARCH_LIMIT && enriched < ENRICHED_PER_PAGE {
         if state.pending.is_empty() {
@@ -486,6 +485,32 @@ mod tests {
                 .iter()
                 .all(|name| !name.contains("480B"))
         );
+    }
+
+    #[tokio::test]
+    async fn forty_enriched_rejections_do_not_hide_the_first_fitting_model() {
+        // These names do not state a quantization, so the listing alone
+        // cannot rule them out. Exact enrichment rejects the first fifty.
+        let models: Vec<HubModel> = (0..60u64)
+            .map(|n| model(&format!("candidate{n}"), (180 - n) * B, 100 - n))
+            .collect();
+        let fake = Fake::new(models, vec!["candidate50"]);
+        let filters = Filters {
+            compatible_only: true,
+            ..Default::default()
+        };
+        let (page, _) = fill(
+            &fake,
+            Some(CatalogOrder::LargestFirst),
+            None,
+            (None, None),
+            None,
+            keep(&filters),
+        )
+        .await
+        .unwrap();
+        assert_eq!(page, ["candidate50"]);
+        assert!(fake.enriched.borrow().len() > 40);
     }
 
     #[tokio::test]

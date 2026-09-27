@@ -12,8 +12,10 @@
 
 use crate::Filters;
 use crate::catalog::{self, Format, HubFile, HubModel};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// A model file downloads for as long as data keeps arriving: only a
@@ -22,6 +24,73 @@ const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// `config.json` is read into memory; anything larger is not a config.
 const CONFIG_LIMIT_BYTES: usize = 2 * 1024 * 1024;
 const CARD_LIMIT_BYTES: usize = 1024 * 1024;
+const LISTING_TTL: Duration = Duration::from_secs(60 * 60);
+const CACHE_FILE_LIMIT: u64 = 16 * 1024 * 1024;
+
+#[derive(Serialize, Deserialize)]
+struct DiskEntry<T> {
+    saved_at: u64,
+    value: T,
+}
+
+fn cache_root() -> Option<PathBuf> {
+    if let Some(root) = std::env::var_os("XDG_CACHE_HOME") {
+        let root = PathBuf::from(root);
+        return root.is_absolute().then(|| root.join("pwr/catalog"));
+    }
+    let home = PathBuf::from(std::env::var_os("HOME")?);
+    if !home.is_absolute() {
+        return None;
+    }
+    if cfg!(target_os = "macos") {
+        Some(home.join("Library/Caches/ai.pwr.catalog"))
+    } else {
+        Some(home.join(".cache/pwr/catalog"))
+    }
+}
+
+fn cache_path(bucket: &str, key: &str) -> Option<PathBuf> {
+    let hash = blake3::hash(key.as_bytes()).to_hex();
+    Some(cache_root()?.join(bucket).join(format!("{hash}.json")))
+}
+
+fn read_disk<T: DeserializeOwned>(path: &Path, max_age: Option<Duration>) -> Option<T> {
+    if std::fs::metadata(path).ok()?.len() > CACHE_FILE_LIMIT {
+        return None;
+    }
+    let entry: DiskEntry<T> = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    if let Some(max_age) = max_age {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+        if now.saturating_sub(entry.saved_at) >= max_age.as_secs() || entry.saved_at > now {
+            return None;
+        }
+    }
+    Some(entry.value)
+}
+
+fn write_disk<T: Serialize>(path: &Path, value: &T) {
+    let Some(saved_at) = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|time| time.as_secs())
+    else {
+        return;
+    };
+    let Ok(bytes) = serde_json::to_vec(&DiskEntry { saved_at, value }) else {
+        return;
+    };
+    if bytes.len() as u64 > CACHE_FILE_LIMIT {
+        return;
+    }
+    let Some(parent) = path.parent() else { return };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    if std::fs::write(&temporary, bytes).is_ok() {
+        let _ = std::fs::rename(&temporary, path);
+    }
+}
 
 fn next_cursor(link: &str) -> Option<String> {
     link.split(',').find_map(|part| {
@@ -79,10 +148,35 @@ mod pagination_tests {
     }
 }
 
+#[cfg(test)]
+mod disk_cache_tests {
+    use super::*;
+
+    #[test]
+    fn a_listing_expires_but_a_pinned_tree_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("catalog.json");
+        write_disk(&path, &vec!["model"]);
+        assert_eq!(read_disk::<Vec<String>>(&path, None).unwrap(), ["model"]);
+        assert_eq!(
+            read_disk::<Vec<String>>(&path, Some(Duration::from_secs(0))),
+            None
+        );
+    }
+
+    #[test]
+    fn a_broken_cache_entry_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("catalog.json");
+        std::fs::write(&path, b"broken").unwrap();
+        assert_eq!(read_disk::<Vec<String>>(&path, None), None);
+    }
+}
+
 /// A repository's files and config at a commit never change, so they are
-/// read once per process: the catalogue re-reads the same models whenever
-/// the person changes a filter or an order, and every read counts against
-/// the Hub's rate limit. Keyed by Hub, repository and full commit id.
+/// cached in memory and on disk. Changing a filter or restarting PWR can
+/// reuse them without another Hub request. Keyed by Hub, repository and
+/// full commit id.
 static TREES: CacheMap<Vec<HubFile>> = std::sync::OnceLock::new();
 static CONFIGS: CacheMap<Option<serde_json::Value>> = std::sync::OnceLock::new();
 /// Entries kept per cache: a few thousand models' listings is a few MB.
@@ -148,6 +242,7 @@ pub struct HubClient {
     token: Option<String>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct ModelPage {
     pub models: Vec<HubModel>,
     pub next_cursor: Option<String>,
@@ -306,6 +401,17 @@ impl HubClient {
         limit: usize,
     ) -> Result<ModelPage, HubError> {
         let url = self.search_url(query, format, filters, cursor, limit);
+        let disk = self
+            .token
+            .is_none()
+            .then(|| cache_path("listings", url.as_str()))
+            .flatten();
+        if let Some(page) = disk
+            .as_deref()
+            .and_then(|path| read_disk(path, Some(LISTING_TTL)))
+        {
+            return Ok(page);
+        }
         let (value, next_cursor) = self.get_json_page(url).await?;
         let models = value
             .as_array()
@@ -314,10 +420,14 @@ impl HubClient {
             .filter_map(catalog::parse_model)
             .filter(|model| catalog::is_repository(&model.repository))
             .collect();
-        Ok(ModelPage {
+        let page = ModelPage {
             models,
             next_cursor,
-        })
+        };
+        if let Some(path) = disk.as_deref() {
+            write_disk(path, &page);
+        }
+        Ok(page)
     }
 
     fn search_url(
@@ -387,10 +497,25 @@ impl HubClient {
         if let Some(files) = cached(&TREES, &key) {
             return Ok(files);
         }
+        let disk = self
+            .token
+            .is_none()
+            .then(|| cache_path("trees", &key))
+            .flatten();
+        if let Some(files) = disk
+            .as_deref()
+            .and_then(|path| read_disk::<Vec<HubFile>>(path, None))
+        {
+            remember(&TREES, key, files.clone());
+            return Ok(files);
+        }
         let mut url = self.url(&["api", "models", repository, "tree", revision]);
         url.query_pairs_mut().append_pair("recursive", "true");
         let value = self.get_json(url).await?;
         let files = catalog::parse_tree(&value);
+        if let Some(path) = disk.as_deref() {
+            write_disk(path, &files);
+        }
         remember(&TREES, key, files.clone());
         Ok(files)
     }
@@ -412,7 +537,22 @@ impl HubClient {
         if let Some(config) = cached(&CONFIGS, &key) {
             return Ok(config);
         }
+        let disk = self
+            .token
+            .is_none()
+            .then(|| cache_path("configs", &key))
+            .flatten();
+        if let Some(config) = disk
+            .as_deref()
+            .and_then(|path| read_disk::<Option<serde_json::Value>>(path, None))
+        {
+            remember(&CONFIGS, key, config.clone());
+            return Ok(config);
+        }
         let config = self.fetch_config(repository, revision).await?;
+        if let Some(path) = disk.as_deref() {
+            write_disk(path, &config);
+        }
         remember(&CONFIGS, key, config.clone());
         Ok(config)
     }
