@@ -2049,18 +2049,26 @@ impl<R: TurnRunner + 'static> Server<R> {
                     Ok(verification) if verification.passed && goal_edited && !review_done => {
                         review_done = true;
                         reviewed = Some(verification);
+                        let prompt = review_prompt(&root, &person_requests(&messages), &changed);
+                        // The second reading takes about a minute and streams
+                        // nothing: said, so a person does not take it for a hang.
                         self.update(
                             &session_id,
                             message_chunk(
                                 "agent_message_chunk",
-                                "The checks pass. Reviewing the work against the request before finishing.",
+                                if prompt.is_some() {
+                                    "The checks pass. Reviewing the work against the request before \
+                                     finishing: first the specification is read against the code \
+                                     once more, rule by rule (about a minute)."
+                                } else {
+                                    "The checks pass. Reviewing the work against the request before finishing."
+                                },
                             ),
                         );
-                        let findings =
-                            match review_prompt(&root, &person_requests(&messages), &changed) {
-                                Some(prompt) => self.runner.review(&root, prompt).await.ok(),
-                                None => None,
-                            };
+                        let findings = match prompt {
+                            Some(prompt) => self.runner.review(&root, prompt).await.ok(),
+                            None => None,
+                        };
                         messages.push(goal_guidance(review_guidance(findings.as_deref())));
                     }
                     Ok(verification) if verification.passed => {
