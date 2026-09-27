@@ -572,6 +572,16 @@ pub const TOOLCHAINS_DIRECTORY: &str = ".toolchains";
 /// nothing more.
 const RUNTIME_WRITABLE: [&str; 2] = ["/private/tmp/.dotnet", BROWSER_SCRATCH];
 
+/// What one stream of a command keeps: the first and last 8 KiB, where the
+/// first error and the summary are, with the middle elided and counted.
+///
+/// Measured on stack matrix c1 (2026-09-26): 6 of 321 commands wrote more than
+/// 16 KiB and those six were half of every byte of command output -- five of
+/// them `unzip` naming each file it extracted -- at up to 64 KiB a stream,
+/// some 16k tokens, into a local model's window. Commands only: a file read,
+/// written or patched is bounded by the policy's own limit.
+pub const COMMAND_STREAM_BYTES: usize = 16 * 1024;
+
 /// Programs whose toolchain writes to macOS's per-user temporary directory
 /// whatever `TMPDIR` says.
 const APPLE_TOOLCHAIN_PROGRAMS: [&str; 3] = ["swift", "xcodebuild", "xcrun"];
@@ -6053,19 +6063,20 @@ async fn run_command_once(
             let _ = pipe.shutdown().await;
         });
     }
+    let stream_limit = policy.output_limit.min(COMMAND_STREAM_BYTES);
     let stdout_task = tokio::spawn(read_bounded_pipe(
         child
             .stdout
             .take()
             .ok_or_else(|| ToolError::Io(std::io::Error::other("child stdout was not piped")))?,
-        policy.output_limit,
+        stream_limit,
     ));
     let stderr_task = tokio::spawn(read_bounded_pipe(
         child
             .stderr
             .take()
             .ok_or_else(|| ToolError::Io(std::io::Error::other("child stderr was not piped")))?,
-        policy.output_limit,
+        stream_limit,
     ));
     let status = match timeout(policy.timeout, child.wait()).await {
         Ok(status) => status?,

@@ -3962,13 +3962,13 @@ fn queue_tui_attachment(state: &mut TuiState, root: &Path, input: &str) {
     }
 }
 
-/// What one stream of a command may put into a conversation: the first and
-/// last 8 KiB, where the first error and the summary are, with the middle
-/// elided and counted. Measured on stack matrix c1 (2026-09-26): 6 of 321
-/// commands wrote more than 16 KiB and those six were half of every byte of
-/// command output -- five of them `unzip` naming each file it extracted --
-/// at up to 64 KiB a stream, some 16k tokens, into a local model's window.
-const CONVERSATION_OUTPUT_LIMIT: usize = 16 * 1024;
+/// What one read, write, patch or search result may hold in a conversation.
+///
+/// It was lowered to 16 KiB to shorten command output, and bounded all of
+/// these with it: measured 2026-09-27 (stack matrix c3, node-fastify-tasks),
+/// a 22-26 KB test file was refused three times as over the size limit. A
+/// command's output has its own cap, `pwr_tools::COMMAND_STREAM_BYTES`.
+const CONVERSATION_OUTPUT_LIMIT: usize = 64 * 1024;
 
 /// The OpenAI-compatible name for graded reasoning, which LM Studio maps onto
 /// the model's own template variable.

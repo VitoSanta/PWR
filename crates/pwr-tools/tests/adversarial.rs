@@ -186,6 +186,36 @@ fn a_command_that_outruns_the_policy_timeout_is_stopped() {
     assert!(matches!(result, Err(ToolError::CommandTimedOut(_))));
 }
 
+/// Command output is capped on its own; a file the policy allows is not.
+/// Seen 2026-09-27: one limit for both refused a 26 KB test file three times.
+#[test]
+fn a_command_s_output_is_capped_but_a_file_that_size_can_be_written() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands = vec!["sh".into()];
+    policy.output_limit = 64 * 1024;
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(run_command(
+            &policy,
+            "sh",
+            &["-c".into(), "head -c 40000 /dev/zero | tr '\\0' x".into()],
+        ));
+    let output = result.unwrap();
+    assert!(output.stdout_truncated);
+    assert!(
+        output.stdout.len() <= pwr_tools::COMMAND_STREAM_BYTES,
+        "{}",
+        output.stdout.len()
+    );
+    let content = "x".repeat(30_000);
+    pwr_tools::write_file(&policy, std::path::Path::new("big.txt"), &content).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("big.txt")).unwrap(),
+        content
+    );
+}
+
 /// A bare "timed out" did not say where a command was stuck: a hanging test
 /// run came back six times with nothing but that (stack matrix c2).
 #[test]
