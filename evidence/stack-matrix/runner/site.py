@@ -66,7 +66,10 @@ def scrub(text, workspace):
         real = os.path.realpath(workspace)
         text = text.replace(real, "<workspace>")
     text = text.replace(HOME, "~")
-    return re.sub(r"/private/var/folders/[^\s'\"]+|/var/folders/[^\s'\"]+", "<tmp>", text)
+    text = re.sub(r"/private/var/folders/[^\s'\"]+|/var/folders/[^\s'\"]+", "<tmp>", text)
+    # Package managers print their authors' addresses; a published page has
+    # no reason to repeat anyone's.
+    return re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}", "<email>", text)
 
 
 def esc(text):
