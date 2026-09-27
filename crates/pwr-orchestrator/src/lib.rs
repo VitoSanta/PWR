@@ -5193,8 +5193,38 @@ fn repair_form(name: &str, arguments: &mut serde_json::Value) -> String {
                 object.insert("to".into(), value);
             }
         }
-        "run_command" if !object.contains_key("args") && object.contains_key("executable") => {
-            object.insert("args".into(), serde_json::Value::Array(Vec::new()));
+        "run_command" if object.contains_key("executable") => {
+            if !object.contains_key("args") {
+                object.insert("args".into(), serde_json::Value::Array(Vec::new()));
+            }
+            // The whole command line as the program, with no arguments. Seen
+            // 2026-09-27 (stack matrix c2, rust-semver): `executable: "cargo
+            // test"` reached the person as a question about a program named
+            // "cargo test", which they refused. Plain words only: anything a
+            // shell would read differently -- quotes, `$`, pipes, globs --
+            // stays as sent and is refused with its own message.
+            let split = match (object.get("executable"), object.get("args")) {
+                (Some(serde_json::Value::String(line)), Some(serde_json::Value::Array(args)))
+                    if args.is_empty()
+                        && line.trim().contains(char::is_whitespace)
+                        && !line.contains(|c: char| "\"'`$|&;<>()*?[]{}\\~#=".contains(c)) =>
+                {
+                    let mut words = line.split_whitespace().map(str::to_owned);
+                    words
+                        .next()
+                        .map(|program| (program, words.collect::<Vec<_>>()))
+                }
+                _ => None,
+            };
+            if let Some((program, args)) = split {
+                object.insert("executable".into(), serde_json::Value::String(program));
+                object.insert(
+                    "args".into(),
+                    serde_json::Value::Array(
+                        args.into_iter().map(serde_json::Value::String).collect(),
+                    ),
+                );
+            }
         }
         _ => {}
     }
@@ -6095,6 +6125,37 @@ mod tests {
         repair_form("run_command", &mut arguments);
         assert_eq!(arguments["executables"], 3);
         assert!(arguments.get("executable").is_none());
+    }
+
+    /// Seen 2026-09-27 (stack matrix c2, rust-semver): a person was asked
+    /// about a program named "cargo test".
+    #[test]
+    fn a_command_line_sent_as_the_program_is_split_into_its_words() {
+        let mut arguments = serde_json::json!({"executable": "cargo test", "args": []});
+        repair_form("run_command", &mut arguments);
+        assert_eq!(arguments["executable"], "cargo");
+        assert_eq!(arguments["args"], serde_json::json!(["test"]));
+
+        let mut arguments = serde_json::json!({"executable": " go test ./... -run X "});
+        repair_form("run_command", &mut arguments);
+        assert_eq!(arguments["executable"], "go");
+        assert_eq!(
+            arguments["args"],
+            serde_json::json!(["test", "./...", "-run", "X"])
+        );
+
+        // What a shell would read differently, or a line that already has
+        // arguments, is left as sent.
+        for sent in [
+            serde_json::json!({"executable": "cargo test | tail", "args": []}),
+            serde_json::json!({"executable": "echo \"a b\"", "args": []}),
+            serde_json::json!({"executable": "ls *.rs", "args": []}),
+            serde_json::json!({"executable": "cargo test", "args": ["-q"]}),
+        ] {
+            let mut arguments = sent.clone();
+            repair_form("run_command", &mut arguments);
+            assert_eq!(arguments["executable"], sent["executable"], "{sent}");
+        }
     }
     use async_trait::async_trait;
     use futures_util::stream;

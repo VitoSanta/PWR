@@ -1329,18 +1329,37 @@ pub fn unlisted_program(
     action: &ActionProposal,
     policy: &ToolPolicy,
 ) -> Option<(Approval, String)> {
-    let (executable, args) = match action {
+    let (executable, args, stdin) = match action {
         ActionProposal::RunCommand {
+            executable,
+            args,
+            stdin,
+            ..
+        } => (executable, args, stdin.as_deref()),
+        ActionProposal::StartService {
             executable, args, ..
-        }
-        | ActionProposal::StartService {
-            executable, args, ..
-        } => (executable, args),
+        } => (executable, args, None),
         _ => return None,
     };
     if executable.trim().is_empty() || policy.permits_program(executable) {
         return None;
     }
+    // A script read from stdin is what a shell will run, and the person is
+    // being asked about it: seen 2026-09-27, `sh test -- x_ranges` was asked
+    // while the script, `cargo test --test ranges`, went unshown.
+    let script = stdin
+        .map(str::trim)
+        .filter(|script| !script.is_empty())
+        .map(|script| {
+            let shown: String = script.chars().take(300).collect();
+            let more = if shown.len() < script.len() {
+                " ..."
+            } else {
+                ""
+            };
+            format!(", reading the script `{shown}{more}`")
+        })
+        .unwrap_or_default();
     let listed = if policy.allow_commands.is_empty() {
         "it declares none".to_owned()
     } else {
@@ -1349,7 +1368,7 @@ pub fn unlisted_program(
     Some((
         Approval::ToolchainInstall,
         format!(
-            "run `{}` -- `{executable}` is not one of this workspace's programs ({listed})",
+            "run `{}`{script} -- `{executable}` is not one of this workspace's programs ({listed})",
             command_line(executable, args)
         ),
     ))
@@ -6321,6 +6340,26 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    /// Seen 2026-09-27: `sh test -- x_ranges` was asked about while the
+    /// script sh would run went unshown.
+    #[test]
+    fn a_shell_s_script_is_part_of_the_question() {
+        let root = tempfile::tempdir().unwrap();
+        let mut policy = super::PolicyProfile::Safe.build(root.path().to_path_buf());
+        policy.allow_commands = vec!["cargo".into()];
+        let action = super::ActionProposal::RunCommand {
+            executable: "sh".into(),
+            args: vec![],
+            stdin: Some("RUST_BACKTRACE=1 cargo test --test ranges".into()),
+            cwd: None,
+        };
+        let (_, question) = super::unlisted_program(&action, &policy).unwrap();
+        assert!(
+            question.contains("reading the script `RUST_BACKTRACE=1 cargo test --test ranges`"),
+            "{question}"
+        );
+    }
+
     #[test]
     fn dotnet_publish_is_a_build_and_nuget_push_is_a_publish() {
         let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
