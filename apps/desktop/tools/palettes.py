@@ -278,7 +278,7 @@ def layout_swatches():
     found = {'studio': {scheme: {k: base[scheme][t] for k, t in SWATCH_TOKENS.items()} for scheme in base}}
     variants_css = (HERE / 'src/styles/variants.css').read_text()
     for layout, scheme, block in re.findall(
-        r":root\[data-variant='(\w+)'\]\[data-theme='(\w+)'\] \{(.*?)\n\}", variants_css, re.S
+        r":root\[data-variant='(\w+)'\]\[data-theme='(\w+)'\] \{(.*?)\}", variants_css, re.S
     ):
         own = {**base[scheme], **declarations(block)}
         found.setdefault(layout, {})[scheme] = {k: own[t] for k, t in SWATCH_TOKENS.items()}

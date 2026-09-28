@@ -714,3 +714,19 @@ button.run-card-body:hover {
   );
   box-shadow: none;
 }
+
+.sketch-relay { grid-template-columns: 18% 1fr 25%; }
+.sketch-relay > i:first-child { background: repeating-linear-gradient(to bottom, var(--surface-active) 0 8px, transparent 8px 13px); }
+.sketch-workshop { grid-template-columns: 22% 1fr 25%; padding-top: 11px; }
+.sketch-workshop::before, .sketch-chronicle::before, .sketch-pulse::before { content: ''; position: absolute; top: 4px; left: 4px; right: 4px; height: 4px; background: var(--surface-active); border-radius: 2px; }
+.sketch-chronicle { grid-template-columns: 1fr; grid-template-rows: 1fr 24%; padding-top: 11px; }
+.sketch-chronicle > i:last-child { grid-row: 2; }
+.sketch-pulse { grid-template-columns: 36% 1fr; grid-template-rows: 1fr 34%; padding-top: 11px; }
+.sketch-pulse > i:first-child { grid-row: 1 / -1; }
+.sketch-map { grid-template-columns: 1fr 24%; grid-template-rows: 1fr 35%; }
+.sketch-map > i:first-child { grid-column: 1; grid-row: 1; background: repeating-linear-gradient(90deg, var(--surface-active) 0 23%, transparent 23% 26%); }
+.sketch-map > i:nth-child(2) { grid-column: 2; grid-row: 1 / -1; }
+.sketch-map > i:last-child { grid-column: 1; grid-row: 2; }
+.sketch-deck { grid-template-columns: 1fr; padding-top: 14px; }
+.sketch-deck::before { content: ''; position: absolute; top: 4px; left: 4px; width: 45%; height: 5px; background: var(--surface-active); border-radius: 2px; }
+.sketch-deck > i:nth-child(2), .sketch-deck > i:last-child { display: none; }

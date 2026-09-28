@@ -98,10 +98,15 @@ in Settings (⌘, / Ctrl+,) or the command palette; `index.html` applies it
 before first paint and the native window follows it.
 
 **Layouts** (Settings → Appearance → Layout, or "Layout:" in the command
-palette; `?variant=paper` in a browser) arrange the same components six
+palette; `?variant=paper` in a browser) arrange the same components twelve
 ways. None has a feature the others lack: the stores, the conversation, the
 composer, the workbench's cards and every dialog are shared, and a layout
 only moves, redraws and re-colours them, with its own tokens in both themes.
+
+Six further experimental layouts are available from the layout selector in their
+top bar: Relay, Workshop, Chronicle, Pulse, Map and Deck. They use the same live
+stores and workbench. Their UX rationale and tradeoffs are recorded in
+[`docs/UI_LAYOUT_EXPLORATION.md`](../../docs/UI_LAYOUT_EXPLORATION.md).
 
 - **Studio**: the sidebar, the conversation and the workbench side by side.
 - **Instrument**: monochrome, colour kept for state; a rail of icons (the
