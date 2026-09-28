@@ -121,10 +121,8 @@ stores and workbench. Their UX rationale and tradeoffs are recorded in
 - **Mission**: the run is the main surface -- the conversation in a column,
   a board with one column per stage of the loop and one card per action,
   the workbench rising from under it.
-- **Focus**: the conversation fills the page; a compact floating HUD keeps
-  agent state visible and reveals phases on demand. A small Tools control
-  expands the dock, while an open workbench gives the conversation room on
-  wide windows.
+- **Focus**: no chrome; where you are, the run, the engine and the tools
+  float over the page on glass.
 
 The run's stages come from the same reading of the timeline the
 conversation uses (`compactTurn`), so a strip, the margin notes and the board

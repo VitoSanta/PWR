@@ -87,7 +87,3 @@ Base: `design/themes` al commit `2ad41e9e`. Le sei proposte qui sotto si aggiung
 - **Ogni layout:** distinguere sempre «fase raggiunta», «tool completato» e «risultato verificato». I dati attuali sostengono i primi due, non un giudizio globale del terzo.
 
 Queste direzioni sono intenzionalmente confrontabili e nessuna viene proposta come vincitrice.
-
-## Iterazione su Focus
-
-Focus rimane una delle sei shell originali ed è stata scelta come direzione da approfondire. La prima iterazione riduce il rumore nei momenti di attesa: l'HUD mostra sessione e stato, mentre la sequenza completa delle fasi si apre su richiesta. Durante un run mostra fase corrente e numero di azioni reali; il numero apre Activity. Il dock parte compatto e si espande per mostrare i tool, i comandi e le impostazioni. Su finestre ampie, l'apertura del workbench restringe la conversazione affinché il pannello non copra il testo; nelle finestre strette resta un pannello sovrapposto. Questi cambiamenti usano solo dati e componenti già presenti.

@@ -1,10 +1,8 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { LayoutService } from '../../core/layout';
 import { WindowState } from '../../core/navigation';
-import { RUN_STATE_LABEL, RunStore } from '../../core/run';
 import { SHORTCUTS, UiStore } from '../../core/ui';
-import { WorkbenchStore } from '../../core/workbench';
 import { Composer } from '../composer';
 import { ContextMeter } from '../context-meter';
 import { Conversation } from '../conversation';
@@ -48,7 +46,6 @@ import { RunMetricsChip } from '../run-metrics';
       [class.is-mac]="win.isMac"
       [class.is-fullscreen]="win.fullscreen()"
       [class.is-resizing]="layout.resizing()"
-      [class.has-workbench]="open()"
       [style.--right-w.px]="layout.rightWidth()"
     >
       <div class="focus-drag" data-tauri-drag-region="deep"></div>
@@ -68,61 +65,36 @@ import { RunMetricsChip } from '../run-metrics';
       <div class="focus-hud glass">
         <pa-session-switcher />
         <span class="focus-hud-sep" aria-hidden="true"></span>
-        <span [class]="'run-state is-' + run.state()" role="status">{{ stateLabel() }}</span>
-        @if (run.current()) {
-          <button class="focus-phase-trigger" (click)="phasesOpen.update((value) => !value)"
-            [attr.aria-expanded]="phasesOpen()" aria-controls="focus-phases">
-            {{ run.current() }}
-            <pa-icon [name]="phasesOpen() ? 'chevron-up' : 'chevron-down'" [size]="13" />
-          </button>
-          @if (run.actions().length) {
-            <button class="focus-action-trigger" (click)="work.show('activity')"
-              [attr.aria-label]="'Open activity: ' + run.actions().length + ' actions'">
-              {{ run.actions().length }} actions
-            </button>
-          }
-        }
+        <pa-phase-strip />
       </div>
-
-      @if (run.current() && phasesOpen()) {
-        <div class="focus-phases glass" id="focus-phases">
-          <pa-phase-strip [vertical]="true" [showState]="false" />
-        </div>
-      }
 
       <div class="focus-engine glass">
         <pa-diagnostic-export />
-        @if (store.model()) {
-          <pa-context-meter />
-          <pa-run-metrics />
-        }
+        <pa-context-meter />
+        <pa-run-metrics />
         <pa-model-picker />
       </div>
 
-      <nav class="focus-dock glass" [class.is-expanded]="dockOpen()" aria-label="Tools">
-        <button class="focus-dock-trigger" (click)="dockOpen.update((value) => !value)"
-          [attr.aria-expanded]="dockOpen()" aria-controls="focus-dock-contents">
-          <pa-icon [name]="dockOpen() ? 'x' : 'panel-right'" [size]="16" />
-          <span>{{ dockOpen() ? 'Close tools' : 'Tools' }}</span>
+      <nav class="focus-dock glass" aria-label="Tools">
+        <button
+          class="icon-btn"
+          (click)="store.newConversation()"
+          [disabled]="store.turnActive()"
+          aria-label="New conversation"
+          paTooltip="New conversation"
+          [paTooltipKeys]="keys.newConversation"
+        >
+          <pa-icon name="square-pen" />
         </button>
-        @if (dockOpen()) {
-          <div class="focus-dock-contents" id="focus-dock-contents">
-            <button class="icon-btn" (click)="store.newConversation()"
-              [disabled]="store.turnActive()" aria-label="New conversation"
-              paTooltip="New conversation" [paTooltipKeys]="keys.newConversation">
-              <pa-icon name="square-pen" />
-            </button>
-            <span class="focus-dock-sep" aria-hidden="true"></span>
-            <pa-tool-dock [vertical]="true" />
-            <span class="focus-dock-sep" aria-hidden="true"></span>
-            <button class="icon-btn" (click)="ui.paletteOpen.set(true)" aria-label="Commands" paTooltip="Commands" [paTooltipKeys]="keys.palette">
-              <pa-icon name="command" />
-            </button>
-            <button class="icon-btn" (click)="ui.settingsOpen.set(true)" aria-label="Settings" paTooltip="Settings" [paTooltipKeys]="keys.settings">
-              <pa-icon name="settings" />
-            </button>
-          </div>
-        }
+        <span class="focus-dock-sep" aria-hidden="true"></span>
+        <pa-tool-dock [vertical]="true" />
+        <span class="focus-dock-sep" aria-hidden="true"></span>
+        <button class="icon-btn" (click)="ui.paletteOpen.set(true)" aria-label="Commands" paTooltip="Commands" [paTooltipKeys]="keys.palette">
+          <pa-icon name="command" />
+        </button>
+        <button class="icon-btn" (click)="ui.settingsOpen.set(true)" aria-label="Settings" paTooltip="Settings" [paTooltipKeys]="keys.settings">
+          <pa-icon name="settings" />
+        </button>
       </nav>
 
       @if (open()) {
@@ -137,14 +109,7 @@ export class FocusShell {
   protected readonly layout = inject(LayoutService);
   protected readonly ui = inject(UiStore);
   protected readonly win = inject(WindowState);
-  protected readonly run = inject(RunStore);
-  protected readonly work = inject(WorkbenchStore);
   protected readonly keys = SHORTCUTS;
-  protected readonly dockOpen = signal(false);
-  protected readonly phasesOpen = signal(false);
-  protected readonly stateLabel = computed(() =>
-    this.store.chatMode() && this.run.state() === 'working' ? 'Thinking' : RUN_STATE_LABEL[this.run.state()],
-  );
 
   constructor() {
     // Nothing docks: the workbench hovers, and starts closed.
