@@ -35,14 +35,14 @@ import { focusables } from './dialog';
     '[style.right.px]': 'right()',
     '[style.max-height.px]': 'maxHeight()',
     '[style.width]': 'width()',
-    '[style.transform-origin]': "side() === 'bottom' ? 'top' : 'bottom'",
-    // It opens from the anchor's side: down from above it, up from below.
-    '[style.--pop-y]': "side() === 'bottom' ? '-4px' : '4px'",
+    '[style.transform-origin]': "side() === 'bottom' ? 'top' : side() === 'top' ? 'bottom' : 'left'",
+    // It opens from the anchor's side: down, up, or beside it.
+    '[style.--pop-y]': "side() === 'bottom' ? '-4px' : side() === 'top' ? '4px' : '0px'",
   },
 })
 export class Popover implements AfterViewInit, OnDestroy {
   readonly anchor = input.required<HTMLElement>();
-  readonly side = input<'bottom' | 'top'>('bottom');
+  readonly side = input<'bottom' | 'top' | 'right'>('bottom');
   readonly anchorAlign = input<'start' | 'end'>('end');
   readonly width = input<string | null>(null);
   readonly panelRole = input<string>('dialog');
@@ -82,15 +82,22 @@ export class Popover implements AfterViewInit, OnDestroy {
     const margin = 8;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    if (this.side() === 'bottom') {
+    if (this.side() === 'right') {
+      const panel = this.host.nativeElement.getBoundingClientRect();
+      this.top.set(Math.max(margin, Math.min(rect.top, vh - panel.height - margin)));
+      this.left.set(Math.max(margin, Math.min(rect.right + gap, vw - panel.width - margin)));
+      this.maxHeight.set(vh - 2 * margin);
+    } else if (this.side() === 'bottom') {
       this.top.set(rect.bottom + gap);
       this.maxHeight.set(vh - rect.bottom - gap - margin);
     } else {
       this.bottom.set(vh - rect.top + gap);
       this.maxHeight.set(rect.top - gap - margin);
     }
-    if (this.anchorAlign() === 'end') this.right.set(Math.max(margin, vw - rect.right));
-    else this.left.set(Math.max(margin, rect.left));
+    if (this.side() !== 'right') {
+      if (this.anchorAlign() === 'end') this.right.set(Math.max(margin, vw - rect.right));
+      else this.left.set(Math.max(margin, rect.left));
+    }
   }
 
   @HostListener('document:pointerdown', ['$event'])

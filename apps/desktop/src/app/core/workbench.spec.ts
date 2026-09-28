@@ -59,6 +59,16 @@ describe('WorkbenchStore', () => {
     expect(work.fileRequest()).toBe('src/app.ts');
     expect(work.isOpen('files')).toBe(true);
   });
+
+  it('shows one tool at a time in Focus and returns to the conversation when closed', () => {
+    const work = TestBed.inject(WorkbenchStore);
+    work.singleMode.set(true);
+    work.show('activity');
+    work.show('knowledge');
+    expect(work.visible().map((card) => card.id)).toEqual(['knowledge']);
+    work.close('knowledge');
+    expect(work.visible()).toEqual([]);
+  });
 });
 
 describe('the Web preview card', () => {

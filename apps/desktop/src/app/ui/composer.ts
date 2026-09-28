@@ -20,7 +20,7 @@ import { Icon } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
 
-const MIN_HEIGHT = 40;
+const MIN_HEIGHT = 36;
 const MAX_HEIGHT = 260;
 
 @Component({
