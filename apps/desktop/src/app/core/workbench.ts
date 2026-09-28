@@ -53,6 +53,8 @@ export class WorkbenchStore {
 
   readonly open = signal<OpenCard[]>(this.saved.open);
   readonly maximized = signal<CardId | null>(this.saved.maximized);
+  /** Focus presents one tool at a time in its own panel. */
+  readonly singleMode = signal(false);
   /** The file the Files card should show, when another card asks for one. */
   readonly fileRequest = signal<string | null>(null);
 
@@ -90,11 +92,15 @@ export class WorkbenchStore {
   }
 
   private showNow(id: CardId): void {
-    this.open.update((open) =>
-      open.some((card) => card.id === id)
-        ? open.map((card) => (card.id === id ? { ...card, collapsed: false } : card))
-        : [...open, { id, collapsed: false }],
-    );
+    if (this.singleMode()) {
+      this.open.set([{ id, collapsed: false }]);
+    } else {
+      this.open.update((open) =>
+        open.some((card) => card.id === id)
+          ? open.map((card) => (card.id === id ? { ...card, collapsed: false } : card))
+          : [...open, { id, collapsed: false }],
+      );
+    }
     if (this.maximized() && this.maximized() !== id) this.maximized.set(null);
     if (this.layout.right() === 'hidden') this.layout.toggleRight();
     this.persist();
@@ -115,6 +121,7 @@ export class WorkbenchStore {
   private closeNow(id: CardId): void {
     this.open.update((open) => open.filter((card) => card.id !== id));
     if (this.maximized() === id) this.maximized.set(null);
+    if (this.singleMode() && this.open().length === 0 && this.layout.right() !== 'hidden') this.layout.toggleRight();
     this.persist();
   }
 

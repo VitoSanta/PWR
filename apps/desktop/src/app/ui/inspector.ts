@@ -33,6 +33,7 @@ import { KnowledgeCard } from './workbench/knowledge';
   ],
   template: `
     <aside class="workbench" aria-label="Workbench">
+      @if (!work.singleMode()) {
       <header class="workbench-head titlebar-row" data-tauri-drag-region="deep">
         <span class="workbench-title">Workbench</span>
         <span class="spacer" data-tauri-drag-region="deep"></span>
@@ -74,25 +75,34 @@ import { KnowledgeCard } from './workbench/knowledge';
           <pa-icon name="x" [size]="16" />
         </button>
       </header>
+      }
 
       <div class="workbench-body" [class.maximized]="!!work.focused()">
         @for (card of work.visible(); track card.id; let first = $first; let last = $last) {
           <section
             class="wb-card"
-            [class.collapsed]="card.collapsed"
-            [class.fills]="!card.collapsed"
+            [class.collapsed]="!work.singleMode() && card.collapsed"
+            [class.fills]="work.singleMode() || !card.collapsed"
             [attr.aria-label]="info(card.id).label"
             [style.view-transition-name]="'wb-' + card.id"
           >
-            <header class="wb-card-head" (dblclick)="work.maximize(card.id)">
-              <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
-                <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
-                <pa-icon [name]="icon(info(card.id))" [size]="15" />
-                <span>{{ info(card.id).label }}</span>
-                @if (badge(card.id); as count) {
-                  <span class="count num">{{ count }}</span>
-                }
-              </button>
+            <header class="wb-card-head" (dblclick)="work.singleMode() ? null : work.maximize(card.id)">
+              @if (work.singleMode()) {
+                <span class="wb-card-title">
+                  <pa-icon [name]="icon(info(card.id))" [size]="15" />
+                  <span>{{ info(card.id).label }}</span>
+                  @if (badge(card.id); as count) { <span class="count num">{{ count }}</span> }
+                </span>
+              } @else {
+                <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
+                  <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
+                  <pa-icon [name]="icon(info(card.id))" [size]="15" />
+                  <span>{{ info(card.id).label }}</span>
+                  @if (badge(card.id); as count) {
+                    <span class="count num">{{ count }}</span>
+                  }
+                </button>
+              }
               <span class="spacer"></span>
               <span class="wb-card-actions">
                 @if (!work.focused() && work.visible().length > 1) {
@@ -103,20 +113,22 @@ import { KnowledgeCard } from './workbench/knowledge';
                     <pa-icon name="chevron-down" [size]="14" />
                   </button>
                 }
-                <button
-                  class="icon-btn icon-btn-sm"
-                  (click)="work.maximize(card.id)"
-                  [attr.aria-label]="work.focused() === card.id ? 'Restore' : 'Maximise'"
-                  [paTooltip]="work.focused() === card.id ? 'Show the other cards' : 'Fill the column'"
-                >
-                  <pa-icon [name]="work.focused() === card.id ? 'minimize' : 'maximize'" [size]="14" />
-                </button>
+                @if (!work.singleMode()) {
+                  <button
+                    class="icon-btn icon-btn-sm"
+                    (click)="work.maximize(card.id)"
+                    [attr.aria-label]="work.focused() === card.id ? 'Restore' : 'Maximise'"
+                    [paTooltip]="work.focused() === card.id ? 'Show the other cards' : 'Fill the column'"
+                  >
+                    <pa-icon [name]="work.focused() === card.id ? 'minimize' : 'maximize'" [size]="14" />
+                  </button>
+                }
                 <button class="icon-btn icon-btn-sm" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + info(card.id).label" paTooltip="Close">
                   <pa-icon name="x" [size]="14" />
                 </button>
               </span>
             </header>
-            @if (!card.collapsed) {
+            @if (work.singleMode() || !card.collapsed) {
               <div class="wb-card-body" animate.enter="card-body-in">
                 @switch (card.id) {
                   @case ('review') { <pa-review-card /> }
@@ -148,7 +160,7 @@ import { KnowledgeCard } from './workbench/knowledge';
         }
       </div>
     </aside>
-    @if (layout.right() === 'docked') {
+    @if (!work.singleMode() && layout.right() === 'docked') {
       <pa-resize-handle
         edge="left"
         label="Resize the workbench"

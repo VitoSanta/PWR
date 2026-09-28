@@ -100,16 +100,15 @@ before first paint and the native window follows it.
 conversation switcher, engine and tools float over it on glass. Run stages
 remain visible in the conversation. The composer starts as a rounded single
 line and grows upward as the message wraps. Settings can switch the colour
-theme without changing this arrangement.
+theme without changing this arrangement. A tool opens as one card beside the
+conversation. In narrower windows it uses the main area until closed; it does
+not cover the chat.
 
 The run's stages come from the same reading of the timeline the
 conversation uses (`compactTurn`). ⌘B opens the conversation switcher.
 
-**Panels** dock while the conversation keeps at least 560 px: as the window
-narrows the inspector collapses first, then the navigation becomes a rail.
-Either can then be opened over the conversation. Drag or arrow-key the
-panel edges to resize them (double-click resets); sizes and open/closed are
-remembered.
+The tool dock keeps the available cards one click away. Goal mode and
+Auto-approve live together in Run controls, anchored beside their dock button.
 
 **Keyboard**: ⌘K / Ctrl+K opens the command palette, ⌘N a new conversation,
 ⌘B the conversation switcher, ⌥⌘B the inspector, Esc closes the innermost dialog, popover

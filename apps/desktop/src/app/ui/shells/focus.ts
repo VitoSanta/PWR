@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { LayoutService } from '../../core/layout';
+import { WorkbenchStore } from '../../core/workbench';
 import { WindowState } from '../../core/navigation';
 import { SHORTCUTS, UiStore } from '../../core/ui';
 import { Composer } from '../composer';
@@ -26,9 +27,9 @@ import { RunMetricsChip } from '../run-metrics';
 
 /**
  * Focus: no chrome. The conversation fills the window; everything else
- * floats over it on glass -- where you are and the run's phases at the top,
- * the engine at the top right, the tools on a dock at the left edge -- and
- * the workbench is a panel that hovers over the page until it is closed.
+ * floats over it on glass -- where you are at the top, the engine at the
+ * top right, and the tools on a dock at the left edge. A selected tool gets
+ * its own column while the conversation remains visible where space allows.
  */
 @Component({
   selector: 'pa-shell-focus',
@@ -50,6 +51,7 @@ import { RunMetricsChip } from '../run-metrics';
   template: `
     <div
       class="shell-focus"
+      [class.has-tool]="open()"
       [class.is-mac]="win.isMac"
       [class.is-fullscreen]="win.fullscreen()"
       [class.is-resizing]="layout.resizing()"
@@ -138,7 +140,7 @@ import { RunMetricsChip } from '../run-metrics';
         <pa-popover
           class="focus-run-popover"
           [anchor]="runAnchor.nativeElement"
-          side="top"
+          side="right"
           anchorAlign="start"
           width="300px"
           ariaLabel="Run controls"
@@ -178,7 +180,7 @@ import { RunMetricsChip } from '../run-metrics';
       }
 
       @if (open()) {
-        <pa-inspector class="is-overlay focus-workbench glass" animate.leave="is-leaving" />
+        <pa-inspector class="focus-workbench" animate.leave="is-leaving" />
       }
     </div>
   `,
@@ -187,6 +189,7 @@ import { RunMetricsChip } from '../run-metrics';
 export class FocusShell {
   protected readonly store = inject(AgentStore);
   protected readonly layout = inject(LayoutService);
+  protected readonly work = inject(WorkbenchStore);
   protected readonly ui = inject(UiStore);
   protected readonly win = inject(WindowState);
   protected readonly keys = SHORTCUTS;
@@ -194,13 +197,14 @@ export class FocusShell {
   protected readonly runControlsButton = viewChild<ElementRef<HTMLElement>>('runControlsButton');
 
   constructor() {
-    // Nothing docks: the workbench hovers, and starts closed.
+    // Focus uses one tool at a time and starts with the conversation.
+    this.work.singleMode.set(true);
     this.layout.leftFixed.set(0);
     this.layout.rightOpen.set(false);
     this.layout.rightPeek.set(false);
   }
 
   protected open(): boolean {
-    return this.layout.right() !== 'hidden';
+    return this.layout.right() !== 'hidden' && this.work.visible().length > 0;
   }
 }
