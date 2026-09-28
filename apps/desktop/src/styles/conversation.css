@@ -603,7 +603,12 @@ pa-composer {
 }
 
 /* --------------------------------------------------------------- diff */
+/* One column as wide as the longest line: scrolled sideways, every line's
+   colour still reaches the end. */
 .diff {
+  display: grid;
+  grid-template-columns: minmax(100%, max-content);
+  align-content: start;
   max-height: 360px;
   overflow: auto;
   padding: var(--space-1) 0;

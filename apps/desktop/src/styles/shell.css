@@ -1032,6 +1032,15 @@ pa-inspector {
   background: var(--surface-primary);
 }
 
+.graph-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  text-align: center;
+}
+
 .graph-stage > pa-graph3d,
 .graph3d-canvas {
   position: absolute;

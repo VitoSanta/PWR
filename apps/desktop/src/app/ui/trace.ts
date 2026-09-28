@@ -141,7 +141,7 @@ abstract class Foldable {
                 @if (step.entry.status === 'live') {
                   <!-- Anchored to the bottom: the newest lines are always whole, the
                        older ones fade out above instead of being cut mid-line. -->
-                  <div class="thought-window"><pa-markdown class="thought-md" [text]="tail(step.entry.text)" [copyable]="false" /></div>
+                  <div class="thought-window"><pa-markdown class="thought-md" [text]="tail(step.entry.text)" [copyable]="false" [streaming]="true" /></div>
                 } @else {
                   <p class="thought-summary">{{ gist(step.entry.text) }}</p>
                 }
@@ -153,7 +153,7 @@ abstract class Foldable {
           }
           @case ('reply') {
             <div class="step text" [class.live]="step.entry.status === 'live'">
-              <pa-markdown [text]="step.entry.text" />
+              <pa-markdown [text]="step.entry.text" [streaming]="step.entry.status === 'live'" />
             </div>
           }
           @case ('notice') {
@@ -303,7 +303,7 @@ export class TraceSteps extends Foldable {
     }
     @if (view().result; as result) {
       <div class="step text" [class.live]="result.status === 'live'">
-        <pa-markdown [text]="result.text" />
+        <pa-markdown [text]="result.text" [streaming]="result.status === 'live'" />
       </div>
     }
   `,

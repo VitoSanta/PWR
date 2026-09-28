@@ -9,6 +9,32 @@ const COPY_ICON =
 const CHECK_ICON =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 
+/**
+ * Text still arriving, made safe to render: a bold or a code span opened on
+ * the last line and not yet closed is closed for now, so it shows as bold
+ * or code as it grows instead of as raw asterisks and backticks. A marker
+ * with nothing after it yet is held back. Inside an open code block,
+ * nothing is touched.
+ */
+export function settle(text: string): string {
+  if ((text.match(/^\s*(```|~~~)/gm)?.length ?? 0) % 2) return text;
+  const start = text.lastIndexOf('\n') + 1;
+  let line = text.slice(start);
+  let tail = '';
+  // Code spans first: asterisks inside one are not markers.
+  const ticks = line.match(/`/g)?.length ?? 0;
+  if (ticks % 2) {
+    if (line.endsWith('`')) line = line.slice(0, -1);
+    else tail = '`';
+  }
+  const outside = (tail ? line.slice(0, line.lastIndexOf('`')) : line).replace(/`[^`]*`/g, '');
+  if ((outside.match(/\*\*/g)?.length ?? 0) % 2) {
+    if (line.endsWith('**') && !tail) line = line.slice(0, -2);
+    else tail = tail ? tail + '**' : '**';
+  }
+  return text.slice(0, start) + line + tail;
+}
+
 /** Markdown, rendered as it streams in, sanitised before it reaches the DOM. */
 @Component({
   selector: 'pa-markdown',
@@ -19,9 +45,13 @@ export class Markdown {
   readonly text = input.required<string>();
   /** A copy button on each code block; off for reasoning, which is read, not reused. */
   readonly copyable = input(true);
+  /** Still arriving: an unfinished bold or code span at the end renders as one. */
+  readonly streaming = input(false);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly html = computed(() =>
-    DOMPurify.sanitize(marked.parse(this.text(), { async: false }) as string),
+    DOMPurify.sanitize(
+      marked.parse(this.streaming() ? settle(this.text()) : this.text(), { async: false }) as string,
+    ),
   );
 
   constructor() {

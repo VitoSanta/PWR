@@ -34,8 +34,9 @@ const RAIL = 72;
 
 /**
  * Focus: no chrome. The conversation fills the window; everything else
- * floats over it on glass -- where you are at the top, the engine at the
- * top right, and the tools on a dock at the left edge. A selected tool gets
+ * floats over it on glass -- where you are and the engine together at the
+ * top right, leaving the corner by the window's buttons clear, and the tools
+ * on a dock at the left edge. A selected tool gets
  * its own column while the conversation remains visible where space allows.
  */
 @Component({
@@ -80,11 +81,9 @@ const RAIL = 72;
         <pa-composer />
       </main>
 
-      <div class="focus-hud glass">
+      <div class="focus-bar glass">
         <pa-session-switcher />
-      </div>
-
-      <div class="focus-engine glass">
+        <span class="focus-bar-sep" aria-hidden="true"></span>
         <pa-diagnostic-export />
         <pa-context-meter />
         <pa-run-metrics />
@@ -122,7 +121,7 @@ const RAIL = 72;
             (click)="runControlsOpen.update((open) => !open)"
             paTooltip="Goal mode and approvals"
           >
-            <pa-icon name="shield-check" />
+            <pa-icon name="zap" />
           </button>
         }
         <button
