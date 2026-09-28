@@ -1,11 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  inject,
-  signal,
-  viewChild,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { LayoutService } from '../../core/layout';
 import { WorkbenchStore } from '../../core/workbench';
@@ -20,24 +13,27 @@ import { Popover } from '../kit/popover';
 import { Tooltip } from '../kit/tooltip';
 import { ModelPicker } from '../model-picker';
 import { DiagnosticExport } from '../parts/diagnostic-export';
+import { RunControls } from '../parts/run-controls';
 import { SessionSwitcher } from '../parts/session-switcher';
-import { ToolDock } from '../parts/tool-dock';
+import { ToolStrip } from '../parts/tool-strip';
 import { MemoryProposals } from '../personal';
 import { RunMetricsChip } from '../run-metrics';
 
 /**
- * What the floating dock takes at the left edge: its inset, its width and a
- * gap. The conversation is centred in what is left of the window, and the
- * tools dock by that room.
+ * What a right click leaves to the system: text and whatever has its own
+ * menu -- copy, paste, look up, a link, an image, the terminal, the graph.
  */
-const RAIL = 72;
+const NATIVE_MENU =
+  'input, textarea, select, [contenteditable="true"], a, img, video, iframe, pre, code, .markdown, ' +
+  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover';
 
 /**
  * Focus: no chrome. The conversation fills the window; everything else
- * floats over it on glass -- where you are and the engine together at the
- * top right, leaving the corner by the window's buttons clear, and the tools
- * on a dock at the left edge. A selected tool gets
- * its own column while the conversation remains visible where space allows.
+ * floats over it on glass, in one bar at the top right -- where you are, the
+ * engine, and the tools -- leaving the window's corners clear. The tools open
+ * as a row from that bar, or where a right click (a two-finger click) lands
+ * on an empty part of the window. A selected tool gets its own column while
+ * the conversation remains visible where space allows.
  */
 @Component({
   selector: 'pa-shell-focus',
@@ -51,9 +47,10 @@ const RAIL = 72;
     MemoryProposals,
     ModelPicker,
     Popover,
+    RunControls,
     RunMetricsChip,
     SessionSwitcher,
-    ToolDock,
+    ToolStrip,
     Tooltip,
   ],
   template: `
@@ -65,7 +62,7 @@ const RAIL = 72;
       [class.is-fullscreen]="win.fullscreen()"
       [class.is-resizing]="layout.resizing()"
       [style.--right-w.px]="layout.rightWidth()"
-      [style.--focus-rail.px]="rail"
+      (contextmenu)="context($event)"
     >
       <div class="focus-drag" data-tauri-drag-region="deep"></div>
 
@@ -88,103 +85,42 @@ const RAIL = 72;
         <pa-context-meter />
         <pa-run-metrics />
         <pa-model-picker />
+        <span class="focus-bar-sep" aria-hidden="true"></span>
+        <button
+          #toolsButton
+          class="icon-btn focus-tools"
+          [class.has-goal]="store.goalMode() && !store.chatMode()"
+          [class.has-auto]="store.permissionMode() === 'auto' && !store.chatMode()"
+          (click)="strip() === 'bar' ? strip.set(null) : strip.set('bar')"
+          [attr.aria-expanded]="strip() === 'bar'"
+          aria-haspopup="menu"
+          aria-label="Tools"
+          paTooltip="Tools · or right-click an empty spot"
+        >
+          <pa-icon name="grid" />
+        </button>
       </div>
 
-      <nav class="focus-dock glass" aria-label="Tools">
-        <button
-          class="icon-btn"
-          (click)="store.newConversation()"
-          [disabled]="store.turnActive()"
-          aria-label="New conversation"
-          paTooltip="New conversation"
-          [paTooltipKeys]="keys.newConversation"
-        >
-          <pa-icon name="square-pen" />
-        </button>
-        <span class="focus-dock-sep" aria-hidden="true"></span>
-        <pa-tool-dock [vertical]="true" />
-        <span class="focus-dock-sep" aria-hidden="true"></span>
-        @if (!store.chatMode()) {
-          <button
-            #runControlsButton
-            class="icon-btn focus-run-trigger"
-            [class.has-goal]="store.goalMode()"
-            [class.has-auto]="store.permissionMode() === 'auto'"
-            [attr.aria-expanded]="runControlsOpen()"
-            [attr.aria-label]="
-              'Run controls: Goal ' +
-              (store.goalMode() ? 'on' : 'off') +
-              ', Auto-approve ' +
-              (store.permissionMode() === 'auto' ? 'on' : 'off')
-            "
-            aria-haspopup="dialog"
-            (click)="runControlsOpen.update((open) => !open)"
-            paTooltip="Goal mode and approvals"
-          >
-            <pa-icon name="zap" />
-          </button>
-        }
-        <button
-          class="icon-btn"
-          (click)="ui.paletteOpen.set(true)"
-          aria-label="Commands"
-          paTooltip="Commands"
-          [paTooltipKeys]="keys.palette"
-        >
-          <pa-icon name="command" />
-        </button>
-        <button
-          class="icon-btn"
-          (click)="ui.settingsOpen.set(true)"
-          aria-label="Settings"
-          paTooltip="Settings"
-          [paTooltipKeys]="keys.settings"
-        >
-          <pa-icon name="settings" />
-        </button>
-      </nav>
+      <!-- Where a right click landed: the tools open from there. -->
+      <span #pointerAnchor class="focus-pointer" [style.left.px]="pointer().x" [style.top.px]="pointer().y" aria-hidden="true"></span>
 
-      @if (runControlsOpen() && runControlsButton(); as runAnchor) {
+      @if (strip(); as from) {
         <pa-popover
-          class="focus-run-popover"
-          [anchor]="runAnchor.nativeElement"
-          side="right"
-          anchorAlign="start"
-          width="300px"
-          ariaLabel="Run controls"
-          (closed)="runControlsOpen.set(false)"
+          class="tool-strip-popover"
+          [anchor]="from === 'bar' ? toolsButton : pointerAnchor"
+          [anchorAlign]="from === 'bar' ? 'end' : 'start'"
+          panelRole="menu"
+          ariaLabel="Tools"
+          [focusFirst]="true"
+          (closed)="strip.set(null)"
           animate.leave="anim-pop-out"
         >
-          <div class="popover-head"><h2 class="popover-title">Run controls</h2></div>
-          <div class="focus-run-options">
-            <button
-              class="focus-run-option"
-              [attr.aria-pressed]="store.goalMode()"
-              (click)="store.goalMode.set(!store.goalMode())"
-            >
-              <span class="focus-run-copy">
-                <strong>Goal mode</strong>
-                <small>Keep working until the goal is verified.</small>
-              </span>
-              <span class="switch" aria-hidden="true"></span>
-            </button>
-            <button
-              class="focus-run-option tone-warning"
-              [attr.aria-pressed]="store.permissionMode() === 'auto'"
-              (click)="store.setPermissionMode(store.permissionMode() === 'auto' ? 'ask' : 'auto')"
-            >
-              <span class="focus-run-copy">
-                <strong>Auto-approve</strong>
-                <small>{{
-                  store.permissionMode() === 'auto'
-                    ? 'Permissions are granted automatically.'
-                    : 'PWR asks before sensitive actions.'
-                }}</small>
-              </span>
-              <span class="switch" aria-hidden="true"></span>
-            </button>
-          </div>
+          <pa-tool-strip (done)="strip.set(null)" (run)="openRun(from)" />
         </pa-popover>
+      }
+
+      @if (ui.runControls(); as anchor) {
+        <pa-run-controls [anchor]="anchor" (closed)="ui.runControls.set(null)" />
       }
 
       @if (open()) {
@@ -201,19 +137,43 @@ export class FocusShell {
   protected readonly ui = inject(UiStore);
   protected readonly win = inject(WindowState);
   protected readonly keys = SHORTCUTS;
-  protected readonly rail = RAIL;
-  protected readonly runControlsOpen = signal(false);
-  protected readonly runControlsButton = viewChild<ElementRef<HTMLElement>>('runControlsButton');
+  /** The tools' row: open from the bar's button, or where a right click landed. */
+  protected readonly strip = signal<'bar' | 'pointer' | null>(null);
+  protected readonly pointer = signal({ x: 0, y: 0 });
+  private readonly toolsRef = viewChild.required<ElementRef<HTMLElement>>('toolsButton');
+  private readonly pointerRef = viewChild.required<ElementRef<HTMLElement>>('pointerAnchor');
 
   constructor() {
     // Focus uses standalone cards and starts with the conversation.
     this.work.focusMode.set(true);
-    this.layout.leftFixed.set(RAIL);
+    this.layout.leftFixed.set(0);
     this.layout.rightOpen.set(false);
     this.layout.rightPeek.set(false);
   }
 
   protected open(): boolean {
     return this.work.panelVisible() && this.work.visible().length > 0;
+  }
+
+  /**
+   * A right click (a two-finger click) on an empty part of the window opens
+   * the tools where it landed; on text, or anything with a menu of its own,
+   * the system's menu is left alone.
+   */
+  protected context(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (window.getSelection()?.toString()) return;
+    if (!target || target.closest(NATIVE_MENU)) return;
+    event.preventDefault();
+    this.pointer.set({ x: event.clientX, y: event.clientY });
+    this.strip.set(null);
+    // A fresh strip, so it opens at the new spot with its own motion.
+    queueMicrotask(() => this.strip.set('pointer'));
+  }
+
+  /** The run's controls, opened from where the strip was. */
+  protected openRun(from: 'bar' | 'pointer'): void {
+    this.strip.set(null);
+    this.ui.runControls.set((from === 'bar' ? this.toolsRef() : this.pointerRef()).nativeElement);
   }
 }

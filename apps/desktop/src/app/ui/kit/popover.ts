@@ -35,9 +35,9 @@ import { focusables } from './dialog';
     '[style.right.px]': 'right()',
     '[style.max-height.px]': 'maxHeight()',
     '[style.width]': 'width()',
-    '[style.transform-origin]': "side() === 'bottom' ? 'top' : side() === 'top' ? 'bottom' : 'left'",
+    '[style.transform-origin]': "placed() === 'bottom' ? 'top' : placed() === 'top' ? 'bottom' : 'left'",
     // It opens from the anchor's side: down, up, or beside it.
-    '[style.--pop-y]': "side() === 'bottom' ? '-4px' : side() === 'top' ? '4px' : '0px'",
+    '[style.--pop-y]': "placed() === 'bottom' ? '-4px' : placed() === 'top' ? '4px' : '0px'",
   },
 })
 export class Popover implements AfterViewInit, OnDestroy {
@@ -58,6 +58,8 @@ export class Popover implements AfterViewInit, OnDestroy {
   protected readonly left = signal<number | null>(null);
   protected readonly right = signal<number | null>(null);
   protected readonly maxHeight = signal<number | null>(null);
+  /** The side it opened on: the one asked for, unless only the other has room. */
+  protected readonly placed = signal<'bottom' | 'top' | 'right'>('bottom');
 
   ngAfterViewInit(): void {
     this.place();
@@ -85,21 +87,45 @@ export class Popover implements AfterViewInit, OnDestroy {
     // Where the window's edges are for this panel: a glass or transformed
     // ancestor makes itself the frame fixed positions are measured from.
     const frame = containingFrame(this.host.nativeElement, vw, vh);
+    // Its laid-out size: the opening animation scales what the screen shows.
+    const host = this.host.nativeElement;
+    const panel = { width: host.offsetWidth, height: host.offsetHeight };
     if (this.side() === 'right') {
-      const panel = this.host.nativeElement.getBoundingClientRect();
+      this.placed.set('right');
       this.top.set(Math.max(margin, Math.min(rect.top, vh - panel.height - margin)) - frame.top);
       this.left.set(Math.max(margin, Math.min(rect.right + gap, vw - panel.width - margin)) - frame.left);
       this.maxHeight.set(vh - 2 * margin);
-    } else if (this.side() === 'bottom') {
+      return;
+    }
+    // Below or above as asked, unless the panel only fits on the other side.
+    const below = vh - rect.bottom - gap - margin;
+    const above = rect.top - gap - margin;
+    const side =
+      this.side() === 'bottom'
+        ? below < panel.height && above > below
+          ? 'top'
+          : 'bottom'
+        : above < panel.height && below > above
+          ? 'bottom'
+          : 'top';
+    this.placed.set(side);
+    if (side === 'bottom') {
       this.top.set(rect.bottom + gap - frame.top);
-      this.maxHeight.set(vh - rect.bottom - gap - margin);
+      this.bottom.set(null);
+      this.maxHeight.set(below);
     } else {
       this.bottom.set(vh - rect.top + gap - frame.bottom);
-      this.maxHeight.set(rect.top - gap - margin);
+      this.top.set(null);
+      this.maxHeight.set(above);
     }
-    if (this.side() !== 'right') {
-      if (this.anchorAlign() === 'end') this.right.set(Math.max(margin, vw - rect.right) - frame.right);
-      else this.left.set(Math.max(margin, rect.left) - frame.left);
+    // Along the anchor, but never past the window's edge.
+    const widest = Math.max(margin, vw - panel.width - margin);
+    if (this.anchorAlign() === 'end') {
+      this.right.set(Math.min(Math.max(margin, vw - rect.right), widest) - frame.right);
+      this.left.set(null);
+    } else {
+      this.left.set(Math.min(Math.max(margin, rect.left), widest) - frame.left);
+      this.right.set(null);
     }
   }
 

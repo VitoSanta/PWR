@@ -144,15 +144,139 @@ button.status-item:hover:not(:disabled) {
   margin: 0;
 }
 
-/* ------------------------------------------------------------ tool dock */
-.tool-dock {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+/* ----------------------------------------------------------- tool strip */
+/* The tools in one row, each an icon over its name; the items arrive one
+   after another as the row opens. */
+pa-popover.tool-strip-popover {
+  min-width: 0;
 }
 
-.tool-dock.is-vertical {
+.tool-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-1);
+}
+
+.tool-strip-item {
+  position: relative;
+  display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 64px;
+  padding: var(--space-2) var(--space-1) 7px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  animation: pa-strip-in var(--dur-slow) var(--ease-out) backwards;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease-out);
+}
+
+.tool-strip-item:hover,
+.tool-strip-item:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.tool-strip-item:active {
+  transform: scale(0.96);
+}
+
+/* An open tool: lit, with a short line under its name. */
+.tool-strip-item[aria-checked='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.tool-strip-item[aria-checked='true']::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: calc(50% - 7px);
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent-primary);
+}
+
+.tool-strip-item.has-goal {
+  color: var(--accent-text);
+}
+
+.tool-strip-item.has-auto:not(.has-goal) {
+  color: var(--warning-text);
+}
+
+.tool-strip-sep {
+  flex: none;
+  width: 1px;
+  margin: var(--space-2) 2px;
+  background: var(--border-subtle);
+}
+
+.tool-strip > :nth-child(2) {
+  animation-delay: 14ms;
+}
+
+.tool-strip > :nth-child(3) {
+  animation-delay: 28ms;
+}
+
+.tool-strip > :nth-child(4) {
+  animation-delay: 42ms;
+}
+
+.tool-strip > :nth-child(5) {
+  animation-delay: 56ms;
+}
+
+.tool-strip > :nth-child(6) {
+  animation-delay: 70ms;
+}
+
+.tool-strip > :nth-child(7) {
+  animation-delay: 84ms;
+}
+
+.tool-strip > :nth-child(8) {
+  animation-delay: 98ms;
+}
+
+.tool-strip > :nth-child(9) {
+  animation-delay: 112ms;
+}
+
+.tool-strip > :nth-child(10) {
+  animation-delay: 126ms;
+}
+
+.tool-strip > :nth-child(11) {
+  animation-delay: 140ms;
+}
+
+.tool-strip > :nth-child(12) {
+  animation-delay: 154ms;
+}
+
+.tool-strip > :nth-child(13) {
+  animation-delay: 168ms;
+}
+
+@keyframes pa-strip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.96);
+  }
 }
 
 /* ------------------------------------------------------------ run board */

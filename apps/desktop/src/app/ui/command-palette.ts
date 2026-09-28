@@ -176,6 +176,24 @@ export class CommandPalette {
         run: () => void store.attachFolder(),
       });
     }
+    if (!store.chatMode()) {
+      list.push({
+        id: 'goal',
+        label: store.goalMode() ? 'Turn Goal mode off' : 'Turn Goal mode on',
+        group: 'Conversation',
+        icon: 'zap',
+        hint: store.goalMode() ? 'on' : 'off',
+        run: () => store.goalMode.set(!store.goalMode()),
+      });
+      list.push({
+        id: 'auto-approve',
+        label: store.permissionMode() === 'auto' ? 'Turn Auto-approve off' : 'Turn Auto-approve on',
+        group: 'Conversation',
+        icon: 'shield',
+        hint: store.permissionMode() === 'auto' ? 'on' : 'off',
+        run: () => store.setPermissionMode(store.permissionMode() === 'auto' ? 'ask' : 'auto'),
+      });
+    }
     for (const [name, label, icon] of [
       ['verify', 'Verify', 'shield-check'],
       ['changes', 'List changes', 'git-compare'],

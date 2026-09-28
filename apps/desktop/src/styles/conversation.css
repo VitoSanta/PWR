@@ -776,6 +776,38 @@ pa-composer {
 }
 
 /* ------------------------------------------------------------ composer */
+/* Goal mode or Auto-approve, while on: in sight where the next message is
+   written, and a way to change them. */
+.run-note {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.run-note.tone-warning {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.run-note:hover,
+.run-note[aria-expanded='true'] {
+  border-color: currentColor;
+}
+
 /* The same column as the timeline's content: its edges line up with the
    messages above it at every window width. */
 .composer {
