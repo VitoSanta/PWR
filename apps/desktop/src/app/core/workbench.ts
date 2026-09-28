@@ -127,9 +127,18 @@ export class WorkbenchStore {
     return Math.max(RIGHT.min, this.layout.viewport() - left - MAIN_MIN);
   }
 
+  /**
+   * Resizes one card and only that one: the cards beside it that were still
+   * following the column keep the width they show now, instead of following
+   * the one being dragged.
+   */
   setWidth(id: CardId, width: number): void {
     const next = Math.round(Math.max(RIGHT.min, Math.min(this.maxWidth(), width)));
-    this.widths.update((widths) => ({ ...widths, [id]: next }));
+    const widths = { ...this.widths() };
+    for (const card of this.visible())
+      if (card.id !== id && widths[card.id] === undefined) widths[card.id] = this.widthOf(card.id);
+    widths[id] = next;
+    this.widths.set(widths);
     try {
       localStorage.setItem(WIDTHS_KEY, JSON.stringify(this.widths()));
     } catch {
