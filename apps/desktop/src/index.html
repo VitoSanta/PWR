@@ -23,10 +23,7 @@
       var palette = asked;
       try { palette = palette || localStorage.getItem(dark ? 'pwr:palette-dark' : 'pwr:palette-light'); } catch (e) {}
       if (palette) document.documentElement.setAttribute('data-palette', palette);
-      // The layout too (VariantService takes over); ?variant= wins, as there.
-      var variant = null;
-      try { variant = new URLSearchParams(location.search).get('variant') || localStorage.getItem('pwr:variant'); } catch (e) {}
-      if (variant) document.documentElement.setAttribute('data-variant', variant);
+      document.documentElement.setAttribute('data-variant', 'focus');
     })();
   </script>
 </head>

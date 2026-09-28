@@ -267,16 +267,14 @@ def declarations(block):
 
 
 def layout_swatches():
-    """Each layout's own colours in each scheme -- what Settings draws for
-    "Layout colours" -- read from tokens.css (studio, the base) and the
-    layouts' blocks in variants.css."""
+    """Focus colours in each scheme, as previewed in Settings."""
     tokens_css = (HERE / 'src/styles/tokens.css').read_text()
     base = {
         scheme: declarations(tokens_css.split(f":root[data-theme='{scheme}'] {{", 1)[1].split('}', 1)[0])
         for scheme in ('dark', 'light')
     }
-    found = {'studio': {scheme: {k: base[scheme][t] for k, t in SWATCH_TOKENS.items()} for scheme in base}}
-    variants_css = (HERE / 'src/styles/variants.css').read_text()
+    found = {}
+    variants_css = (HERE / 'src/styles/focus.css').read_text()
     for layout, scheme, block in re.findall(
         r":root\[data-variant='(\w+)'\]\[data-theme='(\w+)'\] \{(.*?)\n\}", variants_css, re.S
     ):
@@ -357,7 +355,7 @@ export const PALETTES: PaletteInfo[] = [
 {chr(10).join(entries)}
 ];
 
-/** Each layout's own colours, drawn for "Layout colours" (tokens.css and variants.css). */
+/** Focus colours, drawn for the default palette choice. */
 export const LAYOUT_SWATCHES: Record<string, Record<Scheme, Swatch>> = {{
 {chr(10).join(f"  {layout}: {{ dark: {swatch_ts(sw['dark'])}, light: {swatch_ts(sw['light'])} }}," for layout, sw in layouts.items())}
 }};

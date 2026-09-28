@@ -1,5 +1,4 @@
 import { LAYOUT_SWATCHES, PALETTES } from './palettes';
-import { VARIANTS } from './variant';
 import {
   LAYOUT_PALETTE,
   PALETTE_KEYS,
@@ -58,11 +57,10 @@ describe('palettes', () => {
       for (const colour of Object.values(palette.swatch)) expect(colour).toMatch(/^#[0-9a-f]{6}$/);
   });
 
-  it('has the own colours of every layout, in both schemes', () => {
-    for (const variant of VARIANTS)
-      for (const scheme of ['dark', 'light'] as const)
-        for (const colour of Object.values(LAYOUT_SWATCHES[variant.id][scheme]))
-          expect(colour).toMatch(/^#[0-9a-f]{6}$/);
+  it('has Focus colours in both schemes', () => {
+    for (const scheme of ['dark', 'light'] as const)
+      for (const colour of Object.values(LAYOUT_SWATCHES['focus'][scheme]))
+        expect(colour).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it('knows a palette only in its own scheme', () => {

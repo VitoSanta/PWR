@@ -1,14 +1,7 @@
 @if (store.engineSetup()) {
   <pa-engine-setup [class.is-mac]="win.isMac" [class.is-fullscreen]="win.fullscreen()" />
 } @else {
-  @switch (variants.variant()) {
-    @case ('instrument') { <pa-shell-instrument /> }
-    @case ('paper') { <pa-shell-paper /> }
-    @case ('islands') { <pa-shell-islands /> }
-    @case ('mission') { <pa-shell-mission /> }
-    @case ('focus') { <pa-shell-focus /> }
-    @default { <pa-shell-studio /> }
-  }
+  <pa-shell-focus />
 }
 
 <pa-permission />

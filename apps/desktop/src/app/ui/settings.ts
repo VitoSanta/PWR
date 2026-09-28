@@ -3,7 +3,6 @@ import { AgentStore } from '../core/agent.store';
 import { EngineStatus } from '../core/model';
 import { LAYOUT_PALETTE, Theme, ThemeMode, ThemeService } from '../core/theme';
 import { LAYOUT_SWATCHES, PALETTES, Swatch } from '../core/palettes';
-import { VARIANTS, VariantService } from '../core/variant';
 import { SHORTCUTS, UiStore, roveFocus, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
@@ -94,8 +93,7 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
                   <header class="settings-page-head settings-subhead">
                     <h4 class="settings-row-title">Colour theme</h4>
                     <p class="fine">
-                      One for dark and one for light; System switches between them. Any layout, any
-                      colours.
+                      One for dark and one for light; System switches between them.
                     </p>
                   </header>
                   @for (scheme of schemes; track scheme.id) {
@@ -132,36 +130,6 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
                       </div>
                     </div>
                   }
-                  <header class="settings-page-head settings-subhead">
-                    <h4 class="settings-row-title">Layout</h4>
-                    <p class="fine">
-                      Every layout has every feature; they arrange them differently.
-                    </p>
-                  </header>
-                  <div
-                    class="variant-options"
-                    role="radiogroup"
-                    aria-label="Layout"
-                    (keydown)="variantKeys($event)"
-                  >
-                    @for (option of variantList; track option.id) {
-                      <button
-                        class="variant-option"
-                        role="radio"
-                        [attr.aria-checked]="variants.variant() === option.id"
-                        [attr.tabindex]="variants.variant() === option.id ? 0 : -1"
-                        (click)="variants.set(option.id)"
-                      >
-                        <span [class]="'variant-sketch sketch-' + option.id" aria-hidden="true"
-                          ><i></i><i></i><i></i
-                        ></span>
-                        <span class="variant-text">
-                          <span class="variant-label">{{ option.label }}</span>
-                          <span class="fine">{{ option.description }}</span>
-                        </span>
-                      </button>
-                    }
-                  </div>
                   @if (store.engine(); as engine) {
                     @if (engine.needed) {
                       <div class="settings-row">
@@ -222,8 +190,6 @@ export class Settings {
     { id: 'appearance', label: 'Appearance', icon: 'sun' },
     { id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
   ];
-  protected readonly variants = inject(VariantService);
-  protected readonly variantList = VARIANTS;
   protected readonly themes: { value: ThemeMode; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
     { value: 'light', label: 'Light', icon: 'sun' },
@@ -232,7 +198,7 @@ export class Settings {
   protected readonly shortcuts = [
     { label: 'Command palette', keys: SHORTCUTS.palette },
     { label: 'New conversation', keys: SHORTCUTS.newConversation },
-    { label: 'Show or hide the sidebar', keys: SHORTCUTS.toggleSidebar },
+    { label: 'Show or hide conversations', keys: SHORTCUTS.toggleSidebar },
     { label: 'Show or hide the workbench', keys: SHORTCUTS.toggleInspector },
     { label: 'Settings', keys: SHORTCUTS.settings },
     { label: 'Send message', keys: 'Enter' },
@@ -244,13 +210,13 @@ export class Settings {
     { id: 'light', label: 'When light', icon: 'sun' },
   ];
 
-  /** The layout's own colours first, then every palette of the scheme. */
+  /** Focus colours first, then every palette of the scheme. */
   protected palettesFor(scheme: Theme): { id: string; label: string; description: string }[] {
     return [
       {
         id: LAYOUT_PALETTE,
-        label: 'Layout colours',
-        description: "The chosen layout's own colours",
+        label: 'Focus colours',
+        description: "Focus's own colours",
       },
       ...PALETTES.filter((palette) => palette.scheme === scheme),
     ];
@@ -260,13 +226,10 @@ export class Settings {
     return scheme === 'dark' ? this.theme.darkPalette() : this.theme.lightPalette();
   }
 
-  /** What a scheme looks like in one of its palettes, or in the current layout's own colours. */
+  /** What a scheme looks like in one of its palettes, or in Focus's own colours. */
   private swatchFor(scheme: Theme, id: string): Swatch {
     const palette = PALETTES.find((item) => item.id === id && item.scheme === scheme);
-    return (
-      palette?.swatch ??
-      (LAYOUT_SWATCHES[this.variants.variant()] ?? LAYOUT_SWATCHES['studio'])[scheme]
-    );
+    return palette?.swatch ?? LAYOUT_SWATCHES['focus'][scheme];
   }
 
   protected paletteSwatch(scheme: Theme, id: string): Record<string, string> {
@@ -303,11 +266,6 @@ export class Settings {
 
   protected navKeys(event: KeyboardEvent): void {
     if (roveFocus(event, event.currentTarget as HTMLElement, '.settings-nav-item', 'vertical'))
-      (document.activeElement as HTMLElement | null)?.click();
-  }
-
-  protected variantKeys(event: KeyboardEvent): void {
-    if (roveFocus(event, event.currentTarget as HTMLElement, '[role=radio]', 'horizontal'))
       (document.activeElement as HTMLElement | null)?.click();
   }
 
