@@ -5,21 +5,6 @@
  * and re-colours them.
  */
 
-/* Design Lab defaults: restrained colours for the six new philosophies.
-   A chosen palette in palettes.css still overrides these tokens. */
-:root[data-variant='relay'][data-theme='dark'] { --bg-sidebar: #181818; --bg-app: #181818; --surface-primary: #1f1f1f; --accent-primary: #4daafc; --text-primary: #cccccc; --accent-secondary: #4ec9b0; }
-:root[data-variant='relay'][data-theme='light'] { --bg-sidebar: #f8f8f8; --bg-app: #f8f8f8; --surface-primary: #ffffff; --accent-primary: #005fb8; --text-primary: #3b3b3b; --accent-secondary: #267f99; }
-:root[data-variant='workshop'][data-theme='dark'] { --bg-sidebar: #2b303b; --bg-app: #242933; --surface-primary: #2e3440; --accent-primary: #88c0d0; --text-primary: #eceff4; --accent-secondary: #c3a3be; }
-:root[data-variant='workshop'][data-theme='light'] { --bg-sidebar: #f8f8f8; --bg-app: #f8f8f8; --surface-primary: #ffffff; --accent-primary: #005fb8; --text-primary: #3b3b3b; --accent-secondary: #267f99; }
-:root[data-variant='chronicle'][data-theme='dark'] { --bg-sidebar: #1d2021; --bg-app: #1d2021; --surface-primary: #282828; --accent-primary: #fe8019; --text-primary: #ebdbb2; --accent-secondary: #8ec07c; }
-:root[data-variant='chronicle'][data-theme='light'] { --bg-sidebar: #efe8dc; --bg-app: #f4efe6; --surface-primary: #fbf8f2; --accent-primary: #a3481f; --text-primary: #2b2620; --accent-secondary: #35695c; }
-:root[data-variant='pulse'][data-theme='dark'] { --bg-sidebar: #16161e; --bg-app: #16161e; --surface-primary: #1a1b26; --accent-primary: #7aa2f7; --text-primary: #c0caf5; --accent-secondary: #bb9af7; }
-:root[data-variant='pulse'][data-theme='light'] { --bg-sidebar: #eee8d5; --bg-app: #eee8d5; --surface-primary: #fdf6e3; --accent-primary: #1c6aa5; --text-primary: #073642; --accent-secondary: #1d766f; }
-:root[data-variant='map'][data-theme='dark'] { --bg-sidebar: #1d2021; --bg-app: #1d2021; --surface-primary: #282828; --accent-primary: #fe8019; --text-primary: #ebdbb2; --accent-secondary: #8ec07c; }
-:root[data-variant='map'][data-theme='light'] { --bg-sidebar: #eee8d5; --bg-app: #eee8d5; --surface-primary: #fdf6e3; --accent-primary: #1c6aa5; --text-primary: #073642; --accent-secondary: #1d766f; }
-:root[data-variant='deck'][data-theme='dark'] { --bg-sidebar: #000000; --bg-app: #000000; --surface-primary: #000000; --accent-primary: #6fc3df; --text-primary: #ffffff; --accent-secondary: #f38518; }
-:root[data-variant='deck'][data-theme='light'] { --bg-sidebar: #ffffff; --bg-app: #ffffff; --surface-primary: #ffffff; --accent-primary: #0f4a85; --text-primary: #000000; --accent-secondary: #b5200d; }
-
 /* Shared by every shell's root. */
 .shell-instrument,
 .shell-paper,

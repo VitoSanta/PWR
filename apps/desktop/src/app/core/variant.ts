@@ -5,8 +5,7 @@ import { Injectable, effect, signal } from '@angular/core';
  * conversation, composer, workbench cards and dialogs; what changes is where
  * they are, how the run is shown, and the tokens they are drawn with.
  */
-export type Variant = 'studio' | 'instrument' | 'paper' | 'islands' | 'mission' | 'focus'
-  | 'relay' | 'workshop' | 'chronicle' | 'pulse' | 'map' | 'deck';
+export type Variant = 'studio' | 'instrument' | 'paper' | 'islands' | 'mission' | 'focus';
 
 export interface VariantInfo {
   id: Variant;
@@ -54,12 +53,6 @@ export const VARIANTS: VariantInfo[] = [
     description: 'No chrome: the page, with the rest floating on glass',
     sidebar: false,
   },
-  { id: 'relay', label: 'Relay', description: 'A vertical run timeline hands off to the conversation and tools', sidebar: false },
-  { id: 'workshop', label: 'Workshop', description: 'Files, diffs and tools lead; conversation stays at the side', sidebar: false },
-  { id: 'chronicle', label: 'Chronicle', description: 'The conversation becomes a wide operational record', sidebar: false },
-  { id: 'pulse', label: 'Pulse', description: 'The active phase decides which surface gets the most space', sidebar: false },
-  { id: 'map', label: 'Map', description: 'A spatial task board with conversation and tools around it', sidebar: false },
-  { id: 'deck', label: 'Deck', description: 'One focused surface at a time: task, dialogue or tools', sidebar: false },
 ];
 
 /** Where the choice is kept; `index.html` reads the same key before first paint. */

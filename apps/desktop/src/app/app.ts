@@ -21,7 +21,6 @@ import { IslandsShell } from './ui/shells/islands';
 import { MissionShell } from './ui/shells/mission';
 import { PaperShell } from './ui/shells/paper';
 import { StudioShell } from './ui/shells/studio';
-import { LabShell } from './ui/shells/lab';
 
 /**
  * The app: one set of stores, dialogs and shortcuts, under whichever shell
@@ -37,7 +36,6 @@ import { LabShell } from './ui/shells/lab';
     IslandsShell,
     MissionShell,
     FocusShell,
-    LabShell,
     Permission,
     ModelManager,
     WorkspaceTrust,
