@@ -19,8 +19,8 @@ import { LayoutService } from '../../core/layout';
     '[attr.aria-valuemin]': 'min()',
     '[attr.aria-valuemax]': 'max()',
     '[class.is-dragging]': 'dragging()',
-    '[style.right.px]': "edge() === 'right' ? -5 : null",
-    '[style.left.px]': "edge() === 'left' ? -5 : null",
+    '[style.right.px]': "edge() === 'right' ? offset() : null",
+    '[style.left.px]': "edge() === 'left' ? offset() : null",
     '(pointerdown)': 'start($event)',
     '(pointermove)': 'move($event)',
     '(pointerup)': 'end($event)',
@@ -38,6 +38,8 @@ export class ResizeHandle {
   readonly max = input.required<number>();
   readonly initial = input.required<number>();
   readonly label = input('Resize panel');
+  /** Where it sits against its edge: astride it by default, or inside a panel that clips. */
+  readonly offset = input(-5);
   readonly resize = output<number>();
 
   private readonly layout = inject(LayoutService);

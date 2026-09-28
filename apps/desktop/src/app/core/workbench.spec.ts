@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { normalize } from '../ui/workbench/cards';
 import { AgentStore } from './agent.store';
+import { LayoutService, MAIN_MIN, RIGHT } from './layout';
 import { WorkbenchStore } from './workbench';
 
 describe('WorkbenchStore', () => {
@@ -58,6 +59,51 @@ describe('WorkbenchStore', () => {
     work.openFile('src/app.ts');
     expect(work.fileRequest()).toBe('src/app.ts');
     expect(work.isOpen('files')).toBe(true);
+  });
+
+  it('gives each Focus card its own width, and docks the column by the widest', () => {
+    localStorage.setItem('pwr:card-widths', '{}');
+    const work = TestBed.inject(WorkbenchStore);
+    const layout = TestBed.inject(LayoutService);
+    layout.viewport.set(1600);
+    layout.leftFixed.set(72);
+    work.focusMode.set(true);
+    work.show('knowledge');
+    work.setWidth('knowledge', 600);
+    expect(work.widthOf('knowledge')).toBe(600);
+    expect(work.widthOf('review')).toBe(RIGHT.initial);
+    expect(work.columnWidth()).toBe(600);
+    TestBed.tick();
+    expect(layout.rightWidth()).toBe(600);
+    // Never so wide the conversation loses its least width, never under a card's least.
+    work.setWidth('knowledge', 5000);
+    expect(work.widthOf('knowledge')).toBe(1600 - 72 - MAIN_MIN);
+    work.setWidth('review', 10);
+    expect(work.widthOf('review')).toBe(RIGHT.min);
+    // A narrower window: the wide card gives way before the tools take the page.
+    layout.viewport.set(1100);
+    TestBed.tick();
+    expect(layout.rightWidth()).toBe(1100 - 72 - MAIN_MIN);
+    expect(JSON.parse(localStorage.getItem('pwr:card-widths')!)).toEqual({
+      knowledge: 968,
+      review: RIGHT.min,
+    });
+  });
+
+  it('keeps the width the column had for the cards already open, the first time', () => {
+    localStorage.removeItem('pwr:card-widths');
+    localStorage.setItem(
+      'pwr:workbench',
+      JSON.stringify({ open: [{ id: 'files', collapsed: false }], maximized: null }),
+    );
+    localStorage.setItem(
+      'pwr:layout',
+      JSON.stringify({ leftOpen: true, rightOpen: true, leftWidth: 288, rightWidth: 400 }),
+    );
+    const work = TestBed.inject(WorkbenchStore);
+    expect(work.widthOf('files')).toBe(400);
+    expect(work.widthOf('terminal')).toBe(RIGHT.initial);
+    localStorage.removeItem('pwr:layout');
   });
 
   it('keeps multiple tools open in Focus', () => {

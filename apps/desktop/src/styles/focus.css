@@ -116,9 +116,35 @@
   height: var(--titlebar-h);
 }
 
+/* The conversation is centred in the room the dock leaves: the dock's
+   footprint on its left, and as much on its right while no tool is open. */
 .focus-main {
+  --focus-pad-left: var(--focus-rail, 72px);
+  --focus-pad-right: var(--focus-rail, 72px);
   flex: 1;
   padding-top: 60px;
+  padding-inline: var(--focus-pad-left) var(--focus-pad-right);
+}
+
+.shell-focus.has-tool .focus-main {
+  --focus-pad-right: 0px;
+}
+
+/* The conversation still scrolls edge to edge, its scrollbar at the edge;
+   only its column moves to the centre. */
+.shell-focus .conversation {
+  margin-inline: calc(-1 * var(--focus-pad-left)) calc(-1 * var(--focus-pad-right));
+  padding-inline: var(--focus-pad-left) var(--focus-pad-right);
+}
+
+/* Opening or closing a tool moves the conversation to its new centre as
+   part of the same transition, instead of jumping (WorkbenchStore). */
+.shell-focus .conversation {
+  view-transition-name: focus-conversation;
+}
+
+.shell-focus .composer {
+  view-transition-name: focus-composer;
 }
 
 /* The scrolling conversation starts below the floating controls. */
@@ -279,10 +305,29 @@
   background: transparent;
 }
 
+/* Each card has its own width, against the right edge; the column is as
+   wide as the widest. */
 .focus-workbench .workbench-body {
+  align-items: flex-end;
   gap: 0;
   padding: 0;
   background: transparent;
+}
+
+.focus-workbench .wb-card,
+.focus-workbench .wb-splitter {
+  position: relative;
+  width: min(100%, var(--card-w, 100%));
+}
+
+.focus-workbench .wb-card-gap {
+  align-self: stretch;
+}
+
+/* A card's left edge resizes it, clear of its rounded corners. */
+.focus-workbench .wb-card > pa-resize-handle {
+  top: var(--radius-panel);
+  bottom: var(--radius-panel);
 }
 
 .focus-workbench .wb-card {
@@ -336,7 +381,12 @@
   .shell-focus > pa-inspector.focus-workbench {
     flex: 1 1 auto;
     width: auto;
-    margin-left: 72px;
+    margin-left: var(--focus-rail, 72px);
+  }
+
+  .shell-focus .focus-workbench .wb-card,
+  .shell-focus .focus-workbench .wb-splitter {
+    width: 100%;
   }
 
   .focus-workbench pa-resize-handle {
@@ -351,7 +401,13 @@
 .shell-focus.tool-page > pa-inspector.focus-workbench {
   flex: 1 1 auto;
   width: auto;
-  margin-left: 72px;
+  margin-left: var(--focus-rail, 72px);
+}
+
+/* A tool shown as the page fills it. */
+.shell-focus.tool-page .focus-workbench .wb-card,
+.shell-focus.tool-page .focus-workbench .wb-splitter {
+  width: 100%;
 }
 
 /* One-line message entry becomes a taller writing surface as text wraps. */
@@ -416,6 +472,7 @@
 
 @media (max-width: 750px) {
   .focus-main {
+    --focus-pad-right: 0px;
     padding-top: 106px;
   }
 
@@ -431,7 +488,6 @@
   .shell-focus > pa-inspector.focus-workbench {
     margin-top: 106px;
   }
-
 }
 
 @media (max-width: 520px) {
