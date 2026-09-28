@@ -4,7 +4,8 @@ import { AgentStore } from '../core/agent.store';
 import { LayoutService } from '../core/layout';
 import { modelLabel } from '../core/model';
 import { ModelsStore } from '../core/models.store';
-import { ThemeService } from '../core/theme';
+import { PALETTES } from '../core/palettes';
+import { LAYOUT_PALETTE, ThemeService } from '../core/theme';
 import { SHORTCUTS, UiStore, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
@@ -221,7 +222,7 @@ export class CommandPalette {
       },
       {
         id: 'inspector',
-        label: 'Toggle workbench',
+        label: 'Show or hide tools',
         group: 'View',
         icon: 'panel-right',
         keys: SHORTCUTS.toggleInspector,
@@ -259,6 +260,26 @@ export class CommandPalette {
         hint: this.theme.mode() === 'dark' ? 'current' : undefined,
         run: () => this.theme.set('dark'),
       },
+      // As in an editor: any palette from here, in its own scheme, and the
+      // Focus defaults to come back to.
+      ...[
+        { id: LAYOUT_PALETTE, label: 'Focus Dark', scheme: 'dark' as const },
+        { id: LAYOUT_PALETTE, label: 'Focus Light', scheme: 'light' as const },
+        ...PALETTES,
+      ].map((palette) => ({
+        id: `palette-${palette.scheme}-${palette.id}`,
+        label: `Colour theme: ${palette.label}`,
+        group: 'View',
+        icon: (palette.scheme === 'dark' ? 'moon' : 'sun') as IconName,
+        hint:
+          this.theme.theme() === palette.scheme && this.theme.palette() === palette.id
+            ? 'current'
+            : palette.scheme,
+        run: () => {
+          this.theme.setPalette(palette.scheme, palette.id);
+          if (this.theme.theme() !== palette.scheme) this.theme.set(palette.scheme);
+        },
+      })),
       {
         id: 'settings',
         label: 'Settings',

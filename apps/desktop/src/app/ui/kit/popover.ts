@@ -82,21 +82,24 @@ export class Popover implements AfterViewInit, OnDestroy {
     const margin = 8;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    // Where the window's edges are for this panel: a glass or transformed
+    // ancestor makes itself the frame fixed positions are measured from.
+    const frame = containingFrame(this.host.nativeElement, vw, vh);
     if (this.side() === 'right') {
       const panel = this.host.nativeElement.getBoundingClientRect();
-      this.top.set(Math.max(margin, Math.min(rect.top, vh - panel.height - margin)));
-      this.left.set(Math.max(margin, Math.min(rect.right + gap, vw - panel.width - margin)));
+      this.top.set(Math.max(margin, Math.min(rect.top, vh - panel.height - margin)) - frame.top);
+      this.left.set(Math.max(margin, Math.min(rect.right + gap, vw - panel.width - margin)) - frame.left);
       this.maxHeight.set(vh - 2 * margin);
     } else if (this.side() === 'bottom') {
-      this.top.set(rect.bottom + gap);
+      this.top.set(rect.bottom + gap - frame.top);
       this.maxHeight.set(vh - rect.bottom - gap - margin);
     } else {
-      this.bottom.set(vh - rect.top + gap);
+      this.bottom.set(vh - rect.top + gap - frame.bottom);
       this.maxHeight.set(rect.top - gap - margin);
     }
     if (this.side() !== 'right') {
-      if (this.anchorAlign() === 'end') this.right.set(Math.max(margin, vw - rect.right));
-      else this.left.set(Math.max(margin, rect.left));
+      if (this.anchorAlign() === 'end') this.right.set(Math.max(margin, vw - rect.right) - frame.right);
+      else this.left.set(Math.max(margin, rect.left) - frame.left);
     }
   }
 
@@ -119,4 +122,29 @@ export class Popover implements AfterViewInit, OnDestroy {
     this.anchor().focus({ preventScroll: true });
     this.closed.emit();
   }
+}
+
+/**
+ * How far the frame a fixed-position element is placed in sits from each
+ * edge of the window: zero, unless an ancestor has a backdrop filter, a
+ * filter, a transform or the like, which makes its own box that frame.
+ */
+function containingFrame(element: HTMLElement, vw: number, vh: number) {
+  for (let node = element.parentElement; node && node !== document.documentElement; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    const backdrop = style.backdropFilter || (style as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter;
+    const frames =
+      style.transform !== 'none' ||
+      style.filter !== 'none' ||
+      (!!backdrop && backdrop !== 'none') ||
+      style.perspective !== 'none' ||
+      /paint|layout|strict|content/.test(style.contain) ||
+      /transform|filter|perspective/.test(style.willChange);
+    if (!frames) continue;
+    const box = node.getBoundingClientRect();
+    const left = box.left + node.clientLeft;
+    const top = box.top + node.clientTop;
+    return { left, top, right: vw - (left + node.clientWidth), bottom: vh - (top + node.clientHeight) };
+  }
+  return { left: 0, top: 0, right: 0, bottom: 0 };
 }

@@ -105,6 +105,8 @@ export class Graph3d implements AfterViewInit, OnDestroy {
   private sprite: any;
   private observer?: ResizeObserver;
   private degree = new Map<string, number>();
+  /** A new graph was drawn: frame it once its layout settles. */
+  private fitPending = false;
   private neighbours = new Map<string, Set<string>>();
 
   constructor() {
@@ -154,6 +156,13 @@ export class Graph3d implements AfterViewInit, OnDestroy {
         .enableNodeDrag(false)
         .onNodeClick((node: any) => this.picked.emit(node.id))
         .onBackgroundClick(() => this.picked.emit(null))
+        .onEngineStop(() => {
+          // Small graphs fill the card instead of floating in its middle;
+          // once, so a person's own zoom is not undone.
+          if (!this.fitPending || this.selected()) return;
+          this.fitPending = false;
+          this.graph.zoomToFit(600, 24);
+        })
         .onNodeHover((node: any) => (element.style.cursor = node ? 'pointer' : ''));
       this.observer = new ResizeObserver(() => {
         this.graph.width(element.clientWidth).height(element.clientHeight);
@@ -212,6 +221,7 @@ export class Graph3d implements AfterViewInit, OnDestroy {
         return text;
       })
       .graphData(data);
+    this.fitPending = true;
     this.focus(this.selected());
   }
 
@@ -293,8 +303,13 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
             <label class="check-label"><input type="checkbox" class="checkbox" [checked]="builtins()" (change)="builtins.set(!builtins())" /> Standard library</label>
           </div>
           <div class="graph-stage">
+            @if (shownNodes().length < 2) {
+              <!-- The project alone is a dot lost in the middle: say what will be here instead. -->
+              <p class="card-empty graph-empty">Nothing to map yet. The graph fills in as PWR reads and changes files in this workspace.</p>
+            } @else {
             <pa-graph3d [nodes]="shownNodes()" [edges]="data.graph.edges" [selected]="selected()" (picked)="selected.set($event)" />
-            <ul class="graph-legend" aria-label="Legend">
+            }
+            <ul class="graph-legend" aria-label="Legend" [hidden]="shownNodes().length < 2">
               @for (kind of legend(); track kind.kind) {
                 <li><span class="graph-dot" [style.background]="'var(' + kind.token + ')'"></span>{{ kind.label }}</li>
               }
@@ -387,6 +402,8 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
       }
     } @else if (loading()) {
       <p class="card-empty card-pad"><span class="spinner spinner-sm" aria-hidden="true"></span> Building the knowledge graph…</p>
+    } @else if (!error()) {
+      <p class="card-empty card-pad">Nothing known about this workspace yet. PWR maps it after its first reply here.</p>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
-import { bytes, fitTone, parameters, percent, tokens } from '../core/format';
+import { bytes, fitTone, osLabel, parameters, percent, tokens } from '../core/format';
 import { CatalogEntry, CatalogVariant, DownloadView, ModelOrder } from '../core/model';
 import { ModelsStore } from '../core/models.store';
 import { roveFocus } from '../core/ui';
@@ -60,7 +60,7 @@ import { Tooltip } from './kit/tooltip';
               </div>
               <div class="machine-stat">
                 <dt><pa-icon name="info" [size]="14" /> OS</dt>
-                <dd class="truncate">{{ hw.host.osName }} {{ hw.host.osVersion }}</dd>
+                <dd class="truncate">{{ os(hw.host) }}</dd>
               </div>
             </dl>
             <div class="engines" aria-label="Engines">
@@ -650,6 +650,7 @@ export class ModelManager {
 
   protected readonly explained = signal<string | null>(null);
   protected readonly b = bytes;
+  protected readonly os = osLabel;
   protected readonly t = tokens;
   protected readonly params = parameters;
   protected readonly tone = fitTone;

@@ -152,8 +152,7 @@
   padding-top: 16px;
 }
 
-.focus-hud,
-.focus-engine,
+.focus-bar,
 .focus-dock {
   position: absolute;
   z-index: 2;
@@ -164,20 +163,29 @@
   border-radius: var(--radius-pill);
 }
 
-.focus-hud {
+/* One bar at the top right: the conversation, then the engine. It never
+   reaches the window's buttons at the left. */
+.focus-bar {
   top: 10px;
-  left: 12px;
-  max-width: calc(100% - 360px);
+  right: 12px;
+  max-width: calc(100% - 96px);
 }
 
-/* Past the traffic lights, which float over the page's corner. */
-.shell-focus.is-mac:not(.is-fullscreen) .focus-hud {
-  left: 84px;
+.focus-bar pa-session-switcher {
+  flex: 0 1 auto;
 }
 
-.focus-hud .switcher-trigger {
+.focus-bar .switcher-trigger {
+  max-width: 260px;
   height: var(--control-h);
   border-radius: var(--radius-pill);
+}
+
+.focus-bar-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  background: var(--glass-border);
 }
 
 .focus-dock-sep {
@@ -185,12 +193,7 @@
   background: var(--glass-border);
 }
 
-.focus-engine {
-  top: 10px;
-  right: 12px;
-}
-
-.focus-engine .topbar-chip {
+.focus-bar .topbar-chip {
   height: var(--control-h-sm);
   border-color: transparent;
   border-radius: var(--radius-pill);
@@ -463,37 +466,23 @@
   border-radius: 50%;
 }
 
-/* Keep the conversation switcher clear of the engine controls on narrow windows. */
-@media (max-width: 1100px) {
-  .focus-hud {
-    max-width: calc(100% - 520px);
+/* Narrow windows: the bar gives up the speed, then the context, before
+   the conversation's name. */
+@media (max-width: 900px) {
+  .focus-bar pa-diagnostic-export,
+  .focus-bar pa-run-metrics {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .focus-bar pa-context-meter {
+    display: none;
   }
 }
 
 @media (max-width: 750px) {
   .focus-main {
     --focus-pad-right: 0px;
-    padding-top: 106px;
-  }
-
-  .focus-hud {
-    max-width: calc(100% - 96px);
-  }
-
-  .focus-engine {
-    top: 56px;
-    max-width: calc(100% - 96px);
-  }
-
-  .shell-focus > pa-inspector.focus-workbench {
-    margin-top: 106px;
-  }
-}
-
-@media (max-width: 520px) {
-  .focus-engine pa-diagnostic-export,
-  .focus-engine pa-context-meter,
-  .focus-engine pa-run-metrics {
-    display: none;
   }
 }

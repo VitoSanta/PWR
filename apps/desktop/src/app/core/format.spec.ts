@@ -1,4 +1,4 @@
-import { bytes, fitTone, fullness, parameters, percent, shortDate, tokens } from './format';
+import { bytes, fitTone, fullness, osLabel, parameters, percent, shortDate, tokens } from './format';
 
 describe('format', () => {
   it('writes sizes as the OS reports them', () => {
@@ -53,5 +53,14 @@ describe('shortDate', () => {
   it('is empty for nothing or an invalid date', () => {
     expect(shortDate(null, now)).toBe('');
     expect(shortDate('not a date', now)).toBe('');
+  });
+});
+
+describe('osLabel', () => {
+  it('names the system as people call it, not by its kernel', () => {
+    expect(osLabel({ platform: 'macos', osName: 'Darwin', osVersion: '26.0' })).toBe('macOS 26.0');
+    expect(osLabel({ platform: 'windows', osName: 'Windows', osVersion: '11 (26100)' })).toBe('Windows 11 (26100)');
+    expect(osLabel({ platform: 'linux', osName: 'Ubuntu', osVersion: '24.04' })).toBe('Ubuntu 24.04');
+    expect(osLabel({ platform: 'unknown', osName: null, osVersion: null })).toBe('unknown');
   });
 });

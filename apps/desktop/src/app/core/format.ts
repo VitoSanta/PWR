@@ -84,3 +84,12 @@ export function shortDate(value: string | null | undefined, now = new Date()): s
     return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+
+/**
+ * The operating system as people call it: the core reads the kernel's
+ * name, which on a Mac is "Darwin", beside the product version.
+ */
+export function osLabel(host: { platform: string; osName: string | null; osVersion: string | null }): string {
+  const name = host.platform === 'macos' ? 'macOS' : host.platform === 'windows' ? 'Windows' : host.osName;
+  return [name, host.osVersion].filter(Boolean).join(' ') || 'unknown';
+}
