@@ -118,11 +118,12 @@
 
 .focus-main {
   flex: 1;
+  padding-top: 60px;
 }
 
-/* Room under the floating HUD, and past the dock at the left. */
+/* The scrolling conversation starts below the floating controls. */
 .shell-focus .conversation {
-  padding-top: 76px;
+  padding-top: 16px;
 }
 
 .focus-hud,
@@ -275,18 +276,56 @@
   width: var(--right-w, 340px);
   margin: 60px 12px 12px 0;
   border: 0;
-  overflow: hidden;
   background: transparent;
 }
 
 .focus-workbench .workbench-body {
+  gap: 0;
   padding: 0;
   background: transparent;
 }
 
 .focus-workbench .wb-card {
   border-radius: var(--radius-panel);
-  box-shadow: var(--glass-shadow);
+  background: var(--surface-primary);
+  box-shadow: none;
+}
+
+.focus-workbench .wb-card.fills {
+  min-height: 160px;
+}
+
+.focus-workbench .wb-card-title {
+  cursor: pointer;
+}
+
+.focus-workbench .wb-splitter {
+  position: relative;
+  flex: 0 0 14px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.focus-workbench .wb-card-gap {
+  flex: 0 0 14px;
+}
+
+.focus-workbench .wb-splitter::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 34%;
+  left: 34%;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.focus-workbench .wb-splitter:hover::after,
+.focus-workbench .wb-splitter:focus-visible::after {
+  opacity: 1;
 }
 
 @media (max-width: 980px) {
@@ -299,6 +338,20 @@
     width: auto;
     margin-left: 72px;
   }
+
+  .focus-workbench pa-resize-handle {
+    display: none;
+  }
+}
+
+.shell-focus.tool-page .focus-main {
+  display: none;
+}
+
+.shell-focus.tool-page > pa-inspector.focus-workbench {
+  flex: 1 1 auto;
+  width: auto;
+  margin-left: 72px;
 }
 
 /* One-line message entry becomes a taller writing surface as text wraps. */
@@ -358,5 +411,33 @@
 @media (max-width: 1100px) {
   .focus-hud {
     max-width: calc(100% - 520px);
+  }
+}
+
+@media (max-width: 750px) {
+  .focus-main {
+    padding-top: 106px;
+  }
+
+  .focus-hud {
+    max-width: calc(100% - 96px);
+  }
+
+  .focus-engine {
+    top: 56px;
+    max-width: calc(100% - 96px);
+  }
+
+  .shell-focus > pa-inspector.focus-workbench {
+    margin-top: 106px;
+  }
+
+}
+
+@media (max-width: 520px) {
+  .focus-engine pa-diagnostic-export,
+  .focus-engine pa-context-meter,
+  .focus-engine pa-run-metrics {
+    display: none;
   }
 }

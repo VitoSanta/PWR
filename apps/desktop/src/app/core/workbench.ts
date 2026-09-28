@@ -53,8 +53,8 @@ export class WorkbenchStore {
 
   readonly open = signal<OpenCard[]>(this.saved.open);
   readonly maximized = signal<CardId | null>(this.saved.maximized);
-  /** Focus presents one tool at a time in its own panel. */
-  readonly singleMode = signal(false);
+  /** Focus presents tools as standalone cards without the Workbench frame. */
+  readonly focusMode = signal(false);
   /** The file the Files card should show, when another card asks for one. */
   readonly fileRequest = signal<string | null>(null);
 
@@ -77,6 +77,13 @@ export class WorkbenchStore {
     return focused ? open.filter((card) => card.id === focused) : open;
   });
 
+  /** A Focus tool remains available when a narrow window switches to one pane. */
+  readonly panelVisible = computed(() =>
+    this.focusMode()
+      ? this.layout.rightOpen() || this.layout.rightPeek()
+      : this.layout.right() !== 'hidden',
+  );
+
   isOpen(id: CardId): boolean {
     return this.visible().some((card) => card.id === id);
   }
@@ -92,17 +99,13 @@ export class WorkbenchStore {
   }
 
   private showNow(id: CardId): void {
-    if (this.singleMode()) {
-      this.open.set([{ id, collapsed: false }]);
-    } else {
-      this.open.update((open) =>
-        open.some((card) => card.id === id)
-          ? open.map((card) => (card.id === id ? { ...card, collapsed: false } : card))
-          : [...open, { id, collapsed: false }],
-      );
-    }
+    this.open.update((open) =>
+      open.some((card) => card.id === id)
+        ? open.map((card) => (card.id === id ? { ...card, collapsed: false } : card))
+        : [...open, { id, collapsed: false }],
+    );
     if (this.maximized() && this.maximized() !== id) this.maximized.set(null);
-    if (this.layout.right() === 'hidden') this.layout.toggleRight();
+    if (!this.panelVisible()) this.layout.toggleRight();
     this.persist();
   }
 
@@ -110,7 +113,7 @@ export class WorkbenchStore {
   toggle(id: CardId): void {
     if (!this.usable(id)) return;
     const card = this.open().find((item) => item.id === id);
-    if (card && !card.collapsed && this.layout.right() !== 'hidden') this.close(id);
+    if (card && !card.collapsed && this.panelVisible()) this.close(id);
     else this.show(id);
   }
 
@@ -121,7 +124,6 @@ export class WorkbenchStore {
   private closeNow(id: CardId): void {
     this.open.update((open) => open.filter((card) => card.id !== id));
     if (this.maximized() === id) this.maximized.set(null);
-    if (this.singleMode() && this.open().length === 0 && this.layout.right() !== 'hidden') this.layout.toggleRight();
     this.persist();
   }
 

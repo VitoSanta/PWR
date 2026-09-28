@@ -38,7 +38,7 @@ export class ToolDock {
   readonly small = input(false);
 
   protected showing(card: CardInfo): boolean {
-    return this.layout.right() !== 'hidden' && this.work.isOpen(card.id);
+    return this.work.panelVisible() && this.work.isOpen(card.id);
   }
 
   protected icon(card: CardInfo): IconName {
