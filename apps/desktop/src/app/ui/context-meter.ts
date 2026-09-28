@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
-import { fullness, percent, tokens, when } from '../core/format';
+import { ceilingLabel, fullness, percent, tokens, when } from '../core/format';
 import { Icon } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Select, SelectOption } from './kit/select';
@@ -170,7 +170,7 @@ import { Tooltip } from './kit/tooltip';
           <div class="popover-section">
             @if (!store.sessionId()) {
               <p class="fine">
-                The window is {{ t(window()) }} tokens{{ store.context()?.ceiling ? ', set by ' + store.context()?.ceiling : '' }}.
+                The window is {{ t(window()) }} tokens{{ store.context()?.ceiling ? ', set by ' + ceiling(store.context()?.ceiling) : '' }}.
                 Details appear once the conversation starts.
               </p>
             } @else if (loadError()) {
@@ -193,6 +193,7 @@ export class ContextMeter {
   protected readonly open = signal(false);
   protected readonly loadError = signal('');
   protected readonly t = tokens;
+  protected readonly ceiling = ceilingLabel;
 
   /** "~" before a count that is an estimate rather than the engine's own. */
   protected approx(last: { tokenAccounting: string | null }): string {

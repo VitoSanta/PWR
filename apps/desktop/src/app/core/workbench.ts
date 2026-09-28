@@ -105,9 +105,21 @@ export class WorkbenchStore {
     });
   }
 
+  /**
+   * A card's width: its own once resized; until then the widest a person
+   * gave the cards beside it, so only a card made narrower stands out.
+   */
   widthOf(id: CardId): number {
-    return this.widths()[id] ?? RIGHT.initial;
+    return this.widths()[id] ?? this.followWidth();
   }
+
+  private readonly followWidth = computed(() => {
+    const widths = this.widths();
+    const set = this.visible()
+      .map((card) => widths[card.id])
+      .filter((width): width is number => width !== undefined);
+    return set.length ? Math.max(...set) : RIGHT.initial;
+  });
 
   /** The widest a card may be: the conversation keeps its least width beside it. */
   maxWidth(): number {

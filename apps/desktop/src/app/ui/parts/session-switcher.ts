@@ -43,7 +43,7 @@ import { Tooltip } from '../kit/tooltip';
         [anchor]="trigger"
         [side]="side()"
         [anchorAlign]="align()"
-        width="340px"
+        width="380px"
         ariaLabel="Conversations"
         (closed)="ui.sessionsOpen.set(false)"
         animate.leave="anim-pop-out"

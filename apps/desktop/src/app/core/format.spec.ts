@@ -1,4 +1,4 @@
-import { bytes, fitTone, fullness, osLabel, parameters, percent, shortDate, tokens } from './format';
+import { bytes, ceilingLabel, fitTone, fullness, osLabel, parameters, percent, shortDate, tokens } from './format';
 
 describe('format', () => {
   it('writes sizes as the OS reports them', () => {
@@ -64,3 +64,13 @@ describe('osLabel', () => {
     expect(osLabel({ platform: 'unknown', osName: null, osVersion: null })).toBe('unknown');
   });
 });
+
+describe('ceilingLabel', () => {
+  it('says what bounds the window in words, not by the core type', () => {
+    expect(ceilingLabel('Trained')).toBe("the model's trained length");
+    expect(ceilingLabel('Memory')).toBe("this Mac's memory");
+    expect(ceilingLabel('')).toBe('');
+    expect(ceilingLabel('Something new')).toBe('Something new');
+  });
+});
+

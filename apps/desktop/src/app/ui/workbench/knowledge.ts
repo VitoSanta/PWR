@@ -294,6 +294,13 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
     } @else if (wiki(); as data) {
       @switch (view()) {
         @case ('graph') {
+          @if (data.graph.nodes.length < 2) {
+            <!-- Only the project so far: no search, legend or lone dot, just what will be here. -->
+            <p class="card-empty knowledge-empty" animate.enter="anim-fade-in">
+              <pa-icon name="target" [size]="20" />
+              Nothing to map yet. The graph fills in as PWR reads and changes files in this workspace.
+            </p>
+          } @else {
           <div class="knowledge-view" animate.enter="anim-fade-in">
           <div class="graph-controls">
             <form class="graph-search" (submit)="$event.preventDefault(); find(search.value)">
@@ -304,16 +311,16 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
           </div>
           <div class="graph-stage">
             @if (shownNodes().length < 2) {
-              <!-- The project alone is a dot lost in the middle: say what will be here instead. -->
-              <p class="card-empty graph-empty">Nothing to map yet. The graph fills in as PWR reads and changes files in this workspace.</p>
+              <!-- Only what the Standard library box hides: say so rather than draw a lone dot. -->
+              <p class="card-empty graph-empty">Only standard library packages so far. Tick Standard library to see them.</p>
             } @else {
             <pa-graph3d [nodes]="shownNodes()" [edges]="data.graph.edges" [selected]="selected()" (picked)="selected.set($event)" />
-            }
-            <ul class="graph-legend" aria-label="Legend" [hidden]="shownNodes().length < 2">
+            <ul class="graph-legend" aria-label="Legend">
               @for (kind of legend(); track kind.kind) {
                 <li><span class="graph-dot" [style.background]="'var(' + kind.token + ')'"></span>{{ kind.label }}</li>
               }
             </ul>
+            }
             @if (detail(); as node) {
               <section class="graph-detail" aria-label="Selected node" animate.enter="anim-rise-in" animate.leave="anim-sink-out">
                 <header>
@@ -342,6 +349,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
             }
           </div>
           </div>
+          }
         }
         @case ('modules') {
           <div class="knowledge-view" animate.enter="anim-fade-in">

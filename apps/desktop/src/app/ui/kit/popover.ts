@@ -5,6 +5,7 @@ import {
   ElementRef,
   HostListener,
   OnDestroy,
+  computed,
   inject,
   input,
   output,
@@ -26,6 +27,7 @@ import { focusables } from './dialog';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'popover surface-floating anim-pop-in',
+    '[class.is-grouped]': 'grouped()',
     '[attr.role]': 'panelRole()',
     '[attr.aria-label]': 'ariaLabel()',
     tabindex: '-1',
@@ -35,7 +37,7 @@ import { focusables } from './dialog';
     '[style.right.px]': 'right()',
     '[style.max-height.px]': 'maxHeight()',
     '[style.width]': 'width()',
-    '[style.transform-origin]': "placed() === 'bottom' ? 'top' : placed() === 'top' ? 'bottom' : 'left'",
+    '[style.transform-origin]': "grouped() ? 'top right' : placed() === 'bottom' ? 'top' : placed() === 'top' ? 'bottom' : 'left'",
     // It opens from the anchor's side: down, up, or beside it.
     '[style.--pop-y]': "placed() === 'bottom' ? '-4px' : placed() === 'top' ? '4px' : '0px'",
   },
@@ -43,7 +45,9 @@ import { focusables } from './dialog';
 export class Popover implements AfterViewInit, OnDestroy {
   readonly anchor = input.required<HTMLElement>();
   readonly side = input<'bottom' | 'top' | 'right'>('bottom');
-  readonly anchorAlign = input<'start' | 'end'>('end');
+  readonly anchorAlign = input<'start' | 'end' | 'center'>('end');
+  /** Kept inside this element's box, not only inside the window. */
+  readonly within = input<HTMLElement | null>(null);
   readonly width = input<string | null>(null);
   readonly panelRole = input<string>('dialog');
   readonly ariaLabel = input<string | null>(null);
@@ -60,8 +64,16 @@ export class Popover implements AfterViewInit, OnDestroy {
   protected readonly maxHeight = signal<number | null>(null);
   /** The side it opened on: the one asked for, unless only the other has room. */
   protected readonly placed = signal<'bottom' | 'top' | 'right'>('bottom');
+  /**
+   * Opened from a control in a group of controls (the top bar): it opens
+   * from the group -- under it, flush with its right edge, in its style --
+   * whichever control asked, so the group's panels all open the same way.
+   */
+  protected readonly grouped = computed(() => !!this.group());
+  private readonly group = computed(() => this.anchor().closest<HTMLElement>('[data-popover-group]'));
 
   ngAfterViewInit(): void {
+    if (this.grouped()) groupPanels(+1);
     this.place();
     queueMicrotask(() => {
       const element = this.host.nativeElement;
@@ -71,6 +83,7 @@ export class Popover implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.grouped()) groupPanels(-1);
     const active = document.activeElement;
     if (!active || active === document.body || this.host.nativeElement.contains(active)) {
       this.anchor().focus({ preventScroll: true });
@@ -79,7 +92,7 @@ export class Popover implements AfterViewInit, OnDestroy {
 
   @HostListener('window:resize')
   protected place(): void {
-    const rect = this.anchor().getBoundingClientRect();
+    const rect = (this.group() ?? this.anchor()).getBoundingClientRect();
     const gap = 6;
     const margin = 8;
     const vw = window.innerWidth;
@@ -118,13 +131,19 @@ export class Popover implements AfterViewInit, OnDestroy {
       this.top.set(null);
       this.maxHeight.set(above);
     }
-    // Along the anchor, but never past the window's edge.
-    const widest = Math.max(margin, vw - panel.width - margin);
-    if (this.anchorAlign() === 'end') {
-      this.right.set(Math.min(Math.max(margin, vw - rect.right), widest) - frame.right);
+    // Along the anchor, but never past the window's edge, or the box it is kept in.
+    const box = this.within()?.getBoundingClientRect();
+    const low = Math.max(margin, (box?.left ?? 0) + margin);
+    const high = Math.max(low, Math.min(vw, box?.right ?? vw) - panel.width - margin);
+    const align = this.grouped() ? 'end' : this.anchorAlign();
+    const start =
+      align === 'end' ? rect.right - panel.width : align === 'center' ? rect.left + rect.width / 2 - panel.width / 2 : rect.left;
+    const left = Math.min(Math.max(low, start), high);
+    if (align === 'end') {
+      this.right.set(vw - (left + panel.width) - frame.right);
       this.left.set(null);
     } else {
-      this.left.set(Math.min(Math.max(margin, rect.left), widest) - frame.left);
+      this.left.set(left - frame.left);
       this.right.set(null);
     }
   }
@@ -173,4 +192,14 @@ function containingFrame(element: HTMLElement, vw: number, vh: number) {
     return { left, top, right: vw - (left + node.clientWidth), bottom: vh - (top + node.clientHeight) };
   }
   return { left: 0, top: 0, right: 0, bottom: 0 };
+}
+
+/**
+ * How many of a group's panels are open. While one is, the page says so on
+ * its root, so what the panel covers can step back behind it.
+ */
+let openGroupPanels = 0;
+function groupPanels(change: 1 | -1): void {
+  openGroupPanels = Math.max(0, openGroupPanels + change);
+  document.documentElement.classList.toggle('group-panel-open', openGroupPanels > 0);
 }

@@ -93,3 +93,19 @@ export function osLabel(host: { platform: string; osName: string | null; osVersi
   const name = host.platform === 'macos' ? 'macOS' : host.platform === 'windows' ? 'Windows' : host.osName;
   return [name, host.osVersion].filter(Boolean).join(' ') || 'unknown';
 }
+
+/**
+ * What bounds the context window, in words: the core names the binding
+ * ceiling by its type (Trained, Memory, ...).
+ */
+export function ceilingLabel(ceiling: string | null | undefined): string {
+  const words: Record<string, string> = {
+    Trained: "the model's trained length",
+    Memory: "this Mac's memory",
+    EffectiveContext: 'the length the model is published to use well',
+    Setting: 'your setting',
+    Fallback: 'a cautious default, as memory could not be measured',
+  };
+  return ceiling ? (words[ceiling] ?? ceiling) : '';
+}
+

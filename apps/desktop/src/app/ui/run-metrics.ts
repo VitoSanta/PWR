@@ -42,7 +42,7 @@ interface Figure {
     </button>
 
     @if (open()) {
-      <pa-popover [anchor]="trigger" [anchorAlign]="align()" [side]="side()" width="360px" ariaLabel="Runtime metrics" (closed)="open.set(false)" animate.leave="anim-pop-out">
+      <pa-popover [anchor]="trigger" [anchorAlign]="align()" [side]="side()" width="380px" ariaLabel="Runtime metrics" (closed)="open.set(false)" animate.leave="anim-pop-out">
         <div class="popover-head">
           <h2 class="popover-title">Runtime metrics</h2>
           <button class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
