@@ -2477,6 +2477,9 @@ name = "pwr-desktop"
 version = "0.1.2-alpha"
 dependencies = [
  "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "portable-pty",
  "serde",
  "serde_json",
