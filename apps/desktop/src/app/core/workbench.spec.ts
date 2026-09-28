@@ -71,8 +71,8 @@ describe('WorkbenchStore', () => {
     work.show('knowledge');
     work.setWidth('knowledge', 600);
     expect(work.widthOf('knowledge')).toBe(600);
-    // Never resized, it follows the column rather than standing out narrower.
-    expect(work.widthOf('review')).toBe(600);
+    // Resizing one card leaves the others as they were.
+    expect(work.widthOf('review')).toBe(RIGHT.initial);
     expect(work.columnWidth()).toBe(600);
     TestBed.tick();
     expect(layout.rightWidth()).toBe(600);
@@ -89,6 +89,12 @@ describe('WorkbenchStore', () => {
       knowledge: 968,
       review: RIGHT.min,
     });
+    // A card opened later takes the column's width, and resizing it moves no other.
+    work.show('terminal');
+    expect(work.widthOf('terminal')).toBe(968);
+    work.setWidth('terminal', 500);
+    expect(work.widthOf('knowledge')).toBe(968);
+    expect(work.widthOf('review')).toBe(RIGHT.min);
   });
 
   it('keeps the width the column had for the cards already open, the first time', () => {
