@@ -5,19 +5,19 @@ Statuses such as *experimental* mean what they say: usable, still changing.
 
 ## v0.2.0-alpha — unreleased
 
-The agent is faster, finishes more of what it starts, and works in far more
-languages; the desktop app gains a workbench, project knowledge and a chat
-mode. 125 commits since v0.1.2-alpha.
+The agent has improvements to speed, completion handling and toolchain coverage;
+the desktop app gains a workbench and project knowledge. Chat without a
+workspace was already present in v0.1.2-alpha and has been extended.
 
 ### Highlights
 
-- **No more minutes of waiting after each message.** Background wiki
+- **Prompt cache survives background work.** Background wiki
   summaries used the engine between your messages and evicted the
   conversation from its prompt cache, so every follow-up recomputed the whole
   conversation (up to four minutes at 70k tokens). They now run on a cache of
   their own; the prompt cache is kept across messages and copied only where
   needed.
-- **Many more stacks work end to end on a Mac.** Toolchains a project needs
+- **Broader toolchain support on a Mac.** Toolchains a project needs
   are installed inside the workspace and put on `PATH` for the agent and the
   checks alike, with instructions for Go, Node, Java, Maven, Gradle, .NET,
   CMake, PHP, Composer, Dart, Flutter, Deno, Rust, Terraform and Elixir. Swift
@@ -27,10 +27,13 @@ mode. 125 commits since v0.1.2-alpha.
   while an acceptance check fails; when the checks pass, the work is read
   against the request rule by rule, and a second reader that has not seen the
   conversation marks the rules the code does not meet.
-- **Measured.** On 31 real tasks across languages, frameworks, databases and
-  tools, verified outside PWR in each task's official container with hidden
-  tests, tasks completed rose from 19 to 22 between two campaigns of this
-  cycle, one run each (see `evidence/stack-matrix/`).
+- **Measured within this development cycle.** On 31 tasks across languages,
+  frameworks, databases and tools, verified outside PWR with hidden tests,
+  tasks completed rose from 19 to 22 between two campaigns, one run per task.
+  A later, reduced c4 run passed 7 of 9 tasks, including 5 of 6 held-out
+  tasks not used to tune PWR. These are single runs on the pinned `d313acd9`
+  binary, not a paired v0.1.2-alpha comparison or a result for all 37 tasks
+  in the corpus (see `evidence/stack-matrix/`).
 
 ### Agent
 
@@ -78,9 +81,13 @@ mode. 125 commits since v0.1.2-alpha.
 - The context window is followed live during a turn.
 - Settings redesigned as pages; an outdated core is explained.
 - Model Manager: parameter range, sorting across the whole Hub, believable
-  sizes, pages that do not come back empty, fewer Hub requests.
-- One grid, one button order, one motion system; six layout variants
-  *(experimental, one to be chosen before release)*.
+  sizes, pages that do not come back empty, fewer Hub requests. Its model
+  profile also shows the MLX sampling parameters and their sources, with
+  editable user overrides.
+- **Focus** is the sole desktop layout, chosen after the six-layout experiment.
+  It has a centred conversation, a compact composer and resizable tool cards.
+  Colour themes can change without switching layouts. On macOS, the full-screen
+  title bar draws over the app.
 - Your name is used once in a conversation, not in every reply.
 
 ### Fixes
@@ -91,9 +98,10 @@ mode. 125 commits since v0.1.2-alpha.
 
 ### Evidence
 
-- `evidence/stack-matrix/`: 37 tasks across languages, frameworks, databases
-  and tools, run through the desktop app's protocol and verified
-  independently; a static site renders each run with its conversation.
+- `evidence/stack-matrix/`: a 37-task corpus and runner using the desktop
+  app's protocol, independent verification and a static result viewer.
+  The reduced c4 run has nine recorded task verdicts; the full corpus was
+  not run in c4.
 
 ## v0.1.2-alpha — 2026-09-24
 

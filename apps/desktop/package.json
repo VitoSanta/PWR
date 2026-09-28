@@ -1,6 +1,6 @@
 {
   "name": "pwr-desktop",
-  "version": "0.1.2-alpha",
+  "version": "0.2.0-alpha",
   "scripts": {
     "ng": "ng",
     "start": "ng serve",

@@ -13,6 +13,7 @@ import { Entry } from '../core/model';
 import { ModelsStore } from '../core/models.store';
 import { ConfirmService, ToastService } from '../core/ui';
 import { RunOutcome, Step, groupSteps } from '../core/trace';
+import { BrandMark } from './kit/brand-mark';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
@@ -26,12 +27,12 @@ type Item =
 
 @Component({
   selector: 'pa-conversation',
-  imports: [Icon, Popover, Tooltip, TraceCompact, TraceSteps],
+  imports: [BrandMark, Icon, Popover, Tooltip, TraceCompact, TraceSteps],
   template: `
     <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
         <div class="welcome">
-          <img class="welcome-mark" src="/pwr-mark-96.png" alt="" width="44" height="44" />
+          <pa-brand-mark class="welcome-mark" />
           <h2 class="t-display">{{ store.chatMode() ? 'What would you like to know?' : 'What are we building?' }}</h2>
           @if (store.model()) {
             <p class="welcome-text">
@@ -131,7 +132,7 @@ type Item =
             @case ('turn') {
               <article class="turn" [class.live]="item.live" aria-label="PWR">
                 <header class="turn-head">
-                  <img class="turn-avatar" src="/pwr-mark-96.png" alt="" width="22" height="22" />
+                  <pa-brand-mark class="turn-avatar" />
                   <strong>PWR</strong>
                   <span class="turn-meta truncate">{{ store.modelName() }}</span>
                   <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }}</span>
@@ -165,7 +166,7 @@ type Item =
         @if (store.turnActive() && lastIsUser()) {
           <article class="turn live" aria-label="PWR">
             <header class="turn-head">
-              <img class="turn-avatar" src="/pwr-mark-96.png" alt="" width="22" height="22" />
+              <pa-brand-mark class="turn-avatar" />
               <strong>PWR</strong>
               <span class="turn-meta truncate">{{ store.modelName() }} · {{ store.chatMode() ? 'thinking' : 'working' }}</span>
             </header>

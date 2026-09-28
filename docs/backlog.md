@@ -1,5 +1,12 @@
 # Backlog — everything not yet built, and when it may be measured
 
+> **Current release view (2026-09-28):** see the
+> [v0.2.0-alpha readiness audit](release/v0.2.0-alpha-readiness.md). The
+> 2026-09-27 reconciliation below is a revision-scoped historical record.
+> Since then, the agent-tools work and stack-matrix runner reached `develop`,
+> and Focus replaced the six experimental layouts. Item statuses below should
+> not be read as a fresh audit of the current checkout.
+
 **Written 2026-09-17, during the pause.** This is the breadth of the work;
 [`roadmap.md`](roadmap.md), section "Where we are and what is left", is the
 order. Where the two disagree, the roadmap's order wins and this file is wrong
@@ -8,8 +15,23 @@ and should be fixed.
 Each item says which block it belongs to and what it depends on. Nothing here
 has a date: this project's sequencing follows evidence, not a calendar.
 
+## Current changes since the 2026-09-27 reconciliation
 
-## Reconciliation — 2026-09-27
+The release-facing account is in the
+[v0.2.0-alpha readiness audit](release/v0.2.0-alpha-readiness.md). These are
+the old rows most likely to be misread as current:
+
+| Older row/theme | State on current `develop` | Remaining boundary |
+|---|---|---|
+| A.8 / stack matrix | The 37-task corpus and per-task runner are in `evidence/stack-matrix/`; reduced c4 has nine recorded verdicts (7/9 overall, 5/6 held out). | A nine-task run does not score the full corpus or establish a general success rate. |
+| Prompt cache / background wiki | `crates/pwr-mlx/sidecar/pwr_mlx.py` isolates wiki `aside` requests from the conversation cache. | Model-specific latency and long-run reliability still need measurement. |
+| R.2 / approvals and toolchains | Session grants and expanded Mac sandbox/toolchain handling are merged in `crates/pwr-cli/src/serve.rs` and `crates/pwr-tools/src/lib.rs`. | No Windows sandbox claim. |
+| C.25 / D.E2E-12 / page inspection | Model-facing `look_at` is merged in `crates/pwr-orchestrator/src/converse.rs` and `crates/pwr-tools/src/lib.rs`. | Experimental; offered only to vision-capable models and not a general browser integration. |
+| D.E2E-20 / goal review | A post-check review round and second reader are merged in `crates/pwr-cli/src/serve.rs`. | Passing checks and review are not proof of semantic correctness. |
+| Desktop layout | Commit `12f076b9` made Focus the sole shell in `apps/desktop/src/app/app.html`. | Release-candidate UI acceptance is still pending. |
+
+
+## Historical reconciliation — 2026-09-27
 
 **Scope:** committed `develop` at `3a1170ba66552c4a3c5169aac31c33b6c329afb4`.
 Source paths below refer to that revision. This is a read-only source/commit
@@ -24,13 +46,14 @@ implementation, not an available capability. A closed/rejected proposal is
 labelled explicitly; it is not promoted to implemented. Existing dated results
 are preserved as records, not re-certified by this audit.
 
-This reconciliation supersedes undated/current-tense claims in the retained
-older text. Every pre-existing checklist item has a row below (B.5 includes
+For the reviewed 2026-09-27 revision, this reconciliation superseded
+undated/current-tense claims in the retained older text. Every pre-existing
+checklist item has a row below (B.5 includes
 the original joint B.6 item). Closed items have been moved, without deleting
 their text, to **Closed records / Chiuse**. Open-item prose remains as dated
 history where it explains the proposal; use the row's remaining scope today.
 The old critical-path diagram is also retained there because its claim that
-Block D is empty is no longer true.
+Block D is empty was already false at the time.
 
 ### Changes the old backlog missed
 

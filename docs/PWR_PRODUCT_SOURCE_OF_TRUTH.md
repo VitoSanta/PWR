@@ -1,5 +1,12 @@
 # PWR — Product Narrative and Technical Source of Truth
 
+> **Historical v0.1.x source snapshot.** This document was compiled for the
+> September 24 alpha and has not been re-audited section by section for
+> `develop`. For current v0.2.0-alpha implementation and release status, use
+> the [readiness audit](release/v0.2.0-alpha-readiness.md) and the
+> [changelog](../CHANGELOG.md). Historical test counts below are not a current
+> CI result.
+
 **Compiled 2026-09-24** from the `stage` branch at commit `ad9eefa4`, plus the
 untracked `docs/product-screenshots/` folder, and **updated the same day for
 the 0.1.0 release**: engine scripts bundled, Revert through the core, a

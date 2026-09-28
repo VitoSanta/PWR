@@ -1,29 +1,37 @@
 # Research roadmap
 
+> **Current release state (2026-09-28):** see the
+> [v0.2.0-alpha readiness audit](release/v0.2.0-alpha-readiness.md). The dated
+> reconciliations and experiment plans below remain historical snapshots;
+> references to unmerged `feature/agent-tools` work describe 2026-09-27,
+> before that work reached `develop`.
+
 ## Release plan — 2026-09-28
 
 Decided by the maintainer on 2026-09-28.
 
-**v0.2.0-alpha — macOS.** What `develop` holds on 2026-09-28 (d313acd9): 125
-commits since v0.1.2-alpha -- agent reliability and speed (prompt cache kept
-across messages, toolchains in the sandbox for Swift, the JVM, Elixir, .NET,
+**v0.2.0-alpha — macOS.** Current `develop` contains agent reliability and speed
+work (prompt cache kept across messages, toolchains in the sandbox for Swift,
+the JVM, Elixir, .NET,
 Flutter, Zig, Lua; unreadable tool calls re-asked; stalled commands and
 offline installs explained; goal review with an independent reader),
 permission questions that show what runs, chat that finds projects as people
-name them, and the Model Manager catalogue work. Before it ships:
+name them, and the Model Manager catalogue work. The six-layout experiment is
+closed: **Focus is the sole layout** (`12f076b9`), followed by Focus refinements.
+The changelog for this release has been drafted. Before it ships:
 
-- the desktop layout is chosen among the six variants of `experiment/ui-2026`
-  and the others are removed or kept behind a development switch;
-- a CHANGELOG is written for the release;
+- the in-progress brand asset changes are completed and reviewed;
 - the main flows are walked by hand on the built app (engine setup and model
   download, chat, agent, goal mode, permissions);
 - the DMG is built with `scripts/release-macos.sh` and the release goes
   `develop` -> `stage` -> `main`, as v0.1.2-alpha did.
 
-Stack-matrix campaign c4 (37 tasks, 6 of them held out and written by an
-author who does not change PWR) runs on `pwr-d313acd9` after the maintainer's
-appointment on 2026-09-28; its result may be cited in the release notes but
-does not gate the release.
+The reduced stack-matrix c4 run used `pwr-d313acd9` for nine tasks from the
+37-task corpus: **7 passed, 2 failed**. Six were held out, with **5 passed**.
+These counts come from the nine local `c4/*/result.json` files; they are one
+run per task, not a score for the full corpus. The campaign does not gate this
+release. Focus changes landed after the pinned binary and are not app UI
+acceptance evidence from c4.
 
 **The release after — Windows.** The Windows engine: llama.cpp kept alive
 across turns (R.4) before any GGUF performance claim, command isolation on
@@ -42,19 +50,20 @@ result or assertion that the checkout matches a released DMG. Uncommitted
 model-manager work in the main checkout is excluded. No models or PWR runs
 were started for this review, and no workspace-wide build/test was performed.
 
-The [backlog reconciliation](backlog.md#reconciliation--2026-09-27) assigns
+The [backlog reconciliation](backlog.md#historical-reconciliation--2026-09-27) assigns
 **fatto / parziale / proposto** and a source reference to all 127 original
 checklist entries, preserves closed records, and adds the C.22c proposal.
 Here **fatto** closes the stated bounded work or historical decision, not a
 broader capability claim; **parziale** means implementation or validation is
 unfinished; **proposto** means not implemented/adopted. Superseded plans are
 retained under **Closed planning snapshots / Chiuse**, with their reasons.
-This section takes precedence over the retained dated planning text below.
+For the reviewed 2026-09-27 revision, this section took precedence over the
+older planning text below. The current release audit linked at the top is newer.
 The generated M0–M6 block remains unchanged as historical evidence.
 
 ### Product and capability position
 
-| Track | State | Evidence on develop | Remaining boundary |
+| Track | State on 2026-09-27 | Evidence on develop then | Remaining boundary then |
 |---|---|---|---|
 | Mac desktop coding loop | **fatto** for the first alpha | `apps/desktop`, `crates/pwr-cli/src/serve.rs`, 875ceec3 | Alpha implementation is not the R5 reliability gate or a Windows product. |
 | Desktop CI/tests | **fatto** | `.github/workflows/ci.yml`, `apps/desktop/src/app/core/agent.store.spec.ts`, 881f3978, 07e3ab25 | R.8's old no-tests/no-build statement is closed; latest CI outcome not queried here. |

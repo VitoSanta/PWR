@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { ToastService } from '../core/ui';
+import { BrandMark } from './kit/brand-mark';
 import { Icon } from './kit/icon';
 
 const STEPS = [
@@ -17,12 +18,12 @@ const STEPS = [
  */
 @Component({
   selector: 'pa-engine-setup',
-  imports: [Icon],
+  imports: [BrandMark, Icon],
   template: `
     <div class="setup">
       <div class="setup-titlebar" data-tauri-drag-region="deep"></div>
       <main class="setup-body" aria-labelledby="setup-title">
-        <img class="setup-mark" src="/pwr-mark-96.png" alt="" width="48" height="48" />
+        <pa-brand-mark class="setup-mark" />
         @if (store.engineInstalled()) {
           <h1 class="t-display" id="setup-title">PWR is ready</h1>
           <p class="setup-lead">

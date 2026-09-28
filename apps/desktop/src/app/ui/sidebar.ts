@@ -4,6 +4,7 @@ import { shortDate } from '../core/format';
 import { LEFT, LayoutService } from '../core/layout';
 import { NavigationService } from '../core/navigation';
 import { SHORTCUTS, UiStore, roveFocus, shortcut } from '../core/ui';
+import { BrandMark } from './kit/brand-mark';
 import { Icon } from './kit/icon';
 import { ResizeHandle } from './kit/resize-handle';
 import { Tooltip } from './kit/tooltip';
@@ -19,11 +20,11 @@ abstract class Navigation {
 
 @Component({
   selector: 'pa-sidebar',
-  imports: [Icon, Tooltip, ResizeHandle],
+  imports: [BrandMark, Icon, Tooltip, ResizeHandle],
   template: `
     <nav class="sidebar" aria-label="Navigation">
       <header class="sidebar-head titlebar-row" data-tauri-drag-region="deep">
-        <img class="brand-mark" src="/pwr-mark-96.png" alt="" width="22" height="22" />
+        <pa-brand-mark class="brand-mark" />
         <span class="brand-name" data-tauri-drag-region="deep">PWR</span>
         <span class="spacer" data-tauri-drag-region="deep"></span>
         <button
@@ -213,11 +214,11 @@ export class Sidebar extends Navigation {
 /** The collapsed navigation: icons only, with tooltips. */
 @Component({
   selector: 'pa-rail',
-  imports: [Icon, Tooltip],
+  imports: [BrandMark, Icon, Tooltip],
   template: `
     <nav class="rail" aria-label="Navigation" (keydown)="rove($event)">
       <div class="rail-head titlebar-row" data-tauri-drag-region="deep">
-        <img class="brand-mark" src="/pwr-mark-96.png" alt="" width="22" height="22" />
+        <pa-brand-mark class="brand-mark" />
       </div>
       <button
         class="icon-btn"

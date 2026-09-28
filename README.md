@@ -9,7 +9,10 @@ PWR is an open-source desktop app and Rust core that turns a local language mode
 
 It is also a research project. The question behind it is **same model + same task + different harness: what improves, and at what cost?** PWR does not claim that local models equal frontier models, or that it already competes with cloud coding agents.
 
-> **Public alpha (0.1.2-alpha).** PWR is usable today and changes quickly; it is open source and developed in the open. It runs a model's output as commands against your files: read [SECURITY.md](SECURITY.md) first, and do not point it at anything you cannot afford to lose.
+> **Latest public alpha: 0.1.2-alpha.** The `develop` checkout is being prepared
+> as 0.2.0-alpha; it has not been released. PWR runs a model's output as
+> commands against your files: read [SECURITY.md](SECURITY.md) first, and do
+> not point it at anything you cannot afford to lose.
 
 ## What it does today
 
@@ -61,15 +64,23 @@ Models live in `~/.pwr/models/<publisher>/<name>`; set `PWR_MLX_MODELS` to use a
 
 ## Status
 
-What exists, as of **2026-09-24**. The evidence for each line is in [docs/PWR_PRODUCT_SOURCE_OF_TRUTH.md](docs/PWR_PRODUCT_SOURCE_OF_TRUTH.md), the [roadmap](docs/roadmap.md) and the [backlog](docs/backlog.md). Live runs are single diagnostic runs on one machine, not benchmarks.
+The shipped v0.1.2-alpha and the current `develop` checkout are different
+states. The [v0.2.0-alpha readiness audit](docs/release/v0.2.0-alpha-readiness.md)
+records the source evidence and remaining release work. The
+[product source of truth](docs/PWR_PRODUCT_SOURCE_OF_TRUTH.md) is a dated
+v0.1.x snapshot, not an audit of this checkout.
 
 | Status | What exists |
 |---|---|
-| **Implemented** | The desktop app (Tauri 2 + Angular) as a client of `pwr serve --stdio` (Agent Client Protocol). PWR's MLX engine: templates, streaming, reasoning budgets, a prompt cache across a turn. The conversation loop with goal mode, steering, approvals, stall and loop detection. Typed, audited tools for files, search (including installed dependencies, read-only), edits, commands, services and Git. Check discovery and baseline comparison. Model Manager, fit ratings, verified downloads. Provisional models, Quick Calibration, Reasoning Effort. Context panel and compaction. Chat mode. Hash-chained event log with `pwr report` and `pwr diagnose`. Ask/Auto permission modes. |
-| **Experimental** | Images for models with a vision encoder (loaded once through `mlx-vlm`). A semantic context filter for documentation (`PWR_SEMANTIC_RETRIEVAL=1`). Plan-first and toolchain-provisioning runs in the command line. The llama.cpp/GGUF engine, which is command-line only and off in the app; it is meant for Windows. |
-| **Next** | Notarized builds. One runtime shared by the conversation and scripted runs. A measured study of the harness on 7–14B models against a fixed tool-loop baseline. Windows, with its own sandbox. |
+| **In the v0.1.2-alpha release** | Mac desktop client and MLX engine; agent and goal mode; sandboxed, audited tools; repository checks; Model Manager and verified downloads; context management; chat without a workspace; Ask/Auto permissions. |
+| **Implemented on `develop` for 0.2.0-alpha** | Focus as the sole desktop layout; workbench cards for files, knowledge, terminal and local preview; project wiki and recall; conversation phases, queued-message editing and rewind; persistent prompt cache across messages with background wiki summaries isolated from it; broader workspace toolchain support; improved permission questions, tool-call recovery and goal review. See the [changelog](CHANGELOG.md) for details and the [readiness audit](docs/release/v0.2.0-alpha-readiness.md) for evidence and limits. |
+| **Experimental or incomplete** | Vision input and model-facing `look_at`; semantic documentation filter; llama.cpp/GGUF path; hardware-wide model validation. Windows sandbox, notarization, shared scripted/conversation runtime and a confirmed harness uplift remain future work. |
 
-Known limits of this alpha: macOS on Apple silicon only; the sandbox exists only on macOS; no model carries PWR's *Verified* status yet; context composition is estimated at four characters per token; the conversation and the scripted runner still differ in planning, compaction and recovery.
+Known limits of the current Mac alpha: Apple silicon only; the sandbox exists
+only on macOS; no model carries PWR's *Verified* status yet; context composition
+is estimated at four characters per token; the conversation and scripted runner
+still differ in planning, compaction and recovery. The current checkout has not
+yet had its release build and manual acceptance pass.
 
 ## Read the design
 
