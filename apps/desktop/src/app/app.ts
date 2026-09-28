@@ -5,7 +5,6 @@ import { LayoutService } from './core/layout';
 import { WindowState } from './core/navigation';
 import { ThemeService } from './core/theme';
 import { ActivityStore } from './core/activity';
-import { VariantService } from './core/variant';
 import { WorkbenchStore } from './core/workbench';
 import { DialogStack, ToastService, UiStore, isMac } from './core/ui';
 import { CommandPalette } from './ui/command-palette';
@@ -16,25 +15,13 @@ import { EngineSetup } from './ui/engine-setup';
 import { Settings } from './ui/settings';
 import { WorkspaceTrust } from './ui/workspace-trust';
 import { FocusShell } from './ui/shells/focus';
-import { InstrumentShell } from './ui/shells/instrument';
-import { IslandsShell } from './ui/shells/islands';
-import { MissionShell } from './ui/shells/mission';
-import { PaperShell } from './ui/shells/paper';
-import { StudioShell } from './ui/shells/studio';
 
 /**
- * The app: one set of stores, dialogs and shortcuts, under whichever shell
- * the person chose (Settings → Appearance → Layout). The shells arrange the
- * same components; none owns a feature the others lack.
+ * The app: shared stores, dialogs and shortcuts under the Focus shell.
  */
 @Component({
   selector: 'app-root',
   imports: [
-    StudioShell,
-    InstrumentShell,
-    PaperShell,
-    IslandsShell,
-    MissionShell,
     FocusShell,
     Permission,
     ModelManager,
@@ -51,7 +38,6 @@ import { StudioShell } from './ui/shells/studio';
 export class App implements OnInit {
   protected readonly store = inject(AgentStore);
   protected readonly layout = inject(LayoutService);
-  protected readonly variants = inject(VariantService);
   /** Followed from the first frame: in full screen macOS gives the traffic lights' space back. */
   protected readonly win = inject(WindowState);
   private readonly ui = inject(UiStore);
@@ -126,9 +112,8 @@ export class App implements OnInit {
     if (handled) event.preventDefault();
   }
 
-  /** ⌘B: the sidebar where the shell has one, the conversation switcher where it has not. */
+  /** ⌘B opens the conversation switcher in Focus. */
   private toggleNavigation(): void {
-    if (this.variants.info().sidebar) this.layout.toggleLeft();
-    else this.ui.sessionsOpen.update((open) => !open);
+    this.ui.sessionsOpen.update((open) => !open);
   }
 }

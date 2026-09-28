@@ -28,6 +28,7 @@ export class TerminalService implements OnDestroy {
     const theme = inject(ThemeService);
     effect(() => {
       theme.theme();
+      theme.palette();
       requestAnimationFrame(() => {
         if (this.term) this.term.options.theme = palette();
       });
@@ -142,13 +143,34 @@ function token(name: string, fallback: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
-/** xterm's colours, from the app's theme tokens. */
+/**
+ * xterm's colours, from the app's theme tokens -- the ANSI ones too, so a
+ * program's red, green or white stays readable on a light palette as on a
+ * dark one. xterm's own defaults stand in where a token is missing.
+ */
 function palette() {
+  const ansi = (name: string) => token(name, '') || undefined;
   return {
     background: token('--surface-primary', '#101621'),
     foreground: token('--text-primary', '#e6ebf5'),
     cursor: token('--accent-solid', '#6e5ff0'),
     cursorAccent: token('--surface-primary', '#101621'),
     selectionBackground: token('--accent-border', 'rgba(110, 95, 240, 0.4)'),
+    black: ansi('--text-muted'),
+    red: ansi('--danger-text'),
+    green: ansi('--success-text'),
+    yellow: ansi('--warning-text'),
+    blue: ansi('--accent-text'),
+    magenta: ansi('--data-7'),
+    cyan: ansi('--accent-secondary-text'),
+    white: ansi('--text-secondary'),
+    brightBlack: ansi('--text-muted'),
+    brightRed: ansi('--danger'),
+    brightGreen: ansi('--success'),
+    brightYellow: ansi('--warning'),
+    brightBlue: ansi('--accent-primary'),
+    brightMagenta: ansi('--data-7'),
+    brightCyan: ansi('--accent-secondary'),
+    brightWhite: ansi('--text-primary'),
   };
 }

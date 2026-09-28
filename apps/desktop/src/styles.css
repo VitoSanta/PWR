@@ -13,4 +13,5 @@
 @import './styles/conversation.css';
 @import './styles/panels.css';
 @import './styles/parts.css';
-@import './styles/variants.css';
+@import './styles/focus.css';
+@import './styles/palettes.css';

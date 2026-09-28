@@ -115,6 +115,7 @@ export class Graph3d implements AfterViewInit, OnDestroy {
       // Redrawn with the theme: its colours are read from the page's tokens,
       // after the theme has been applied to it.
       theme.theme();
+      theme.palette();
       if (!this.ready()) return;
       untracked(() => requestAnimationFrame(() => void this.draw(nodes, edges)));
     });

@@ -1,0 +1,208 @@
+/* Focus is the sole application shell. Its original floating controls are unchanged. */
+.shell-focus {
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.shell-focus.is-resizing { cursor: col-resize; }
+.shell-focus.is-resizing * { user-select: none !important; }
+
+/* =================================================================
+ * Focus -- no chrome. The page fills the window; where you are, the
+ * run, the engine and the tools float over it on glass.
+ * ================================================================= */
+:root[data-variant='focus'] {
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-panel: 18px;
+  --radius-modal: 20px;
+}
+
+:root[data-variant='focus'][data-theme='dark'] {
+  --bg-app: #050506;
+  --bg-sidebar: #0b0b0d;
+  --surface-primary: #0f0f12;
+  --surface-secondary: #151519;
+  --surface-elevated: #1a1a1f;
+  --surface-inset: #08080a;
+  --text-primary: #f2f2f4;
+  --text-secondary: #a6a6ae;
+  --text-muted: #7e7e87;
+  --accent-primary: #a78bfa;
+  --accent-text: #c4b5fd;
+  --accent-solid: #8b5cf6;
+  --accent-solid-hover: #9b72f8;
+  --accent-soft: rgba(167, 139, 250, 0.12);
+  --accent-border: rgba(167, 139, 250, 0.4);
+  --accent-secondary: #67e8f9;
+  --accent-secondary-soft: rgba(103, 232, 249, 0.1);
+  --accent-secondary-text: #a5f3fc;
+  --brand-gradient: linear-gradient(135deg, #a78bfa, #67e8f9);
+  --glass: rgba(24, 24, 30, 0.62);
+  --glass-strong: rgba(16, 16, 20, 0.92);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-variant='focus'][data-theme='light'] {
+  --bg-app: #f7f7f8;
+  --bg-sidebar: #f1f1f3;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f4f4f6;
+  --surface-elevated: #ffffff;
+  --surface-inset: #f0f0f2;
+  --text-primary: #121216;
+  --text-secondary: #4c4c55;
+  --text-muted: #6c6c75;
+  --accent-primary: #7c3aed;
+  --accent-text: #6d28d9;
+  --accent-solid: #7c3aed;
+  --accent-solid-hover: #6d28d9;
+  --accent-soft: rgba(124, 58, 237, 0.08);
+  --accent-border: rgba(124, 58, 237, 0.35);
+  --accent-secondary: #0891b2;
+  --accent-secondary-soft: rgba(8, 145, 178, 0.1);
+  --accent-secondary-text: #0e7490;
+  --brand-gradient: linear-gradient(135deg, #7c3aed, #0891b2);
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-strong: rgba(255, 255, 255, 0.93);
+  --glass-border: rgba(18, 18, 22, 0.08);
+  --glass-shadow: 0 8px 28px rgba(18, 18, 22, 0.1);
+}
+
+.shell-focus {
+  display: flex;
+}
+
+.shell-focus .glass {
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+}
+
+/* The window's title bar is invisible here: a strip to drag by. */
+.focus-drag {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: var(--titlebar-h);
+}
+
+.focus-main {
+  flex: 1;
+}
+
+/* Room under the floating HUD, and past the dock at the left. */
+.shell-focus .conversation {
+  padding-top: 76px;
+}
+
+.focus-hud,
+.focus-engine,
+.focus-dock {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-pill);
+}
+
+.focus-hud {
+  top: 10px;
+  left: 12px;
+  max-width: calc(100% - 480px);
+  padding-right: var(--space-2);
+}
+
+/* Past the traffic lights, which float over the page's corner. */
+.shell-focus.is-mac:not(.is-fullscreen) .focus-hud {
+  left: 84px;
+}
+
+.focus-hud .phase-stage-note {
+  display: none;
+}
+
+.focus-hud .switcher-trigger {
+  height: var(--control-h);
+  border-radius: var(--radius-pill);
+}
+
+.focus-hud-sep,
+.focus-dock-sep {
+  flex: none;
+  background: var(--glass-border);
+}
+
+.focus-hud-sep {
+  width: 1px;
+  height: 18px;
+}
+
+.focus-engine {
+  top: 10px;
+  right: 12px;
+}
+
+.focus-engine .topbar-chip {
+  height: var(--control-h-sm);
+  border-color: transparent;
+  border-radius: var(--radius-pill);
+}
+
+.focus-dock {
+  top: 50%;
+  left: 12px;
+  flex-direction: column;
+  padding: var(--space-1);
+  border-radius: 22px;
+  transform: translateY(-50%);
+}
+
+.focus-dock-sep {
+  width: 18px;
+  height: 1px;
+  margin: var(--space-1) 0;
+}
+
+/* The workbench hovers: inset from the edges, rounded, on glass. */
+.shell-focus > pa-inspector.focus-workbench {
+  top: 60px;
+  right: 12px;
+  bottom: 12px;
+  width: min(var(--right-w, 340px), calc(100vw - 96px));
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  /* A panel of content: glass that still reads where blur is missing. */
+  background: var(--glass-strong);
+}
+
+.focus-workbench .workbench-head {
+  height: 44px;
+  background: transparent;
+}
+
+.focus-workbench .workbench-body {
+  background: transparent;
+}
+
+/* Narrow windows: the phases give up their counts, then their place. */
+@media (max-width: 1100px) {
+  .focus-hud pa-phase-strip {
+    display: none;
+  }
+
+  .focus-hud-sep {
+    display: none;
+  }
+
+  .focus-hud {
+    max-width: calc(100% - 520px);
+  }
+}
