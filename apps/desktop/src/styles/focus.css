@@ -116,25 +116,11 @@
   height: var(--titlebar-h);
 }
 
-/* The conversation is centred in the room the dock leaves: the dock's
-   footprint on its left, and as much on its right while no tool is open. */
+/* Nothing is docked at the sides: the conversation is centred in the
+   window, or beside the tools while they are open. */
 .focus-main {
-  --focus-pad-left: var(--focus-rail, 72px);
-  --focus-pad-right: var(--focus-rail, 72px);
   flex: 1;
   padding-top: 60px;
-  padding-inline: var(--focus-pad-left) var(--focus-pad-right);
-}
-
-.shell-focus.has-tool .focus-main {
-  --focus-pad-right: 0px;
-}
-
-/* The conversation still scrolls edge to edge, its scrollbar at the edge;
-   only its column moves to the centre. */
-.shell-focus .conversation {
-  margin-inline: calc(-1 * var(--focus-pad-left)) calc(-1 * var(--focus-pad-right));
-  padding-inline: var(--focus-pad-left) var(--focus-pad-right);
 }
 
 /* Opening or closing a tool moves the conversation to its new centre as
@@ -152,8 +138,7 @@
   padding-top: 16px;
 }
 
-.focus-bar,
-.focus-dock {
+.focus-bar {
   position: absolute;
   z-index: 2;
   display: flex;
@@ -163,8 +148,8 @@
   border-radius: var(--radius-pill);
 }
 
-/* One bar at the top right: the conversation, then the engine. It never
-   reaches the window's buttons at the left. */
+/* One bar at the top right: the conversation, the engine, the tools. It
+   never reaches the window's buttons at the left. */
 .focus-bar {
   top: 10px;
   right: 12px;
@@ -188,62 +173,45 @@
   background: var(--glass-border);
 }
 
-.focus-dock-sep {
-  flex: none;
-  background: var(--glass-border);
-}
-
 .focus-bar .topbar-chip {
   height: var(--control-h-sm);
   border-color: transparent;
   border-radius: var(--radius-pill);
 }
 
-.focus-dock {
-  top: 50%;
-  left: 12px;
-  flex-direction: column;
-  padding: var(--space-1);
-  border-radius: 22px;
-  transform: translateY(-50%);
-}
-
-.focus-dock-sep {
-  width: 18px;
-  height: 1px;
-  margin: var(--space-1) 0;
-}
-
-.focus-run-trigger {
+/* Tools: lit dots while Goal mode (accent) or Auto-approve (warning) is on,
+   so neither goes unnoticed with the row closed. */
+.focus-tools {
   position: relative;
+  border-radius: 50%;
 }
 
-.focus-run-trigger.has-goal {
-  color: var(--accent-text);
-}
-
-.focus-run-trigger.has-auto:not(.has-goal) {
-  color: var(--warning-text);
-}
-
-.focus-run-trigger.has-goal::before,
-.focus-run-trigger.has-auto::after {
+.focus-tools.has-goal::before,
+.focus-tools.has-auto::after {
   content: '';
   position: absolute;
-  bottom: 4px;
+  top: 3px;
   width: 5px;
   height: 5px;
   border-radius: 50%;
 }
 
-.focus-run-trigger.has-goal::before {
-  left: 4px;
+.focus-tools.has-goal::before {
+  left: 3px;
   background: var(--accent-primary);
 }
 
-.focus-run-trigger.has-auto::after {
-  right: 4px;
+.focus-tools.has-auto::after {
+  right: 3px;
   background: var(--warning);
+}
+
+/* Where a right click landed: the anchor the tools open from. */
+.focus-pointer {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
 }
 
 .focus-run-options {
@@ -384,7 +352,7 @@
   .shell-focus > pa-inspector.focus-workbench {
     flex: 1 1 auto;
     width: auto;
-    margin-left: var(--focus-rail, 72px);
+    margin-left: 12px;
   }
 
   .shell-focus .focus-workbench .wb-card,
@@ -404,7 +372,7 @@
 .shell-focus.tool-page > pa-inspector.focus-workbench {
   flex: 1 1 auto;
   width: auto;
-  margin-left: var(--focus-rail, 72px);
+  margin-left: 12px;
 }
 
 /* A tool shown as the page fills it. */
@@ -478,11 +446,5 @@
 @media (max-width: 640px) {
   .focus-bar pa-context-meter {
     display: none;
-  }
-}
-
-@media (max-width: 750px) {
-  .focus-main {
-    --focus-pad-right: 0px;
   }
 }

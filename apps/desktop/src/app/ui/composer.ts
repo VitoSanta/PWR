@@ -14,7 +14,7 @@ import {
 import { UnlistenFn } from '@tauri-apps/api/event';
 import { AgentStore } from '../core/agent.store';
 import { inTauri } from '../core/bridge';
-import { roveFocus } from '../core/ui';
+import { UiStore, roveFocus } from '../core/ui';
 import { fileKind } from './conversation';
 import { Icon } from './kit/icon';
 import { Popover } from './kit/popover';
@@ -221,6 +221,24 @@ const MAX_HEIGHT = 260;
             <pa-icon name="lock" [size]="12" /> Read-only chat
           </span>
         }
+        @if (!store.chatMode() && (store.goalMode() || store.permissionMode() === 'auto')) {
+          <!-- Only while one is on: a state that changes what happens next stays in sight. -->
+          <button
+            #runNote
+            type="button"
+            class="run-note"
+            [class.tone-warning]="store.permissionMode() === 'auto'"
+            (click)="ui.runControls.set(ui.runControls() ? null : runNote)"
+            [attr.aria-expanded]="!!ui.runControls()"
+            aria-haspopup="dialog"
+            paTooltip="Goal mode and approvals"
+            animate.enter="anim-pop-in"
+            animate.leave="anim-pop-out"
+          >
+            <pa-icon name="zap" [size]="12" />
+            {{ store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal' : 'Auto-approve' }}
+          </button>
+        }
         <span class="spacer"></span>
         <span class="composer-hint" aria-hidden="true"
           ><span class="kbd">↵</span> send <span class="kbd">⇧↵</span> new line</span
@@ -262,6 +280,7 @@ const MAX_HEIGHT = 260;
 })
 export class Composer implements OnInit, OnDestroy {
   protected readonly store = inject(AgentStore);
+  protected readonly ui = inject(UiStore);
   protected readonly attachmentMenu = signal(false);
   protected readonly expanded = signal(false);
 
