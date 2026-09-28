@@ -14,10 +14,15 @@
  * run, the engine and the tools float over it on glass.
  * ================================================================= */
 :root[data-variant='focus'] {
-  --radius-control: 10px;
-  --radius-card: 14px;
-  --radius-panel: 18px;
-  --radius-modal: 20px;
+  /* Compact details, controls, cards and large surfaces share one soft scale. */
+  --radius-xs: 6px;
+  --radius-inline: 8px;
+  --radius-control-inner: 9px;
+  --radius-control: 12px;
+  --radius-card: 18px;
+  --radius-panel: 24px;
+  --radius-modal: 26px;
+  --radius-brand: 32%;
 }
 
 :root[data-variant='focus'][data-theme='dark'] {
@@ -74,6 +79,25 @@
 
 .shell-focus {
   display: flex;
+}
+
+/* Keep the mark recognisable while softening its outer silhouette. */
+.welcome-mark,
+.turn-avatar,
+.setup-mark,
+.brand-mark {
+  border-radius: var(--radius-brand);
+}
+
+/* Model Manager follows the same card and panel shapes as the main view. */
+.machine {
+  margin: 0 var(--space-6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.local-model {
+  border-radius: var(--radius-card);
 }
 
 .shell-focus .glass {

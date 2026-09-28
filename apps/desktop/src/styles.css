@@ -1,8 +1,7 @@
 /*
  * PWR desktop styles, in layers: tokens (every colour, radius, size and
  * duration) · base (reset, type, focus) · primitives (buttons, inputs,
- * menus, dialogs…) · shell · conversation · panels · parts (the pieces the
- * other shells share) · variants (each shell's layout and tokens).
+ * menus, dialogs…) · shell · conversation · panels · parts · Focus.
  * Components add layout with these; they do not define new colours or
  * shapes.
  */
