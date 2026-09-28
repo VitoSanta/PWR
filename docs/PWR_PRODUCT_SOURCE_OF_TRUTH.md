@@ -1501,11 +1501,10 @@ desktop harness for open-weight models on Apple silicon**.
 - Measuring what the harness contributes, against a fixed baseline, with
   negative results retained.
 
-**Relationship to other tools.** The research document studies Claude Code,
-Codex, OpenCode, Cline, Roo Code, Aider, Continue, SWE-agent, OpenHands and
+**Relationship to other tools.** The research document studies OpenCode, Cline, Roo Code, Aider, Continue, SWE-agent, OpenHands and
 others as *mechanism prior art* ("not product rankings"). PWR makes **no
 comparative performance claim**. The README says it is "not a claim … that
-PWR already competes with Codex or Claude Code". On the MLX engine, one
+PWR already competes with established coding agents". On the MLX engine, one
 2026-09-18 comparison with another harness (Bionic) found 4 of 5 on five
 tasks for both. It is an outside reference, not a ranking.
 
@@ -1765,7 +1764,7 @@ Actions.
 | "Supports every LLM" / "any model" | MLX and GGUF only; MLX models need a chat template; `auto_map` repos are incompatible; GGUF is limited. |
 | "Fully offline" / "100% offline" / "never uses the network" | Engine install, Model Manager and downloads use the network, and Auto mode grants network to agent commands. Say instead "inference runs locally". |
 | "No cloud" without qualification | True for inference; Hugging Face and package hosts are contacted for installs and downloads. |
-| "Beats / matches Claude Code, Codex, Cursor, Cline…" | No comparative measurement exists. |
+| "Beats / matches other coding agents (Cursor, Cline…)" | No comparative measurement exists. |
 | "X% better", "N× more capable", "amplifies small models" | R.10 has not run; no uplift is established. R2 found no uplift under the old regime. |
 | "Production ready" / "stable" / "enterprise" | Public alpha; SECURITY.md warns against unattended use. |
 | "Works on Windows / Linux / Intel Macs" | Apple silicon only. |

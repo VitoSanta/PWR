@@ -336,12 +336,10 @@ precisely *to be re-run after every harness change*. Saying they would be
 invalidated by the first change is like saying unit tests are invalidated by the
 first commit: being re-run is their function, not their failure mode.
 
-Anthropic's own guidance on agent evaluation puts it directly -- "owning and
-iterating on evaluations should be as routine as maintaining unit tests", and it
-recommends building evals "to define planned capabilities before agents can
-fulfill them, then iterate until the agent performs well", starting from
-"20-50 simple tasks drawn from real failures" rather than waiting for a large
-suite ([Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)).
+Evaluations should be maintained as routinely as unit tests: written to define
+a planned capability before the agent has it, iterated on until the agent meets
+them, and started from a few dozen simple tasks drawn from real failures rather
+than postponed until a large suite exists.
 The redesign already requires this property of A1–A4 -- "fast by design (minutes
 per trial), so a harness change can be checked against them the same day" -- and
 that requirement is what makes the objection not apply to them. **If re-running

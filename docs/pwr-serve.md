@@ -2,7 +2,7 @@
 
 **Product decision, 2026-09-16.** PWR's user-facing product is **its own
 desktop application, for macOS and (not yet built) Windows** -- a standalone app in the manner of
-the ChatGPT and Claude desktop apps: a simple interface that makes clear what the
+mainstream AI chat desktop apps: a simple interface that makes clear what the
 agent is doing. **It is the only front end PWR has.** PWR is not a plugin for
 code editors or IDEs, and editor integration is not a goal. An earlier version of
 this document treated compatibility with ACP editors as a first-class benefit and
@@ -282,7 +282,7 @@ spike was retired and its prototype removed after the Tauri app became the
 supported desktop client; the historical comparison below records that decision.
 
 **What it is.** A standalone desktop application for **macOS and Windows**, and
-PWR's only front end. The model is the ChatGPT and Claude desktop apps: the
+PWR's only front end. The model is mainstream AI chat desktop apps: the
 conversation is the centre, and everything else exists to make the agent's work
 legible to the person relying on it. Linux is not a target.
 

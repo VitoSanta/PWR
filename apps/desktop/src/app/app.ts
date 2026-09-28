@@ -82,7 +82,7 @@ export class App implements OnInit {
       if (this.layout.closeOverlays()) event.preventDefault();
       return;
     }
-    // The workbench's Control shortcuts, as Codex has them: ⌃` and ⌃⇧G.
+    // The workbench's Control shortcuts: ⌃` and ⌃⇧G.
     if (event.ctrlKey && !event.metaKey && !event.altKey && !event.repeat && !this.dialogs.open) {
       if (event.code === 'Backquote' && !event.shiftKey) {
         event.preventDefault();

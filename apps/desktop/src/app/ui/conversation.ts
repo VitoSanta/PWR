@@ -17,7 +17,7 @@ import { BrandMark } from './kit/brand-mark';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
-import { TraceCompact, TraceSteps } from './trace';
+import { TraceCompact, TraceRaw, TraceSteps } from './trace';
 
 /** One row of the conversation: the person's message, or the whole reply to it. */
 type Item =
@@ -27,7 +27,7 @@ type Item =
 
 @Component({
   selector: 'pa-conversation',
-  imports: [BrandMark, Icon, Popover, Tooltip, TraceCompact, TraceSteps],
+  imports: [BrandMark, Icon, Popover, Tooltip, TraceCompact, TraceSteps, TraceRaw],
   template: `
     <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
@@ -138,12 +138,16 @@ type Item =
                   <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }}</span>
                 </header>
                 <div class="turn-body">
-                  @if (store.chatMode()) {
-                    <!-- A conversation, not a task: the reasoning, what it read and the
-                         answer, in order -- no phases of work it cannot do here. -->
-                    <pa-trace-steps [steps]="item.steps" />
-                  } @else {
-                    <pa-trace-compact [entries]="item.entries" [live]="item.live" />
+                  @switch (store.traceVisibility()) {
+                    @case ('compact') {
+                      <pa-trace-compact [entries]="item.entries" [live]="item.live" />
+                    }
+                    @case ('detailed') {
+                      <pa-trace-steps [steps]="item.steps" />
+                    }
+                    @case ('raw') {
+                      <pa-trace-raw [entries]="item.entries" [startedAt]="item.startedAt" [endedAt]="item.endedAt" [live]="item.live" />
+                    }
                   }
                   @if (!item.live && answer(item.entries); as text) {
                     <div class="message-actions turn-actions">
@@ -205,8 +209,7 @@ export class Conversation {
   /**
    * Everything the model does between two messages of the person is one
    * turn -- reasoning, text, actions, retries in order, on one rail. The turn
-   * keeps its entries: in a workspace, phases that open onto their steps; in chat,
-   * the steps themselves.
+   * keeps its entries, so the chosen view can present the same run at different detail levels.
    */
   protected readonly items = computed<Item[]>(() => {
     const items: Item[] = [];

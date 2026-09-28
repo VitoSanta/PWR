@@ -87,7 +87,6 @@ __pycache__/
 # machine: the public repository carries the product only (decided
 # 2026-09-22, docs/roadmap.md). Local tooling state likewise.
 /experiments/
-/.claude/
 /.pwr-scratch/
 /.venv-mlx/
 
