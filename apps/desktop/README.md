@@ -30,9 +30,9 @@ the app never writes to a workspace itself. It is the supported desktop client.
   (or `PWR_MLX_MODELS`), with progress and cancel; the models on this Mac,
   with delete. GGUF search appears only when the core runs llama.cpp, which a
   release build on macOS never does.
-- **Goal** mode (keep working across check-ins until verified) and the
-  **Auto-approve** switch (off = Ask, on = Auto, amber) with a warning when
-  commands are not sandboxed.
+- **Run controls** in the floating tools bar: **Goal** mode keeps working
+  across check-ins until verified; **Auto-approve** is off for Ask and amber
+  when automatic. The composer still warns when commands are not sandboxed.
 - **Chat mode**: "Chat without a workspace" talks to the model with no
   project open; it reads only the files, folders and images attached, and
   cannot edit or run anything (C.26). "Open a workspace" goes back.
@@ -59,7 +59,7 @@ src/app/ui/              conversation, composer, sidebar (and rail), inspector, 
                          context-meter (indicator and panel), model-picker, model-manager, settings,
                          command-palette
 src/app/ui/shells/       Focus, the main application shell
-src/app/ui/parts/        session switcher, phase strip, tool dock, diagnostic export
+src/app/ui/parts/        session switcher, tool dock, diagnostic export
 src/app/ui/kit/          the shared primitives: icon, dialog, popover, select, tooltip, resize-handle,
                          toasts and the confirmation dialog
 src/styles/              the design system, in layers: tokens, base, primitives, shell, conversation, panels,
@@ -85,8 +85,8 @@ for the light one; components use the semantic names (`--surface-primary`,
 `--text-muted`, `--radius-control`…) and never literal values. Geometry is
 strict: controls (buttons, inputs, selects, menu items) share
 `--radius-control`, cards and popovers `--radius-card`, the composer
-`--radius-panel`, dialogs `--radius-modal`, and pills are only for badges,
-status and chips. One icon family (`pa-icon`), one dialog (`pa-dialog`: focus
+`--radius-panel`, dialogs `--radius-modal`; Focus also uses a pill for the
+compact composer and small actions. One icon family (`pa-icon`), one dialog (`pa-dialog`: focus
 kept inside, Escape for the innermost only, focus restored), one popover, one
 select (a themed ARIA listbox in place of the native `<select>`), one
 tooltip, one toast and one confirmation dialog (`ConfirmService`, instead of
@@ -97,8 +97,10 @@ in Settings (⌘, / Ctrl+,) or the command palette; `index.html` applies it
 before first paint and the native window follows it.
 
 **Focus** is the main layout. The conversation fills the window; the
-conversation switcher, run phases, engine and tools float over it on glass.
-Settings can switch the colour theme without changing this arrangement.
+conversation switcher, engine and tools float over it on glass. Run stages
+remain visible in the conversation. The composer starts as a rounded single
+line and grows upward as the message wraps. Settings can switch the colour
+theme without changing this arrangement.
 
 The run's stages come from the same reading of the timeline the
 conversation uses (`compactTurn`). ⌘B opens the conversation switcher.

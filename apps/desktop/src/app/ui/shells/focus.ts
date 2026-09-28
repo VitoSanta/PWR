@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { LayoutService } from '../../core/layout';
 import { WindowState } from '../../core/navigation';
@@ -8,10 +15,10 @@ import { ContextMeter } from '../context-meter';
 import { Conversation } from '../conversation';
 import { Inspector } from '../inspector';
 import { Icon } from '../kit/icon';
+import { Popover } from '../kit/popover';
 import { Tooltip } from '../kit/tooltip';
 import { ModelPicker } from '../model-picker';
 import { DiagnosticExport } from '../parts/diagnostic-export';
-import { PhaseStrip } from '../parts/phase-strip';
 import { SessionSwitcher } from '../parts/session-switcher';
 import { ToolDock } from '../parts/tool-dock';
 import { MemoryProposals } from '../personal';
@@ -34,7 +41,7 @@ import { RunMetricsChip } from '../run-metrics';
     Inspector,
     MemoryProposals,
     ModelPicker,
-    PhaseStrip,
+    Popover,
     RunMetricsChip,
     SessionSwitcher,
     ToolDock,
@@ -64,8 +71,6 @@ import { RunMetricsChip } from '../run-metrics';
 
       <div class="focus-hud glass">
         <pa-session-switcher />
-        <span class="focus-hud-sep" aria-hidden="true"></span>
-        <pa-phase-strip />
       </div>
 
       <div class="focus-engine glass">
@@ -89,13 +94,88 @@ import { RunMetricsChip } from '../run-metrics';
         <span class="focus-dock-sep" aria-hidden="true"></span>
         <pa-tool-dock [vertical]="true" />
         <span class="focus-dock-sep" aria-hidden="true"></span>
-        <button class="icon-btn" (click)="ui.paletteOpen.set(true)" aria-label="Commands" paTooltip="Commands" [paTooltipKeys]="keys.palette">
+        @if (!store.chatMode()) {
+          <button
+            #runControlsButton
+            class="icon-btn focus-run-trigger"
+            [class.has-goal]="store.goalMode()"
+            [class.has-auto]="store.permissionMode() === 'auto'"
+            [attr.aria-expanded]="runControlsOpen()"
+            [attr.aria-label]="
+              'Run controls: Goal ' +
+              (store.goalMode() ? 'on' : 'off') +
+              ', Auto-approve ' +
+              (store.permissionMode() === 'auto' ? 'on' : 'off')
+            "
+            aria-haspopup="dialog"
+            (click)="runControlsOpen.update((open) => !open)"
+            paTooltip="Goal mode and approvals"
+          >
+            <pa-icon name="shield-check" />
+          </button>
+        }
+        <button
+          class="icon-btn"
+          (click)="ui.paletteOpen.set(true)"
+          aria-label="Commands"
+          paTooltip="Commands"
+          [paTooltipKeys]="keys.palette"
+        >
           <pa-icon name="command" />
         </button>
-        <button class="icon-btn" (click)="ui.settingsOpen.set(true)" aria-label="Settings" paTooltip="Settings" [paTooltipKeys]="keys.settings">
+        <button
+          class="icon-btn"
+          (click)="ui.settingsOpen.set(true)"
+          aria-label="Settings"
+          paTooltip="Settings"
+          [paTooltipKeys]="keys.settings"
+        >
           <pa-icon name="settings" />
         </button>
       </nav>
+
+      @if (runControlsOpen() && runControlsButton(); as runAnchor) {
+        <pa-popover
+          class="focus-run-popover"
+          [anchor]="runAnchor.nativeElement"
+          side="top"
+          anchorAlign="start"
+          width="300px"
+          ariaLabel="Run controls"
+          (closed)="runControlsOpen.set(false)"
+          animate.leave="anim-pop-out"
+        >
+          <div class="popover-head"><h2 class="popover-title">Run controls</h2></div>
+          <div class="focus-run-options">
+            <button
+              class="focus-run-option"
+              [attr.aria-pressed]="store.goalMode()"
+              (click)="store.goalMode.set(!store.goalMode())"
+            >
+              <span class="focus-run-copy">
+                <strong>Goal mode</strong>
+                <small>Keep working until the goal is verified.</small>
+              </span>
+              <span class="switch" aria-hidden="true"></span>
+            </button>
+            <button
+              class="focus-run-option tone-warning"
+              [attr.aria-pressed]="store.permissionMode() === 'auto'"
+              (click)="store.setPermissionMode(store.permissionMode() === 'auto' ? 'ask' : 'auto')"
+            >
+              <span class="focus-run-copy">
+                <strong>Auto-approve</strong>
+                <small>{{
+                  store.permissionMode() === 'auto'
+                    ? 'Permissions are granted automatically.'
+                    : 'PWR asks before sensitive actions.'
+                }}</small>
+              </span>
+              <span class="switch" aria-hidden="true"></span>
+            </button>
+          </div>
+        </pa-popover>
+      }
 
       @if (open()) {
         <pa-inspector class="is-overlay focus-workbench glass" animate.leave="is-leaving" />
@@ -110,6 +190,8 @@ export class FocusShell {
   protected readonly ui = inject(UiStore);
   protected readonly win = inject(WindowState);
   protected readonly keys = SHORTCUTS;
+  protected readonly runControlsOpen = signal(false);
+  protected readonly runControlsButton = viewChild<ElementRef<HTMLElement>>('runControlsButton');
 
   constructor() {
     // Nothing docks: the workbench hovers, and starts closed.
