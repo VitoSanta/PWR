@@ -455,7 +455,7 @@ One at a time is a statement about evidence, not about the destination. Browser 
 
 **Decided 2026-09-16: PWR's product is its own desktop app, for macOS and
 Windows, and that app is its only front end.** A standalone application in the
-manner of the ChatGPT and Claude desktop apps -- a simple interface that makes
+manner of mainstream AI chat desktop apps -- a simple interface that makes
 clear what the agent is doing -- not a plugin for code editors or IDEs. Editor
 integration is not a goal. The terminal console stays as the development and
 research tool the campaigns run through until the app covers it; it is not a

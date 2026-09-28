@@ -3,8 +3,8 @@
 //! The console kept the conversation in memory. Quitting, a crash, or a closed
 //! terminal lost every message while the edits it had made stayed on disk --
 //! the next conversation in that workspace started blind to work it was
-//! standing on. Claude Code's shape, which this project adopted, has
-//! `--continue` for exactly that.
+//! standing on. A `--continue` that resumes the last conversation exists for
+//! exactly that.
 //!
 //! What is kept, and why each part:
 //!

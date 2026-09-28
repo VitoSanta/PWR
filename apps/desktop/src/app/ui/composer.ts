@@ -360,7 +360,7 @@ export class Composer implements OnInit, OnDestroy {
     this.grow(box);
   }
 
-  /** Enter sends, Shift+Enter breaks the line, as in Claude and ChatGPT. */
+  /** Enter sends, Shift+Enter breaks the line, as in common chat apps. */
   protected onEnter(event: Event): void {
     const key = event as KeyboardEvent;
     if (key.shiftKey || key.isComposing) return;

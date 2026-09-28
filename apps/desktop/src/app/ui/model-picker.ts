@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import {
   capabilityResult,
@@ -14,7 +14,6 @@ import { ModelsStore } from '../core/models.store';
 import { roveFocus } from '../core/ui';
 import { Icon } from './kit/icon';
 import { Popover } from './kit/popover';
-import { Select, SelectOption } from './kit/select';
 import { Tooltip } from './kit/tooltip';
 
 /**
@@ -23,7 +22,7 @@ import { Tooltip } from './kit/tooltip';
  */
 @Component({
   selector: 'pa-model-picker',
-  imports: [Icon, Popover, Select, Tooltip],
+  imports: [Icon, Popover, Tooltip],
   template: `
     <button
       #chip
@@ -194,15 +193,19 @@ import { Tooltip } from './kit/tooltip';
                 paTooltip="How much of a reply the model may spend thinking before it must answer or act. Not the number of steps or tool calls."
                 >Reasoning effort</span
               >
-              <pa-select
-                class="effort-select"
-                size="sm"
-                labelledBy="effort-label"
-                [options]="effortOptions()"
-                [value]="store.reasoningEffort()"
-                (valueChange)="setEffort($any($event))"
-                [disabled]="store.turnActive() || !store.reasoning()?.applies"
-              />
+              <span class="effort-select">
+                <select
+                  aria-labelledby="effort-label"
+                  [value]="store.reasoningEffort()"
+                  (change)="setEffort($any($event.target).value)"
+                  [disabled]="store.turnActive() || !store.reasoning()?.applies"
+                >
+                  @for (option of effortOptions; track option.value) {
+                    <option [value]="option.value" [selected]="option.value === store.reasoningEffort()">{{ option.label }}</option>
+                  }
+                </select>
+                <pa-icon name="chevron-down" [size]="16" aria-hidden="true" />
+              </span>
             </div>
             <p class="fine">{{ reasoningHelp(store.reasoning()) }}</p>
           </section>
@@ -243,14 +246,10 @@ export class ModelPicker {
     if (ref !== this.store.model()) void this.store.selectModel(ref);
   }
 
-  protected readonly effortOptions = computed<SelectOption<ReasoningEffort>[]>(() => {
-    const budgets = this.store.reasoning()?.control === 'budget' ? this.store.reasoning()?.budgets : null;
-    return (['low', 'medium', 'high'] as const).map((value) => ({
-      value,
-      label: value.charAt(0).toUpperCase() + value.slice(1),
-      hint: budgets ? tokens(budgets[value]) : undefined,
-    }));
-  });
+  protected readonly effortOptions = (['low', 'medium', 'high'] as const).map((value) => ({
+    value,
+    label: value.charAt(0).toUpperCase() + value.slice(1),
+  }));
 
   protected setEffort(effort: ReasoningEffort): void {
     if (effort !== this.store.reasoningEffort()) void this.store.setReasoningEffort(effort);

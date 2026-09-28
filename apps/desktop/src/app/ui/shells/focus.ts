@@ -18,6 +18,7 @@ import { SessionSwitcher } from '../parts/session-switcher';
 import { ToolStrip } from '../parts/tool-strip';
 import { MemoryProposals } from '../personal';
 import { RunMetricsChip } from '../run-metrics';
+import { TraceVisibilityControl } from '../trace';
 
 /**
  * What a right click leaves alone: text and whatever has its own menu --
@@ -50,6 +51,7 @@ const NATIVE_MENU =
     Popover,
     RunControls,
     RunMetricsChip,
+    TraceVisibilityControl,
     SessionSwitcher,
     ToolStrip,
     Tooltip,
@@ -85,6 +87,7 @@ const NATIVE_MENU =
         <pa-diagnostic-export />
         <pa-context-meter />
         <pa-run-metrics />
+        <pa-trace-visibility />
         <pa-model-picker />
         <span class="focus-bar-sep" aria-hidden="true"></span>
         <button

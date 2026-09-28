@@ -3,7 +3,7 @@
 PWR is an open-source coding agent for local models, in continuous evolution.
 Statuses such as *experimental* mean what they say: usable, still changing.
 
-## v0.2.0-alpha — unreleased
+## v0.2.0-alpha — 2026-09-28
 
 The agent has improvements to speed, completion handling and toolchain coverage;
 the desktop app gains a workbench and project knowledge. Chat without a
@@ -78,6 +78,9 @@ workspace was already present in v0.1.2-alpha and has been extended.
 - **Chat mode**: talk without a workspace, reading only what you attach.
 - Conversations read as phases that open onto their steps; a message's
   actions sit under it. Copy, edit the queued message, rewind.
+- A run can be shown **Compact**, **Detailed** or as a **Raw Trace** (every
+  event with its payload, and the core's log for the run). The choice is
+  remembered and changes only the view, never the model's work.
 - The context window is followed live during a turn.
 - Settings redesigned as pages; an outdated core is explained.
 - Model Manager: parameter range, sorting across the whole Hub, believable

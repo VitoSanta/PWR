@@ -201,9 +201,6 @@ extra machinery does not earn its cost.
 
 ## External references
 
-- [Anthropic: Contextual Retrieval](https://www.anthropic.com/engineering/contextual-retrieval)
-  motivates lexical/semantic fusion and preserving context around fragments;
-  its reported improvements are not PWR effect-size estimates.
 - [KIVI](https://arxiv.org/abs/2402.02750) studies asymmetric KV quantization;
   its results do not establish compatibility or quality for every deployment.
 - [LLMLingua-2](https://arxiv.org/abs/2403.12968) is a reference for a separate

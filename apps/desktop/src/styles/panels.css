@@ -248,7 +248,45 @@ pa-model-picker {
 }
 
 .effort-select {
+  position: relative;
+  display: inline-flex;
   width: 148px;
+}
+
+.effort-select select {
+  width: 100%;
+  height: var(--control-h-sm);
+  padding: 0 30px 0 var(--space-3);
+  appearance: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font: var(--fs-label) var(--font);
+  cursor: pointer;
+}
+
+.effort-select select:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.effort-select select:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.effort-select select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.effort-select pa-icon {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-muted);
 }
 
 /* ------------------------------------------------------ context popover */
@@ -1511,10 +1549,45 @@ pa-engine-setup {
   max-width: 420px;
 }
 
-/* ------------------------------------------------------------ runtime */
-pa-run-metrics {
+/* ------------------------------------------ trace visibility, runtime */
+pa-run-metrics,
+pa-trace-visibility {
   display: inline-flex;
   min-width: 0;
+}
+
+.trace-visibility {
+  padding: 0 var(--space-3) 0 var(--space-2);
+}
+
+.trace-option {
+  align-items: flex-start;
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.trace-option > pa-icon:first-child {
+  margin-top: 2px;
+}
+
+.trace-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  white-space: normal;
+}
+
+.trace-option-text strong {
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+}
+
+.trace-option-text small {
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+  line-height: 1.4;
 }
 
 .run-metrics {

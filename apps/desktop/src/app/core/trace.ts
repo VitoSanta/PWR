@@ -5,6 +5,14 @@
 
 import { Entry } from './model';
 
+export type TraceVisibility = 'compact' | 'detailed' | 'raw';
+
+export const TRACE_VISIBILITIES: { value: TraceVisibility; label: string; help: string }[] = [
+  { value: 'compact', label: 'Compact', help: 'What PWR is doing, by phase, and the result' },
+  { value: 'detailed', label: 'Detailed', help: 'Reasoning, each tool call, files, commands, checks and retries' },
+  { value: 'raw', label: 'Raw Trace', help: 'Every event with its payload, and the core log' },
+];
+
 /** What a tool call was, for counting and for choosing its phase. */
 export type ToolCategory =
   | 'file_read'

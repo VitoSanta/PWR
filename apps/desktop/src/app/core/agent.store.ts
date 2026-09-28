@@ -16,8 +16,9 @@ import {
   SessionSummary,
   modelLabel,
 } from './model';
-import { RunOutcome, runOutcome } from './trace';
+import { RunOutcome, TraceVisibility, runOutcome } from './trace';
 
+const VISIBILITY_KEY = 'pwr:trace-visibility';
 
 type Pending = { resolve: (value: any) => void; reject: (error: Error) => void };
 
@@ -93,10 +94,8 @@ export class AgentStore {
   readonly outcome = signal('');
   /** How the last run ended, and whether it can be retried or continued. */
   readonly runOutcome = signal<RunOutcome | null>(null);
-  /**
-   * How much of the run the conversation shows. Presentation only: it is not
-   * Reasoning Effort, and changes nothing the model does.
-   */
+  /** Presentation only: changing this never changes the model's work. */
+  readonly traceVisibility = signal<TraceVisibility>(readVisibility());
   readonly changes = signal<FileDiff[]>([]);
   readonly commandOutput = signal<{ name: string; text: string } | null>(null);
   /** The Evidence command that is running, if any. */
@@ -433,6 +432,15 @@ export class AgentStore {
 
   selectModel(ref: string): Promise<void> {
     return this.refreshModels({ model: ref });
+  }
+
+  setTraceVisibility(visibility: TraceVisibility): void {
+    this.traceVisibility.set(visibility);
+    try {
+      localStorage.setItem(VISIBILITY_KEY, visibility);
+    } catch {
+      // Storage unavailable: retain the choice for this session.
+    }
   }
 
   setReasoningEffort(effort: ReasoningEffort): Promise<void> {
@@ -1131,6 +1139,16 @@ export class AgentStore {
   private push(entry: Entry): void {
     this.timeline.update((entries) => [...entries, entry]);
   }
+}
+
+function readVisibility(): TraceVisibility {
+  try {
+    const saved = localStorage.getItem(VISIBILITY_KEY);
+    if (saved === 'compact' || saved === 'detailed' || saved === 'raw') return saved;
+  } catch {
+    // Storage unavailable.
+  }
+  return 'compact';
 }
 
 function ownWords(text: string): string {
