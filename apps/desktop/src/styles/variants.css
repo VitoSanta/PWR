@@ -881,6 +881,13 @@
 
 .focus-main {
   flex: 1;
+  transition: margin-right var(--dur-slow) var(--ease);
+}
+
+@media (min-width: 1001px) {
+  .shell-focus.has-workbench .focus-main {
+    margin-right: calc(var(--right-w, 340px) + 24px);
+  }
 }
 
 /* Room under the floating HUD, and past the dock at the left. */
@@ -905,6 +912,46 @@
   left: 12px;
   max-width: calc(100% - 480px);
   padding-right: var(--space-2);
+}
+
+.focus-hud .run-state {
+  margin-left: var(--space-1);
+}
+
+.focus-phase-trigger,
+.focus-action-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.focus-phase-trigger:hover,
+.focus-action-trigger:hover,
+.focus-phase-trigger[aria-expanded='true'] {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.focus-phases {
+  position: absolute;
+  z-index: 4;
+  top: 58px;
+  left: 84px;
+  width: min(360px, calc(100vw - 108px));
+  max-height: min(480px, calc(100vh - 76px));
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  overflow-y: auto;
 }
 
 /* Past the traffic lights, which float over the page's corner. */
@@ -944,12 +991,45 @@
 }
 
 .focus-dock {
-  top: 50%;
+  bottom: 20px;
   left: 12px;
   flex-direction: column;
   padding: var(--space-1);
-  border-radius: 22px;
-  transform: translateY(-50%);
+  border-radius: var(--radius-panel);
+}
+
+.focus-dock-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.focus-dock-trigger:hover,
+.focus-dock-trigger[aria-expanded='true'] {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.focus-dock-contents {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.focus-dock.is-expanded {
+  flex-direction: column-reverse;
 }
 
 .focus-dock-sep {
@@ -979,17 +1059,26 @@
   background: transparent;
 }
 
-/* Narrow windows: the phases give up their counts, then their place. */
+/* Narrow windows: the run stays legible while telemetry yields room. */
 @media (max-width: 1100px) {
-  .focus-hud pa-phase-strip {
-    display: none;
-  }
-
-  .focus-hud-sep {
-    display: none;
-  }
-
   .focus-hud {
-    max-width: calc(100% - 520px);
+    max-width: calc(100% - 310px);
   }
+
+  .focus-engine pa-run-metrics { display: none; }
+}
+
+@media (max-width: 720px) {
+  .focus-hud {
+    top: 56px;
+    left: 12px !important;
+    max-width: calc(100% - 24px);
+  }
+
+  .focus-engine { top: 10px; right: 12px; }
+  .focus-engine pa-context-meter { display: none; }
+  .focus-phases { top: 104px; left: 12px; width: min(360px, calc(100vw - 24px)); }
+  .shell-focus .conversation { padding-top: 112px; }
+  .focus-dock { bottom: 8px; left: 8px; }
+  .focus-action-trigger { display: none; }
 }
