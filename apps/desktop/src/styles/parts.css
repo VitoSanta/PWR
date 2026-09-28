@@ -272,6 +272,70 @@ pa-popover.tool-strip-popover {
   animation-delay: 168ms;
 }
 
+/* As a list, dropping from the Tools button: a menu's rows -- icon, name,
+   shortcut -- an open tool marked by a bar at its left edge. */
+.tool-strip.is-vertical {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: 260px;
+}
+
+.tool-strip.is-vertical .tool-strip-item {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  height: 34px;
+  padding: 0 var(--space-3);
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-regular);
+}
+
+.tool-strip.is-vertical .tool-strip-item pa-icon {
+  color: var(--text-secondary);
+}
+
+.tool-strip.is-vertical .tool-strip-label {
+  flex: 1;
+  text-align: left;
+}
+
+.tool-strip.is-vertical .tool-strip-keys {
+  flex: none;
+}
+
+.tool-strip.is-vertical .tool-strip-item[aria-checked='true'] {
+  color: var(--accent-text);
+}
+
+.tool-strip.is-vertical .tool-strip-item[aria-checked='true'] pa-icon {
+  color: var(--accent-text);
+}
+
+.tool-strip.is-vertical .tool-strip-item[aria-checked='true']::after {
+  top: 9px;
+  bottom: 9px;
+  left: 3px;
+  width: 3px;
+  height: auto;
+}
+
+.tool-strip.is-vertical .tool-strip-sep {
+  width: auto;
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+}
+
+.tool-strip.is-vertical .tool-strip-item.has-goal pa-icon {
+  color: var(--accent-text);
+}
+
+.tool-strip.is-vertical .tool-strip-item.has-auto:not(.has-goal) pa-icon {
+  color: var(--warning-text);
+}
+
 @keyframes pa-strip-in {
   from {
     opacity: 0;

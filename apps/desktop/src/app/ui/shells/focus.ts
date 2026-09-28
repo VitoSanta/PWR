@@ -119,7 +119,7 @@ const NATIVE_MENU =
             (closed)="strip.set(null)"
             animate.leave="anim-pop-out"
           >
-            <pa-tool-strip (done)="strip.set(null)" (run)="openRun(from)" />
+            <pa-tool-strip [vertical]="from === 'bar'" (done)="strip.set(null)" (run)="openRun(from)" />
           </pa-popover>
         }
       }
@@ -177,11 +177,13 @@ export class FocusShell {
   }
 
   /**
-   * The row opens with focus on itself, not on its first tool (whose
-   * tooltip would pop up under the pointer); the arrow keys go in.
+   * The tools open with focus on themselves, not on the first (whose
+   * tooltip would pop up under the pointer); the arrow keys go in -- up and
+   * down the list, along the row.
    */
   protected stripKeys(event: KeyboardEvent): void {
-    roveFocus(event, event.currentTarget as HTMLElement, '[role^=menuitem]', 'horizontal');
+    const orientation = this.strip() === 'bar' ? 'vertical' : 'horizontal';
+    roveFocus(event, event.currentTarget as HTMLElement, '[role^=menuitem]', orientation);
   }
 
   protected openStrip(): void {
