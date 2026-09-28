@@ -85,8 +85,21 @@ import { KnowledgeCard } from './workbench/knowledge';
             [class.fills]="!card.collapsed"
             [attr.aria-label]="info(card.id).label"
             [style.flex-grow]="card.collapsed ? 0 : cardWeight(card.id)"
+            [style.--card-w.px]="work.focusMode() ? work.widthOf(card.id) : null"
             [style.view-transition-name]="'wb-' + card.id"
           >
+            @if (work.focusMode() && layout.right() === 'docked') {
+              <pa-resize-handle
+                edge="left"
+                [offset]="0"
+                [label]="'Resize ' + info(card.id).label"
+                [width]="work.widthOf(card.id)"
+                [min]="bounds.min"
+                [max]="work.maxWidth()"
+                [initial]="bounds.initial"
+                (resize)="work.setWidth(card.id, $event)"
+              />
+            }
             <header class="wb-card-head" (dblclick)="work.maximize(card.id)">
                 <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
                   <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
@@ -136,6 +149,7 @@ import { KnowledgeCard } from './workbench/knowledge';
           @if (work.focusMode() && !last && !card.collapsed && !work.visible()[index + 1].collapsed) {
             <div
               class="wb-splitter"
+              [style.--card-w.px]="narrower(card.id, work.visible()[index + 1].id)"
               role="separator"
               tabindex="0"
               aria-orientation="horizontal"
@@ -168,7 +182,7 @@ import { KnowledgeCard } from './workbench/knowledge';
         }
       </div>
     </aside>
-    @if (layout.right() === 'docked') {
+    @if (layout.right() === 'docked' && !work.focusMode()) {
       <pa-resize-handle
         edge="left"
         label="Resize the workbench"
@@ -218,6 +232,11 @@ export class Inspector {
 
   protected badge(id: CardId): number {
     return this.badges()[id] ?? 0;
+  }
+
+  /** A line between two cards spans the narrower, so it never hangs past a card. */
+  protected narrower(first: CardId, second: CardId): number {
+    return Math.min(this.work.widthOf(first), this.work.widthOf(second));
   }
 
   protected cardWeight(id: CardId): number {

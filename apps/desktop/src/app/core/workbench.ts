@@ -1,6 +1,6 @@
-import { ApplicationRef, Injectable, computed, inject, signal } from '@angular/core';
+import { ApplicationRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { AgentStore } from './agent.store';
-import { LayoutService } from './layout';
+import { LayoutService, MAIN_MIN, RIGHT } from './layout';
 
 /** The tools the workbench can show, each as a card. */
 export type CardId = 'review' | 'knowledge' | 'files' | 'terminal' | 'browser' | 'activity' | 'plan';
@@ -38,6 +38,7 @@ interface Saved {
 }
 
 const KEY = 'pwr:workbench';
+const WIDTHS_KEY = 'pwr:card-widths';
 
 /**
  * The right-hand column: tools as cards, stacked, each collapsible,
@@ -55,6 +56,11 @@ export class WorkbenchStore {
   readonly maximized = signal<CardId | null>(this.saved.maximized);
   /** Focus presents tools as standalone cards without the Workbench frame. */
   readonly focusMode = signal(false);
+  /**
+   * In Focus each card has a width of its own, dragged from its left edge;
+   * a card never resized has the one the column had before cards had theirs.
+   */
+  readonly widths = signal<Partial<Record<CardId, number>>>(loadWidths(this.open(), this.layout.rightWidth()));
   /** The file the Files card should show, when another card asks for one. */
   readonly fileRequest = signal<string | null>(null);
 
@@ -83,6 +89,41 @@ export class WorkbenchStore {
       ? this.layout.rightOpen() || this.layout.rightPeek()
       : this.layout.right() !== 'hidden',
   );
+
+  /** The column the cards need: as wide as its widest card. */
+  readonly columnWidth = computed(() => Math.max(RIGHT.min, ...this.visible().map((card) => this.widthOf(card.id))));
+
+  constructor() {
+    // Focus docks the column by its widest card, so the conversation keeps
+    // the rest of the window, centred in it. In a narrower window the wide
+    // cards give way first, down to the least a card takes; only then do
+    // the tools take the page.
+    effect(() => {
+      if (!this.focusMode()) return;
+      const width = Math.min(this.columnWidth(), this.maxWidth());
+      untracked(() => this.layout.rightWidth.set(width));
+    });
+  }
+
+  widthOf(id: CardId): number {
+    return this.widths()[id] ?? RIGHT.initial;
+  }
+
+  /** The widest a card may be: the conversation keeps its least width beside it. */
+  maxWidth(): number {
+    const left = this.layout.leftFixed() ?? 0;
+    return Math.max(RIGHT.min, this.layout.viewport() - left - MAIN_MIN);
+  }
+
+  setWidth(id: CardId, width: number): void {
+    const next = Math.round(Math.max(RIGHT.min, Math.min(this.maxWidth(), width)));
+    this.widths.update((widths) => ({ ...widths, [id]: next }));
+    try {
+      localStorage.setItem(WIDTHS_KEY, JSON.stringify(this.widths()));
+    } catch {
+      // Storage unavailable: the width holds until the app closes.
+    }
+  }
 
   isOpen(id: CardId): boolean {
     return this.visible().some((card) => card.id === id);
@@ -199,6 +240,28 @@ export class WorkbenchStore {
       // A private window or blocked storage: the layout just is not kept.
     }
   }
+}
+
+/**
+ * The saved widths; the first time, the cards already open take the width
+ * the whole column had, so nothing moves.
+ */
+function loadWidths(open: OpenCard[], column: number): Partial<Record<CardId, number>> {
+  const known = new Set<string>(CARDS.map((card) => card.id));
+  try {
+    const raw = localStorage.getItem(WIDTHS_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw) as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(saved).filter(
+          ([id, width]) => known.has(id) && typeof width === 'number' && Number.isFinite(width) && width >= RIGHT.min,
+        ),
+      ) as Partial<Record<CardId, number>>;
+    }
+  } catch {
+    // Unreadable: every card starts at the default width.
+  }
+  return column === RIGHT.initial ? {} : Object.fromEntries(open.map((card) => [card.id, column]));
 }
 
 function load(): Saved {

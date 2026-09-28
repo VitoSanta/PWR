@@ -26,6 +26,13 @@ import { MemoryProposals } from '../personal';
 import { RunMetricsChip } from '../run-metrics';
 
 /**
+ * What the floating dock takes at the left edge: its inset, its width and a
+ * gap. The conversation is centred in what is left of the window, and the
+ * tools dock by that room.
+ */
+const RAIL = 72;
+
+/**
  * Focus: no chrome. The conversation fills the window; everything else
  * floats over it on glass -- where you are at the top, the engine at the
  * top right, and the tools on a dock at the left edge. A selected tool gets
@@ -57,6 +64,7 @@ import { RunMetricsChip } from '../run-metrics';
       [class.is-fullscreen]="win.fullscreen()"
       [class.is-resizing]="layout.resizing()"
       [style.--right-w.px]="layout.rightWidth()"
+      [style.--focus-rail.px]="rail"
     >
       <div class="focus-drag" data-tauri-drag-region="deep"></div>
 
@@ -194,13 +202,14 @@ export class FocusShell {
   protected readonly ui = inject(UiStore);
   protected readonly win = inject(WindowState);
   protected readonly keys = SHORTCUTS;
+  protected readonly rail = RAIL;
   protected readonly runControlsOpen = signal(false);
   protected readonly runControlsButton = viewChild<ElementRef<HTMLElement>>('runControlsButton');
 
   constructor() {
     // Focus uses standalone cards and starts with the conversation.
     this.work.focusMode.set(true);
-    this.layout.leftFixed.set(0);
+    this.layout.leftFixed.set(RAIL);
     this.layout.rightOpen.set(false);
     this.layout.rightPeek.set(false);
   }
