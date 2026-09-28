@@ -14,6 +14,8 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod engine;
 mod terminal;
+#[cfg(target_os = "macos")]
+mod titlebar;
 
 #[derive(Default)]
 struct Core(Mutex<Option<Running>>);
@@ -511,6 +513,16 @@ pub fn run() {
         .manage(terminal::Terminals::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Full screen gets a glass title bar over the app, not a white strip.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                let watched = window.clone();
+                window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(true)) {
+                        titlebar::follow(&watched);
+                    }
+                });
+            }
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

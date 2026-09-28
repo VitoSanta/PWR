@@ -28,3 +28,23 @@ tauri = { version = "2.11.6", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 portable-pty = "0.9"
+
+# The full-screen title bar's glass (src/titlebar.rs): the versions Tauri
+# already builds on, with only the classes it touches.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSGeometry", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "objc2-core-foundation",
+  "NSResponder",
+  "NSView",
+  "NSControl",
+  "NSButton",
+  "NSWindow",
+  "NSColor",
+  "NSGraphics",
+  "NSVisualEffectView",
+  "NSGlassEffectView",
+] }
+
