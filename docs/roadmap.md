@@ -1,10 +1,9 @@
 # Research roadmap
 
-> **Current release state (2026-09-28):** see the
-> [v0.2.0-alpha readiness audit](release/v0.2.0-alpha-readiness.md). The dated
-> reconciliations and experiment plans below remain historical snapshots;
-> references to unmerged `feature/agent-tools` work describe 2026-09-27,
-> before that work reached `develop`.
+> **Current release state (2026-09-28):** v0.2.0-alpha is published. The
+> next steps are in the [v0.3.0-alpha plan](release/v0.3.0-alpha-plan.md):
+> v0.2.x fixes on macOS, then consolidation and the Windows engine. The dated
+> reconciliations and experiment plans below remain historical snapshots.
 
 ## Release plan — 2026-09-28
 
@@ -33,14 +32,15 @@ run per task, not a score for the full corpus. The campaign does not gate this
 release. Focus changes landed after the pinned binary and are not app UI
 acceptance evidence from c4.
 
-**The release after — Windows.** The Windows engine: llama.cpp kept alive
-across turns (R.4) before any GGUF performance claim, command isolation on
-Windows (macOS's seatbelt has no Windows counterpart), and the Windows
-installer. "The other integrations" named for it are still to be chosen;
-candidates: evidence recovery after compaction and long-task context (C.22b),
-versioned documentation RAG (C.22c), the `look_at` page tool checked live,
-the MoE expert-routing experiment, speculative decoding, repeated campaign
-runs (pass@k) and the public evidence site.
+**Published on 2026-09-28** as a prerelease, after CI and the release build.
+
+**Next — see the [v0.3.0-alpha plan](release/v0.3.0-alpha-plan.md).** v0.2.x
+patch releases fix what 0.2 shows on macOS: models that fail in agent mode,
+graphical bugs, per-user .NET in the sandbox and `look_at` on CI runners.
+v0.3.0-alpha then adds only the Windows engine (llama.cpp kept alive across
+turns, Windows command isolation, installer) and consolidates the rest
+through an agent-mode model matrix, stress tests and repeated campaigns.
+New features wait until 0.3 is stable.
 
 ## Reconciliation — 2026-09-27
 
