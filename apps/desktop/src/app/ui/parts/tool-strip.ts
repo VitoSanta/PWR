@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, output } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
-import { UiStore, roveFocus } from '../../core/ui';
+import { UiStore } from '../../core/ui';
 import { CardId, CardInfo, WorkbenchStore } from '../../core/workbench';
 import { Icon, IconName } from '../kit/icon';
 import { Tooltip } from '../kit/tooltip';
@@ -10,7 +10,8 @@ const SHORT: Partial<Record<CardId, string>> = { browser: 'Preview', plan: 'Chec
 
 /**
  * The tools in one row: each opens its card, or closes it when it is
- * showing, and is lit while its card is open. Then the run's controls, the
+ * showing, and is lit while its card is open; a choice closes the row, so
+ * it never stays over the card it opened. Then the run's controls, the
  * commands and the settings. Opened from the Tools button, or by a right
  * click (a two-finger click) on an empty part of the window.
  */
@@ -18,13 +19,13 @@ const SHORT: Partial<Record<CardId, string>> = { browser: 'Preview', plan: 'Chec
   selector: 'pa-tool-strip',
   imports: [Icon, Tooltip],
   template: `
-    <div class="tool-strip" role="none" (keydown)="keys($event)">
+    <div class="tool-strip" role="none">
       @for (card of work.available(); track card.id) {
         <button
           class="tool-strip-item"
           role="menuitemcheckbox"
           [attr.aria-checked]="showing(card)"
-          (click)="work.toggle(card.id)"
+          (click)="work.toggle(card.id); done.emit()"
           [paTooltip]="card.description"
           [paTooltipKeys]="card.keys ?? null"
         >
@@ -62,7 +63,7 @@ export class ToolStrip {
   protected readonly work = inject(WorkbenchStore);
   protected readonly store = inject(AgentStore);
   protected readonly ui = inject(UiStore);
-  /** Something was chosen that takes the person elsewhere: the strip closes. */
+  /** Something was chosen: the strip closes. */
   readonly done = output<void>();
   /** The run's controls were asked for. */
   readonly run = output<void>();
@@ -79,7 +80,4 @@ export class ToolStrip {
     return card.icon as IconName;
   }
 
-  protected keys(event: KeyboardEvent): void {
-    roveFocus(event, event.currentTarget as HTMLElement, '[role^=menuitem]', 'horizontal');
-  }
 }

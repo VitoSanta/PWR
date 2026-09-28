@@ -971,6 +971,17 @@ pa-inspector {
   height: 100%;
 }
 
+/* xterm paints its viewport and scroll shadows black by default: below the
+   last row that showed as a black band. The theme's surface instead. */
+.terminal-surface {
+  --vscode-scrollbar-shadow: transparent;
+}
+
+.terminal-surface .xterm .xterm-viewport,
+.terminal-surface .xterm .xterm-scrollable-element {
+  background-color: var(--surface-primary) !important;
+}
+
 /* Browser */
 .browser-bar {
   padding-left: var(--space-2);
@@ -1030,6 +1041,24 @@ pa-inspector {
   min-height: 240px;
   overflow: hidden;
   background: var(--surface-primary);
+}
+
+/* Nothing mapped yet: the card's whole body says so, centred. */
+.knowledge-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  max-width: 340px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.knowledge-empty pa-icon {
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 
 .graph-empty {

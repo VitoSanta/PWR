@@ -206,6 +206,30 @@
   background: var(--warning);
 }
 
+/* The bar's panels -- conversations, context, speed, model, tools, run --
+   all open the same way: from under the bar, flush with its right edge, on
+   the bar's glass, so they read as the bar opening rather than as cards
+   dropped on the cards. While one is open the tools behind it step back. */
+.shell-focus pa-popover.is-grouped {
+  border: 1px solid var(--glass-border);
+  background: var(--glass-strong);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+}
+
+.shell-focus > pa-inspector.focus-workbench {
+  transition:
+    opacity var(--dur-slow) var(--ease),
+    transform var(--dur-slow) var(--ease-out);
+}
+
+:root.group-panel-open .shell-focus > pa-inspector.focus-workbench {
+  opacity: 0.4;
+  transform: scale(0.995);
+  pointer-events: none;
+}
+
 /* Where a right click landed: the anchor the tools open from. */
 .focus-pointer {
   position: fixed;

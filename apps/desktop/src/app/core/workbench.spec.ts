@@ -71,7 +71,8 @@ describe('WorkbenchStore', () => {
     work.show('knowledge');
     work.setWidth('knowledge', 600);
     expect(work.widthOf('knowledge')).toBe(600);
-    expect(work.widthOf('review')).toBe(RIGHT.initial);
+    // Never resized, it follows the column rather than standing out narrower.
+    expect(work.widthOf('review')).toBe(600);
     expect(work.columnWidth()).toBe(600);
     TestBed.tick();
     expect(layout.rightWidth()).toBe(600);
@@ -102,7 +103,8 @@ describe('WorkbenchStore', () => {
     );
     const work = TestBed.inject(WorkbenchStore);
     expect(work.widthOf('files')).toBe(400);
-    expect(work.widthOf('terminal')).toBe(RIGHT.initial);
+    // A card opened later follows it, rather than the default.
+    expect(work.widthOf('terminal')).toBe(400);
     localStorage.removeItem('pwr:layout');
   });
 

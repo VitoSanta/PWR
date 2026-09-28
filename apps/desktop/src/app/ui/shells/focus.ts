@@ -3,7 +3,7 @@ import { AgentStore } from '../../core/agent.store';
 import { LayoutService } from '../../core/layout';
 import { WorkbenchStore } from '../../core/workbench';
 import { WindowState } from '../../core/navigation';
-import { SHORTCUTS, UiStore } from '../../core/ui';
+import { SHORTCUTS, UiStore, roveFocus } from '../../core/ui';
 import { Composer } from '../composer';
 import { ContextMeter } from '../context-meter';
 import { Conversation } from '../conversation';
@@ -20,12 +20,13 @@ import { MemoryProposals } from '../personal';
 import { RunMetricsChip } from '../run-metrics';
 
 /**
- * What a right click leaves to the system: text and whatever has its own
- * menu -- copy, paste, look up, a link, an image, the terminal, the graph.
+ * What a right click leaves alone: text and whatever has its own menu --
+ * copy, paste, look up, a link, an image -- and the tools and the bar, so
+ * the row only ever opens over the conversation's empty space.
  */
 const NATIVE_MENU =
   'input, textarea, select, [contenteditable="true"], a, img, video, iframe, pre, code, .markdown, ' +
-  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover';
+  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, pa-inspector, .focus-bar';
 
 /**
  * Focus: no chrome. The conversation fills the window; everything else
@@ -66,7 +67,7 @@ const NATIVE_MENU =
     >
       <div class="focus-drag" data-tauri-drag-region="deep"></div>
 
-      <main class="main focus-main" aria-label="Conversation">
+      <main #main class="main focus-main" aria-label="Conversation">
         @if (store.coreError()) {
           <div class="core-error banner banner-danger" role="alert">
             <pa-icon name="alert" [size]="16" />
@@ -78,7 +79,7 @@ const NATIVE_MENU =
         <pa-composer />
       </main>
 
-      <div class="focus-bar glass">
+      <div class="focus-bar glass" data-popover-group>
         <pa-session-switcher />
         <span class="focus-bar-sep" aria-hidden="true"></span>
         <pa-diagnostic-export />
@@ -91,7 +92,7 @@ const NATIVE_MENU =
           class="icon-btn focus-tools"
           [class.has-goal]="store.goalMode() && !store.chatMode()"
           [class.has-auto]="store.permissionMode() === 'auto' && !store.chatMode()"
-          (click)="strip() === 'bar' ? strip.set(null) : strip.set('bar')"
+          (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
           [attr.aria-expanded]="strip() === 'bar'"
           aria-haspopup="menu"
           aria-label="Tools"
@@ -105,18 +106,22 @@ const NATIVE_MENU =
       <span #pointerAnchor class="focus-pointer" [style.left.px]="pointer().x" [style.top.px]="pointer().y" aria-hidden="true"></span>
 
       @if (strip(); as from) {
-        <pa-popover
-          class="tool-strip-popover"
-          [anchor]="from === 'bar' ? toolsButton : pointerAnchor"
-          [anchorAlign]="from === 'bar' ? 'end' : 'start'"
-          panelRole="menu"
-          ariaLabel="Tools"
-          [focusFirst]="true"
-          (closed)="strip.set(null)"
-          animate.leave="anim-pop-out"
-        >
-          <pa-tool-strip (done)="strip.set(null)" (run)="openRun(from)" />
-        </pa-popover>
+        <!-- A new row for each opening, so it is placed where it was asked for. -->
+        @for (opening of [stripOpenings()]; track opening) {
+          <pa-popover
+            class="tool-strip-popover"
+            [anchor]="from === 'bar' ? toolsButton : pointerAnchor"
+            [anchorAlign]="from === 'bar' ? 'end' : 'center'"
+            [within]="from === 'bar' ? null : main"
+            panelRole="menu"
+            ariaLabel="Tools"
+            (keydown)="stripKeys($event)"
+            (closed)="strip.set(null)"
+            animate.leave="anim-pop-out"
+          >
+            <pa-tool-strip (done)="strip.set(null)" (run)="openRun(from)" />
+          </pa-popover>
+        }
       }
 
       @if (ui.runControls(); as anchor) {
@@ -140,6 +145,7 @@ export class FocusShell {
   /** The tools' row: open from the bar's button, or where a right click landed. */
   protected readonly strip = signal<'bar' | 'pointer' | null>(null);
   protected readonly pointer = signal({ x: 0, y: 0 });
+  protected readonly stripOpenings = signal(0);
   private readonly toolsRef = viewChild.required<ElementRef<HTMLElement>>('toolsButton');
   private readonly pointerRef = viewChild.required<ElementRef<HTMLElement>>('pointerAnchor');
 
@@ -166,9 +172,21 @@ export class FocusShell {
     if (!target || target.closest(NATIVE_MENU)) return;
     event.preventDefault();
     this.pointer.set({ x: event.clientX, y: event.clientY });
-    this.strip.set(null);
-    // A fresh strip, so it opens at the new spot with its own motion.
-    queueMicrotask(() => this.strip.set('pointer'));
+    this.stripOpenings.update((count) => count + 1);
+    this.strip.set('pointer');
+  }
+
+  /**
+   * The row opens with focus on itself, not on its first tool (whose
+   * tooltip would pop up under the pointer); the arrow keys go in.
+   */
+  protected stripKeys(event: KeyboardEvent): void {
+    roveFocus(event, event.currentTarget as HTMLElement, '[role^=menuitem]', 'horizontal');
+  }
+
+  protected openStrip(): void {
+    this.stripOpenings.update((count) => count + 1);
+    this.strip.set('bar');
   }
 
   /** The run's controls, opened from where the strip was. */
