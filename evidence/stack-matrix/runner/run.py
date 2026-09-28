@@ -122,6 +122,23 @@ def overlay(source, target):
 
 # ---------------------------------------------------------------- verdict
 
+# What Docker says when its daemon is not there to run a verdict.
+DOCKER_DOWN = re.compile(r"Cannot connect to the Docker daemon|failed to connect to the docker API|"
+                         r"Is the docker daemon running", re.I)
+
+
+class VerifierDown(Exception):
+    """The verdict could not run at all. Not a failure of PWR's: a campaign
+    that went on would count every task as failed and, turn after turn, tell
+    the model its work was incomplete when nothing had judged it."""
+
+
+def docker_ready():
+    try:
+        return subprocess.run(["docker", "info"], capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
 
 def verify(task, workspace, label="verify"):
     """(passed, output): the task's own acceptance, run outside PWR."""
@@ -167,6 +184,8 @@ def verify(task, workspace, label="verify"):
                                   text=True, timeout=timeout)
             output = done.stdout
             passed = done.returncode == 0
+            if name and not passed and DOCKER_DOWN.search(output):
+                raise VerifierDown(output.strip()[-500:])
         except subprocess.TimeoutExpired as error:
             if name:
                 subprocess.run(["docker", "kill", name], capture_output=True)
@@ -429,6 +448,9 @@ def run_task(task, run_id, attempt, turns_override=None):
             if passed or stopped_for_time.is_set():
                 break
         stopped_for_time.set()
+    except VerifierDown:
+        # Not evidence of anything: the campaign stops (cmd_run).
+        raise
     except Exception as error:  # the run is evidence either way
         result["error"] = repr(error)
         say(f"  error: {error!r}")
@@ -454,10 +476,19 @@ def run_task(task, run_id, attempt, turns_override=None):
 
 def cmd_run(args):
     tasks = load_tasks(args.tasks or None, args.split)
+    # A campaign whose verdicts cannot run would only record failures: c4's
+    # first attempt ran six tasks with Docker stopped.
+    if any("host" not in task["verify"] for task in tasks) and not docker_ready():
+        sys.exit("Docker is not running: the verdicts run in containers. Start Docker, then run again.")
     summary = []
     for attempt in range(1, args.repeat + 1):
         for task in tasks:
-            result = run_task(task, args.run, attempt, args.turns)
+            try:
+                result = run_task(task, args.run, attempt, args.turns)
+            except VerifierDown as down:
+                say(f"--- stopped: Docker stopped answering during {task['id']}; "
+                    f"its result is not recorded.\n{down}")
+                sys.exit(2)
             summary.append((result["task"], attempt, result["passed"], result["minutes"]))
     say("--- summary")
     for name, attempt, passed, minutes in summary:
