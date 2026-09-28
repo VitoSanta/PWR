@@ -1,5 +1,39 @@
 # Research roadmap
 
+## Release plan — 2026-09-28
+
+Decided by the maintainer on 2026-09-28.
+
+**v0.2.0-alpha — macOS.** What `develop` holds on 2026-09-28 (d313acd9): 125
+commits since v0.1.2-alpha -- agent reliability and speed (prompt cache kept
+across messages, toolchains in the sandbox for Swift, the JVM, Elixir, .NET,
+Flutter, Zig, Lua; unreadable tool calls re-asked; stalled commands and
+offline installs explained; goal review with an independent reader),
+permission questions that show what runs, chat that finds projects as people
+name them, and the Model Manager catalogue work. Before it ships:
+
+- the desktop layout is chosen among the six variants of `experiment/ui-2026`
+  and the others are removed or kept behind a development switch;
+- a CHANGELOG is written for the release;
+- the main flows are walked by hand on the built app (engine setup and model
+  download, chat, agent, goal mode, permissions);
+- the DMG is built with `scripts/release-macos.sh` and the release goes
+  `develop` -> `stage` -> `main`, as v0.1.2-alpha did.
+
+Stack-matrix campaign c4 (37 tasks, 6 of them held out and written by an
+author who does not change PWR) runs on `pwr-d313acd9` after the maintainer's
+appointment on 2026-09-28; its result may be cited in the release notes but
+does not gate the release.
+
+**The release after — Windows.** The Windows engine: llama.cpp kept alive
+across turns (R.4) before any GGUF performance claim, command isolation on
+Windows (macOS's seatbelt has no Windows counterpart), and the Windows
+installer. "The other integrations" named for it are still to be chosen;
+candidates: evidence recovery after compaction and long-task context (C.22b),
+versioned documentation RAG (C.22c), the `look_at` page tool checked live,
+the MoE expert-routing experiment, speculative decoding, repeated campaign
+runs (pass@k) and the public evidence site.
+
 ## Reconciliation — 2026-09-27
 
 Reviewed committed `develop` at `3a1170ba66552c4a3c5169aac31c33b6c329afb4`.
