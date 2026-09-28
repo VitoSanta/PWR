@@ -114,6 +114,7 @@
   --text-secondary: #a6b0c3;
   --text-muted: #7f8ca2;
   --text-on-accent: #ffffff;
+  --text-on-danger: #ffffff;
 
   --accent-primary: #8174ff;
   --accent-text: #a49bff;
@@ -186,6 +187,7 @@
   --text-secondary: #505c71;
   --text-muted: #5f6a7e;
   --text-on-accent: #ffffff;
+  --text-on-danger: #ffffff;
 
   --accent-primary: #6557f0;
   --accent-text: #5647e6;

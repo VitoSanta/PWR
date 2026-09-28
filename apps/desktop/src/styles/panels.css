@@ -859,9 +859,9 @@ pa-model-picker {
 .local-model {
   grid-template-columns: minmax(0, 1fr) minmax(140px, auto) minmax(230px, max-content);
   grid-template-areas:
-    "name size actions"
-    "progress progress progress"
-    "path path path";
+    'name size actions'
+    'progress progress progress'
+    'path path path';
   flex: none;
   column-gap: var(--space-4);
   padding: var(--space-3);
@@ -953,10 +953,10 @@ pa-model-picker {
   .local-model {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      "name name"
-      "size actions"
-      "progress progress"
-      "path path";
+      'name name'
+      'size actions'
+      'progress progress'
+      'path path';
   }
 
   .local-size {
@@ -1039,7 +1039,9 @@ pa-model-picker {
   font-weight: var(--fw-medium);
 }
 
-/* Small previews of each appearance, drawn with fixed colours on purpose. */
+/* Small previews of each appearance, in the colours it would use: the
+   chosen palette's (set inline by Settings), or the live page's tokens when
+   that scheme is the one showing in the layout's own colours. */
 .theme-swatch {
   display: grid;
   grid-template-columns: 28% 1fr;
@@ -1050,23 +1052,31 @@ pa-model-picker {
 }
 
 .theme-swatch > span:first-child {
-  border-right: 1px solid rgba(128, 128, 128, 0.2);
+  border-right: 1px solid var(--border-subtle);
 }
 
-.swatch-light > span:first-child {
-  background: #eef1f5;
+.swatch-light > span:first-child,
+.swatch-system > span:first-child {
+  background: var(--light-side, var(--bg-sidebar));
 }
 
-.swatch-light > span:last-child {
-  background: linear-gradient(#f5f7fa 55%, #ffffff 55%);
+.swatch-light > span:last-child,
+.swatch-system > span:last-child {
+  background: linear-gradient(
+    var(--light-app, var(--bg-app)) 55%,
+    var(--light-main, var(--surface-primary)) 55%
+  );
 }
 
 .swatch-dark > span:first-child {
-  background: #0b0f17;
+  background: var(--dark-side, var(--bg-sidebar));
 }
 
 .swatch-dark > span:last-child {
-  background: linear-gradient(#070a0f 55%, #101621 55%);
+  background: linear-gradient(
+    var(--dark-app, var(--bg-app)) 55%,
+    var(--dark-main, var(--surface-primary)) 55%
+  );
 }
 
 /* System: the light preview, with the dark one over its lower-right half. */
@@ -1074,22 +1084,134 @@ pa-model-picker {
   position: relative;
 }
 
-.swatch-system > span:first-child {
-  background: #eef1f5;
-}
-
-.swatch-system > span:last-child {
-  background: linear-gradient(#f5f7fa 55%, #ffffff 55%);
-}
-
 .swatch-system::after {
   content: '';
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(#070a0f 55%, #101621 55%) 100% 0 / 72% 100% no-repeat,
-    #0b0f17;
+    linear-gradient(
+        var(--dark-app, var(--bg-app)) 55%,
+        var(--dark-main, var(--surface-primary)) 55%
+      )
+      100% 0 / 72% 100% no-repeat,
+    var(--dark-side, var(--bg-sidebar));
   clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+/* Colour themes: a small window in each palette's own colours, or in the
+   page's when it stands for the layout's own colours. */
+.colour-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.colour-row + .colour-row {
+  margin-top: var(--space-2);
+}
+
+.colour-row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+}
+
+.colour-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: var(--space-2);
+}
+
+.colour-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease),
+    transform var(--dur) var(--ease-out);
+}
+
+.colour-option:hover {
+  background: var(--surface-hover);
+}
+
+.colour-option:active {
+  transform: scale(0.98);
+}
+
+.colour-option[aria-checked='true'] {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border);
+  color: var(--text-primary);
+}
+
+.colour-swatch {
+  display: grid;
+  grid-template-columns: 26% 1fr;
+  height: 46px;
+  overflow: hidden;
+  border-radius: var(--radius-inline);
+  border: 1px solid var(--border-subtle);
+}
+
+.colour-swatch-side {
+  background: var(--sw-side, var(--bg-sidebar));
+  border-right: 1px solid color-mix(in srgb, var(--sw-text, var(--text-primary)) 12%, transparent);
+}
+
+.colour-swatch-main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  background: var(--sw-main, var(--surface-primary));
+}
+
+.colour-swatch-main i {
+  display: block;
+  width: 72%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--sw-text, var(--text-primary));
+  opacity: 0.6;
+}
+
+.colour-swatch-main i + i {
+  width: 46%;
+  opacity: 0.35;
+}
+
+.colour-swatch-main b {
+  display: block;
+  width: 30px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--sw-accent, var(--accent-primary)) 62%,
+    var(--sw-second, var(--accent-secondary)) 62%
+  );
+}
+
+.colour-label {
+  overflow: hidden;
+  padding: 0 2px;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shortcut-list {
