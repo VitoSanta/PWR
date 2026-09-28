@@ -33,7 +33,7 @@ import { KnowledgeCard } from './workbench/knowledge';
   ],
   template: `
     <aside class="workbench" aria-label="Workbench">
-      @if (!work.singleMode()) {
+      @if (!work.focusMode()) {
       <header class="workbench-head titlebar-row" data-tauri-drag-region="deep">
         <span class="workbench-title">Workbench</span>
         <span class="spacer" data-tauri-drag-region="deep"></span>
@@ -78,22 +78,16 @@ import { KnowledgeCard } from './workbench/knowledge';
       }
 
       <div class="workbench-body" [class.maximized]="!!work.focused()">
-        @for (card of work.visible(); track card.id; let first = $first; let last = $last) {
+        @for (card of work.visible(); track card.id; let first = $first; let last = $last; let index = $index) {
           <section
             class="wb-card"
-            [class.collapsed]="!work.singleMode() && card.collapsed"
-            [class.fills]="work.singleMode() || !card.collapsed"
+            [class.collapsed]="card.collapsed"
+            [class.fills]="!card.collapsed"
             [attr.aria-label]="info(card.id).label"
+            [style.flex-grow]="card.collapsed ? 0 : cardWeight(card.id)"
             [style.view-transition-name]="'wb-' + card.id"
           >
-            <header class="wb-card-head" (dblclick)="work.singleMode() ? null : work.maximize(card.id)">
-              @if (work.singleMode()) {
-                <span class="wb-card-title">
-                  <pa-icon [name]="icon(info(card.id))" [size]="15" />
-                  <span>{{ info(card.id).label }}</span>
-                  @if (badge(card.id); as count) { <span class="count num">{{ count }}</span> }
-                </span>
-              } @else {
+            <header class="wb-card-head" (dblclick)="work.maximize(card.id)">
                 <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
                   <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
                   <pa-icon [name]="icon(info(card.id))" [size]="15" />
@@ -102,7 +96,6 @@ import { KnowledgeCard } from './workbench/knowledge';
                     <span class="count num">{{ count }}</span>
                   }
                 </button>
-              }
               <span class="spacer"></span>
               <span class="wb-card-actions">
                 @if (!work.focused() && work.visible().length > 1) {
@@ -113,7 +106,6 @@ import { KnowledgeCard } from './workbench/knowledge';
                     <pa-icon name="chevron-down" [size]="14" />
                   </button>
                 }
-                @if (!work.singleMode()) {
                   <button
                     class="icon-btn icon-btn-sm"
                     (click)="work.maximize(card.id)"
@@ -122,13 +114,12 @@ import { KnowledgeCard } from './workbench/knowledge';
                   >
                     <pa-icon [name]="work.focused() === card.id ? 'minimize' : 'maximize'" [size]="14" />
                   </button>
-                }
                 <button class="icon-btn icon-btn-sm" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + info(card.id).label" paTooltip="Close">
                   <pa-icon name="x" [size]="14" />
                 </button>
               </span>
             </header>
-            @if (work.singleMode() || !card.collapsed) {
+            @if (!card.collapsed) {
               <div class="wb-card-body" animate.enter="card-body-in">
                 @switch (card.id) {
                   @case ('review') { <pa-review-card /> }
@@ -142,6 +133,23 @@ import { KnowledgeCard } from './workbench/knowledge';
               </div>
             }
           </section>
+          @if (work.focusMode() && !last && !card.collapsed && !work.visible()[index + 1].collapsed) {
+            <div
+              class="wb-splitter"
+              role="separator"
+              tabindex="0"
+              aria-orientation="horizontal"
+              [attr.aria-label]="'Resize ' + info(card.id).label + ' and ' + info(work.visible()[index + 1].id).label"
+              (pointerdown)="startCardResize($event, card.id, work.visible()[index + 1].id)"
+              (pointermove)="moveCardResize($event)"
+              (pointerup)="endCardResize($event)"
+              (pointercancel)="endCardResize($event)"
+              (lostpointercapture)="endCardResize($event)"
+              (keydown)="keyCardResize($event, card.id, work.visible()[index + 1].id)"
+            ></div>
+          } @else if (work.focusMode() && !last) {
+            <div class="wb-card-gap" aria-hidden="true"></div>
+          }
         } @empty {
           <div class="launcher" role="list" aria-label="Tools" animate.enter="anim-fade-in">
             @for (card of work.available(); track card.id) {
@@ -160,7 +168,7 @@ import { KnowledgeCard } from './workbench/knowledge';
         }
       </div>
     </aside>
-    @if (!work.singleMode() && layout.right() === 'docked') {
+    @if (layout.right() === 'docked') {
       <pa-resize-handle
         edge="left"
         label="Resize the workbench"
@@ -183,6 +191,16 @@ export class Inspector {
   protected readonly bounds = RIGHT;
   protected readonly launcher = signal(false);
   protected readonly keys = shortcut;
+  private readonly cardWeights = signal<Partial<Record<CardId, number>>>(this.loadCardWeights());
+  private resizeOrigin: {
+    pointerId: number;
+    y: number;
+    before: CardId;
+    after: CardId;
+    beforeHeight: number;
+    totalHeight: number;
+    totalWeight: number;
+  } | null = null;
 
   private readonly byId = new Map(CARDS.map((card) => [card.id, card]));
   private readonly badges = computed<Partial<Record<CardId, number>>>(() => ({
@@ -200,6 +218,94 @@ export class Inspector {
 
   protected badge(id: CardId): number {
     return this.badges()[id] ?? 0;
+  }
+
+  protected cardWeight(id: CardId): number {
+    return this.cardWeights()[id] ?? 1;
+  }
+
+  protected startCardResize(event: PointerEvent, before: CardId, after: CardId): void {
+    if (event.button !== 0) return;
+    const separator = event.currentTarget as HTMLElement;
+    const first = separator.previousElementSibling as HTMLElement | null;
+    const second = separator.nextElementSibling as HTMLElement | null;
+    if (!first || !second) return;
+    const totalHeight = first.offsetHeight + second.offsetHeight;
+    if (totalHeight < 320) return;
+    this.resizeOrigin = {
+      pointerId: event.pointerId,
+      y: event.clientY,
+      before,
+      after,
+      beforeHeight: first.offsetHeight,
+      totalHeight,
+      totalWeight: this.cardWeight(before) + this.cardWeight(after),
+    };
+    separator.setPointerCapture(event.pointerId);
+    this.layout.resizing.set(true);
+    event.preventDefault();
+  }
+
+  protected moveCardResize(event: PointerEvent): void {
+    const origin = this.resizeOrigin;
+    if (!origin || origin.pointerId !== event.pointerId) return;
+    this.setCardSplit(origin, origin.beforeHeight + event.clientY - origin.y);
+  }
+
+  protected endCardResize(event: PointerEvent): void {
+    if (this.resizeOrigin?.pointerId !== event.pointerId) return;
+    this.resizeOrigin = null;
+    this.layout.resizing.set(false);
+    this.saveCardWeights();
+  }
+
+  protected keyCardResize(event: KeyboardEvent, before: CardId, after: CardId): void {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    const separator = event.currentTarget as HTMLElement;
+    const first = separator.previousElementSibling as HTMLElement | null;
+    const second = separator.nextElementSibling as HTMLElement | null;
+    if (!first || !second) return;
+    const totalHeight = first.offsetHeight + second.offsetHeight;
+    if (totalHeight < 320) return;
+    const origin = {
+      pointerId: -1,
+      y: 0,
+      before,
+      after,
+      beforeHeight: first.offsetHeight,
+      totalHeight,
+      totalWeight: this.cardWeight(before) + this.cardWeight(after),
+    };
+    this.setCardSplit(origin, first.offsetHeight + (event.key === 'ArrowDown' ? 32 : -32));
+    this.saveCardWeights();
+    event.preventDefault();
+  }
+
+  private setCardSplit(origin: NonNullable<Inspector['resizeOrigin']>, desiredHeight: number): void {
+    const beforeHeight = Math.max(160, Math.min(origin.totalHeight - 160, desiredHeight));
+    const beforeWeight = origin.totalWeight * beforeHeight / origin.totalHeight;
+    this.cardWeights.update((weights) => ({
+      ...weights,
+      [origin.before]: beforeWeight,
+      [origin.after]: origin.totalWeight - beforeWeight,
+    }));
+  }
+
+  private loadCardWeights(): Partial<Record<CardId, number>> {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('pwr:card-weights') ?? '{}') as Partial<Record<CardId, number>>;
+      return Object.fromEntries(Object.entries(parsed).filter(([, weight]) => typeof weight === 'number' && weight > 0));
+    } catch {
+      return {};
+    }
+  }
+
+  private saveCardWeights(): void {
+    try {
+      localStorage.setItem('pwr:card-weights', JSON.stringify(this.cardWeights()));
+    } catch {
+      // Keep the current sizes when storage is unavailable.
+    }
   }
 
   protected open(id: CardId): void {

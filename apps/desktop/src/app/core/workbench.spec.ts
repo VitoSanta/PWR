@@ -60,14 +60,12 @@ describe('WorkbenchStore', () => {
     expect(work.isOpen('files')).toBe(true);
   });
 
-  it('shows one tool at a time in Focus and returns to the conversation when closed', () => {
+  it('keeps multiple tools open in Focus', () => {
     const work = TestBed.inject(WorkbenchStore);
-    work.singleMode.set(true);
+    work.focusMode.set(true);
     work.show('activity');
     work.show('knowledge');
-    expect(work.visible().map((card) => card.id)).toEqual(['knowledge']);
-    work.close('knowledge');
-    expect(work.visible()).toEqual([]);
+    expect(work.visible().map((card) => card.id)).toEqual(['review', 'activity', 'knowledge']);
   });
 });
 

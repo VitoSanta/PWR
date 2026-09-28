@@ -100,9 +100,9 @@ before first paint and the native window follows it.
 conversation switcher, engine and tools float over it on glass. Run stages
 remain visible in the conversation. The composer starts as a rounded single
 line and grows upward as the message wraps. Settings can switch the colour
-theme without changing this arrangement. A tool opens as one card beside the
-conversation. In narrower windows it uses the main area until closed; it does
-not cover the chat.
+theme without changing this arrangement. Tools open as resizable cards beside
+the conversation. In narrower windows they use the main area until closed;
+they do not cover the chat.
 
 The run's stages come from the same reading of the timeline the
 conversation uses (`compactTurn`). ⌘B opens the conversation switcher.

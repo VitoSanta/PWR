@@ -1,7 +1,7 @@
 import { Injectable, computed, effect, signal, untracked } from '@angular/core';
 
 export const LEFT = { min: 240, max: 360, initial: 288 } as const;
-export const RIGHT = { min: 280, max: 420, initial: 340 } as const;
+export const RIGHT = { min: 280, max: 600, initial: 340 } as const;
 /** The conversation never gets narrower than this while a side panel is docked. */
 export const MAIN_MIN = 560;
 /** The collapsed left navigation. */
@@ -127,6 +127,10 @@ export class LayoutService {
   toggleRight(): void {
     const { right, rightDockable } = this.arrangement();
     if (right === 'docked') this.rightOpen.set(false);
+    else if (this.rightOpen() && !rightDockable) {
+      this.rightOpen.set(false);
+      this.rightPeek.set(false);
+    }
     else if (rightDockable) {
       this.rightOpen.set(true);
       this.rightPeek.set(false);

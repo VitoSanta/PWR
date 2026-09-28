@@ -52,6 +52,7 @@ import { RunMetricsChip } from '../run-metrics';
     <div
       class="shell-focus"
       [class.has-tool]="open()"
+      [class.tool-page]="open() && layout.right() !== 'docked'"
       [class.is-mac]="win.isMac"
       [class.is-fullscreen]="win.fullscreen()"
       [class.is-resizing]="layout.resizing()"
@@ -197,14 +198,14 @@ export class FocusShell {
   protected readonly runControlsButton = viewChild<ElementRef<HTMLElement>>('runControlsButton');
 
   constructor() {
-    // Focus uses one tool at a time and starts with the conversation.
-    this.work.singleMode.set(true);
+    // Focus uses standalone cards and starts with the conversation.
+    this.work.focusMode.set(true);
     this.layout.leftFixed.set(0);
     this.layout.rightOpen.set(false);
     this.layout.rightPeek.set(false);
   }
 
   protected open(): boolean {
-    return this.layout.right() !== 'hidden' && this.work.visible().length > 0;
+    return this.work.panelVisible() && this.work.visible().length > 0;
   }
 }
