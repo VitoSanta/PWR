@@ -84,6 +84,8 @@ export class Popover implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.grouped()) groupPanels(-1);
+    const group = this.group();
+    if (group) joinGroup(this, group, false, false, true);
     const active = document.activeElement;
     if (!active || active === document.body || this.host.nativeElement.contains(active)) {
       this.anchor().focus({ preventScroll: true });
@@ -93,7 +95,8 @@ export class Popover implements AfterViewInit, OnDestroy {
   @HostListener('window:resize')
   protected place(): void {
     const rect = (this.group() ?? this.anchor()).getBoundingClientRect();
-    const gap = 6;
+    // A group's panel hangs from the group's lower edge, with no gap.
+    const gap = this.group() ? 0 : 6;
     const margin = 8;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -135,10 +138,19 @@ export class Popover implements AfterViewInit, OnDestroy {
     const box = this.within()?.getBoundingClientRect();
     const low = Math.max(margin, (box?.left ?? 0) + margin);
     const high = Math.max(low, Math.min(vw, box?.right ?? vw) - panel.width - margin);
-    const align = this.grouped() ? 'end' : this.anchorAlign();
-    const start =
-      align === 'end' ? rect.right - panel.width : align === 'center' ? rect.left + rect.width / 2 - panel.width / 2 : rect.left;
+    const group = this.group();
+    const align = group ? 'end' : this.anchorAlign();
+    const start = group
+      ? underControl(this.anchor().getBoundingClientRect(), rect, panel.width)
+      : align === 'end'
+        ? rect.right - panel.width
+        : align === 'center'
+          ? rect.left + rect.width / 2 - panel.width / 2
+          : rect.left;
     const left = Math.min(Math.max(low, start), high);
+    // Where it continues one of the group's ends, that end's lower corner
+    // squares off, so the two read as one shape.
+    if (group) joinGroup(this, group, Math.abs(left - rect.left) < 1, Math.abs(left + panel.width - rect.right) < 1);
     if (align === 'end') {
       this.right.set(vw - (left + panel.width) - frame.right);
       this.left.set(null);
@@ -203,3 +215,29 @@ function groupPanels(change: 1 | -1): void {
   openGroupPanels = Math.max(0, openGroupPanels + change);
   document.documentElement.classList.toggle('group-panel-open', openGroupPanels > 0);
 }
+
+/**
+ * Where a group's panel starts: its right edge under the control that opened
+ * it, kept under the group, and carried to the group's end when it comes
+ * within a corner's width of it.
+ */
+function underControl(control: DOMRect, group: DOMRect, width: number): number {
+  const corner = 24;
+  let left = control.right - width;
+  if (left < group.left) left = group.left;
+  if (left + width > group.right) left = group.right - width;
+  if (group.right - (left + width) < corner) left = group.right - width;
+  else if (left - group.left < corner) left = group.left;
+  return left;
+}
+
+/** The group's panel open now: only it marks the group, and unmarks it. */
+let joined: object | null = null;
+function joinGroup(owner: object, group: HTMLElement, left: boolean, right: boolean, leaving = false): void {
+  if (leaving && joined !== owner) return;
+  joined = leaving ? null : owner;
+  group.classList.toggle('has-panel', !leaving);
+  group.classList.toggle('joins-left', !leaving && left);
+  group.classList.toggle('joins-right', !leaving && right);
+}
+

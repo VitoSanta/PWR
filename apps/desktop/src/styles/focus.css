@@ -212,10 +212,27 @@
    dropped on the cards. While one is open the tools behind it step back. */
 .shell-focus pa-popover.is-grouped {
   border: 1px solid var(--glass-border);
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
   background: var(--glass-strong);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-sm);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
+}
+
+/* The bar with a panel hanging from it: one surface, and the lower corner
+   the panel continues squared off. */
+.focus-bar.has-panel {
+  background: var(--glass-strong);
+}
+
+.focus-bar.joins-left {
+  border-bottom-left-radius: 0;
+}
+
+.focus-bar.joins-right {
+  border-bottom-right-radius: 0;
 }
 
 .shell-focus > pa-inspector.focus-workbench {
