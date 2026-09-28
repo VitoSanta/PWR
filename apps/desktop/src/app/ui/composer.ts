@@ -31,88 +31,130 @@ const MAX_HEIGHT = 260;
       class="composer"
       [class.busy]="store.turnActive()"
       [class.dropping]="dropping()"
+      [class.is-expanded]="expanded() || store.queue().length > 0 || store.attachments().length > 0"
       (submit)="$event.preventDefault(); submit()"
       aria-label="Message"
     >
       @if (dropping()) {
-        <div class="drop-hint" aria-hidden="true"><pa-icon name="paperclip" [size]="16" /> Drop files or folders to attach</div>
-      }
-      @if (store.queue().length) {
-        <ol class="queue" aria-label="Queued messages">
-          @for (queued of store.queue(); track $index; let index = $index) {
-            <li class="queued" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
-              <span class="queued-badge num">{{ index + 1 }}</span>
-              @if (editingQueued() === index) {
-                <input
-                  class="input input-sm queued-edit"
-                  [value]="queued"
-                  (keydown.enter)="$event.preventDefault(); commitQueued(index, $any($event.target).value)"
-                  (keydown.escape)="editingQueued.set(null)"
-                  (blur)="commitQueued(index, $any($event.target).value)"
-                  aria-label="Edit queued message"
-                />
-              } @else {
-                <button type="button" class="queued-text" (click)="editingQueued.set(index)" paTooltip="Edit">{{ queued }}</button>
-              }
-              @if (store.queue().length > 1) {
-                <button type="button" class="icon-btn icon-btn-sm" (click)="store.moveQueued(index, -1)" [disabled]="index === 0" aria-label="Move up" paTooltip="Send earlier">
-                  <pa-icon name="chevron-up" [size]="14" />
-                </button>
-                <button type="button" class="icon-btn icon-btn-sm" (click)="store.moveQueued(index, 1)" [disabled]="index === store.queue().length - 1" aria-label="Move down" paTooltip="Send later">
-                  <pa-icon name="chevron-down" [size]="14" />
-                </button>
-              }
-              @if (store.turnActive()) {
-                <button
-                  type="button"
-                  class="btn btn-sm btn-ghost"
-                  (click)="store.steerNow(index)"
-                  paTooltip="Deliver now, between the model's next two actions"
-                >
-                  <pa-icon name="corner-down-right" [size]="14" /> Send now
-                </button>
-              }
-              <button type="button" class="icon-btn icon-btn-sm" (click)="store.unqueue(index)" aria-label="Remove queued message" paTooltip="Remove">
-                <pa-icon name="x" [size]="14" />
-              </button>
-            </li>
-          }
-        </ol>
-      }
-      @if (hasImage() && !store.modelSees()) {
-        <div class="composer-note" role="alert">
-          <pa-icon name="alert" [size]="14" />
-          This model cannot see images, so a message with one is refused. Choose a model marked
-          “sees images”, or describe the image in words.
+        <div class="drop-hint" aria-hidden="true">
+          <pa-icon name="paperclip" [size]="16" /> Drop files or folders to attach
         </div>
       }
-      @if (store.attachments().length) {
-        <ul class="attachments" aria-label="Attachments">
-          @for (path of store.attachments(); track path) {
-            <li class="attachment" [class]="'attachment tone-' + kind(path).tone" [attr.title]="path" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
-              <span class="attachment-icon"><pa-icon [name]="kind(path).icon" [size]="16" /></span>
-              <span class="attachment-text">
-                <strong>{{ name(path) }}</strong>
-                <small>{{ kind(path).label }}{{ kind(path).tone === 'folder' ? ' · read-only reference' : '' }}</small>
-              </span>
-              <button type="button" class="icon-btn icon-btn-sm" (click)="store.detach(path)" [attr.aria-label]="'Remove ' + name(path)">
-                <pa-icon name="x" [size]="14" />
-              </button>
-            </li>
+      @if (store.queue().length || store.attachments().length) {
+        <div class="composer-context">
+          @if (store.queue().length) {
+            <ol class="queue" aria-label="Queued messages">
+              @for (queued of store.queue(); track $index; let index = $index) {
+                <li class="queued" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
+                  <span class="queued-badge num">{{ index + 1 }}</span>
+                  @if (editingQueued() === index) {
+                    <input
+                      class="input input-sm queued-edit"
+                      [value]="queued"
+                      (keydown.enter)="
+                        $event.preventDefault(); commitQueued(index, $any($event.target).value)
+                      "
+                      (keydown.escape)="editingQueued.set(null)"
+                      (blur)="commitQueued(index, $any($event.target).value)"
+                      aria-label="Edit queued message"
+                    />
+                  } @else {
+                    <button
+                      type="button"
+                      class="queued-text"
+                      (click)="editingQueued.set(index)"
+                      paTooltip="Edit"
+                    >
+                      {{ queued }}
+                    </button>
+                  }
+                  @if (store.queue().length > 1) {
+                    <button
+                      type="button"
+                      class="icon-btn icon-btn-sm"
+                      (click)="store.moveQueued(index, -1)"
+                      [disabled]="index === 0"
+                      aria-label="Move up"
+                      paTooltip="Send earlier"
+                    >
+                      <pa-icon name="chevron-up" [size]="14" />
+                    </button>
+                    <button
+                      type="button"
+                      class="icon-btn icon-btn-sm"
+                      (click)="store.moveQueued(index, 1)"
+                      [disabled]="index === store.queue().length - 1"
+                      aria-label="Move down"
+                      paTooltip="Send later"
+                    >
+                      <pa-icon name="chevron-down" [size]="14" />
+                    </button>
+                  }
+                  @if (store.turnActive()) {
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-ghost"
+                      (click)="store.steerNow(index)"
+                      paTooltip="Deliver now, between the model's next two actions"
+                    >
+                      <pa-icon name="corner-down-right" [size]="14" /> Send now
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="icon-btn icon-btn-sm"
+                    (click)="store.unqueue(index)"
+                    aria-label="Remove queued message"
+                    paTooltip="Remove"
+                  >
+                    <pa-icon name="x" [size]="14" />
+                  </button>
+                </li>
+              }
+            </ol>
           }
-        </ul>
+          @if (hasImage() && !store.modelSees()) {
+            <div class="composer-note" role="alert">
+              <pa-icon name="alert" [size]="14" />
+              This model cannot see images, so a message with one is refused. Choose a model marked
+              “sees images”, or describe the image in words.
+            </div>
+          }
+          @if (store.attachments().length) {
+            <ul class="attachments" aria-label="Attachments">
+              @for (path of store.attachments(); track path) {
+                <li
+                  class="attachment"
+                  [class]="'attachment tone-' + kind(path).tone"
+                  [attr.title]="path"
+                  animate.enter="anim-pop-in"
+                  animate.leave="anim-pop-out"
+                >
+                  <span class="attachment-icon"
+                    ><pa-icon [name]="kind(path).icon" [size]="16"
+                  /></span>
+                  <span class="attachment-text">
+                    <strong>{{ name(path) }}</strong>
+                    <small
+                      >{{ kind(path).label
+                      }}{{ kind(path).tone === 'folder' ? ' · read-only reference' : '' }}</small
+                    >
+                  </span>
+                  <button
+                    type="button"
+                    class="icon-btn icon-btn-sm"
+                    (click)="store.detach(path)"
+                    [attr.aria-label]="'Remove ' + name(path)"
+                  >
+                    <pa-icon name="x" [size]="14" />
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
       }
-      <textarea
-        #box
-        class="composer-input"
-        [value]="draft()"
-        (input)="onInput(box)"
-        (keydown.enter)="onEnter($event)"
-        [placeholder]="placeholder()"
-        aria-label="Message"
-        rows="1"
-      ></textarea>
-      <div class="composer-bar">
+      <div class="composer-attach">
         <button
           #attachButton
           type="button"
@@ -149,30 +191,19 @@ const MAX_HEIGHT = 260;
             </button>
           </pa-popover>
         }
+      </div>
+      <textarea
+        #box
+        class="composer-input"
+        [value]="draft()"
+        (input)="onInput(box)"
+        (keydown.enter)="onEnter($event)"
+        [placeholder]="placeholder()"
+        aria-label="Message"
+        rows="1"
+      ></textarea>
+      <div class="composer-bar">
         @if (!store.chatMode()) {
-          <button
-            type="button"
-            class="toggle-chip"
-            [attr.aria-pressed]="store.goalMode()"
-            (click)="store.goalMode.set(!store.goalMode())"
-            paTooltip="Keep working across check-ins until the goal is verified"
-          >
-            <span class="switch" aria-hidden="true"></span> Goal
-          </button>
-          <!-- One label whatever the state, as for Goal: the switch says whether
-               approval is automatic. A switch that read "Ask" with its knob off
-               was read as "asking is off" (2026-09-23). -->
-          <button
-            type="button"
-            class="toggle-chip tone-warning"
-            [attr.aria-pressed]="store.permissionMode() === 'auto'"
-            (click)="store.setPermissionMode(store.permissionMode() === 'auto' ? 'ask' : 'auto')"
-            [paTooltip]="store.permissionMode() === 'auto'
-              ? 'On: every permission granted, nothing is asked. The sandbox still confines writes to the workspace.'
-              : 'Off: PWR asks before changing dependencies, reaching the network, installing toolchains, rewriting history or publishing.'"
-          >
-            <span class="switch" aria-hidden="true"></span> Auto-approve
-          </button>
           @if (!store.sandboxed()) {
             <span
               class="composer-warning"
@@ -183,17 +214,34 @@ const MAX_HEIGHT = 260;
             </span>
           }
         } @else {
-          <span class="badge badge-outline" paTooltip="Chat mode: the model reads what you attach and cannot edit files or run commands.">
+          <span
+            class="badge badge-outline"
+            paTooltip="Chat mode: the model reads what you attach and cannot edit files or run commands."
+          >
             <pa-icon name="lock" [size]="12" /> Read-only chat
           </span>
         }
         <span class="spacer"></span>
-        <span class="composer-hint" aria-hidden="true"><span class="kbd">↵</span> send <span class="kbd">⇧↵</span> new line</span>
+        <span class="composer-hint" aria-hidden="true"
+          ><span class="kbd">↵</span> send <span class="kbd">⇧↵</span> new line</span
+        >
         @if (store.turnActive()) {
-          <button type="button" class="icon-btn icon-btn-outline composer-stop" (click)="store.cancel()" aria-label="Stop" paTooltip="Stop this turn">
+          <button
+            type="button"
+            class="icon-btn icon-btn-outline composer-stop"
+            (click)="store.cancel()"
+            aria-label="Stop"
+            paTooltip="Stop this turn"
+          >
             <pa-icon name="stop" [size]="16" />
           </button>
-          <button type="submit" class="composer-send" [disabled]="!draft().trim()" aria-label="Queue message" paTooltip="Queue for when this turn ends">
+          <button
+            type="submit"
+            class="composer-send"
+            [disabled]="!draft().trim()"
+            aria-label="Queue message"
+            paTooltip="Queue for when this turn ends"
+          >
             <pa-icon name="list-plus" [size]="16" />
           </button>
         } @else {
@@ -215,6 +263,7 @@ const MAX_HEIGHT = 260;
 export class Composer implements OnInit, OnDestroy {
   protected readonly store = inject(AgentStore);
   protected readonly attachmentMenu = signal(false);
+  protected readonly expanded = signal(false);
 
   protected attach(kind: 'images' | 'files' | 'folder'): void {
     this.attachmentMenu.set(false);
@@ -228,8 +277,10 @@ export class Composer implements OnInit, OnDestroy {
   }
 
   protected placeholder(): string {
-    if (this.store.turnActive()) return 'Write the next message — it is queued until this turn ends…';
-    if (this.store.chatMode()) return 'Ask anything — attach files, folders or images for it to read…';
+    if (this.store.turnActive())
+      return 'Write the next message — it is queued until this turn ends…';
+    if (this.store.chatMode())
+      return 'Ask anything — attach files, folders or images for it to read…';
     return 'Ask PWR to build, fix or explain something…';
   }
   protected readonly draft = signal('');
@@ -319,6 +370,7 @@ export class Composer implements OnInit, OnDestroy {
     // above it always keeps room.
     const max = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(window.innerHeight * 0.3)));
     const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
+    this.expanded.set(wanted > MIN_HEIGHT + 8);
     box.style.height = `${Math.min(wanted, max)}px`;
     box.style.overflowY = wanted > max ? 'auto' : 'hidden';
   }

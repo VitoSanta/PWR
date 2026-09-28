@@ -16,12 +16,12 @@
 :root[data-variant='focus'] {
   /* Compact details, controls, cards and large surfaces share one soft scale. */
   --radius-xs: 6px;
-  --radius-inline: 8px;
-  --radius-control-inner: 9px;
-  --radius-control: 12px;
-  --radius-card: 18px;
-  --radius-panel: 24px;
-  --radius-modal: 26px;
+  --radius-inline: 10px;
+  --radius-control-inner: 14px;
+  --radius-control: 18px;
+  --radius-card: 22px;
+  --radius-panel: 28px;
+  --radius-modal: 32px;
   --radius-brand: 32%;
 }
 
@@ -140,8 +140,7 @@
 .focus-hud {
   top: 10px;
   left: 12px;
-  max-width: calc(100% - 480px);
-  padding-right: var(--space-2);
+  max-width: calc(100% - 360px);
 }
 
 /* Past the traffic lights, which float over the page's corner. */
@@ -149,24 +148,14 @@
   left: 84px;
 }
 
-.focus-hud .phase-stage-note {
-  display: none;
-}
-
 .focus-hud .switcher-trigger {
   height: var(--control-h);
   border-radius: var(--radius-pill);
 }
 
-.focus-hud-sep,
 .focus-dock-sep {
   flex: none;
   background: var(--glass-border);
-}
-
-.focus-hud-sep {
-  width: 1px;
-  height: 18px;
 }
 
 .focus-engine {
@@ -195,6 +184,95 @@
   margin: var(--space-1) 0;
 }
 
+.focus-run-trigger {
+  position: relative;
+}
+
+.focus-run-trigger.has-goal {
+  color: var(--accent-text);
+}
+
+.focus-run-trigger.has-auto:not(.has-goal) {
+  color: var(--warning-text);
+}
+
+.focus-run-trigger.has-goal::before,
+.focus-run-trigger.has-auto::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.focus-run-trigger.has-goal::before {
+  left: 4px;
+  background: var(--accent-primary);
+}
+
+.focus-run-trigger.has-auto::after {
+  right: 4px;
+  background: var(--warning);
+}
+
+pa-popover.focus-run-popover {
+  margin-left: 44px;
+}
+
+.focus-run-options {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+}
+
+.focus-run-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.focus-run-option:hover,
+.focus-run-option[aria-pressed='true'] {
+  background: var(--surface-hover);
+}
+
+.focus-run-option[aria-pressed='true'] {
+  border-color: var(--accent-border);
+}
+
+.focus-run-option.tone-warning[aria-pressed='true'] {
+  border-color: var(--warning-border);
+}
+
+.focus-run-option.tone-warning[aria-pressed='true'] > .switch {
+  background: var(--warning);
+}
+
+.focus-run-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.focus-run-copy strong {
+  color: var(--text-primary);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-medium);
+}
+
+.focus-run-copy small {
+  font-size: var(--fs-caption);
+  line-height: 1.35;
+}
+
 /* The workbench hovers: inset from the edges, rounded, on glass. */
 .shell-focus > pa-inspector.focus-workbench {
   top: 60px;
@@ -216,16 +294,61 @@
   background: transparent;
 }
 
-/* Narrow windows: the phases give up their counts, then their place. */
+/* One-line message entry becomes a taller writing surface as text wraps. */
+.shell-focus .composer {
+  display: grid;
+  grid-template-columns: var(--control-h) minmax(0, 1fr) auto;
+  grid-template-areas: 'attach input actions';
+  align-items: center;
+  column-gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding: var(--space-2);
+  border-radius: var(--radius-pill);
+}
+
+.shell-focus .composer.is-expanded {
+  grid-template-areas:
+    'context context context'
+    'input input input'
+    'attach . actions';
+  row-gap: var(--space-1);
+  border-radius: var(--radius-panel);
+}
+
+.shell-focus .composer-context {
+  grid-area: context;
+  min-width: 0;
+}
+
+.shell-focus .composer-attach {
+  grid-area: attach;
+  display: flex;
+  align-items: center;
+}
+
+.shell-focus .composer-input {
+  grid-area: input;
+  min-width: 0;
+  padding: var(--space-2) var(--space-1);
+}
+
+.shell-focus .composer-bar {
+  grid-area: actions;
+  justify-self: end;
+}
+
+.shell-focus .composer-bar .spacer,
+.shell-focus .composer-hint {
+  display: none;
+}
+
+.shell-focus .composer-attach .icon-btn,
+.shell-focus .composer-send {
+  border-radius: 50%;
+}
+
+/* Keep the conversation switcher clear of the engine controls on narrow windows. */
 @media (max-width: 1100px) {
-  .focus-hud pa-phase-strip {
-    display: none;
-  }
-
-  .focus-hud-sep {
-    display: none;
-  }
-
   .focus-hud {
     max-width: calc(100% - 520px);
   }
