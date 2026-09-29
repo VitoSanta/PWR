@@ -48,6 +48,55 @@ pub struct ModelFacts {
     pub source: String,
 }
 
+/// A context extension a model's family publishes but its config leaves off.
+///
+/// Qwen2/2.5 and Qwen3's dense models are trained to 32,768 tokens and
+/// documented to hold 131,072 with YaRN (factor 4), added to the config by
+/// whoever wants it, since static YaRN costs a little on short text. The
+/// published MLX conversions leave it off, so a 64 GB Mac that holds ~110k of
+/// Qwen2.5-Coder-14B's context was given 32k. Offered only where the engine
+/// applies it: mlx-lm builds YaRN for `qwen2` and `qwen3`, while `qwen3_moe`
+/// uses a fixed RoPE and would ignore it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RopeExtension {
+    pub factor: f64,
+    /// The length it was trained to, which the extension starts from.
+    pub original: u32,
+    /// The length it reaches.
+    pub extended: u32,
+}
+
+impl RopeExtension {
+    /// The `rope_scaling` entry a config gets to use it.
+    pub fn rope_scaling(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "yarn",
+            "rope_type": "yarn",
+            "factor": self.factor,
+            "original_max_position_embeddings": self.original,
+        })
+    }
+}
+
+/// The extension a model's `config.json` could use, if its family has one and
+/// the config does not already scale its positions.
+pub fn rope_extension(config: &serde_json::Value) -> Option<RopeExtension> {
+    let text = config.get("text_config").unwrap_or(config);
+    if text.get("rope_scaling").is_some_and(|scaling| !scaling.is_null()) {
+        return None;
+    }
+    let model_type = text
+        .get("model_type")
+        .or_else(|| config.get("model_type"))?
+        .as_str()?;
+    let trained = text.get("max_position_embeddings")?.as_u64()?;
+    (matches!(model_type, "qwen2" | "qwen3") && trained == 32_768).then_some(RopeExtension {
+        factor: 4.0,
+        original: 32_768,
+        extended: 131_072,
+    })
+}
+
 /// Transport features exposed by a backend, rather than inferred from its
 /// name. A `false` answer means the backend cannot provide the feature; model
 /// reliability is a separate profile/benchmark concern.
@@ -544,5 +593,25 @@ pub trait ModelProvider: Send + Sync {
         cancel: Cancel,
     ) -> Result<ModelStream, ProviderError> {
         Ok(cancellable(cancel, self.chat(request).await?))
+    }
+}
+
+#[cfg(test)]
+mod rope_tests {
+    #[test]
+    fn qwen_dense_models_trained_to_32k_can_reach_128k_with_yarn() {
+        let qwen25 = serde_json::json!({"model_type": "qwen2", "max_position_embeddings": 32768, "rope_scaling": null});
+        let extension = crate::rope_extension(&qwen25).unwrap();
+        assert_eq!((extension.original, extension.extended), (32_768, 131_072));
+        assert_eq!(extension.rope_scaling()["type"], "yarn");
+        assert!(crate::rope_extension(&serde_json::json!({"model_type": "qwen3", "max_position_embeddings": 32768})).is_some());
+        for config in [
+            serde_json::json!({"model_type": "qwen2", "max_position_embeddings": 32768, "rope_scaling": {"type": "yarn", "factor": 4.0}}),
+            serde_json::json!({"model_type": "qwen2", "max_position_embeddings": 131072}),
+            serde_json::json!({"model_type": "qwen3_moe", "max_position_embeddings": 32768}),
+            serde_json::json!({"model_type": "llama", "max_position_embeddings": 32768}),
+        ] {
+            assert!(crate::rope_extension(&config).is_none(), "{config}");
+        }
     }
 }
