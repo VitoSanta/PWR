@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { normalize } from '../ui/workbench/cards';
 import { AgentStore } from './agent.store';
 import { LayoutService, MAIN_MIN, RIGHT } from './layout';
-import { WorkbenchStore } from './workbench';
+import { CARD_GAP, WorkbenchStore } from './workbench';
 
 describe('WorkbenchStore', () => {
   beforeEach(() => {
@@ -61,42 +61,6 @@ describe('WorkbenchStore', () => {
     expect(work.isOpen('files')).toBe(true);
   });
 
-  it('gives each Focus card its own width, and docks the column by the widest', () => {
-    localStorage.setItem('pwr:card-widths', '{}');
-    const work = TestBed.inject(WorkbenchStore);
-    const layout = TestBed.inject(LayoutService);
-    layout.viewport.set(1600);
-    layout.leftFixed.set(72);
-    work.focusMode.set(true);
-    work.show('knowledge');
-    work.setWidth('knowledge', 600);
-    expect(work.widthOf('knowledge')).toBe(600);
-    // Resizing one card leaves the others as they were.
-    expect(work.widthOf('review')).toBe(RIGHT.initial);
-    expect(work.columnWidth()).toBe(600);
-    TestBed.tick();
-    expect(layout.rightWidth()).toBe(600);
-    // Never so wide the conversation loses its least width, never under a card's least.
-    work.setWidth('knowledge', 5000);
-    expect(work.widthOf('knowledge')).toBe(1600 - 72 - MAIN_MIN);
-    work.setWidth('review', 10);
-    expect(work.widthOf('review')).toBe(RIGHT.min);
-    // A narrower window: the wide card gives way before the tools take the page.
-    layout.viewport.set(1100);
-    TestBed.tick();
-    expect(layout.rightWidth()).toBe(1100 - 72 - MAIN_MIN);
-    expect(JSON.parse(localStorage.getItem('pwr:card-widths')!)).toEqual({
-      knowledge: 968,
-      review: RIGHT.min,
-    });
-    // A card opened later takes the column's width, and resizing it moves no other.
-    work.show('terminal');
-    expect(work.widthOf('terminal')).toBe(968);
-    work.setWidth('terminal', 500);
-    expect(work.widthOf('knowledge')).toBe(968);
-    expect(work.widthOf('review')).toBe(RIGHT.min);
-  });
-
   it('keeps the width the column had for the cards already open, the first time', () => {
     localStorage.removeItem('pwr:card-widths');
     localStorage.setItem(
@@ -120,6 +84,98 @@ describe('WorkbenchStore', () => {
     work.show('activity');
     work.show('knowledge');
     expect(work.visible().map((card) => card.id)).toEqual(['review', 'activity', 'knowledge']);
+  });
+});
+
+describe('the Focus grid', () => {
+  beforeEach(() => {
+    for (const key of ['pwr:workbench', 'pwr:layout', 'pwr:card-widths', 'pwr:grid-width', 'pwr:card-splits']) localStorage.removeItem(key);
+    TestBed.configureTestingModule({});
+  });
+
+  const setup = (viewport: number) => {
+    const work = TestBed.inject(WorkbenchStore);
+    const layout = TestBed.inject(LayoutService);
+    layout.viewport.set(viewport);
+    layout.leftFixed.set(0);
+    work.focusMode.set(true);
+    return { work, layout };
+  };
+  const two = 2 * RIGHT.initial + CARD_GAP;
+
+  it('widens the grid for a second tool, and puts the two side by side', () => {
+    const { work, layout } = setup(1600);
+    expect(work.columnWidth()).toBe(RIGHT.initial);
+    work.show('files');
+    expect(work.columnWidth()).toBe(two);
+    expect(work.rows()).toEqual([['review', 'files']]);
+    expect(work.widthOf('review') + CARD_GAP + work.widthOf('files')).toBe(two);
+    TestBed.tick();
+    expect(layout.rightWidth()).toBe(two);
+    // An odd one out takes the whole row.
+    work.show('terminal');
+    expect(work.rows()).toEqual([['review', 'files'], ['terminal']]);
+    expect(work.widthOf('terminal')).toBe(two);
+  });
+
+  it('stacks the tools where the window has no room for two', () => {
+    const { work } = setup(1100);
+    work.show('files');
+    expect(work.rows()).toEqual([['review'], ['files']]);
+    expect(work.widthOf('files')).toBe(RIGHT.initial);
+  });
+
+  it('gives a wide tool a row of its own, and a collapsed one too', () => {
+    const { work } = setup(1600);
+    work.show('files');
+    work.show('terminal');
+    work.toggleWide('files');
+    expect(work.rows()).toEqual([['review'], ['files'], ['terminal']]);
+    work.toggleWide('files');
+    work.collapse('review');
+    expect(work.rows()).toEqual([['review'], ['files', 'terminal']]);
+  });
+
+  it('moves the line between two cards side by side, and the grid stays', () => {
+    const { work } = setup(1600);
+    work.show('files');
+    work.resize('files', 400);
+    expect(work.widthOf('files')).toBe(400);
+    expect(work.widthOf('review')).toBe(two - CARD_GAP - 400);
+    expect(work.columnWidth()).toBe(two);
+    // Never past the other card's least.
+    work.resize('files', 5000);
+    expect(work.widthOf('review')).toBe(RIGHT.min);
+  });
+
+  it('sizes the whole grid from its outer edge, every row with it', () => {
+    const { work } = setup(1600);
+    work.show('files');
+    work.show('terminal');
+    const right = work.widthOf('files');
+    work.resize('terminal', 900);
+    expect(work.columnWidth()).toBe(900);
+    expect(work.widthOf('terminal')).toBe(900);
+    // The pair keeps its right card; the left one takes the difference.
+    expect(work.widthOf('files')).toBe(right);
+    expect(work.widthOf('review')).toBe(900 - CARD_GAP - right);
+    // From a pair's left card, the same.
+    work.resize('review', 500);
+    expect(work.columnWidth()).toBe(500 + CARD_GAP + right);
+    // Never so wide the conversation loses its least width.
+    work.resize('terminal', 5000);
+    expect(work.columnWidth()).toBe(1600 - MAIN_MIN);
+    // Too narrow for two, they stack.
+    work.resize('terminal', RIGHT.min);
+    expect(work.rows()).toEqual([['review'], ['files'], ['terminal']]);
+  });
+
+  it('keeps the grid and the splits for the next launch', () => {
+    const { work } = setup(1600);
+    work.show('files');
+    work.resize('files', 400);
+    expect(JSON.parse(localStorage.getItem('pwr:grid-width')!)).toBe(two);
+    expect(JSON.parse(localStorage.getItem('pwr:card-splits')!).review).toBeCloseTo((two - CARD_GAP - 400) / (two - CARD_GAP));
   });
 });
 

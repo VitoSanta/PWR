@@ -416,14 +416,37 @@ export class FilesCard {
   }
 }
 
-/** Terminal: the person's shell in the workspace. */
+/** Terminal: the person's shells in the workspace, as tabs. */
 @Component({
   selector: 'pa-terminal-card',
-  imports: [Icon],
+  imports: [Icon, Tooltip],
   template: `
-    @if (terminal.state() === 'unavailable') {
+    @if (terminal.unavailable()) {
       <p class="card-empty">The terminal runs in the PWR app, not in a browser preview.</p>
     } @else {
+      <div class="terminal-tabs" role="tablist" aria-label="Terminals" (keydown)="tabKeys($event)">
+        @for (session of terminal.sessions(); track session.key) {
+          <div class="terminal-tab" [class.is-active]="session.key === terminal.active()" [class.is-exited]="session.state() === 'exited'">
+            <button
+              class="terminal-tab-label"
+              role="tab"
+              [attr.aria-selected]="session.key === terminal.active()"
+              [attr.tabindex]="session.key === terminal.active() ? 0 : -1"
+              (click)="terminal.select(session.key)"
+              (auxclick)="$event.button === 1 && terminal.close(session.key)"
+            >
+              <pa-icon name="terminal" [size]="13" />
+              <span class="truncate">{{ session.title }}</span>
+            </button>
+            <button class="terminal-tab-close" (click)="terminal.close(session.key)" [attr.aria-label]="'Close ' + session.title" paTooltip="Close · ends the shell">
+              <pa-icon name="x" [size]="12" />
+            </button>
+          </div>
+        }
+        <button class="icon-btn icon-btn-sm terminal-tab-add" (click)="terminal.add()" aria-label="New terminal" paTooltip="New terminal">
+          <pa-icon name="plus" [size]="14" />
+        </button>
+      </div>
       @if (terminal.error()) {
         <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ terminal.error() }}</p>
       }
@@ -434,7 +457,13 @@ export class FilesCard {
           <button class="btn btn-sm" (click)="terminal.restart()"><pa-icon name="refresh" [size]="14" /> New shell</button>
         </div>
       }
-      <div #host class="terminal-host" (click)="terminal.focus()"></div>
+      @if (!terminal.sessions().length) {
+        <div class="card-empty">
+          <p>No terminal is open.</p>
+          <button class="btn btn-sm" (click)="terminal.add()"><pa-icon name="plus" [size]="14" /> New terminal</button>
+        </div>
+      }
+      <div #host class="terminal-host" [hidden]="!terminal.sessions().length" (click)="terminal.focus()"></div>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -459,6 +488,20 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.observer?.disconnect();
     this.terminal.detach();
+  }
+
+  /** Left and right move along the tabs, as in any tab list. */
+  protected tabKeys(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    const sessions = this.terminal.sessions();
+    const index = sessions.findIndex((session) => session.key === this.terminal.active());
+    const next = sessions[(index + (event.key === 'ArrowRight' ? 1 : -1) + sessions.length) % sessions.length];
+    if (!next) return;
+    event.preventDefault();
+    this.terminal.select(next.key);
+    queueMicrotask(() =>
+      (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus(),
+    );
   }
 }
 
