@@ -3167,6 +3167,9 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
     // What a request costs beyond its messages on this deployment, learned
     // from the counts it reports.
     let mut prompt_overhead = crate::context::PromptOverhead::default();
+    // Actions from a reply that carried several calls, still to be carried out.
+    let mut queued: std::collections::VecDeque<(ActionProposal, Option<String>)> =
+        std::collections::VecDeque::new();
     while step < max_actions {
         turns += 1;
         if turns > u32::from(max_actions) * TURNS_PER_ACTION {
@@ -3181,331 +3184,355 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 "{turns} turns produced only {step} actions; the deployment is not emitting usable calls"
             ));
         }
-        // Cancellable, so a turn that goes nowhere can be cut short rather than
-        // waited out: the transport gives up on the answer, and cancelling
-        // closes the connection the backend is generating into.
-        let cancel = pwr_provider::Cancel::new();
-        // The prompt as sent, which is what the backend's count is a count of.
-        let estimated_tokens_at_send = estimated_tokens(&request.messages);
-        let stream = match provider
-            .chat_cancellable(request.clone(), cancel.clone())
-            .await
+        // An action queued from a reply that carried several is taken here,
+        // without asking the deployment again: it already said what it wants.
+        let (action, extra_reads, answering) = if let Some((action, answering)) = queued.pop_front()
         {
-            Ok(stream) => stream,
-            // Output the backend could not parse arrives two ways: on the
-            // stream, and here, when the backend rejects the generation while
-            // opening it. Only the first was handled, so the same fault was
-            // retried on one path and ended the run on the other -- and being
-            // recorded as "provider request failed" it was classified as a
-            // provider failure and excluded from every rate.
-            //
-            // Measured on gpt-oss:20b: eight of thirty-nine runs, one error
-            // repeated across five tasks, a fifth of its corpus lost to a
-            // branch that was written once and needed to be written twice.
-            Err(ref error) if ReplyFault::of(error).is_some() => {
-                let fault = ReplyFault::of(error).expect("guarded above");
-                answer_unusable_reply(
-                    store,
-                    run_id,
-                    step,
-                    &fault,
-                    &mut malformed,
-                    malformed_limit,
-                    &mut task_state,
-                    &mut request,
-                )?;
-                continue;
-            }
-            Err(error) => {
-                if matches!(
-                    &error,
-                    pwr_provider::ProviderError::Timeout { .. }
-                        | pwr_provider::ProviderError::ContextLimit { .. }
-                ) {
-                    task_state = persist_transition(
+            (action, Vec::new(), answering)
+        } else {
+            // Cancellable, so a turn that goes nowhere can be cut short rather than
+            // waited out: the transport gives up on the answer, and cancelling
+            // closes the connection the backend is generating into.
+            let cancel = pwr_provider::Cancel::new();
+            // The prompt as sent, which is what the backend's count is a count of.
+            let estimated_tokens_at_send = estimated_tokens(&request.messages);
+            let stream = match provider
+                .chat_cancellable(request.clone(), cancel.clone())
+                .await
+            {
+                Ok(stream) => stream,
+                // Output the backend could not parse arrives two ways: on the
+                // stream, and here, when the backend rejects the generation while
+                // opening it. Only the first was handled, so the same fault was
+                // retried on one path and ended the run on the other -- and being
+                // recorded as "provider request failed" it was classified as a
+                // provider failure and excluded from every rate.
+                //
+                // Measured on gpt-oss:20b: eight of thirty-nine runs, one error
+                // repeated across five tasks, a fifth of its corpus lost to a
+                // branch that was written once and needed to be written twice.
+                Err(ref error) if ReplyFault::of(error).is_some() => {
+                    let fault = ReplyFault::of(error).expect("guarded above");
+                    answer_unusable_reply(
                         store,
                         run_id,
-                        task_state,
-                        TaskState::Recover,
-                        "provider failure eligible for measured context recovery",
-                    )?;
-                    if recover_at_lower_measured_context(
-                        store,
-                        run_id,
+                        step,
+                        &fault,
+                        &mut malformed,
+                        malformed_limit,
+                        &mut task_state,
                         &mut request,
-                        measured_context_tiers,
-                        context_recovery_attempts,
-                        recovery_budget,
-                        &error.to_string(),
-                    )? {
-                        context_recovery_attempts = context_recovery_attempts.saturating_add(1);
-                        // The lower tier has to be granted too, or the retry
-                        // runs at the size that just failed while the record
-                        // says it dropped.
-                        prepare_context_tier(store, run_id, provider, &mut request).await?;
+                    )?;
+                    continue;
+                }
+                Err(error) => {
+                    if matches!(
+                        &error,
+                        pwr_provider::ProviderError::Timeout { .. }
+                            | pwr_provider::ProviderError::ContextLimit { .. }
+                    ) {
                         task_state = persist_transition(
                             store,
                             run_id,
                             task_state,
-                            TaskState::Act,
-                            "retrying at a lower measured stable context tier",
+                            TaskState::Recover,
+                            "provider failure eligible for measured context recovery",
                         )?;
-                        continue;
-                    }
-                }
-                persist_failure(
-                    store,
-                    run_id,
-                    &mut task_state,
-                    "provider request failed",
-                    serde_json::json!({"error": error.to_string()}),
-                )?;
-                return Err(error.to_string());
-            }
-        };
-        let collected = match tuning.turn_timeout {
-            Some(limit) => {
-                match tokio::time::timeout(limit, pwr_provider::collect_reply(stream)).await {
-                    Ok(collected) => collected,
-                    Err(_) => {
-                        cancel.cancel();
-                        Err(pwr_provider::ProviderError::Timeout {
-                            safe_context: format!("turn exceeded {} seconds", limit.as_secs()),
-                        })
-                    }
-                }
-            }
-            None => pwr_provider::collect_reply(stream).await,
-        };
-        let reply = match collected {
-            Ok(reply) => reply,
-            // A reply that never stops is the same kind of event as one that
-            // cannot be read: the turn produced nothing usable, and the
-            // deployment is the only thing that can produce something else.
-            // It was fatal here and bounded in the conversation, which made the
-            // measured path the weaker of the two -- measured on
-            // `qwen/qwen3.6-35b-a3b`, where two of four `external-v1` tasks
-            // ended this way, one of them on its first turn after 8,488
-            // characters of thinking. A campaign that loses half its tasks to a
-            // recovery the product has is not measuring the product.
-            // A reply the turn cannot use, whichever way it failed. One arm
-            // rather than one per variant: a fault added to `ReplyFault` is
-            // handled here without anyone remembering to come back, which is
-            // the mistake this consolidation exists to make unavailable.
-            Err(ref error) if ReplyFault::of(error).is_some() => {
-                let fault = ReplyFault::of(error).expect("guarded above");
-                answer_unusable_reply(
-                    store,
-                    run_id,
-                    step,
-                    &fault,
-                    &mut malformed,
-                    malformed_limit,
-                    &mut task_state,
-                    &mut request,
-                )?;
-                continue;
-            }
-            Err(error) => {
-                if matches!(
-                    &error,
-                    pwr_provider::ProviderError::Timeout { .. }
-                        | pwr_provider::ProviderError::ContextLimit { .. }
-                ) {
-                    task_state = persist_transition(
-                        store,
-                        run_id,
-                        task_state,
-                        TaskState::Recover,
-                        "provider stream failure eligible for measured context recovery",
-                    )?;
-                    if recover_at_lower_measured_context(
-                        store,
-                        run_id,
-                        &mut request,
-                        measured_context_tiers,
-                        context_recovery_attempts,
-                        recovery_budget,
-                        &error.to_string(),
-                    )? {
-                        context_recovery_attempts = context_recovery_attempts.saturating_add(1);
-                        // The lower tier has to be granted too, or the retry
-                        // runs at the size that just failed while the record
-                        // says it dropped.
-                        prepare_context_tier(store, run_id, provider, &mut request).await?;
-                        task_state = persist_transition(
+                        if recover_at_lower_measured_context(
                             store,
                             run_id,
-                            task_state,
-                            TaskState::Act,
-                            "retrying at a lower measured stable context tier",
-                        )?;
-                        continue;
+                            &mut request,
+                            measured_context_tiers,
+                            context_recovery_attempts,
+                            recovery_budget,
+                            &error.to_string(),
+                        )? {
+                            context_recovery_attempts = context_recovery_attempts.saturating_add(1);
+                            // The lower tier has to be granted too, or the retry
+                            // runs at the size that just failed while the record
+                            // says it dropped.
+                            prepare_context_tier(store, run_id, provider, &mut request).await?;
+                            task_state = persist_transition(
+                                store,
+                                run_id,
+                                task_state,
+                                TaskState::Act,
+                                "retrying at a lower measured stable context tier",
+                            )?;
+                            continue;
+                        }
                     }
-                }
-                persist_failure(
-                    store,
-                    run_id,
-                    &mut task_state,
-                    "provider stream failed",
-                    serde_json::json!({"error": error.to_string()}),
-                )?;
-                return Err(error.to_string());
-            }
-        };
-        // What the deployment wrote, read through its family's conventions. A
-        // deployment whose family is unknown gets the generic adapter, which
-        // changes nothing, so this is the identity for every run that was
-        // working before the compatibility layer existed.
-        let reply = tuning.adapter.normalize(&reply);
-        // The deployment's own turn goes into the history before the result of
-        // it does. Without this the history is the task followed by a run of
-        // tool messages answering nothing, and the deployment cannot see what
-        // it already proposed -- so it re-derives the same action from the same
-        // unchanged prompt. Measured: a model re-sent a byte-identical edit
-        // four times, across two intervening re-reads of the file it had
-        // already correctly fixed.
-        // What the turn cost, from the backend's own counters rather than from
-        // wall clock. A turn measured at 240 seconds against others of 3 to 34
-        // was the difference between a usable agent and an unusable one, and
-        // the audit could only say how long it took, never whether the time
-        // went into reading a long prompt or generating a long answer.
-        // Asked after the turn, when the machine has just done the work the
-        // sample is about. Pressure read once at admission says nothing about
-        // a run that starts on a quiet machine and ends on a saturated one --
-        // which is usually the difference that explains its timings.
-        if let Some(host) = &tuning.host {
-            let pressure = host.memory_pressure().await;
-            store
-                .append_event(
-                    Some(run_id),
-                    &pwr_domain::RunEvent::ResourceSampled {
-                        step,
-                        turn: turns,
-                        pressure,
-                    },
-                )
-                .map_err(|e| e.to_string())?;
-        }
-        let delivery = prompt_delivery(
-            estimated_tokens_at_send,
-            request.context_tokens,
-            reply.metrics.as_ref(),
-        );
-        // What this deployment's counts say the estimate is worth, learned
-        // from the prompt just sent and applied to the next budget.
-        if let Some(reported) = reply
-            .metrics
-            .as_ref()
-            .and_then(|metrics| metrics.prompt_tokens)
-        {
-            prompt_overhead.observe(estimated_tokens_at_send, reported);
-        }
-        store
-            .append_event(
-                Some(run_id),
-                &pwr_domain::RunEvent::TurnGenerated {
-                    step,
-                    turn: turns,
-                    metrics: reply.metrics.clone(),
-                    tokens_per_second: reply
-                        .metrics
-                        .as_ref()
-                        .and_then(pwr_domain::GenerationMetrics::tokens_per_second),
-                    thinking_chars: reply.thinking.len(),
-                    content_chars: reply.narrative.len(),
-                    prompt_delivery: delivery.clone(),
-                    normalizations: reply
-                        .diagnostics
-                        .iter()
-                        .map(|diagnostic| format!("{}: {}", diagnostic.kind, diagnostic.detail))
-                        .collect(),
-                },
-            )
-            .map_err(|e| e.to_string())?;
-        if let Some(concern) = delivery
-            .as_ref()
-            .and_then(|delivery| delivery.get("concern"))
-            .and_then(|concern| concern.as_str())
-        {
-            // Evented on its own as well as inside the turn, because a prompt
-            // that did not arrive explains a reply that makes no sense, and
-            // nobody reading a confusing answer thinks to open the counters.
-            store
-                .append_event(
-                    Some(run_id),
-                    &pwr_domain::RunEvent::ContextDeliveryDiverged {
-                        step,
-                        turn: turns,
-                        concern: concern.to_string(),
-                        delivery: delivery.clone().unwrap_or_default(),
-                    },
-                )
-                .map_err(|e| e.to_string())?;
-        }
-        // The deployment's own turn, carried structurally rather than as prose
-        // about itself. A reply that was only a tool call used to come back as
-        // a JSON string the deployment had to re-read; a backend whose
-        // protocol pairs a call with its result cannot do that pairing from
-        // text.
-        request.messages.push(pwr_domain::ChatMessage {
-            role: "assistant".into(),
-            content: reply.narrative.clone(),
-            tool_calls: reply.tool_calls.clone(),
-            tool_call_id: None,
-            purpose: None,
-            images: Vec::new(),
-            reasoning: None,
-        });
-        // The id the next tool message answers, where the deployment gave one.
-        let answering = reply.tool_calls.first().and_then(|call| call.id.clone());
-        // A malformed call is a mistake the deployment can correct, and it can
-        // only correct one it is told about. Ending the run instead discards
-        // whatever work is already done and reports the harness's silence as
-        // the deployment's failure.
-        let (action, extra_reads) = match actions_from_reply(&reply) {
-            Ok(mut actions) => {
-                let first = actions.remove(0);
-                (first, actions)
-            }
-            Err(problem) => {
-                store
-                    .append_event(
-                        Some(run_id),
-                        &pwr_domain::RunEvent::ActionMalformed {
-                            step,
-                            problem: problem.problem.clone(),
-                            kind: problem.kind.into(),
-                            detail: problem.detail.clone(),
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
-                malformed += 1;
-                if malformed > malformed_limit {
                     persist_failure(
                         store,
                         run_id,
                         &mut task_state,
-                        "repeatedly malformed tool calls",
-                        serde_json::json!({"problem": problem.problem, "kind": problem.kind}),
+                        "provider request failed",
+                        serde_json::json!({"error": error.to_string()}),
                     )?;
-                    return Err(format!(
-                        "{malformed_limit} malformed tool calls in a row: {problem}"
-                    ));
+                    return Err(error.to_string());
                 }
-                request.messages.push(pwr_domain::ChatMessage {
-                    role: "tool".into(),
-                    content: serde_json::json!({
-                        "rejected": problem.problem,
-                        "hint": malformed_hint(problem.kind),
-                    })
-                    .to_string(),
-                    ..Default::default()
-                });
-                continue;
+            };
+            let collected = match tuning.turn_timeout {
+                Some(limit) => {
+                    match tokio::time::timeout(limit, pwr_provider::collect_reply(stream)).await {
+                        Ok(collected) => collected,
+                        Err(_) => {
+                            cancel.cancel();
+                            Err(pwr_provider::ProviderError::Timeout {
+                                safe_context: format!("turn exceeded {} seconds", limit.as_secs()),
+                            })
+                        }
+                    }
+                }
+                None => pwr_provider::collect_reply(stream).await,
+            };
+            let reply = match collected {
+                Ok(reply) => reply,
+                // A reply that never stops is the same kind of event as one that
+                // cannot be read: the turn produced nothing usable, and the
+                // deployment is the only thing that can produce something else.
+                // It was fatal here and bounded in the conversation, which made the
+                // measured path the weaker of the two -- measured on
+                // `qwen/qwen3.6-35b-a3b`, where two of four `external-v1` tasks
+                // ended this way, one of them on its first turn after 8,488
+                // characters of thinking. A campaign that loses half its tasks to a
+                // recovery the product has is not measuring the product.
+                // A reply the turn cannot use, whichever way it failed. One arm
+                // rather than one per variant: a fault added to `ReplyFault` is
+                // handled here without anyone remembering to come back, which is
+                // the mistake this consolidation exists to make unavailable.
+                Err(ref error) if ReplyFault::of(error).is_some() => {
+                    let fault = ReplyFault::of(error).expect("guarded above");
+                    answer_unusable_reply(
+                        store,
+                        run_id,
+                        step,
+                        &fault,
+                        &mut malformed,
+                        malformed_limit,
+                        &mut task_state,
+                        &mut request,
+                    )?;
+                    continue;
+                }
+                Err(error) => {
+                    if matches!(
+                        &error,
+                        pwr_provider::ProviderError::Timeout { .. }
+                            | pwr_provider::ProviderError::ContextLimit { .. }
+                    ) {
+                        task_state = persist_transition(
+                            store,
+                            run_id,
+                            task_state,
+                            TaskState::Recover,
+                            "provider stream failure eligible for measured context recovery",
+                        )?;
+                        if recover_at_lower_measured_context(
+                            store,
+                            run_id,
+                            &mut request,
+                            measured_context_tiers,
+                            context_recovery_attempts,
+                            recovery_budget,
+                            &error.to_string(),
+                        )? {
+                            context_recovery_attempts = context_recovery_attempts.saturating_add(1);
+                            // The lower tier has to be granted too, or the retry
+                            // runs at the size that just failed while the record
+                            // says it dropped.
+                            prepare_context_tier(store, run_id, provider, &mut request).await?;
+                            task_state = persist_transition(
+                                store,
+                                run_id,
+                                task_state,
+                                TaskState::Act,
+                                "retrying at a lower measured stable context tier",
+                            )?;
+                            continue;
+                        }
+                    }
+                    persist_failure(
+                        store,
+                        run_id,
+                        &mut task_state,
+                        "provider stream failed",
+                        serde_json::json!({"error": error.to_string()}),
+                    )?;
+                    return Err(error.to_string());
+                }
+            };
+            // What the deployment wrote, read through its family's conventions. A
+            // deployment whose family is unknown gets the generic adapter, which
+            // changes nothing, so this is the identity for every run that was
+            // working before the compatibility layer existed.
+            let reply = tuning.adapter.normalize(&reply);
+            // The deployment's own turn goes into the history before the result of
+            // it does. Without this the history is the task followed by a run of
+            // tool messages answering nothing, and the deployment cannot see what
+            // it already proposed -- so it re-derives the same action from the same
+            // unchanged prompt. Measured: a model re-sent a byte-identical edit
+            // four times, across two intervening re-reads of the file it had
+            // already correctly fixed.
+            // What the turn cost, from the backend's own counters rather than from
+            // wall clock. A turn measured at 240 seconds against others of 3 to 34
+            // was the difference between a usable agent and an unusable one, and
+            // the audit could only say how long it took, never whether the time
+            // went into reading a long prompt or generating a long answer.
+            // Asked after the turn, when the machine has just done the work the
+            // sample is about. Pressure read once at admission says nothing about
+            // a run that starts on a quiet machine and ends on a saturated one --
+            // which is usually the difference that explains its timings.
+            if let Some(host) = &tuning.host {
+                let pressure = host.memory_pressure().await;
+                store
+                    .append_event(
+                        Some(run_id),
+                        &pwr_domain::RunEvent::ResourceSampled {
+                            step,
+                            turn: turns,
+                            pressure,
+                        },
+                    )
+                    .map_err(|e| e.to_string())?;
             }
+            let delivery = prompt_delivery(
+                estimated_tokens_at_send,
+                request.context_tokens,
+                reply.metrics.as_ref(),
+            );
+            // What this deployment's counts say the estimate is worth, learned
+            // from the prompt just sent and applied to the next budget.
+            if let Some(reported) = reply
+                .metrics
+                .as_ref()
+                .and_then(|metrics| metrics.prompt_tokens)
+            {
+                prompt_overhead.observe(estimated_tokens_at_send, reported);
+            }
+            store
+                .append_event(
+                    Some(run_id),
+                    &pwr_domain::RunEvent::TurnGenerated {
+                        step,
+                        turn: turns,
+                        metrics: reply.metrics.clone(),
+                        tokens_per_second: reply
+                            .metrics
+                            .as_ref()
+                            .and_then(pwr_domain::GenerationMetrics::tokens_per_second),
+                        thinking_chars: reply.thinking.len(),
+                        content_chars: reply.narrative.len(),
+                        prompt_delivery: delivery.clone(),
+                        normalizations: reply
+                            .diagnostics
+                            .iter()
+                            .map(|diagnostic| format!("{}: {}", diagnostic.kind, diagnostic.detail))
+                            .collect(),
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            if let Some(concern) = delivery
+                .as_ref()
+                .and_then(|delivery| delivery.get("concern"))
+                .and_then(|concern| concern.as_str())
+            {
+                // Evented on its own as well as inside the turn, because a prompt
+                // that did not arrive explains a reply that makes no sense, and
+                // nobody reading a confusing answer thinks to open the counters.
+                store
+                    .append_event(
+                        Some(run_id),
+                        &pwr_domain::RunEvent::ContextDeliveryDiverged {
+                            step,
+                            turn: turns,
+                            concern: concern.to_string(),
+                            delivery: delivery.clone().unwrap_or_default(),
+                        },
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
+            // The deployment's own turn, carried structurally rather than as prose
+            // about itself. A reply that was only a tool call used to come back as
+            // a JSON string the deployment had to re-read; a backend whose
+            // protocol pairs a call with its result cannot do that pairing from
+            // text.
+            request.messages.push(pwr_domain::ChatMessage {
+                role: "assistant".into(),
+                content: reply.narrative.clone(),
+                tool_calls: reply.tool_calls.clone(),
+                tool_call_id: None,
+                purpose: None,
+                images: Vec::new(),
+                reasoning: None,
+            });
+            // The id the next tool message answers, where the deployment gave one.
+            let mut answering = reply.tool_calls.first().and_then(|call| call.id.clone());
+            // A malformed call is a mistake the deployment can correct, and it can
+            // only correct one it is told about. Ending the run instead discards
+            // whatever work is already done and reports the harness's silence as
+            // the deployment's failure.
+            let mut decoded = actions_from_reply(&reply);
+            // Several calls in one reply, edits among them, are carried out one
+            // after another rather than refused whole, as a conversation carries
+            // them out: the first now, the rest queued, each answered under its
+            // own call id. Refusing them was right only while taking the first
+            // meant dropping the others. Measured 2026-09-29: Ornith-1.5-9B, an
+            // agent-trained model, wrote two write_file calls in one reply in
+            // suite A3 and lost the turn to the refusal.
+            if matches!(&decoded, Err(problem) if problem.kind == "multiple_calls")
+                && let Some(mut sequence) = sequential_calls(&reply)
+            {
+                let (first, id) = sequence.remove(0);
+                answering = id;
+                queued.extend(sequence);
+                decoded = Ok(vec![first]);
+            }
+            let (action, extra_reads) = match decoded {
+                Ok(mut actions) => {
+                    let first = actions.remove(0);
+                    (first, actions)
+                }
+                Err(problem) => {
+                    store
+                        .append_event(
+                            Some(run_id),
+                            &pwr_domain::RunEvent::ActionMalformed {
+                                step,
+                                problem: problem.problem.clone(),
+                                kind: problem.kind.into(),
+                                detail: problem.detail.clone(),
+                            },
+                        )
+                        .map_err(|e| e.to_string())?;
+                    malformed += 1;
+                    if malformed > malformed_limit {
+                        persist_failure(
+                            store,
+                            run_id,
+                            &mut task_state,
+                            "repeatedly malformed tool calls",
+                            serde_json::json!({"problem": problem.problem, "kind": problem.kind}),
+                        )?;
+                        return Err(format!(
+                            "{malformed_limit} malformed tool calls in a row: {problem}"
+                        ));
+                    }
+                    request.messages.push(pwr_domain::ChatMessage {
+                        role: "tool".into(),
+                        content: serde_json::json!({
+                            "rejected": problem.problem,
+                            "hint": malformed_hint(problem.kind),
+                        })
+                        .to_string(),
+                        ..Default::default()
+                    });
+                    continue;
+                }
+            };
+            malformed = 0;
+            (action, extra_reads, answering)
         };
-        malformed = 0;
         // A refusal ends the run before anything else looks at it. It is not a
         // completion -- nothing is verified, because nothing was done -- and it
         // is not a failure, because the deployment did what it was supposed to.
@@ -5540,6 +5567,23 @@ fn actions_from_reply(
             ))
         }
     }
+}
+
+/// Every call of a reply decoded, in order, with the id each answers; `None`
+/// when any of them cannot be decoded, which stays a refusal.
+fn sequential_calls(
+    reply: &pwr_compat::CanonicalReply,
+) -> Option<Vec<(ActionProposal, Option<String>)>> {
+    (reply.tool_calls.len() > 1).then_some(())?;
+    reply
+        .tool_calls
+        .iter()
+        .map(|call| {
+            action_from_tool_call(call)
+                .ok()
+                .map(|action| (action, call.id.clone()))
+        })
+        .collect()
 }
 
 /// A model's raw reply read exactly as a run reads it: the family adapter
