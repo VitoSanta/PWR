@@ -7,7 +7,7 @@ import pathlib
 import tempfile
 import unittest
 
-from pwr_mlx import (REPEAT_LIMIT, REPEAT_SPAN, ReasoningStream, RepetitionSignals, fused_attention, looping,
+from pwr_mlx import (REPEAT_LIMIT, add_turn_ends, REPEAT_SPAN, ReasoningStream, RepetitionSignals, fused_attention, looping,
                         think_delimiters)
 
 HERE = pathlib.Path(__file__).resolve()
@@ -602,5 +602,28 @@ class Chat(unittest.TestCase):
         self.assertEqual(kwargs["reasoning_effort"], "high")
 
 
+class TurnEndsStopGeneration(unittest.TestCase):
+    """Qwen2.5-Coder names only `<|im_end|>` and writes `<|endoftext|>`."""
+
+    class Tokenizer:
+        unk_token_id = 0
+        vocabulary = {"<|im_end|>": 5, "<|endoftext|>": 6}
+
+        def __init__(self):
+            self.eos_token_ids = {5}
+
+        def convert_tokens_to_ids(self, token):
+            return self.vocabulary.get(token, self.unk_token_id)
+
+        def add_eos_token(self, token):
+            self.eos_token_ids.add(self.vocabulary[token])
+
+    def test_every_marker_the_vocabulary_has_stops_and_no_other(self):
+        tokenizer = self.Tokenizer()
+        add_turn_ends(tokenizer)
+        self.assertEqual(tokenizer.eos_token_ids, {5, 6})
+
+
 if __name__ == "__main__":
     unittest.main()
+

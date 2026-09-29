@@ -182,6 +182,32 @@ def looping(text: str) -> bool:
     return text[-period * REPEAT_LIMIT:] == text[-period:] * REPEAT_LIMIT
 
 
+
+# Markers that end a turn in every template that has them, whatever the
+# model's config names as its end. Measured 2026-09-29: Qwen2.5-Coder-14B
+# names only `<|im_end|>`, wrote `<|endoftext|>` after a tool call, and went
+# on generating an invented question and answer until the length limit --
+# three of its four tasks lost that way.
+TURN_ENDS = ("<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<end_of_turn>")
+
+
+def add_turn_ends(tokenizer) -> None:
+    """Adds each marker the vocabulary has as a single special token to the
+    tokens that stop generation. A marker the vocabulary lacks is skipped:
+    converting it would give the unknown token, and stopping on that would
+    end generation at any unknown word."""
+    add = getattr(tokenizer, "add_eos_token", None)
+    if add is None:
+        return
+    unknown = getattr(tokenizer, "unk_token_id", None)
+    for marker in TURN_ENDS:
+        try:
+            token = tokenizer.convert_tokens_to_ids(marker)
+        except Exception:
+            continue
+        if isinstance(token, int) and token != unknown and token >= 0:
+            add(marker)
+
 class RepetitionSignals:
     """Small, content-free diagnostics for repeated generated token windows.
 
@@ -619,6 +645,7 @@ class Engine:
                 str(path), tokenizer_config=NO_REMOTE_CODE,
                 model_config={"rope_scaling": rope} if rope else None)
         self.rope_scaling = request.get("rope_scaling") if self.processor is None else None
+        add_turn_ends(self.tokenizer)
         self.path = path
         self.cache = None
         self.checkpoint = None
