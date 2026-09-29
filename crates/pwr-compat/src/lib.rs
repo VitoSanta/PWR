@@ -262,23 +262,28 @@ fn tools_tag_as_call(content: &str) -> Option<(String, Diagnostic)> {
 /// capability probe it answered an edit with only ```json {"name":
 /// "apply_replace", ...} ```, and in suite A3 with "Let's read the file
 /// first." followed by one such block -- or two, to read two files -- and
-/// every task ended after three turns refused as calling no tool. Read only
-/// when the blocks end the reply, nothing but space between them, and every
-/// one is a call: a code example inside an explanation never becomes an
-/// action.
+/// every task ended after three turns refused as calling no tool.
+///
+/// Prose between and after the blocks is kept as narrative: measured the same
+/// day building small projects from scratch, it writes "### Creating
+/// `index.html`" before one block, "Now let's check the files." before the
+/// next, and a closing sentence after the last -- and lost all four tasks
+/// when only blocks ending the reply were read. Read only when every block in
+/// the reply is a call: one code example, or any fenced text that is not a
+/// call, and nothing is read.
 fn fenced_calls(content: &str) -> Option<(String, Vec<ToolCall>, Diagnostic)> {
     const FENCE: &str = "```";
-    let trimmed = content.trim_end();
-    let parts: Vec<&str> = trimmed.split(FENCE).collect();
-    // prose, body, gap, body, ..., body, "" -- an odd count ending empty.
-    if parts.len() < 3 || parts.len().is_multiple_of(2) || !parts[parts.len() - 1].is_empty() {
+    let parts: Vec<&str> = content.split(FENCE).collect();
+    // prose, body, prose, body, ..., body, prose -- an odd count.
+    if parts.len() < 3 || parts.len().is_multiple_of(2) {
         return None;
     }
     let mut calls = Vec::new();
-    for (index, part) in parts.iter().enumerate().skip(1).take(parts.len() - 2) {
+    let mut prose = Vec::new();
+    for (index, part) in parts.iter().enumerate() {
         if index % 2 == 0 {
             if !part.trim().is_empty() {
-                return None;
+                prose.push(part.trim());
             }
             continue;
         }
@@ -288,12 +293,9 @@ fn fenced_calls(content: &str) -> Option<(String, Vec<ToolCall>, Diagnostic)> {
     let names: Vec<&str> = calls.iter().map(|call| call.name.as_str()).collect();
     let diagnostic = Diagnostic {
         kind: "qwen_fenced_tool_call",
-        detail: format!(
-            "read {} from fenced JSON ending the reply",
-            names.join(", ")
-        ),
+        detail: format!("read {} from fenced JSON blocks", names.join(", ")),
     };
-    Some((parts[0].trim().to_owned(), calls, diagnostic))
+    Some((prose.join("\n\n"), calls, diagnostic))
 }
 
 /// Recovers `<tool_call>` blocks the backend left in the answer text.
@@ -1105,8 +1107,23 @@ mod tests {
             read_back.tool_calls[0].arguments["replace"],
             "raise TypeError('Bag')"
         );
-        // A fence inside prose is an example, not an action.
-        let example = format!("Here is how a call looks:\n{text}\nYou can send one like that.");
+        // Prose between and after the blocks, as it writes them building a
+        // project: both calls read, the prose kept in order.
+        let interleaved = QwenFamilyAdapter.normalize(&reply(&format!(
+            "### Creating `money.py`\n\n{}\n\nNow the second one.\n\n{}\n\nThen we can run the checks.",
+            read("money.py"),
+            read("invoice.py")
+        )));
+        assert_eq!(interleaved.tool_calls.len(), 2);
+        assert_eq!(
+            interleaved.narrative,
+            "### Creating `money.py`\n\nNow the second one.\n\nThen we can run the checks."
+        );
+        // A code example anywhere in the reply and nothing is read.
+        let example = format!(
+            "{}\n\nFor instance:\n```js\nrequire('x')\n```",
+            read("money.py")
+        );
         assert!(
             QwenFamilyAdapter
                 .normalize(&reply(&example))
