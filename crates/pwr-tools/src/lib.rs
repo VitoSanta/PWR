@@ -6559,6 +6559,53 @@ pub async fn run_command_in(
     run_command_once(policy, executable, args, stdin, cwd.as_deref()).await
 }
 
+/// Said when a command that timed out was a server: it was never going to
+/// finish, and the tool for it exists. Measured 2026-09-29 on Ornith-1.5-9B
+/// building an HTTP API: `node server.js` as a command, three minutes lost to
+/// the timeout, and then a shell line to background it that was refused.
+const SERVER_HANG_HINT: &str = " This looks like a server, which runs until it is stopped: \
+     start it with start_service, which keeps it running in the background and reports when \
+     it is ready, then exercise it with a separate command such as curl.";
+
+/// Whether a command that hung was starting a server, from what it ran and
+/// what it printed before it was stopped.
+fn looks_like_a_server(executable: &str, args: &[String], printed: &str) -> bool {
+    let printed = printed.to_ascii_lowercase();
+    let said_so = [
+        "listening",
+        "running on",
+        "running at",
+        "localhost:",
+        "127.0.0.1:",
+        "0.0.0.0:",
+    ]
+    .iter()
+    .any(|marker| printed.contains(marker));
+    let line = std::iter::once(executable)
+        .chain(args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    let named_so = [
+        "server.",
+        "app.js",
+        "http.server",
+        "npm start",
+        "npm run dev",
+        "npm run serve",
+        "uvicorn",
+        "flask run",
+        "manage.py runserver",
+        "vite",
+        "live-server",
+        "http-server",
+        "serve ",
+    ]
+    .iter()
+    .any(|marker| line.contains(marker));
+    said_so || named_so
+}
+
 async fn run_command_once(
     policy: &ToolPolicy,
     executable: &str,
@@ -6634,8 +6681,13 @@ async fn run_command_once(
             return Err(ToolError::CommandTimedOut(format!(
                 "the command did not finish within {} s and was stopped. A command that hangs is \
                  usually waiting for something that never comes -- a test blocked on a lock, a \
-                 wait or a loop, a server that is never stopped, input it expects.{} {}",
+                 wait or a loop, a server that is never stopped, input it expects.{}{} {}",
                 policy.timeout.as_secs(),
+                if looks_like_a_server(executable, args, &printed) {
+                    SERVER_HANG_HINT
+                } else {
+                    ""
+                },
                 if sandboxed { SANDBOX_HANG_HINT } else { "" },
                 if printed.is_empty() {
                     "It printed nothing before it was stopped.".to_owned()
@@ -7619,6 +7671,24 @@ mod tests {
             refused.to_string().contains("nothing to delete"),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn a_hung_server_is_recognized_from_its_command_or_its_output() {
+        let none: &[String] = &[];
+        assert!(looks_like_a_server("node", &["server.js".into()], ""));
+        assert!(looks_like_a_server(
+            "python3",
+            &["-m".into(), "http.server".into()],
+            ""
+        ));
+        assert!(looks_like_a_server(
+            "node",
+            &["main.js".into()],
+            "Listening on 3000"
+        ));
+        assert!(!looks_like_a_server("npm", &["test".into()], "1 passing"));
+        assert!(!looks_like_a_server("cargo", none, ""));
     }
 
     #[test]
