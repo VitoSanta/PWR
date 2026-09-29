@@ -6420,6 +6420,16 @@ async fn probe_edit_once(
                 };
             }
         };
+        // Read through the family's conventions, as a run reads it.
+        // Measured 2026-09-29: Qwen2.5-Coder writes its call inside <tools>,
+        // which its adapter reads and the raw reply does not show, so the
+        // probe recorded "no tool call at all" and kept it out of every suite.
+        let canonical = pwr_compat::adapter_for(None, &deployment.model_ref).normalize(&reply);
+        let reply = pwr_provider::ModelReply {
+            content: canonical.narrative,
+            tool_calls: canonical.tool_calls,
+            ..reply
+        };
         if let Some(call) = reply
             .tool_calls
             .iter()
@@ -8299,9 +8309,13 @@ async fn inspect(
             tools: None,
             seed: None,
             sampling: Default::default(),
+            // Longer than a few tokens: a short answer arrives in a single
+            // chunk -- PWR's MLX engine holds back the last 16 characters so
+            // a call marker is never half-shown -- and Qwen2.5-Coder, answering
+            // "OK", was recorded as unable to stream by an engine that streams.
             messages: vec![ChatMessage {
                 role: "user".into(),
-                content: "Reply with OK.".into(),
+                content: "Reply with the numbers from 1 to 20, separated by spaces.".into(),
                 ..Default::default()
             }],
         };
