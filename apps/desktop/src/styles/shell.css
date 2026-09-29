@@ -955,6 +955,95 @@ pa-inspector {
 }
 
 /* Terminal */
+/* The shells as tabs, as in VS Code: the chosen one raised, each closable. */
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: var(--space-1) var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.terminal-tab {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: 180px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  color: var(--text-muted);
+}
+
+.terminal-tab:hover {
+  color: var(--text-secondary);
+  background: var(--surface-hover);
+}
+
+.terminal-tab.is-active {
+  border-color: var(--border-subtle);
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+}
+
+.terminal-tab.is-exited .terminal-tab-label {
+  opacity: 0.6;
+}
+
+.terminal-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 4px 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.terminal-tab-close {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.terminal-tab:hover .terminal-tab-close,
+.terminal-tab.is-active .terminal-tab-close,
+.terminal-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.terminal-tab-close:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.terminal-tab-add {
+  flex: none;
+  margin-left: 2px;
+}
+
+.terminal-host[hidden] {
+  display: none;
+}
+
 .terminal-host {
   flex: 1;
   min-height: 0;
