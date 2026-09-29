@@ -62,6 +62,21 @@ class PopoverInDialog {
   readonly popover = signal(true);
 }
 
+@Component({
+  imports: [Popover],
+  template: `
+    <button #anchor id="anchor" (click)="open.set(!open())">Context</button>
+    <p id="elsewhere" (pointerdown)="$event.stopPropagation()">Conversation</p>
+    @if (open()) {
+      <pa-popover [anchor]="anchor" ariaLabel="Context" (closed)="open.set(false); closes = closes + 1"><button id="inside">Inside</button></pa-popover>
+    }
+  `,
+})
+class PopoverHost {
+  readonly open = signal(true);
+  closes = 0;
+}
+
 const press = (target: Element, key: string) => {
   const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
   target.dispatchEvent(event);
@@ -191,6 +206,53 @@ describe('Dialog', () => {
     escape();
     await settle(fixture);
     expect(fixture.componentInstance.open()).toBe(false);
+    fixture.nativeElement.remove();
+  });
+});
+
+describe('Popover', () => {
+  const setup = async () => {
+    const fixture = TestBed.createComponent(PopoverHost);
+    document.body.append(fixture.nativeElement);
+    await settle(fixture);
+    const host = fixture.componentInstance;
+    const find = (selector: string) => fixture.nativeElement.querySelector(selector) as HTMLElement;
+    return { fixture, host, find };
+  };
+
+  it('stays open for presses inside it and on its own button', async () => {
+    const { fixture, host, find } = await setup();
+    find('#inside').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    find('#anchor').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    await settle(fixture);
+    expect(host.open()).toBe(true);
+    fixture.nativeElement.remove();
+  });
+
+  it('closes on a press elsewhere, even one the page stops', async () => {
+    const { fixture, host, find } = await setup();
+    find('#elsewhere').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    find('#elsewhere').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await settle(fixture);
+    expect(host.open()).toBe(false);
+    // The pointer and the mouse press close it once.
+    expect(host.closes).toBe(1);
+    fixture.nativeElement.remove();
+  });
+
+  it('closes on a mouse press alone, as WebKit sends over the title bar', async () => {
+    const { fixture, host } = await setup();
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await settle(fixture);
+    expect(host.open()).toBe(false);
+    fixture.nativeElement.remove();
+  });
+
+  it('closes when the window is left for another app', async () => {
+    const { fixture, host } = await setup();
+    window.dispatchEvent(new Event('blur'));
+    await settle(fixture);
+    expect(host.open()).toBe(false);
     fixture.nativeElement.remove();
   });
 });
