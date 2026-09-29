@@ -5360,6 +5360,34 @@ fn repair_form(name: &str, arguments: &mut serde_json::Value) -> String {
             }
         }
     }
+    // A find-and-replace under a name no tool has, with the arguments of the
+    // one that does. Measured 2026-09-29 on gpt-oss-20b building a small
+    // module: `apply_text(path, expected_hash, find, replace)` was refused as
+    // an unknown tool, and its next reply re-sent the edit as a whole file.
+    if matches!(
+        name,
+        "apply_text" | "edit_file" | "edit" | "str_replace" | "replace_in_file" | "replace"
+    ) {
+        for (from, to) in [("old_str", "find"), ("new_str", "replace")] {
+            if !object.contains_key(to)
+                && let Some(value) = object.remove(from)
+            {
+                object.insert(to.into(), value);
+            }
+        }
+        if object.contains_key("path")
+            && object.contains_key("find")
+            && object.contains_key("replace")
+        {
+            return "replace_text".to_owned();
+        }
+    }
+    if matches!(name, "create_file" | "write" | "create")
+        && object.contains_key("path")
+        && object.contains_key("content")
+    {
+        return "write_file".to_owned();
+    }
     match name {
         "apply_replace"
             if !object.contains_key("replacement")
@@ -6496,6 +6524,22 @@ mod tests {
         );
         // More than punctuation after the list is not a slip.
         assert_eq!(read(r#"["a"] and more"#), None);
+    }
+
+    #[test]
+    fn invented_edit_names_with_one_reading_are_repaired() {
+        let mut arguments =
+            serde_json::json!({"path": "a.js", "expected_hash": "h", "find": "x", "replace": "y"});
+        assert_eq!(repair_form("apply_text", &mut arguments), "replace_text");
+        let mut arguments = serde_json::json!({"path": "a.js", "old_str": "x", "new_str": "y"});
+        assert_eq!(repair_form("str_replace", &mut arguments), "replace_text");
+        assert_eq!(arguments["find"], "x");
+        let mut arguments = serde_json::json!({"path": "a.js", "content": "x"});
+        assert_eq!(repair_form("create_file", &mut arguments), "write_file");
+        // Without the arguments that make it one reading, the name is kept
+        // and refused as the unknown tool it is.
+        let mut arguments = serde_json::json!({"path": "a.js"});
+        assert_eq!(repair_form("apply_text", &mut arguments), "apply_text");
     }
 
     #[test]

@@ -2934,6 +2934,56 @@ pub struct ApplyResult {
     /// be inferred. Measured: a model re-sent the pre-edit hash four times
     /// after a successful edit, having never made that inference.
     pub expected_hash: String,
+    /// Something about the file as written that will fail when it runs and
+    /// that no syntax check sees. Measured on Qwen3-14B building an HTTP API:
+    /// `server.js` required `express`, nothing installed it, `node --check`
+    /// passed, and the run declared completion on a server that could not
+    /// start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+    /// The changed lines as the file now reads them, numbered, with a few
+    /// lines either side. Measured on Qwen3-14B writing a test file: seven
+    /// edits to its first lines, each answered by `Identifier 'Inventory' has
+    /// already been declared`, because it never saw that an earlier edit had
+    /// left a second declaration above the one it kept replacing. A hash says
+    /// the edit landed; only the text says what the file became.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+}
+
+/// Lines of context shown either side of a change.
+const EXCERPT_CONTEXT: usize = 3;
+/// Lines an excerpt shows at most; past this the change is summarized.
+const EXCERPT_LINES: usize = 40;
+
+/// The region of `after` that differs from `before`, numbered as the file now
+/// reads, or nothing when the two are the same.
+pub fn changed_excerpt(before: &str, after: &str) -> Option<String> {
+    let old: Vec<&str> = before.lines().collect();
+    let new: Vec<&str> = after.lines().collect();
+    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    if prefix == old.len() && prefix == new.len() {
+        return None;
+    }
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let first = prefix.saturating_sub(EXCERPT_CONTEXT);
+    let last = (new.len() - suffix + EXCERPT_CONTEXT).min(new.len());
+    let mut shown: Vec<String> = new[first..last]
+        .iter()
+        .enumerate()
+        .map(|(i, line)| format!("{:>5}| {line}", first + i + 1))
+        .collect();
+    if shown.len() > EXCERPT_LINES {
+        let hidden = shown.len() - EXCERPT_LINES;
+        shown.truncate(EXCERPT_LINES);
+        shown.push(format!("  ... {hidden} more changed lines"));
+    }
+    Some(shown.join("\n"))
 }
 
 /// Lists a bounded, policy-filtered workspace tree.
@@ -3334,6 +3384,9 @@ pub fn apply_patch(
         policy.require(approval)?;
     }
     let path = policy.resolve(relative)?;
+    if !path.exists() {
+        return Err(missing_file(relative, "edit"));
+    }
     let original = std::fs::read(&path)?;
     if let Some(reason) = binary_reason(&original) {
         return Err(deny_binary(relative, &reason, "patched"));
@@ -3445,6 +3498,8 @@ pub fn apply_patch(
         previous_hash: expected_hash.to_string(),
         expected_hash: new_hash.clone(),
         new_hash,
+        warning: missing_package_warning(policy, &path, relative, &content),
+        excerpt: changed_excerpt(&String::from_utf8_lossy(&original), &content),
     })
 }
 
@@ -3495,6 +3550,9 @@ pub fn delete_path(
 ) -> Result<PathChange, ToolError> {
     policy.refuse_if_protected(relative)?;
     let path = policy.resolve(relative)?;
+    if std::fs::symlink_metadata(&path).is_err() {
+        return Err(missing_file(relative, "delete"));
+    }
     let metadata = std::fs::symlink_metadata(&path)?;
     if metadata.file_type().is_symlink() {
         return Err(ToolError::Denied(
@@ -3771,6 +3829,18 @@ pub fn apply_replace(
         policy.require(approval)?;
     }
     let path = policy.resolve(relative)?;
+    // A whole-file replacement of a file that is not there has one reading:
+    // create it. Measured 2026-09-29 on gpt-oss-20b, which reached for
+    // apply_replace to create two of its first files and was answered with a
+    // bare "No such file or directory" each time.
+    if !path.exists() {
+        let mut created = write_file(policy, relative, replacement)?;
+        created.normalized = Some(format!(
+            "{} did not exist, so it was created with this content",
+            relative.display()
+        ));
+        return Ok(created);
+    }
     if std::fs::metadata(&path)?.len()
         > u64::try_from(policy.output_limit.saturating_mul(16)).unwrap_or(u64::MAX)
     {
@@ -3862,6 +3932,8 @@ pub fn apply_replace(
         previous_hash,
         expected_hash: new_hash.clone(),
         new_hash,
+        warning: missing_package_warning(policy, &path, relative, replacement),
+        excerpt: changed_excerpt(&String::from_utf8_lossy(&existing), replacement),
     })
 }
 
@@ -3889,6 +3961,9 @@ pub fn replace_text(
         return Err(ToolError::Denied("find text is empty".into()));
     }
     let path = policy.resolve(relative)?;
+    if !path.exists() {
+        return Err(missing_file(relative, "edit"));
+    }
     if std::fs::metadata(&path)?.len()
         > u64::try_from(policy.output_limit.saturating_mul(16)).unwrap_or(u64::MAX)
     {
@@ -3997,6 +4072,8 @@ pub fn replace_text(
         previous_hash,
         expected_hash: new_hash.clone(),
         new_hash,
+        warning: missing_package_warning(policy, &path, relative, &updated),
+        excerpt: changed_excerpt(&String::from_utf8_lossy(&existing), &updated),
     })
 }
 
@@ -4672,6 +4749,153 @@ fn html_to_text(html: &str) -> String {
     text
 }
 
+/// The refusal for acting on a file that is not there, saying what to do
+/// instead of passing on the operating system's "No such file or directory".
+fn missing_file(relative: &Path, verb: &str) -> ToolError {
+    let what = relative.display();
+    ToolError::Denied(if verb == "delete" {
+        format!("{what} does not exist, so there is nothing to delete")
+    } else {
+        format!(
+            "{what} does not exist, so there is nothing to {verb}. Create it with write_file, \
+             or check the path with list_tree."
+        )
+    })
+}
+
+/// Node's built-in modules, which resolve without anything installed.
+const NODE_BUILTINS: &[&str] = &[
+    "assert",
+    "async_hooks",
+    "buffer",
+    "child_process",
+    "cluster",
+    "console",
+    "constants",
+    "crypto",
+    "dgram",
+    "diagnostics_channel",
+    "dns",
+    "domain",
+    "events",
+    "fs",
+    "http",
+    "http2",
+    "https",
+    "inspector",
+    "module",
+    "net",
+    "os",
+    "path",
+    "perf_hooks",
+    "process",
+    "punycode",
+    "querystring",
+    "readline",
+    "repl",
+    "stream",
+    "string_decoder",
+    "sys",
+    "test",
+    "timers",
+    "tls",
+    "trace_events",
+    "tty",
+    "url",
+    "util",
+    "v8",
+    "vm",
+    "wasi",
+    "worker_threads",
+    "zlib",
+];
+
+/// The packages a JavaScript or TypeScript file imports that the workspace
+/// does not provide: neither a built-in module nor anything in a
+/// `node_modules` between the file and the workspace root.
+pub fn missing_packages(root: &Path, file: &Path, text: &str) -> Vec<String> {
+    let extension = file
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if !["js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts"].contains(&extension.as_str()) {
+        return Vec::new();
+    }
+    static IMPORT: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let import = IMPORT.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?m)(?:\brequire\s*\(\s*|\bimport\s*\(\s*|^\s*import\s+(?:type\s+)?|\bfrom\s+)(['"])([^'"\n]+)['"]"#,
+        )
+        .expect("static regex")
+    });
+    let mut missing = Vec::new();
+    for capture in import.captures_iter(text) {
+        // A type-only import is erased before anything runs.
+        let start = capture.get(0).map_or(0, |m| m.start());
+        let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
+        if text[line_start..].trim_start().starts_with("import type ") {
+            continue;
+        }
+        let specifier = &capture[2];
+        if specifier.starts_with(['.', '/', '#']) || specifier.contains(':') {
+            continue;
+        }
+        let mut segments = specifier.split('/');
+        let package = match segments.next() {
+            Some(scope) if scope.starts_with('@') => match segments.next() {
+                Some(name) => format!("{scope}/{name}"),
+                None => continue,
+            },
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        if NODE_BUILTINS.contains(&package.as_str()) || missing.contains(&package) {
+            continue;
+        }
+        let installed = file
+            .ancestors()
+            .skip(1)
+            .take_while(|dir| dir.starts_with(root))
+            .any(|dir| dir.join("node_modules").join(&package).exists());
+        if !installed {
+            missing.push(package);
+        }
+    }
+    missing
+}
+
+/// Says which imports of a file just written will fail when it runs, and how
+/// to fix that, or nothing when every import resolves.
+fn missing_package_warning(
+    policy: &ToolPolicy,
+    path: &Path,
+    relative: &Path,
+    text: &str,
+) -> Option<String> {
+    let root = policy
+        .root
+        .canonicalize()
+        .unwrap_or_else(|_| policy.root.clone());
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let missing = missing_packages(&root, &path, text);
+    if missing.is_empty() {
+        return None;
+    }
+    let names = missing
+        .iter()
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "{} imports {names}, which {} not installed here, so it will fail when it runs even \
+         though it parses. Run `npm install {}` (this also records it in package.json), or \
+         rewrite it with Node's built-in modules only.",
+        relative.display(),
+        if missing.len() == 1 { "is" } else { "are" },
+        missing.join(" ")
+    ))
+}
+
 /// Creates a new file. Refuses to overwrite an existing one.
 ///
 /// Creation and modification are separate capabilities on purpose: an edit
@@ -4725,6 +4949,8 @@ pub fn write_file(
         previous_hash: String::new(),
         expected_hash: new_hash.clone(),
         new_hash,
+        warning: missing_package_warning(policy, &path, relative, content),
+        excerpt: None,
     })
 }
 
@@ -5899,6 +6125,8 @@ pub fn restore_file(
         previous_hash,
         expected_hash: new_hash.clone(),
         new_hash,
+        warning: None,
+        excerpt: None,
     })
 }
 
@@ -7352,6 +7580,75 @@ mod tests {
         };
         assert!(policy.resolve(Path::new("escape/secret.txt")).is_err());
     }
+    #[test]
+    fn an_edit_shows_the_lines_it_changed_as_the_file_now_reads() {
+        let before = "a\nb\nc\nd\ne\nf\ng\nh\n";
+        let after = "a\nb\nc\nd\nE\nE2\nf\ng\nh\n";
+        assert_eq!(
+            changed_excerpt(before, after).unwrap(),
+            "    2| b\n    3| c\n    4| d\n    5| E\n    6| E2\n    7| f\n    8| g\n    9| h"
+        );
+        assert_eq!(changed_excerpt(before, before), None);
+        // A removal still shows where it was.
+        assert_eq!(
+            changed_excerpt("x\ny\nz\n", "x\nz\n").unwrap(),
+            "    1| x\n    2| z"
+        );
+        let long: String = (0..100).map(|i| format!("{i}\n")).collect();
+        let excerpt = changed_excerpt("", &long).unwrap();
+        assert!(excerpt.ends_with("... 60 more changed lines"), "{excerpt}");
+    }
+
+    #[test]
+    fn a_missing_file_is_created_by_a_whole_replacement_and_named_by_the_rest() {
+        let root = tempfile::tempdir().unwrap();
+        let policy = PolicyProfile::Development.build(root.path().to_path_buf());
+        let created = apply_replace(&policy, Path::new("src/new.js"), "", "x\n").unwrap();
+        assert!(created.normalized.unwrap().contains("did not exist"));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("src/new.js")).unwrap(),
+            "x\n"
+        );
+        let refused = replace_text(&policy, Path::new("gone.js"), "", "a", "b").unwrap_err();
+        assert!(
+            refused.to_string().contains("gone.js does not exist"),
+            "{refused}"
+        );
+        let refused = delete_path(&policy, Path::new("gone.js"), None, false).unwrap_err();
+        assert!(
+            refused.to_string().contains("nothing to delete"),
+            "{refused}"
+        );
+    }
+
+    #[test]
+    fn a_file_importing_an_uninstalled_package_is_written_with_a_warning() {
+        let root = tempfile::tempdir().unwrap();
+        let policy = PolicyProfile::Development.build(root.path().to_path_buf());
+        let server = "const express = require('express');\nconst fs = require('node:fs');\n\
+                      const path = require('path');\nimport { z } from \"@scope/zod/v4\";\n\
+                      import type { T } from 'types-only';\nconst local = require('./db');\n";
+        let result = write_file(&policy, Path::new("server.js"), server).unwrap();
+        let warning = result.warning.expect("no warning");
+        assert!(warning.contains("`express`, `@scope/zod`"), "{warning}");
+        assert!(
+            warning.contains("npm install express @scope/zod"),
+            "{warning}"
+        );
+        assert!(
+            !warning.contains("types-only") && !warning.contains("db"),
+            "{warning}"
+        );
+        // Installed, it resolves; and a file that is not JavaScript is not read.
+        for package in ["express", "@scope/zod"] {
+            std::fs::create_dir_all(root.path().join("node_modules").join(package)).unwrap();
+        }
+        let result = write_file(&policy, Path::new("app/server.js"), server).unwrap();
+        assert_eq!(result.warning, None);
+        let result = write_file(&policy, Path::new("notes.md"), "require('left-pad')").unwrap();
+        assert_eq!(result.warning, None);
+    }
+
     #[test]
     fn what_runs_outside_the_sandbox_can_be_read_but_not_written() {
         let root = tempfile::tempdir().unwrap();
