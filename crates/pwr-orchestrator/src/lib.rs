@@ -3170,6 +3170,14 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
     // Actions from a reply that carried several calls, still to be carried out.
     let mut queued: std::collections::VecDeque<(ActionProposal, Option<String>)> =
         std::collections::VecDeque::new();
+    // What the completion gate asks about: whether the deployment has run
+    // anything beyond a syntax check, whether it changed a file that runs, and
+    // whether it has already been asked to run its work once.
+    let mut ran_something = false;
+    let mut changed_runnable = false;
+    let mut asked_to_run = false;
+    // Files this run created, which a later `write_file` may replace whole.
+    let mut created_here: std::collections::HashSet<String> = std::collections::HashSet::new();
     while step < max_actions {
         turns += 1;
         if turns > u32::from(max_actions) * TURNS_PER_ACTION {
@@ -3186,8 +3194,10 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         }
         // An action queued from a reply that carried several is taken here,
         // without asking the deployment again: it already said what it wants.
+        let mut completion_unseen = false;
         let (action, extra_reads, answering) = if let Some((action, answering)) = queued.pop_front()
         {
+            completion_unseen = matches!(action, ActionProposal::Complete { .. });
             (action, Vec::new(), answering)
         } else {
             // Cancellable, so a turn that goes nowhere can be cut short rather than
@@ -3584,6 +3594,29 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 }),
             });
         }
+        if matches!(action, ActionProposal::Complete { .. })
+            && let Some(reason) = completion_held(
+                completion_unseen,
+                changed_runnable && !ran_something && !asked_to_run,
+                &checks,
+            )
+        {
+            asked_to_run |= !completion_unseen;
+            store
+                .append(
+                    Some(run_id),
+                    "completion.held",
+                    serde_json::json!({"step": step, "reason": reason.kind, "turn": turns}),
+                )
+                .map_err(|e| e.to_string())?;
+            request.messages.push(pwr_domain::ChatMessage {
+                role: "tool".into(),
+                content: serde_json::json!({"not_completed": reason.message}).to_string(),
+                tool_call_id: answering,
+                ..Default::default()
+            });
+            continue;
+        }
         if matches!(action, ActionProposal::Complete { .. }) && !plan.is_empty() {
             // Recorded, not enforced. A plan is explicitly not binding and can
             // be wrong, so a completion declared with steps outstanding is a
@@ -3945,6 +3978,17 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         // checkpointed, so an interrupted run can be reconciled the way an
         // interrupted turn is.
         let command = matches!(action, ActionProposal::RunCommand { .. }).then(|| action.clone());
+        ran_something |= runs_the_work(&action);
+        let action = rewrite_of_own_file(action, &created_here, &policy.root);
+        if let ActionProposal::WriteFile { path, .. } = &action
+            && !policy.root.join(path).exists()
+        {
+            created_here.insert(path.clone());
+        }
+        // Only work this run created: an edit to a program the workspace
+        // already had is judged by the workspace's own checks, as before.
+        changed_runnable |= changes_runnable_file(&action)
+            && action_path(&action).is_some_and(|path| created_here.contains(path));
         let mut outcome = session::perform(
             store,
             run_id,
@@ -5753,6 +5797,138 @@ fn sequential_calls(
                 .map(|action| (action, call.id.clone()))
         })
         .collect()
+}
+
+/// A `write_file` onto a file this run created, as the whole replacement it
+/// means. Measured 2026-09-29: gpt-oss-20b and Qwen2.5-Coder-14B sent
+/// `write_file` again for files they had written minutes earlier -- nine
+/// refusals in one gpt-oss run, and a Qwen2.5 run that ended in the loop. A
+/// conversation already reads it this way (`own_overwrite`); a file the run
+/// found in the workspace still needs its hash, since the run never saw it
+/// whole.
+fn rewrite_of_own_file(
+    action: ActionProposal,
+    created_here: &std::collections::HashSet<String>,
+    root: &std::path::Path,
+) -> ActionProposal {
+    match action {
+        ActionProposal::WriteFile { path, content } if created_here.contains(&path) => {
+            match std::fs::read(root.join(&path)) {
+                Ok(bytes) => ActionProposal::ApplyReplace {
+                    expected_hash: pwr_domain::hash_bytes(&bytes),
+                    path,
+                    replacement: content,
+                },
+                Err(_) => ActionProposal::WriteFile { path, content },
+            }
+        }
+        other => other,
+    }
+}
+
+/// Why a completion was not carried out, said to the deployment.
+struct HeldCompletion {
+    kind: &'static str,
+    message: &'static str,
+}
+
+/// Whether a `complete` waits a turn, and why.
+///
+/// Two cases, both measured 2026-09-29 building small projects from scratch:
+///
+/// - Queued behind other calls of the same reply. Qwen2.5-Coder-14B wrote a
+///   converter, eight runs of it and `complete` in one reply; the runs were
+///   carried out in order and the completion accepted, over outputs it had
+///   never seen -- which showed a conversion factor inverted.
+/// - Nothing built was ever run. Qwen3-14B declared an HTTP API complete that
+///   never answered `GET /todos/1`, and a module whose own tests missed half
+///   the specification, with no command beyond `node --check`. Asked once:
+///   a deployment that cannot see how to run its work still completes on its
+///   next call, and a workspace whose own checks run the work needs no asking,
+///   since they run at completion anyway.
+fn completion_held(
+    unseen_results: bool,
+    never_ran: bool,
+    checks: &[(String, Vec<String>)],
+) -> Option<HeldCompletion> {
+    if unseen_results {
+        return Some(HeldCompletion {
+            kind: "results_unseen",
+            message: "complete was not carried out: it came in the same reply as the actions \
+                      before it, so their results had not been seen yet. They are above. If they \
+                      show the task is done, call complete again; otherwise fix what they show.",
+        });
+    }
+    let checks_run_the_work = checks
+        .iter()
+        .any(|(executable, args)| !syntax_only(executable, args));
+    (never_ran && !checks_run_the_work).then_some(HeldCompletion {
+        kind: "never_ran",
+        message: "not completed yet: what you built has not been run, only checked for syntax, and \
+                  a program can parse and still fail. Run it once the way it will be used -- a \
+                  command-line tool with sample arguments, a module loaded from node, a server \
+                  started with start_service and then called with curl, or its tests -- and \
+                  compare what it does with the specification. Then call complete again. This is \
+                  asked once.",
+    })
+}
+
+/// A check that only parses: `node --check`, `python -m py_compile`,
+/// `bash -n`, `tsc --noEmit`.
+fn syntax_only(executable: &str, args: &[String]) -> bool {
+    let program = std::path::Path::new(executable)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let has = |flag: &str| args.iter().any(|arg| arg == flag);
+    match program.as_str() {
+        "node" | "deno" | "bun" => has("--check") || has("-c"),
+        "python" | "python3" => args
+            .windows(2)
+            .any(|pair| pair[0] == "-m" && pair[1] == "py_compile"),
+        "bash" | "sh" | "zsh" => has("-n"),
+        "tsc" => has("--noEmit"),
+        _ => false,
+    }
+}
+
+/// Whether an action runs the work rather than only parsing it.
+fn runs_the_work(action: &ActionProposal) -> bool {
+    match action {
+        ActionProposal::RunCommand {
+            executable, args, ..
+        } => !syntax_only(executable, args),
+        ActionProposal::StartService { .. } => true,
+        _ => false,
+    }
+}
+
+/// The file an edit writes, if it writes one.
+fn action_path(action: &ActionProposal) -> Option<&String> {
+    match action {
+        ActionProposal::WriteFile { path, .. }
+        | ActionProposal::ApplyReplace { path, .. }
+        | ActionProposal::ReplaceText { path, .. }
+        | ActionProposal::ApplyPatchHunks { path, .. } => Some(path),
+        _ => None,
+    }
+}
+
+/// Whether an action writes a file that is a program, as opposed to a page,
+/// a stylesheet or a document, which have nothing to run.
+fn changes_runnable_file(action: &ActionProposal) -> bool {
+    let Some(path) = action_path(action) else {
+        return false;
+    };
+    let extension = std::path::Path::new(path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    [
+        "js", "mjs", "cjs", "ts", "mts", "cts", "jsx", "tsx", "py", "rb", "go", "rs", "java", "kt",
+        "cs", "php", "sh", "swift", "c", "cc", "cpp", "lua", "pl",
+    ]
+    .contains(&extension.as_str())
 }
 
 /// A model's raw reply read exactly as a run reads it: the family adapter

@@ -254,8 +254,12 @@ proptest! {
             prop_assert_eq!(plan.clamped, effective < requested);
             prop_assert_eq!(plan.answer_reserve, plan.max_tokens - effective);
             prop_assert!(plan.answer_reserve >= ANSWER_RESERVE_MIN.min(room));
-            prop_assert!(u64::from(input_tokens) + u64::from(plan.max_tokens)
-                <= u64::from(context_limit));
+            // A prompt that fills the window leaves no room, and a plan still
+            // asks for one token: that prompt is refused before it is sent.
+            if envelope.room() > 0 {
+                prop_assert!(u64::from(input_tokens) + u64::from(plan.max_tokens)
+                    <= u64::from(context_limit));
+            }
         }
     }
 }
