@@ -517,6 +517,11 @@ pub enum Approval {
     /// every mode that sandboxes, whatever Settings say: it is the boundary
     /// itself, lifted for a command.
     OutsideSandbox,
+    /// Reading, writing or running in a folder outside the workspace --
+    /// its parent, a sibling project -- with PWR's own file tools. Granted
+    /// in Full access, asked about with the exact path otherwise.
+    /// Subfolders are the workspace and need nothing.
+    OutsideWorkspace,
 }
 
 /// Host paths under the real home directory that no run has a reason to read.
@@ -1379,6 +1384,89 @@ pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
 /// `run_command_in` refuses one outright without the grant, which left the
 /// model told "requires an explicit grant" with nobody it could ask for it.
 /// Asked before it runs instead, like any other approval.
+/// `base` joined with `relative`, `..` and `.` folded away without touching
+/// the filesystem.
+fn lexical_join(base: &Path, relative: &Path) -> PathBuf {
+    let mut out = if relative.is_absolute() {
+        PathBuf::new()
+    } else {
+        base.to_path_buf()
+    };
+    for component in relative.components() {
+        match component {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// An absolute path with its deepest existing ancestor canonicalised, so a
+/// link on the way is where it leads.
+fn resolve_existing_ancestor(path: &Path) -> Result<PathBuf, ToolError> {
+    let mut existing = path;
+    let mut trailing = Vec::new();
+    while std::fs::symlink_metadata(existing).is_err() {
+        trailing.push(
+            existing
+                .file_name()
+                .ok_or_else(|| ToolError::Denied("target has no file name".into()))?
+                .to_owned(),
+        );
+        existing = existing
+            .parent()
+            .ok_or_else(|| ToolError::Denied("target has no parent".into()))?;
+    }
+    let mut resolved = existing
+        .canonicalize()
+        .map_err(|_| ToolError::Denied("target parent is unavailable".into()))?;
+    for component in trailing.iter().rev() {
+        resolved.push(component);
+    }
+    Ok(resolved)
+}
+
+/// What an action reaches outside the workspace, if anything, as the question
+/// a person answers: the operation and the exact path. Subfolders never ask;
+/// neither does a declared reference folder, which is readable already.
+pub fn leaves_workspace(
+    action: &ActionProposal,
+    policy: &ToolPolicy,
+) -> Option<(Approval, String)> {
+    let reached: Vec<(&str, &str)> = match action {
+        ActionProposal::ReadFile { path, .. } | ActionProposal::ExtractDocument { path } => {
+            vec![("read", path)]
+        }
+        ActionProposal::ListTree {
+            path: Some(path), ..
+        } => vec![("list", path)],
+        ActionProposal::WriteFile { path, .. }
+        | ActionProposal::ApplyReplace { path, .. }
+        | ActionProposal::ReplaceText { path, .. }
+        | ActionProposal::ApplyPatchHunks { path, .. }
+        | ActionProposal::RestoreFile { path }
+        | ActionProposal::MakeDirectory { path } => vec![("write", path)],
+        ActionProposal::DeletePath { path, .. } => vec![("delete", path)],
+        ActionProposal::MovePath { from, to } => vec![("move", from), ("move to", to)],
+        ActionProposal::RunCommand { cwd: Some(cwd), .. } => vec![("run a command in", cwd)],
+        _ => Vec::new(),
+    };
+    let outside: Vec<String> = reached
+        .into_iter()
+        .filter(|(_, path)| policy.leaves_root(Path::new(path)))
+        .map(|(verb, path)| format!("{verb} {path}"))
+        .collect();
+    (!outside.is_empty()).then(|| {
+        (
+            Approval::OutsideWorkspace,
+            format!("{}, outside the workspace", outside.join(" and ")),
+        )
+    })
+}
+
 pub fn names_a_url(action: &ActionProposal, policy: &ToolPolicy) -> Option<(Approval, String)> {
     let (ActionProposal::RunCommand {
         executable, args, ..
@@ -1663,8 +1751,8 @@ impl ToolPolicy {
         } else {
             format!(
                 "{} is outside the workspace: paths are relative to the workspace root, with \
-                 no leading / and no ... A folder outside is readable only when the workspace \
-                 declares it as a reference folder; none that contains this path is declared.",
+                 no leading / and no ... A folder outside is reachable only when the person \
+                 allows it (Full access, or when asked) or declares it as a reference folder.",
                 relative.display()
             )
         }
@@ -1716,17 +1804,34 @@ impl ToolPolicy {
     pub fn resolve(&self, relative: &Path) -> Result<PathBuf, ToolError> {
         let anchored = self.root_anchored(relative);
         let relative = anchored.as_deref().unwrap_or(relative);
+        let root = self
+            .root
+            .canonicalize()
+            .map_err(|_| ToolError::Denied("workspace root is unavailable".into()))?;
+        let outside_granted = self.approvals.contains(&Approval::OutsideWorkspace);
         if relative.is_absolute()
             || relative
                 .components()
                 .any(|c| matches!(c, Component::ParentDir))
         {
-            return Err(ToolError::Denied(self.escape_refusal(relative)));
+            // Inside after all (`../web/x` from `web`, or its absolute path):
+            // the workspace, needing nothing.
+            let lexical = lexical_join(&root, relative);
+            if lexical.starts_with(&root) {
+                let inside = lexical
+                    .strip_prefix(&root)
+                    .unwrap_or(&lexical)
+                    .to_path_buf();
+                if !inside.as_os_str().is_empty() {
+                    return self.resolve(&inside);
+                }
+                return Ok(root);
+            }
+            if !outside_granted {
+                return Err(ToolError::Denied(self.escape_refusal(relative)));
+            }
+            return resolve_existing_ancestor(&lexical);
         }
-        let root = self
-            .root
-            .canonicalize()
-            .map_err(|_| ToolError::Denied("workspace root is unavailable".into()))?;
         let result = root.join(relative);
         let checked = if result.exists() {
             result
@@ -1764,10 +1869,31 @@ impl ToolPolicy {
             }
             resolved
         };
-        if !checked.starts_with(&root) {
+        if !checked.starts_with(&root) && !outside_granted {
             return Err(ToolError::Denied("path escapes workspace root".into()));
         }
         Ok(checked)
+    }
+
+    /// Whether `relative` names a place outside the workspace: an absolute
+    /// path elsewhere, or `..` climbing above the root. Lexical, for the
+    /// question asked before acting; `resolve` still judges links.
+    pub fn leaves_root(&self, relative: &Path) -> bool {
+        if !relative.is_absolute()
+            && !relative
+                .components()
+                .any(|c| matches!(c, Component::ParentDir))
+        {
+            return false;
+        }
+        if self.root_anchored(relative).is_some() || self.reference_containing(relative).is_some() {
+            return false;
+        }
+        let root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
+        !lexical_join(&root, relative).starts_with(&root)
     }
     /// A path to read, inside the workspace or inside a read-only reference
     /// folder the workspace declared (`extra_readable`).
@@ -6044,9 +6170,23 @@ pub async fn run_command_in(
         Some(dir) => {
             let resolved = policy.resolve(Path::new(dir))?;
             if !resolved.is_dir() {
-                return Err(ToolError::Denied(format!(
-                    "cwd `{dir}` is not a directory in the workspace; list_tree shows what is there"
-                )));
+                // The likeliest slip: the workspace's own name, or a parent's,
+                // written in front of a folder that is there. Measured
+                // 2026-09-29: `web/web` from a workspace named `web`, whose
+                // project was in its subfolder `web`.
+                let parts: Vec<&str> = dir.split('/').filter(|part| !part.is_empty()).collect();
+                let meant = (1..parts.len())
+                    .map(|skip| parts[skip..].join("/"))
+                    .find(|candidate| policy.root.join(candidate).is_dir());
+                return Err(ToolError::Denied(match meant {
+                    Some(meant) => format!(
+                        "cwd `{dir}` is not a folder in the workspace; paths start at the \
+                         workspace root, so it is probably `{meant}`, which is"
+                    ),
+                    None => format!(
+                        "cwd `{dir}` is not a directory in the workspace; list_tree shows what is there"
+                    ),
+                }));
             }
             Some(resolved)
         }

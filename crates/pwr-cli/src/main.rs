@@ -227,6 +227,8 @@ enum ApprovalArg {
     VerifierProposal,
     /// Running a command outside the sandbox, with your full rights.
     OutsideSandbox,
+    /// Reaching a folder outside the workspace.
+    OutsideWorkspace,
 }
 impl From<ApprovalArg> for pwr_tools::Approval {
     fn from(value: ApprovalArg) -> Self {
@@ -240,6 +242,7 @@ impl From<ApprovalArg> for pwr_tools::Approval {
             ApprovalArg::ContainerEngine => Self::ContainerEngine,
             ApprovalArg::VerifierProposal => Self::VerifierProposal,
             ApprovalArg::OutsideSandbox => Self::OutsideSandbox,
+            ApprovalArg::OutsideWorkspace => Self::OutsideWorkspace,
         }
     }
 }
@@ -1093,13 +1096,14 @@ pub(crate) enum PermissionMode {
 }
 
 /// What Standard still asks about: publishing and rewriting history, which
-/// cannot be taken back, and the container engine and a command run outside
-/// the sandbox, which leave it.
-const STANDARD_ASKED: [pwr_tools::Approval; 4] = [
+/// cannot be taken back, and the container engine, a command run outside
+/// the sandbox and a folder outside the workspace, which leave it.
+const STANDARD_ASKED: [pwr_tools::Approval; 5] = [
     pwr_tools::Approval::Publish,
     pwr_tools::Approval::HistoryRewrite,
     pwr_tools::Approval::ContainerEngine,
     pwr_tools::Approval::OutsideSandbox,
+    pwr_tools::Approval::OutsideWorkspace,
 ];
 
 /// The boundary a workspace's commands run in, given its mode.
@@ -1130,10 +1134,12 @@ fn asked_before_by_default() -> Vec<pwr_tools::Approval> {
 /// before it existed does not name it, and "not named" means "granted" --
 /// so without this, a person who had only ever chosen `Ask` would have had
 /// Docker handed to the model without a question the day it was added. The
-/// same holds for running a command outside the sandbox, added 2026-09-29.
-const ALWAYS_ASKED: [pwr_tools::Approval; 2] = [
+/// same holds for running a command outside the sandbox and reaching a
+/// folder outside the workspace, both added 2026-09-29.
+const ALWAYS_ASKED: [pwr_tools::Approval; 3] = [
     pwr_tools::Approval::ContainerEngine,
     pwr_tools::Approval::OutsideSandbox,
+    pwr_tools::Approval::OutsideWorkspace,
 ];
 
 /// The list the old default asked about, before the modes existed. A saved
@@ -1211,6 +1217,7 @@ fn approval_label(approval: pwr_tools::Approval) -> &'static str {
         }
         Approval::VerifierProposal => "adopt a check the model proposes",
         Approval::OutsideSandbox => "run a command outside the sandbox, with your full rights",
+        Approval::OutsideWorkspace => "reach a folder outside the workspace",
     }
 }
 
@@ -1878,6 +1885,7 @@ fn all_approvals() -> Vec<pwr_tools::Approval> {
         ApprovalArg::ContainerEngine,
         ApprovalArg::VerifierProposal,
         ApprovalArg::OutsideSandbox,
+        ApprovalArg::OutsideWorkspace,
     ]
     .into_iter()
     .map(Into::into)

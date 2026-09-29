@@ -72,6 +72,7 @@ pub async fn gate(
         pwr_tools::required_approval(action),
         pwr_tools::names_a_url(action, policy),
         pwr_tools::drives_containers(action, policy),
+        pwr_tools::leaves_workspace(action, policy),
     ]
     .into_iter()
     .flatten()

@@ -64,6 +64,7 @@ export class Permission {
       toolchain_install: 'Runs a program this workspace does not list',
       container_engine: 'Uses Docker — containers run outside the sandbox',
       outside_sandbox: 'Runs a command outside the sandbox, with your full rights',
+      outside_workspace: 'Reaches a folder outside the workspace',
     };
     return labels[kind] ?? kind.replaceAll('_', ' ');
   }
