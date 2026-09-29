@@ -390,7 +390,23 @@ export class Composer implements OnInit, OnDestroy {
     // above it always keeps room.
     const max = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(window.innerHeight * 0.3)));
     const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
-    this.expanded.set(wanted > MIN_HEIGHT + 8);
+    // Once a draft wraps it keeps the tall layout until it is cleared. The
+    // tall layout gives the box the whole width, where the same text fits one
+    // line again; measured there, it flipped back to the pill, whose box is
+    // narrower -- narrower still beside the Goal or Full access note -- and the
+    // second line wrapped out of sight.
+    const was = this.expanded();
+    const tall = wanted > MIN_HEIGHT + 8 || (was && box.value.length > 0);
+    this.expanded.set(tall);
+    box.style.height = `${Math.min(wanted, max)}px`;
+    box.style.overflowY = wanted > max ? 'auto' : 'hidden';
+    // The layout changed the box's width: fit its height to the new one.
+    if (tall !== was) requestAnimationFrame(() => this.fit(box, max));
+  }
+
+  private fit(box: HTMLTextAreaElement, max: number): void {
+    box.style.height = 'auto';
+    const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
     box.style.height = `${Math.min(wanted, max)}px`;
     box.style.overflowY = wanted > max ? 'auto' : 'hidden';
   }
