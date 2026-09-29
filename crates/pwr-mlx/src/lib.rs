@@ -286,6 +286,8 @@ struct Sidecar {
     stdin: Arc<Mutex<ChildStdin>>,
     lines: Lines<BufReader<ChildStdout>>,
     loaded: Option<PathBuf>,
+    /// The position scaling the loaded model was built with, when not its own.
+    loaded_rope: Option<serde_json::Value>,
     next_id: u64,
     /// A request whose reply was not read to its end, because its stream was
     /// dropped. Its remaining lines are drained before the next request.
@@ -358,6 +360,25 @@ pub struct MlxProvider {
     config: MlxConfig,
     sidecar: Arc<Mutex<Option<Sidecar>>>,
     version: Arc<tokio::sync::OnceCell<Option<String>>>,
+}
+
+/// The window last chosen for each model, which decides whether it loads with
+/// its family's context extension. Per process, like the sidecar: PWR builds a
+/// fresh provider value wherever it needs one.
+fn chosen_windows() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, u32>> {
+    static WINDOWS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, u32>>> =
+        std::sync::OnceLock::new();
+    WINDOWS.get_or_init(Default::default)
+}
+
+/// The position scaling `dir` loads with: its family's extension when the
+/// window chosen for it is past the length it was trained to, else none.
+fn rope_for(dir: &Path) -> Option<serde_json::Value> {
+    let window = *chosen_windows().lock().expect("windows").get(dir)?;
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).ok()?).ok()?;
+    let extension = pwr_provider::rope_extension(&config)?;
+    (window > extension.original).then(|| extension.rope_scaling())
 }
 
 /// The one sidecar this process runs, whichever provider value is asking.
@@ -587,6 +608,7 @@ impl MlxProvider {
                 stdin,
                 lines: BufReader::new(stdout).lines(),
                 loaded: None,
+                loaded_rope: None,
                 next_id: 0,
                 pending: None,
             });
@@ -630,12 +652,15 @@ impl MlxProvider {
     ) -> Result<(), ProviderError> {
         self.ensure_started(slot)?;
         let sidecar = slot.as_mut().expect("just started");
-        if sidecar.loaded.as_deref() == Some(dir) {
+        let rope = rope_for(dir);
+        if sidecar.loaded.as_deref() == Some(dir) && sidecar.loaded_rope == rope {
             return Ok(());
         }
-        let id = sidecar
-            .request(serde_json::json!({"op": "load", "path": dir}))
-            .await?;
+        let mut load = serde_json::json!({"op": "load", "path": dir});
+        if let Some(rope) = &rope {
+            load["rope_scaling"] = rope.clone();
+        }
+        let id = sidecar.request(load).await?;
         loop {
             let event = sidecar.event().await?;
             if event["id"].as_u64() != Some(id) {
@@ -644,6 +669,7 @@ impl MlxProvider {
             match event["event"].as_str() {
                 Some("loaded") => {
                     sidecar.loaded = Some(dir.to_path_buf());
+                    sidecar.loaded_rope = rope;
                     return Ok(());
                 }
                 _ => {
@@ -1434,11 +1460,22 @@ impl ModelProvider for MlxProvider {
     /// its cache as the prompt grows. What bounds it is memory, which the
     /// computed window already accounts for, so the window asked for is the
     /// window in force.
+    ///
+    /// The one exception is a window past the model's trained length that its
+    /// family's extension reaches (YaRN): the positions are built at load, so
+    /// the window chosen is remembered and the model loaded with it when the
+    /// next request comes -- and again without it when the window comes back.
     async fn prepare_context(
         &self,
-        _deployment: &DeploymentDescriptor,
+        deployment: &DeploymentDescriptor,
         context_tokens: u32,
     ) -> Result<u32, ProviderError> {
+        if let Ok(dir) = self.config.model_dir(&deployment.model_ref) {
+            chosen_windows()
+                .lock()
+                .expect("windows")
+                .insert(dir, context_tokens);
+        }
         Ok(context_tokens)
     }
 }

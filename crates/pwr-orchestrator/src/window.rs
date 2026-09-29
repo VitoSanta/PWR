@@ -72,6 +72,11 @@ pub struct ModelShape {
     /// attention is fused; `None` when the engine cannot say. See `decide`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefill_scores_bytes: Option<u64>,
+    /// How far the family's published extension (YaRN) takes it past
+    /// `trained_max`, when the config leaves it off; used only for a window
+    /// the person chose longer than the trained length.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extended_max: Option<u32>,
 }
 
 impl ModelShape {
@@ -92,6 +97,7 @@ impl ModelShape {
             kv_bytes_per_token: kv_bytes_per_token(text, config),
             weights_bytes: None,
             prefill_scores_bytes: None,
+            extended_max: pwr_provider::rope_extension(config).map(|extension| extension.extended),
         }
     }
 
@@ -140,6 +146,7 @@ impl ModelShape {
             kv_bytes_per_token,
             weights_bytes: None,
             prefill_scores_bytes: None,
+            extended_max: None,
         }
     }
 
@@ -158,6 +165,7 @@ impl ModelShape {
             kv_bytes_per_token: parsed.kv_bytes_per_token,
             weights_bytes: facts.weights_bytes,
             prefill_scores_bytes: facts.prefill_scores_bytes,
+            extended_max: parsed.extended_max,
         }
     }
 
@@ -167,6 +175,7 @@ impl ModelShape {
             kv_bytes_per_token: None,
             weights_bytes: None,
             prefill_scores_bytes: None,
+            extended_max: None,
         }
     }
 }
@@ -385,10 +394,19 @@ pub fn decide(
         }
         _ => Limit::Unknown,
     };
+    // A window chosen past the trained length, for a family with a published
+    // extension (YaRN), is held to the extension's length instead: the engine
+    // applies it for such a window (see `pwr_provider::rope_extension`). Left
+    // to its default, a model keeps the length it was trained to.
+    let extended = match (setting, shape.trained_max, shape.extended_max) {
+        (Some(chosen), Some(trained), Some(extended)) if chosen > trained => Some(extended),
+        _ => None,
+    };
+    let trained = extended.or(shape.trained_max);
     let ceilings = vec![
         (
             Ceiling::Trained,
-            shape.trained_max.map_or(Limit::Unknown, Limit::Tokens),
+            trained.map_or(Limit::Unknown, Limit::Tokens),
         ),
         (Ceiling::Memory, memory),
         (
@@ -427,6 +445,9 @@ pub fn decide(
     };
     let tokens = (tokens / WINDOW_GRANULARITY * WINDOW_GRANULARITY).max(WINDOW_GRANULARITY);
     let rationale = match bound_by {
+        Some(Ceiling::Trained) if extended.is_some() => {
+            "the length the model's YaRN extension reaches".to_owned()
+        }
         Some(Ceiling::Trained) => "the model's trained length".to_owned(),
         Some(Ceiling::Memory) => match shape.prefill_scores_bytes {
             Some(_) => "what fits in memory after the weights, the host's reserve and prefill's \
@@ -447,6 +468,15 @@ pub fn decide(
              model needs per token could not be computed from what the backend reports"
         ),
         None => unreachable!("the fallback ceiling is always known when memory is not"),
+    };
+    // Past the trained length the positions are the extension's: said, since
+    // static YaRN costs a little on short text.
+    let rationale = match shape.trained_max {
+        Some(native) if extended.is_some() && tokens > native => format!(
+            "{rationale}; past the {native} tokens it was trained to, with YaRN, which costs a \
+             little quality on short text"
+        ),
+        _ => rationale,
     };
     Ok(WindowDecision {
         tokens,
@@ -611,6 +641,30 @@ mod tests {
         let decision = decide(&shape, Some(&host), None, None).unwrap();
         assert_eq!(decision.bound_by, Some(Ceiling::Memory));
         assert!(decision.tokens > 150_000, "{}", decision.tokens);
+    }
+
+    #[test]
+    fn a_qwen25_window_goes_past_32k_only_when_chosen_and_says_so() {
+        // lmstudio-community/Qwen2.5-Coder-14B-Instruct-MLX-4bit, reduced.
+        let config = serde_json::json!({
+            "model_type": "qwen2", "num_hidden_layers": 48, "num_attention_heads": 40,
+            "num_key_value_heads": 8, "hidden_size": 5120, "max_position_embeddings": 32768,
+            "rope_scaling": null, "torch_dtype": "bfloat16",
+        });
+        let mut shape = ModelShape::from_config(&config);
+        assert_eq!(shape.extended_max, Some(131_072));
+        shape.weights_bytes = Some(8_300_000_000);
+        shape.prefill_scores_bytes = Some(0);
+        let host = HostBudget::with_default_reserve(64 * GIB);
+        let default = decide(&shape, Some(&host), None, None).unwrap();
+        assert_eq!((default.tokens, default.bound_by), (32_768, Some(Ceiling::Trained)));
+        assert!(!default.rationale.contains("YaRN"));
+        let chosen = decide(&shape, Some(&host), None, Some(65_536)).unwrap();
+        assert_eq!((chosen.tokens, chosen.bound_by), (65_536, Some(Ceiling::Setting)));
+        assert!(chosen.rationale.contains("YaRN"), "{}", chosen.rationale);
+        let most = decide(&shape, Some(&host), None, Some(131_072)).unwrap();
+        assert_eq!(most.bound_by, Some(Ceiling::Memory));
+        assert!(most.tokens > 100_000 && most.tokens < 131_072, "{}", most.tokens);
     }
 
     #[test]
@@ -861,6 +915,7 @@ mod tests {
             kv_bytes_per_token: Some(262_144),
             weights_bytes: Some(20_337_267_064),
             prefill_scores_bytes: Some(0),
+            extended_max: None,
         };
         let decision = decide(&seed, Some(&host), None, None).unwrap();
         assert_eq!(decision.bound_by, Some(Ceiling::Memory));
@@ -882,6 +937,7 @@ mod tests {
             kv_bytes_per_token: Some(20_480),
             weights_bytes: Some(20_402_204_271),
             prefill_scores_bytes: Some(41_747_087_360 / 4),
+            extended_max: None,
         };
         let decision = decide(&qwen, Some(&host), None, None).unwrap();
         assert_eq!(decision.bound_by, Some(Ceiling::Trained));
@@ -903,6 +959,7 @@ mod tests {
             kv_bytes_per_token: Some(262_144),
             weights_bytes: Some(20_337_267_064),
             prefill_scores_bytes: None,
+            extended_max: None,
         };
         let decision = decide(&seed, Some(&host), None, None).unwrap();
         assert_eq!(decision.tokens, 23_552);

@@ -15,8 +15,9 @@ other backend. Policy, sandbox and audit stay in PWR.
 
 Protocol. One JSON object per line in each direction.
 
-  -> {"id": 1, "op": "load", "path": "/path/to/model"}
-  <- {"id": 1, "event": "loaded", "model_type": "...", "weights_bytes": N, "vision": bool}
+  -> {"id": 1, "op": "load", "path": "/path/to/model", "rope_scaling": {...} | absent}
+  <- {"id": 1, "event": "loaded", "model_type": "...", "weights_bytes": N, "vision": bool,
+      "rope_scaling": {...} | null}
 
 A message's content is a string, or a list of parts: {"type": "text", "text":
 "..."} and {"type": "image", "path": "/abs/file.png"} or {"type": "image",
@@ -610,7 +611,14 @@ class Engine:
             self.model = VisionText(vlm)
             self.tokenizer = load_tokenizer(path, NO_REMOTE_CODE)
         else:
-            self.model, self.tokenizer = load(str(path), tokenizer_config=NO_REMOTE_CODE)
+            # A context extension the family publishes and the config leaves
+            # off (YaRN), when PWR's window goes past the trained length: given
+            # to the model as it is built, the files untouched.
+            rope = request.get("rope_scaling")
+            self.model, self.tokenizer = load(
+                str(path), tokenizer_config=NO_REMOTE_CODE,
+                model_config={"rope_scaling": rope} if rope else None)
+        self.rope_scaling = request.get("rope_scaling") if self.processor is None else None
         self.path = path
         self.cache = None
         self.checkpoint = None
@@ -627,6 +635,7 @@ class Engine:
             "model_type": config.get("model_type"),
             "weights_bytes": weights,
             "vision": self.processor is not None,
+            "rope_scaling": self.rope_scaling,
         }
 
     def render(self, messages, tools, thinking, generation_prompt: bool,
