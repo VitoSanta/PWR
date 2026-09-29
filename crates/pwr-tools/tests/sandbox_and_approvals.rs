@@ -188,8 +188,16 @@ fn a_sandbox_refusal_says_it_was_the_sandbox() {
     ))
     .unwrap();
     assert!(result.sandboxed);
-    assert!(result.stderr.contains("Operation not permitted"), "{result:?}");
-    assert!(result.stderr.contains("[PWR] This command ran in the sandbox"), "{result:?}");
+    assert!(
+        result.stderr.contains("Operation not permitted"),
+        "{result:?}"
+    );
+    assert!(
+        result
+            .stderr
+            .contains("[PWR] This command ran in the sandbox"),
+        "{result:?}"
+    );
     assert!(result.stderr.contains("outside_sandbox"), "{result:?}");
 }
 
@@ -1362,7 +1370,11 @@ fn dotnet_build_runs_its_build_nodes_in_the_sandbox() {
             format!(r#"<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>{kind}</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup>{reference}</Project>"#),
         )
         .unwrap();
-        let body = if kind == "Exe" { "System.Console.WriteLine(\"hi\");" } else { "public static class Marker { }" };
+        let body = if kind == "Exe" {
+            "System.Console.WriteLine(\"hi\");"
+        } else {
+            "public static class Marker { }"
+        };
         fs::write(dir.join("Code.cs"), body).unwrap();
     };
     project("Shared", "Library", None);
@@ -1378,10 +1390,21 @@ fn dotnet_build_runs_its_build_nodes_in_the_sandbox() {
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
             .output()
             .unwrap();
-        assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+        assert!(
+            status.status.success(),
+            "{}",
+            String::from_utf8_lossy(&status.stderr)
+        );
     };
     setup(&["new", "sln", "--name", "Hello", "--format", "sln"]);
-    setup(&["sln", "Hello.sln", "add", "Shared/Shared.csproj", "Client/Client.csproj", "App/App.csproj"]);
+    setup(&[
+        "sln",
+        "Hello.sln",
+        "add",
+        "Shared/Shared.csproj",
+        "Client/Client.csproj",
+        "App/App.csproj",
+    ]);
     let mut policy = policy(root.path());
     policy.sandbox = SandboxPolicy::Required;
     policy.timeout = Duration::from_secs(150);
@@ -1395,11 +1418,18 @@ fn dotnet_build_runs_its_build_nodes_in_the_sandbox() {
         let result = block_on(run_command(
             &policy,
             dotnet.to_str().unwrap(),
-            &["build".into(), "Hello.sln".into(), "--no-incremental".into()],
+            &[
+                "build".into(),
+                "Hello.sln".into(),
+                "--no-incremental".into(),
+            ],
         ))
         .unwrap();
         assert!(result.sandboxed);
-        assert!(!result.stdout.contains("NamedPipeServerStream"), "{result:?}");
+        assert!(
+            !result.stdout.contains("NamedPipeServerStream"),
+            "{result:?}"
+        );
         assert_eq!(result.exit_code, Some(0), "{result:?}");
     }
 }

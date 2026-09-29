@@ -82,7 +82,10 @@ impl RopeExtension {
 /// the config does not already scale its positions.
 pub fn rope_extension(config: &serde_json::Value) -> Option<RopeExtension> {
     let text = config.get("text_config").unwrap_or(config);
-    if text.get("rope_scaling").is_some_and(|scaling| !scaling.is_null()) {
+    if text
+        .get("rope_scaling")
+        .is_some_and(|scaling| !scaling.is_null())
+    {
         return None;
     }
     let model_type = text
@@ -610,9 +613,17 @@ mod rope_tests {
         let extension = crate::rope_extension(&qwen25).unwrap();
         assert_eq!((extension.original, extension.extended), (32_768, 131_072));
         assert_eq!(extension.rope_scaling()["type"], "yarn");
-        assert!(crate::rope_extension(&serde_json::json!({"model_type": "qwen3", "max_position_embeddings": 32768})).is_some());
+        assert!(
+            crate::rope_extension(
+                &serde_json::json!({"model_type": "qwen3", "max_position_embeddings": 32768})
+            )
+            .is_some()
+        );
         // Qwen3-14B's config says 40960; YaRN still starts from 32768.
-        let qwen3 = crate::rope_extension(&serde_json::json!({"model_type": "qwen3", "max_position_embeddings": 40960})).unwrap();
+        let qwen3 = crate::rope_extension(
+            &serde_json::json!({"model_type": "qwen3", "max_position_embeddings": 40960}),
+        )
+        .unwrap();
         assert_eq!((qwen3.original, qwen3.extended), (32_768, 131_072));
         for config in [
             serde_json::json!({"model_type": "qwen2", "max_position_embeddings": 32768, "rope_scaling": {"type": "yarn", "factor": 4.0}}),

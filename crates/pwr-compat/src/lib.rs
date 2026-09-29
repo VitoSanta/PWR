@@ -1001,7 +1001,12 @@ mod tests {
         assert_eq!(canonical.tool_calls[0].name, "read_file");
         assert_eq!(canonical.tool_calls[0].arguments["path"], "src/parser.rs");
         assert!(canonical.narrative.is_empty(), "{}", canonical.narrative);
-        assert!(canonical.diagnostics.iter().any(|d| d.kind == "qwen_tools_tag_tool_call"));
+        assert!(
+            canonical
+                .diagnostics
+                .iter()
+                .any(|d| d.kind == "qwen_tools_tag_tool_call")
+        );
         // A <tools> block that is not a call stays text; nothing is invented.
         let prose = QwenFamilyAdapter.normalize(&reply("Use <tools>the read tool</tools> next."));
         assert!(prose.tool_calls.is_empty());

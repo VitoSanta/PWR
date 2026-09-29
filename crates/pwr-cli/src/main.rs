@@ -6486,7 +6486,8 @@ async fn probe_edit_once(
             expected_hash,
             replacement,
         } => {
-            let applied = pwr_tools::apply_replace(&policy, Path::new(&path), &expected_hash, &replacement);
+            let applied =
+                pwr_tools::apply_replace(&policy, Path::new(&path), &expected_hash, &replacement);
             (path, applied, "apply_replace")
         }
         pwr_tools::ActionProposal::ReplaceText {
@@ -6495,7 +6496,8 @@ async fn probe_edit_once(
             find,
             replace,
         } => {
-            let applied = pwr_tools::replace_text(&policy, Path::new(&path), &expected_hash, &find, &replace);
+            let applied =
+                pwr_tools::replace_text(&policy, Path::new(&path), &expected_hash, &find, &replace);
             (path, applied, "replace_text")
         }
         pwr_tools::ActionProposal::ApplyPatchHunks {

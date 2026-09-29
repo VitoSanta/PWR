@@ -249,7 +249,11 @@ fn kv_bytes_per_token(text: &serde_json::Value, config: &serde_json::Value) -> O
 
 fn cache_element_bytes(text: &serde_json::Value) -> Option<u64> {
     // Newer configs say `dtype` where older ones said `torch_dtype`.
-    match text.get("torch_dtype").or_else(|| text.get("dtype"))?.as_str()? {
+    match text
+        .get("torch_dtype")
+        .or_else(|| text.get("dtype"))?
+        .as_str()?
+    {
         "float32" => Some(4),
         "float16" | "bfloat16" => Some(2),
         _ => None,
@@ -588,7 +592,13 @@ mod tests {
     /// the fields that matter: fifty sliding layers, ten full ones every sixth.
     fn gemma4_31b() -> serde_json::Value {
         let types: Vec<_> = (0..60)
-            .map(|layer| if layer % 6 == 5 { "full_attention" } else { "sliding_attention" })
+            .map(|layer| {
+                if layer % 6 == 5 {
+                    "full_attention"
+                } else {
+                    "sliding_attention"
+                }
+            })
             .collect();
         serde_json::json!({
             "model_type": "gemma4",
@@ -619,7 +629,10 @@ mod tests {
         // Without keys doubling as values, the full layers keep every KV head.
         let mut config = gemma4_31b();
         config["text_config"]["attention_k_eq_v"] = serde_json::json!(false);
-        assert_eq!(ModelShape::from_config(&config).kv_bytes_per_token, Some(10 * 16 * 512 * 2 * 2));
+        assert_eq!(
+            ModelShape::from_config(&config).kv_bytes_per_token,
+            Some(10 * 16 * 512 * 2 * 2)
+        );
     }
 
     #[test]
@@ -628,7 +641,10 @@ mod tests {
         let mut config = gemma4_31b();
         config["text_config"]["num_kv_shared_layers"] = serde_json::json!(20);
         // Six full layers among the first forty.
-        assert_eq!(ModelShape::from_config(&config).kv_bytes_per_token, Some(6 * 4 * 512 * 2 * 2));
+        assert_eq!(
+            ModelShape::from_config(&config).kv_bytes_per_token,
+            Some(6 * 4 * 512 * 2 * 2)
+        );
     }
 
     #[test]
@@ -657,14 +673,24 @@ mod tests {
         shape.prefill_scores_bytes = Some(0);
         let host = HostBudget::with_default_reserve(64 * GIB);
         let default = decide(&shape, Some(&host), None, None).unwrap();
-        assert_eq!((default.tokens, default.bound_by), (32_768, Some(Ceiling::Trained)));
+        assert_eq!(
+            (default.tokens, default.bound_by),
+            (32_768, Some(Ceiling::Trained))
+        );
         assert!(!default.rationale.contains("YaRN"));
         let chosen = decide(&shape, Some(&host), None, Some(65_536)).unwrap();
-        assert_eq!((chosen.tokens, chosen.bound_by), (65_536, Some(Ceiling::Setting)));
+        assert_eq!(
+            (chosen.tokens, chosen.bound_by),
+            (65_536, Some(Ceiling::Setting))
+        );
         assert!(chosen.rationale.contains("YaRN"), "{}", chosen.rationale);
         let most = decide(&shape, Some(&host), None, Some(131_072)).unwrap();
         assert_eq!(most.bound_by, Some(Ceiling::Memory));
-        assert!(most.tokens > 100_000 && most.tokens < 131_072, "{}", most.tokens);
+        assert!(
+            most.tokens > 100_000 && most.tokens < 131_072,
+            "{}",
+            most.tokens
+        );
     }
 
     #[test]

@@ -381,7 +381,9 @@ fn rope_for(dir: &Path) -> Option<serde_json::Value> {
     // Past what the config itself holds -- 40,960 for Qwen3, whose YaRN
     // still counts from 32,768 -- never at the default window.
     let text = config.get("text_config").unwrap_or(&config);
-    let holds = text["max_position_embeddings"].as_u64().unwrap_or(u64::from(extension.original));
+    let holds = text["max_position_embeddings"]
+        .as_u64()
+        .unwrap_or(u64::from(extension.original));
     (u64::from(window) > holds).then(|| extension.rope_scaling())
 }
 
