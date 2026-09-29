@@ -6390,8 +6390,11 @@ pub async fn run_command_in(
             args.join(" ")
         )));
     }
+    // Quotes around the folder are the shell's, not part of its name.
+    // Measured 2026-09-29: Ornith-1.5-9B sent `"."` and the workspace's own
+    // absolute path in quotes, and both were refused as missing folders.
     let cwd = match cwd
-        .map(str::trim)
+        .map(|dir| dir.trim().trim_matches(|c| c == '"' || c == '\''))
         .filter(|dir| !dir.is_empty() && *dir != ".")
     {
         None => None,
@@ -7689,6 +7692,19 @@ mod tests {
         ));
         assert!(!looks_like_a_server("npm", &["test".into()], "1 passing"));
         assert!(!looks_like_a_server("cargo", none, ""));
+    }
+
+    #[tokio::test]
+    async fn a_quoted_cwd_is_the_folder_it_names() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("site")).unwrap();
+        let mut policy = PolicyProfile::Development.build(root.path().to_path_buf());
+        policy.allow_commands.push("pwd".into());
+        policy.sandbox = SandboxPolicy::Disabled;
+        for cwd in ["\".\"", "'site'", "\"site\""] {
+            let ran = run_command_in(&policy, "pwd", &[], None, Some(cwd)).await;
+            assert!(ran.is_ok(), "{cwd}: {ran:?}");
+        }
     }
 
     #[test]
