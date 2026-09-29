@@ -6475,26 +6475,53 @@ async fn probe_edit_once(
             };
         }
     };
-    let pwr_tools::ActionProposal::ApplyReplace {
-        path,
-        expected_hash: proposed_hash,
-        replacement,
-    } = action
-    else {
-        return Observation::Unknown {
-            reason: "edit call did not decode to an apply_replace action".into(),
-        };
+    // Any of the edits PWR carries out is an edit. Measured 2026-09-29:
+    // Ornith-1.5-9B read probe.rs, then called apply_replace with `find` and
+    // `replace` -- a targeted edit, with the right hash -- which decodes to
+    // replace_text, and the probe, taking only a whole-file replacement,
+    // recorded three trials as unable to edit and kept it out of every suite.
+    let (path, applied, form) = match action {
+        pwr_tools::ActionProposal::ApplyReplace {
+            path,
+            expected_hash,
+            replacement,
+        } => {
+            let applied = pwr_tools::apply_replace(&policy, Path::new(&path), &expected_hash, &replacement);
+            (path, applied, "apply_replace")
+        }
+        pwr_tools::ActionProposal::ReplaceText {
+            path,
+            expected_hash,
+            find,
+            replace,
+        } => {
+            let applied = pwr_tools::replace_text(&policy, Path::new(&path), &expected_hash, &find, &replace);
+            (path, applied, "replace_text")
+        }
+        pwr_tools::ActionProposal::ApplyPatchHunks {
+            path,
+            expected_hash,
+            hunks,
+        } => {
+            let applied = pwr_tools::apply_patch(&policy, Path::new(&path), &expected_hash, &hunks);
+            (path, applied, "apply_patch")
+        }
+        _ => {
+            return Observation::Unknown {
+                reason: "edit call did not decode to an edit action".into(),
+            };
+        }
     };
     // The edit is applied for real, in a throwaway workspace: a call the hash
     // guard refuses is not evidence of an edit capability.
-    match pwr_tools::apply_replace(&policy, Path::new(&path), &proposed_hash, &replacement) {
+    match applied {
         Ok(result) => Observation::Observed(serde_json::json!({
             "path": path,
+            "form": form,
             "reads_before_edit": reads_before_edit,
             "hash_guard_satisfied": true,
             "previous_hash": result.previous_hash,
             "new_hash": result.new_hash,
-            "replacement_bytes": replacement.len(),
         })),
         Err(error) => Observation::Unknown {
             reason: format!("proposed edit was refused by policy: {error}"),
