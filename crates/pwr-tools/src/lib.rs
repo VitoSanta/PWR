@@ -568,8 +568,8 @@ pub const TOOLCHAINS_DIRECTORY: &str = ".toolchains";
 /// the first thing it does -- NuGet's migrations -- takes such a mutex.
 /// Measured 2026-09-26: every `dotnet` command in the sandbox died in 100 ms
 /// with EPERM on `/tmp/.dotnet/shm`, so a C# project could not even build.
-/// What the directory holds are lock files; opening it is what .NET needs and
-/// nothing more.
+/// Newer .NET SDKs also create `/tmp/.dotnet.XXXXXX` directories before the
+/// mutex exists. Their narrowly named temporary paths are allowed below.
 const RUNTIME_WRITABLE: [&str; 2] = ["/private/tmp/.dotnet", BROWSER_SCRATCH];
 
 /// What one stream of a command keeps: the first and last 8 KiB, where the
@@ -2171,12 +2171,17 @@ impl ToolPolicy {
         // allowlist follows its blanket denial and the credential denial
         // follows the allowlist -- otherwise a key under a readable toolchain
         // directory would be readable again.
-        let runtime_writes: String = RUNTIME_WRITABLE
+        let mut runtime_writes: String = RUNTIME_WRITABLE
             .iter()
             .filter_map(|path| quotable(Path::new(path)))
             .chain(apple_temp)
             .map(|path| format!("(allow file-write* {path})"))
             .collect();
+        // NuGet's first-run migration uses mkdtemp("/tmp/.dotnet.XXXXXX")
+        // even with HOME and TMPDIR inside the workspace. Seatbelt checks the
+        // created path, so allow only that runtime's temporary directories.
+        runtime_writes
+            .push_str(r#"(allow file-write* (regex #"^/private/tmp/[.]dotnet[.][^/]+(/|$)"))"#);
         Some(format!(
             "(version 1)(allow default)(deny file-write*)(allow file-write* (subpath \"{root}\")){runtime_writes}{harness_state_writes}(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\")){reads}{secrets}{network}"
         ))
@@ -4032,6 +4037,10 @@ pub async fn look_at(
     ));
     std::fs::create_dir_all(&temporary)?;
     let mut command = browsing.prepare_command(&browser_path, &args)?;
+    // Chromium asks CoreFoundation for the user's application-support path
+    // before --user-data-dir is applied. On hosted macOS the real home is not
+    // readable in PWR's sandbox; HOME alone does not change NSHomeDirectory.
+    command.env("CFFIXED_USER_HOME", root.join(SCRATCH_DIRECTORY));
     // Chromium on macOS takes its temporary directory from here, not TMPDIR.
     command.env("MAC_CHROMIUM_TMPDIR", &temporary);
     let browser_log = std::fs::File::create(scratch.join("browser-stderr.log"))?;

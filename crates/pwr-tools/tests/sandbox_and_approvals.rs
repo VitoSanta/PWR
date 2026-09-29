@@ -1263,6 +1263,37 @@ fn dotnet_runs_in_the_sandbox_on_its_first_run() {
     assert_eq!(result.exit_code, Some(0), "{result:?}");
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn dotnet_first_run_can_create_its_narrow_tmp_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.sandbox = SandboxPolicy::Required;
+    let result = block_on(async {
+        policy
+            .prepare_command(
+                "/usr/bin/mktemp",
+                &["-d".into(), "/tmp/.dotnet.XXXXXX".into()],
+            )
+            .unwrap()
+            .output()
+            .await
+            .unwrap()
+    });
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let created = PathBuf::from(String::from_utf8(result.stdout).unwrap().trim());
+    let path = created.to_string_lossy();
+    assert!(
+        path.starts_with("/tmp/.dotnet.") || path.starts_with("/private/tmp/.dotnet."),
+        "{path}"
+    );
+    fs::remove_dir(created).unwrap();
+}
+
 /// What the sandbox's refusal actually looks like from the tools a run
 /// reaches for, so the conversation can tell it from any other failure. No
 /// traffic leaves the machine: the network is denied throughout.
