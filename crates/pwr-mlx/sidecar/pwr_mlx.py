@@ -76,7 +76,9 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 import mlx.core as mx
 import mlx.nn as nn
 from mlx_lm import load, stream_generate
-from mlx_lm.models.cache import can_trim_prompt_cache, make_prompt_cache, trim_prompt_cache
+from mlx_lm.models.cache import (
+    RotatingKVCache, can_trim_prompt_cache, make_prompt_cache, trim_prompt_cache,
+)
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.utils import load_tokenizer
 
@@ -132,6 +134,22 @@ def vlm_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+def stays_trimmable(cache) -> bool:
+    """Whether a cache can still be cut back once a prompt is in it.
+
+    A sliding-window layer's cache (`RotatingKVCache`) can be cut back only
+    while it holds less than its window, so asking an empty one says yes and
+    is wrong a prompt later. That is what `resume` asked, before its prefill:
+    gpt-oss (128-token windows) kept no copy, could not be cut back on the
+    next step either, and prefilled the whole conversation every step --
+    measured 2026-09-29, 0 tokens reused at 50k, two minutes a step for two
+    hours. So a cache with such a layer keeps its copy, judged by kind.
+    """
+    return can_trim_prompt_cache(cache) and not any(
+        isinstance(layer, RotatingKVCache) for layer in cache
+    )
 
 
 def trace(record: dict) -> None:
@@ -714,7 +732,7 @@ class Engine:
         # Qwen 3.5/3.6's linear-attention layers, and a model reading images,
         # cannot be cut back: for them the prompt's state is copied, to be
         # restored when the next prompt extends this one.
-        keeps_copy = isinstance(self.model, VisionText) or not can_trim_prompt_cache(self.cache)
+        keeps_copy = isinstance(self.model, VisionText) or not stays_trimmable(self.cache)
         cut = max(reused, self.checkpoint_point(base)) if keeps_copy else len(base)
         try:
             self.prefill(base[reused:cut], reused, progress)
