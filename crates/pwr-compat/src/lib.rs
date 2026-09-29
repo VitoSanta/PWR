@@ -521,6 +521,177 @@ impl ModelBehaviorAdapter for SeedFamilyAdapter {
 /// commentary to=functions.read_file <|constrain|>json<|message|>{"path":…}`.
 pub struct HarmonyAdapter;
 
+/// Gemma 4's chat template writes calls as
+/// `<|tool_call>call:name{key:<|"|>value<|"|>}<tool_call|>`.
+pub struct Gemma4Adapter;
+
+impl ModelBehaviorAdapter for Gemma4Adapter {
+    fn id(&self) -> &'static str {
+        "gemma4"
+    }
+    fn version(&self) -> &'static str {
+        "gemma4-v2"
+    }
+
+    fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
+        let mut canonical = CanonicalReply::verbatim(reply);
+        let backend_parsed_calls = !canonical.tool_calls.is_empty();
+        let mut content = reply.content.clone();
+        while let Some(start) = content.find("<|channel>thought") {
+            let after = start + "<|channel>thought".len();
+            let Some(end) = content[after..].find("<channel|>") else {
+                canonical.diagnostics.push(Diagnostic {
+                    kind: "gemma_unterminated_thought",
+                    detail: "a thought channel had no closing marker".into(),
+                });
+                content.truncate(start);
+                break;
+            };
+            let end = after + end;
+            if !canonical.thinking.is_empty() {
+                canonical.thinking.push('\n');
+            }
+            canonical.thinking.push_str(content[after..end].trim());
+            content.replace_range(start..end + "<channel|>".len(), "");
+        }
+        // Some Gemma 4 continuations start inside the thought channel. In
+        // that case the opening token is in the prompt, not the generated
+        // reply, but the closing marker still separates thought from answer.
+        if let Some(end) = content
+            .rfind("<channel|>")
+            .filter(|end| !content[..*end].contains("<|tool_call>"))
+        {
+            let thought = content[..end].trim();
+            if !thought.is_empty() {
+                if !canonical.thinking.is_empty() {
+                    canonical.thinking.push('\n');
+                }
+                canonical.thinking.push_str(thought);
+            }
+            content = content[end + "<channel|>".len()..].to_owned();
+            canonical.diagnostics.push(Diagnostic {
+                kind: "gemma_implicit_thought",
+                detail: "a thought channel began in the prompt and ended in the reply".into(),
+            });
+        }
+        let mut rest = content.as_str();
+        let mut narrative = String::new();
+        while let Some(start) = rest.find("<|tool_call>") {
+            narrative.push_str(&rest[..start]);
+            let after = &rest[start + "<|tool_call>".len()..];
+            let Some(end) = after.find("<tool_call|>") else {
+                canonical.diagnostics.push(Diagnostic {
+                    kind: "gemma_unterminated_tool_call",
+                    detail: "a tool call had no closing marker".into(),
+                });
+                canonical.narrative = narrative;
+                return canonical;
+            };
+            let body = after[..end].trim();
+            if let Some((name, arguments)) = gemma_call(body) {
+                if !backend_parsed_calls {
+                    canonical.tool_calls.push(ToolCall {
+                        name,
+                        arguments,
+                        id: None,
+                    });
+                }
+            } else {
+                canonical.diagnostics.push(Diagnostic {
+                    kind: "gemma_undecodable_tool_call",
+                    detail: "a tool call could not be parsed".into(),
+                });
+            }
+            rest = &after[end + "<tool_call|>".len()..];
+        }
+        narrative.push_str(rest);
+        canonical.narrative = narrative
+            .replace("<turn|>", "")
+            .replace("<|channel>final\n", "")
+            .trim()
+            .to_owned();
+        canonical
+    }
+}
+
+fn gemma_call(body: &str) -> Option<(String, serde_json::Value)> {
+    let body = body.strip_prefix("call:")?;
+    let brace = body.find('{')?;
+    let name = body[..brace].trim();
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        return None;
+    }
+    let mut parser = GemmaValue {
+        rest: &body[brace..],
+    };
+    let arguments = parser.value()?;
+    (parser.rest.trim().is_empty() && arguments.is_object()).then(|| (name.to_owned(), arguments))
+}
+
+struct GemmaValue<'a> {
+    rest: &'a str,
+}
+
+impl GemmaValue<'_> {
+    fn value(&mut self) -> Option<serde_json::Value> {
+        self.rest = self.rest.trim_start();
+        if let Some(after) = self.rest.strip_prefix("<|\"|>") {
+            let end = after.find("<|\"|>")?;
+            self.rest = &after[end + "<|\"|>".len()..];
+            return Some(serde_json::Value::String(after[..end].to_owned()));
+        }
+        if let Some(after) = self.rest.strip_prefix('{') {
+            self.rest = after;
+            let mut map = serde_json::Map::new();
+            loop {
+                self.rest = self.rest.trim_start();
+                if let Some(after) = self.rest.strip_prefix('}') {
+                    self.rest = after;
+                    return Some(serde_json::Value::Object(map));
+                }
+                let colon = self.rest.find(':')?;
+                let key = self.rest[..colon].trim();
+                if key.is_empty() {
+                    return None;
+                }
+                self.rest = &self.rest[colon + 1..];
+                map.insert(key.to_owned(), self.value()?);
+                self.rest = self.rest.trim_start();
+                if let Some(after) = self.rest.strip_prefix(',') {
+                    self.rest = after;
+                } else if !self.rest.starts_with('}') {
+                    return None;
+                }
+            }
+        }
+        if let Some(after) = self.rest.strip_prefix('[') {
+            self.rest = after;
+            let mut values = Vec::new();
+            loop {
+                self.rest = self.rest.trim_start();
+                if let Some(after) = self.rest.strip_prefix(']') {
+                    self.rest = after;
+                    return Some(serde_json::Value::Array(values));
+                }
+                values.push(self.value()?);
+                self.rest = self.rest.trim_start();
+                if let Some(after) = self.rest.strip_prefix(',') {
+                    self.rest = after;
+                } else if !self.rest.starts_with(']') {
+                    return None;
+                }
+            }
+        }
+        let end = self
+            .rest
+            .find([',', '}', ']', ' ', '\n'])
+            .unwrap_or(self.rest.len());
+        let value = serde_json::from_str(&self.rest[..end]).ok()?;
+        self.rest = &self.rest[end..];
+        Some(value)
+    }
+}
+
 const HARMONY_CHANNEL: &str = "<|channel|>";
 const HARMONY_MESSAGE: &str = "<|message|>";
 
@@ -564,20 +735,23 @@ impl ModelBehaviorAdapter for HarmonyAdapter {
             let channel = header.split_whitespace().next().unwrap_or_default();
             match (channel, harmony_recipient(header).or(pending.take())) {
                 (_, Some(target)) => {
-                    if end.is_none() {
-                        canonical.diagnostics.push(Diagnostic {
-                            kind: "harmony_unterminated_tool_call",
-                            detail: "a tool-call message had no closing protocol marker".into(),
-                        });
-                    }
                     let name = target.strip_prefix("functions.").unwrap_or(&target);
                     // The first JSON value is the arguments; anything the model
                     // wrote after it is not.
-                    let arguments = serde_json::Deserializer::from_str(body.trim())
+                    let parsed = serde_json::Deserializer::from_str(body.trim())
                         .into_iter::<serde_json::Value>()
                         .next()
-                        .and_then(Result::ok)
-                        .unwrap_or_else(|| serde_json::Value::String(body.trim().to_owned()));
+                        .and_then(Result::ok);
+                    // gpt-oss can end a complete JSON call with EOS instead
+                    // of a Harmony marker. Only an incomplete body is unsafe.
+                    if end.is_none() && parsed.is_none() {
+                        canonical.diagnostics.push(Diagnostic {
+                            kind: "harmony_unterminated_tool_call",
+                            detail: "a tool-call message ended with incomplete JSON".into(),
+                        });
+                    }
+                    let arguments =
+                        parsed.unwrap_or_else(|| serde_json::Value::String(body.trim().to_owned()));
                     canonical.tool_calls.push(ToolCall {
                         name: name.to_owned(),
                         arguments,
@@ -757,6 +931,9 @@ pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehavi
     if evidence.contains("gpt_oss") || evidence.contains("gpt-oss") {
         return Box::new(HarmonyAdapter);
     }
+    if evidence.contains("gemma4") || evidence.contains("gemma-4") {
+        return Box::new(Gemma4Adapter);
+    }
     if evidence.contains("granite") {
         return Box::new(GraniteFamilyAdapter);
     }
@@ -859,6 +1036,54 @@ mod tests {
         assert_eq!(canonical.tool_calls[0].arguments["first_line"], 10);
         assert_eq!(canonical.thinking, "We need to read the file.");
         assert!(canonical.narrative.is_empty());
+        assert!(
+            canonical
+                .diagnostics
+                .iter()
+                .all(|d| d.kind != "harmony_unterminated_tool_call")
+        );
+    }
+
+    #[test]
+    fn harmony_rejects_an_incomplete_json_call_without_a_closing_marker() {
+        let canonical = HarmonyAdapter.normalize(&reply(
+            "<|channel|>commentary to=functions.read_file<|message|>{\"path\":\"src/a",
+        ));
+        assert!(
+            canonical
+                .diagnostics
+                .iter()
+                .any(|d| d.kind == "harmony_unterminated_tool_call")
+        );
+    }
+
+    #[test]
+    fn gemma4_reads_its_tool_call_and_nested_arguments() {
+        let adapter = adapter_for(Some("gemma4"), "lmstudio-community/gemma-4-31B-it-MLX-6bit");
+        let canonical = adapter.normalize(&reply(
+            "Reading. <|tool_call>call:read_file{path:<|\"|>src/parser.rs<|\"|>,lines:[1,2],options:{all:true}}<tool_call|>",
+        ));
+        assert_eq!(canonical.narrative, "Reading.");
+        assert_eq!(canonical.tool_calls[0].name, "read_file");
+        assert_eq!(canonical.tool_calls[0].arguments["path"], "src/parser.rs");
+        assert_eq!(
+            canonical.tool_calls[0].arguments["lines"],
+            serde_json::json!([1, 2])
+        );
+        assert_eq!(canonical.tool_calls[0].arguments["options"]["all"], true);
+        let answer = adapter.normalize(&reply(
+            "<|channel>thought\nCheck the file.<channel|>READY<turn|>",
+        ));
+        assert_eq!(answer.thinking, "Check the file.");
+        assert_eq!(answer.narrative, "READY");
+        let continuation = adapter.normalize(&reply(
+            "The file contains CHECK=40. I should respond with the exact content. <channel|>CHECK=40<turn|>",
+        ));
+        assert_eq!(
+            continuation.thinking,
+            "The file contains CHECK=40. I should respond with the exact content."
+        );
+        assert_eq!(continuation.narrative, "CHECK=40");
     }
 
     #[test]

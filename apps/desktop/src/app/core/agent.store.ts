@@ -657,6 +657,7 @@ export class AgentStore {
       text: prompt,
       status: 'sent',
       attachments,
+      modelName: this.modelName(),
       at: Date.now(),
     });
     this.segment += 1;
@@ -781,7 +782,7 @@ export class AgentStore {
     const sessionId = this.sessionId();
     if (text === undefined || !sessionId || !this.turnActive()) return;
     this.unqueue(index);
-    this.push({ key: `user-${Date.now()}`, kind: 'user', title: 'You', text, status: 'sent', at: Date.now() });
+    this.push({ key: `user-${Date.now()}`, kind: 'user', title: 'You', text, status: 'sent', modelName: this.modelName(), at: Date.now() });
     this.segment += 1;
     try {
       await this.request('_pwr/steer', { sessionId, text });
@@ -1002,7 +1003,7 @@ export class AgentStore {
       case 'user_message_chunk':
         // A replayed prompt carries what the core appended to it (goal-mode
         // instructions, attachments); the person's own words come first.
-        this.push({ key: `user-${Date.now()}-${Math.random()}`, kind: 'user', title: 'You', text: ownWords(text), status: 'sent', at: Date.now() });
+        this.push({ key: `user-${Date.now()}-${Math.random()}`, kind: 'user', title: 'You', text: ownWords(text), status: 'sent', replayed: update._meta?.pwr?.replay === true, modelName: typeof update._meta?.pwr?.model === 'string' ? modelLabel(update._meta.pwr.model) : undefined, at: Date.now() });
         this.segment += 1;
         return;
       case 'tool_call':
@@ -1051,6 +1052,7 @@ export class AgentStore {
         title: update.title ?? previous?.title ?? 'Action',
         text: failure ? explain(failure) : detail ?? previous?.text ?? '',
         status: toolStatus(status),
+        replayed: update._meta?.pwr?.replay === true || previous?.replayed,
         toolKind: update.kind ?? previous?.toolKind,
         diff: diff ?? previous?.diff,
         data: { ...previous?.data, ...(path ? { path } : {}) },
@@ -1086,12 +1088,18 @@ export class AgentStore {
     }
     const entries = this.timeline();
     const live = [...entries].reverse().find((entry) => entry.kind === 'reply' && entry.status === 'live');
-    if (live && live.text.trim() === text.trim()) {
+    if (live) {
+      // The final core message is authoritative. It can include a check
+      // verdict added after the streamed model answer, so keeping both would
+      // show the answer twice (once inside the work phase).
+      this.timeline.update((current) => current.map((entry) => entry.key === live.key
+        ? { ...entry, text, status: 'done', raw: update ? [...(entry.raw ?? []), update] : entry.raw }
+        : entry));
       this.settleLive();
       return;
     }
     this.settleLive();
-    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', raw: update ? [update] : undefined, at: Date.now() });
+    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', replayed: (update as any)?._meta?.pwr?.replay === true, raw: update ? [update] : undefined, at: Date.now() });
   }
 
   private finish(reply: any): void {

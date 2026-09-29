@@ -966,12 +966,15 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
 /// Where the part of an answer that can be shown ends: the first place a
 /// call may begin. Everything from there on is held until the reply ends and
 /// the family adapter has taken the calls out.
-const CALL_MARKERS: [&str; 5] = [
+const CALL_MARKERS: [&str; 8] = [
     "<tool_call>",
+    "<|tool_call>",
     "<seed:tool_call>",
     "<function=",
     "<think>",
     "<seed:think>",
+    "<|channel>thought",
+    "<turn|>",
 ];
 
 /// Characters held back at the end of what is shown, so a marker arriving
@@ -1176,6 +1179,8 @@ fn step_of(
                     diagnostic.kind == "qwen_unterminated_tool_call"
                         || diagnostic.kind == "glm_unterminated_tool_call"
                         || diagnostic.kind == "harmony_unterminated_tool_call"
+                        || diagnostic.kind == "gemma_unterminated_tool_call"
+                        || diagnostic.kind == "gemma_undecodable_tool_call"
                 }) {
                     return Step::Finish(Err(ProviderError::Truncated {
                         safe_context:
@@ -1952,10 +1957,26 @@ mod tests {
         assert!(matches!(
             step_of(
                 &event,
-                "<|channel|>commentary to=functions.read_file<|message|>{\"path\":\"a.txt\"}",
+                "<|channel|>commentary to=functions.read_file<|message|>{\"path\":\"a.txt",
                 &pwr_compat::HarmonyAdapter,
             ),
             Step::Finish(Err(ProviderError::Truncated { .. }))
+        ));
+        assert!(matches!(
+            step_of(
+                &event,
+                "<|tool_call>call:read_file{path:<|\"|>a.txt<|\"|>",
+                &pwr_compat::Gemma4Adapter,
+            ),
+            Step::Finish(Err(ProviderError::Truncated { .. }))
+        ));
+        assert!(matches!(
+            step_of(
+                &event,
+                "<|channel|>commentary to=functions.read_file<|message|>{\"path\":\"a.txt\"}",
+                &pwr_compat::HarmonyAdapter,
+            ),
+            Step::Finish(Ok(chunk)) if chunk.tool_calls.len() == 1
         ));
     }
 
@@ -2119,6 +2140,21 @@ mod tests {
         assert_eq!(chunk.tool_calls[0].arguments["value"], "ok");
         assert_eq!(chunk.content, "Reading it.");
         assert_eq!(chunk.metrics.unwrap().generated_tokens, Some(20));
+    }
+
+    #[test]
+    fn gemma4_call_is_held_from_the_stream_and_decoded_at_completion() {
+        let written = "<|tool_call>call:read_file{path:<|\"|>src/parser.rs<|\"|>}<tool_call|>";
+        let (_, visible_text, _) = visible(written);
+        assert!(visible_text.is_empty());
+        let done = serde_json::json!({
+            "event": "done", "finish_reason": "stop", "usage": {}, "timings": {}
+        });
+        let Step::Finish(Ok(chunk)) = step_of(&done, written, &pwr_compat::Gemma4Adapter) else {
+            panic!("a finished call");
+        };
+        assert_eq!(chunk.tool_calls[0].arguments["path"], "src/parser.rs");
+        assert!(chunk.content.is_empty());
     }
 
     #[test]

@@ -26,7 +26,6 @@ pa-composer {
      the column on the same centre line as the composer below it. */
   scrollbar-gutter: stable both-edges;
   padding: var(--space-8) 0 var(--space-8);
-  scroll-behavior: smooth;
   container: conversation / size;
   mask-image: linear-gradient(
     to bottom,
@@ -240,6 +239,11 @@ pa-composer {
 
 .turn.live .turn-body {
   border-image: linear-gradient(to bottom, var(--border-subtle), var(--accent-primary)) 1;
+}
+
+.trace-replay-note {
+  color: var(--text-muted);
+  font-size: var(--fs-label);
 }
 
 .step {

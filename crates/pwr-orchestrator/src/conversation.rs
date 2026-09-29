@@ -191,6 +191,8 @@ pub fn record_steering(
 pub struct Restored {
     /// The messages of the last complete turn.
     pub messages: Vec<ChatMessage>,
+    /// Model names for the visible user turns, recovered from the audit.
+    pub turn_models: Vec<Option<String>>,
     /// The last action boundary recorded, if any turn got that far.
     pub checkpoint: Option<Checkpoint>,
     /// Workspace-changing actions announced and never receipted.
@@ -221,6 +223,48 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
     let messages: Vec<ChatMessage> =
         serde_json::from_value(events[last_snapshot].payload["messages"].clone())
             .map_err(|e| format!("unreadable conversation snapshot: {e}"))?;
+    let mut prompts = Vec::<String>::new();
+    let mut turn_models = Vec::<Option<String>>::new();
+    let mut pending_model = None;
+    for event in &events[..=last_snapshot] {
+        match event.event_type.as_str() {
+            REWOUND_EVENT => {
+                prompts.clear();
+                turn_models.clear();
+                pending_model = None;
+            }
+            "generation.started" => {
+                pending_model = event.payload["model"].as_str().map(str::to_owned);
+            }
+            SNAPSHOT_EVENT => {
+                let next: Vec<String> = event.payload["messages"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|message| {
+                        message["role"] == "user"
+                            && (message.get("purpose").is_none() || message["purpose"] == "task")
+                            && message["content"]
+                                .as_str()
+                                .is_some_and(|content| !content.trim().is_empty())
+                    })
+                    .filter_map(|message| message["content"].as_str().map(str::to_owned))
+                    .collect();
+                if next.starts_with(&prompts) {
+                    turn_models.resize(next.len(), None);
+                } else {
+                    // Rewind or compaction changed the visible prefix. A
+                    // model identity cannot safely be assigned by position.
+                    turn_models = vec![None; next.len()];
+                }
+                if let (Some(model), Some(last)) = (pending_model.take(), turn_models.last_mut()) {
+                    *last = Some(model);
+                }
+                prompts = next;
+            }
+            _ => {}
+        }
+    }
     let checkpoint = events
         .iter()
         .rev()
@@ -264,6 +308,7 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
         .collect();
     Ok(Some(Restored {
         messages,
+        turn_models,
         checkpoint,
         unreceipted: intents.into_values().collect(),
         after_snapshot,
@@ -466,12 +511,60 @@ mod title_tests {
     }
 }
 
+#[cfg(test)]
+mod model_history_tests {
+    use super::{record_snapshot, restore};
+    use pwr_domain::{ChatMessage, new_id};
+    use pwr_store::Store;
+    use serde_json::json;
+
+    #[test]
+    fn a_restored_turn_keeps_the_model_that_generated_it() {
+        let store = Store::open(":memory:").unwrap();
+        let id = new_id();
+        let mut messages = vec![ChatMessage::text("user", "first")];
+        store
+            .append(Some(id), "generation.started", json!({"model": "gpt-oss"}))
+            .unwrap();
+        messages.push(ChatMessage::text("assistant", "one"));
+        record_snapshot(&store, id, &messages).unwrap();
+        messages.push(ChatMessage::text("user", "second"));
+        store
+            .append(Some(id), "generation.started", json!({"model": "gemma-4"}))
+            .unwrap();
+        messages.push(ChatMessage::text("assistant", "two"));
+        record_snapshot(&store, id, &messages).unwrap();
+        assert_eq!(
+            restore(&store, id).unwrap().unwrap().turn_models,
+            [Some("gpt-oss".into()), Some("gemma-4".into())]
+        );
+    }
+
+    #[test]
+    fn changed_history_never_inherits_another_turns_model() {
+        let store = Store::open(":memory:").unwrap();
+        let id = new_id();
+        store
+            .append(Some(id), "generation.started", json!({"model": "old"}))
+            .unwrap();
+        record_snapshot(&store, id, &[ChatMessage::text("user", "old request")]).unwrap();
+        record_snapshot(
+            &store,
+            id,
+            &[ChatMessage::text("user", "different request")],
+        )
+        .unwrap();
+        assert_eq!(restore(&store, id).unwrap().unwrap().turn_models, [None]);
+    }
+}
+
 /// A conversation restored and reconciled, ready to continue.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Resumed {
     /// The restored messages, with the reconciliation note appended as a tool
     /// message when there is one, so the deployment reads it before anything.
     pub messages: Vec<ChatMessage>,
+    pub turn_models: Vec<Option<String>>,
     pub checkpoint: Checkpoint,
     /// What differs from what the conversation recorded. `None` when nothing
     /// does.
@@ -514,6 +607,7 @@ pub fn resume(
     }
     Ok(Some(Resumed {
         messages,
+        turn_models: restored.turn_models,
         checkpoint: restored.checkpoint.unwrap_or_default(),
         note,
     }))

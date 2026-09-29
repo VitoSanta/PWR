@@ -2032,6 +2032,11 @@ impl ToolPolicy {
                     .map(|relative| home.join(relative))
                     .filter_map(|path| quotable(&path)),
             );
+            if self.allow_commands.iter().any(|program| {
+                Path::new(program).file_name() == Some(std::ffi::OsStr::new("dotnet"))
+            }) {
+                readable.extend(quotable(&home.join(".dotnet")));
+            }
         }
         let container_engine = self.approvals.contains(&Approval::ContainerEngine);
         if container_engine && let Some(client) = container_client_home() {
@@ -3881,6 +3886,7 @@ pub fn browser_executable() -> Option<PathBuf> {
     }
     let known = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
         "/Applications/Chromium.app/Contents/MacOS/Chromium",
         "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
     ];
@@ -3905,7 +3911,12 @@ pub fn browser_executable() -> Option<PathBuf> {
 /// The directory a browser's files live in: its `.app` bundle on macOS, its
 /// own directory elsewhere.
 fn browser_home(executable: &Path) -> PathBuf {
-    let mut current = executable;
+    // A PATH entry can be a symlink into an app bundle. Seatbelt checks the
+    // resolved binary and its resources, not the spelling of that symlink.
+    let resolved = executable
+        .canonicalize()
+        .unwrap_or_else(|_| executable.to_path_buf());
+    let mut current = resolved.as_path();
     while let Some(parent) = current.parent() {
         if current
             .extension()
@@ -3915,10 +3926,7 @@ fn browser_home(executable: &Path) -> PathBuf {
         }
         current = parent;
     }
-    executable
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_default()
+    resolved.parent().map(Path::to_path_buf).unwrap_or_default()
 }
 
 /// Takes a screenshot of a page on this machine -- a local server, or an HTML
@@ -4026,10 +4034,11 @@ pub async fn look_at(
     let mut command = browsing.prepare_command(&browser_path, &args)?;
     // Chromium on macOS takes its temporary directory from here, not TMPDIR.
     command.env("MAC_CHROMIUM_TMPDIR", &temporary);
+    let browser_log = std::fs::File::create(scratch.join("browser-stderr.log"))?;
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(browser_log)
         .kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
@@ -4061,11 +4070,15 @@ pub async fn look_at(
     let _ = std::fs::remove_dir_all(&temporary);
     if !taken {
         let _ = std::fs::remove_file(&shot);
+        let diagnostic =
+            std::fs::read_to_string(scratch.join("browser-stderr.log")).unwrap_or_default();
+        let diagnostic = diagnostic.chars().take(2_000).collect::<String>();
         return Err(ToolError::Denied(format!(
             "the page at {url} could not be captured: the browser wrote no screenshot. If it is \
-             a local server, is it running (start_service) and on that port?"
+             a local server, is it running (start_service) and on that port? {diagnostic}"
         )));
     }
+    let _ = std::fs::remove_file(scratch.join("browser-stderr.log"));
     let bytes = std::fs::read(&shot)?;
     let _ = std::fs::remove_file(&shot);
     use sha2::Digest as _;
@@ -6477,6 +6490,38 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn a_browser_symlink_opens_its_real_bundle_to_the_sandbox() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let bundle = root.path().join("Chrome.app");
+        let binary = bundle.join("Contents/MacOS/Chrome");
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        std::fs::write(&binary, b"browser").unwrap();
+        let link = root.path().join("chrome");
+        symlink(&binary, &link).unwrap();
+        assert_eq!(browser_home(&link), bundle.canonicalize().unwrap());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn per_user_dotnet_is_readable_only_when_dotnet_is_allowed() {
+        let Some(home) = std::env::var_os("HOME") else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        let mut policy = PolicyProfile::Safe.build(root.path().to_path_buf());
+        let rule = format!(
+            "(subpath \"{}\")",
+            PathBuf::from(home).join(".dotnet").display()
+        );
+        policy.allow_commands = vec!["sh".into()];
+        assert!(!policy.sandbox_profile().unwrap().contains(&rule));
+        policy.allow_commands = vec!["dotnet".into()];
+        assert!(policy.sandbox_profile().unwrap().contains(&rule));
+    }
+
     #[test]
     fn a_dependency_fetch_is_told_from_a_test_run() {
         let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();

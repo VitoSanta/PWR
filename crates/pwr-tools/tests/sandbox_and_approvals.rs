@@ -1231,28 +1231,30 @@ fn a_toolchain_in_the_workspace_is_on_path_inside_the_sandbox() {
 #[cfg(target_os = "macos")]
 #[test]
 fn dotnet_runs_in_the_sandbox_on_its_first_run() {
-    let Some(dotnet) = [
-        "/usr/local/share/dotnet/dotnet",
-        "/opt/homebrew/bin/dotnet",
-        "/usr/local/bin/dotnet",
-    ]
-    .into_iter()
-    .find(|path| Path::new(path).is_file()) else {
+    let user_dotnet = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .map(|home| home.join(".dotnet/dotnet"));
+    let dotnet = user_dotnet.filter(|path| path.is_file()).or_else(|| {
+        [
+            "/usr/local/share/dotnet/dotnet",
+            "/opt/homebrew/bin/dotnet",
+            "/usr/local/bin/dotnet",
+        ]
+        .into_iter()
+        .map(std::path::PathBuf::from)
+        .find(|path| path.is_file())
+    });
+    let Some(dotnet) = dotnet else {
         return; // No .NET on this machine: nothing to show.
     };
-    // Skipped in CI only. GitHub's macOS runners install .NET per user, under
-    // ~/.dotnet, which the sandbox does not read, so `dotnet` exits 131 there
-    // (measured 2026-09-28). Per-user installs are a known sandbox gap to
-    // fix; on a Mac with a system-wide install the test runs as before.
-    if std::env::var_os("CI").is_some() {
-        return;
-    }
     let root = tempfile::tempdir().unwrap();
     let mut policy = policy(root.path());
-    policy.allow_commands.push(dotnet.into());
+    policy
+        .allow_commands
+        .push(dotnet.to_string_lossy().into_owned());
     let result = block_on(run_command(
         &policy,
-        dotnet,
+        dotnet.to_str().unwrap(),
         &["nuget".into(), "--version".into()],
     ))
     .unwrap();
@@ -1364,13 +1366,6 @@ fn listing_a_missing_folder_says_what_the_root_holds() {
 fn look_at_photographs_a_workspace_page_from_inside_the_sandbox() {
     if pwr_tools::browser_executable().is_none() {
         return; // No browser on this machine: nothing to show.
-    }
-    // Skipped in CI only. On GitHub's hosted macOS runners the headless
-    // browser writes no screenshot inside the sandbox (measured 2026-09-28),
-    // while it does on a developer Mac. The cause is still to be found; the
-    // test keeps running everywhere outside CI.
-    if std::env::var_os("CI").is_some() {
-        return;
     }
     let root = tempfile::tempdir().unwrap();
     fs::write(

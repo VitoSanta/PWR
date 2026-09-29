@@ -58,6 +58,28 @@ describe('AgentStore context', () => {
     expect(store.timeline()[0].turn).toBeUndefined();
   });
 
+  it('marks restored messages so the UI does not invent a turn duration', () => {
+    for (const [kind, content] of [
+      ['user_message_chunk', 'a saved request'],
+      ['agent_message_chunk', 'a saved reply'],
+    ]) {
+      store.receive({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: { update: { sessionUpdate: kind, content: { type: 'text', text: content }, _meta: { pwr: { replay: true } } } },
+      });
+    }
+    expect(store.timeline().map((entry) => entry.replayed)).toEqual([true, true]);
+  });
+
+  it('keeps the model recovered for a restored turn', () => {
+    store.receive({
+      jsonrpc: '2.0', method: 'session/update',
+      params: { update: { sessionUpdate: 'user_message_chunk', content: { text: 'saved request' }, _meta: { pwr: { replay: true, model: 'gemma-4' } } } },
+    });
+    expect(store.timeline()[0].modelName).toBe('gemma 4');
+  });
+
   it('edits, reorders and drops queued messages before they are sent', () => {
     store.queue.set(['first', 'second', 'third']);
     store.editQueued(1, 'second, reworded');
@@ -90,6 +112,20 @@ describe('AgentStore context', () => {
     store.receive({ jsonrpc: '2.0', method: '_pwr/usage', params: { used: 20_190, window: 262_144 } });
     expect(store.streamedTokens()).toBe(0);
     expect(store.usage()).toEqual({ used: 20_190, window: 262_144, estimated: false });
+  });
+
+  it('replaces a streamed answer with the final answer and its check verdict', () => {
+    const message = (text: string, live: boolean) => store.receive({
+      jsonrpc: '2.0', method: 'session/update',
+      params: { update: { sessionUpdate: 'agent_message_chunk', content: { text }, ...(live ? { _meta: { pwr: { live: true } } } : {}) } },
+    });
+    message('Wrote result.txt.', true);
+    message('Wrote result.txt.\n\nIndependent verification unavailable: this workspace declares no automated checks.', false);
+    expect(store.timeline().filter((entry) => entry.kind === 'reply')).toHaveLength(1);
+    expect(store.timeline()[0]).toMatchObject({
+      status: 'done',
+      text: 'Wrote result.txt.\n\nIndependent verification unavailable: this workspace declares no automated checks.',
+    });
   });
 
   it('routes extension notifications to their listeners only', () => {

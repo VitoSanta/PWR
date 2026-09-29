@@ -1211,12 +1211,22 @@ async fn take_turn_inner<P: ModelProvider>(
                     }
                     streamed_thinking.set(streamed_thinking.get() + thinking.len());
                     streamed_content.set(streamed_content.get() + chunk.content.len());
-                    if !thinking.is_empty() || !chunk.content.is_empty() {
+                    // Gemma 4 can begin inside a thought channel whose opening
+                    // marker is in the prompt. Until normalization sees its
+                    // closing marker, raw content may be internal reasoning.
+                    // Keep it off the answer rail; the canonical final reply
+                    // is sent when this generation completes.
+                    let visible_content = if adapter.id() == "gemma4" {
+                        String::new()
+                    } else {
+                        chunk.content.clone()
+                    };
+                    if !thinking.is_empty() || !visible_content.is_empty() {
                         on_step(TurnStep::Streaming {
                             thinking,
-                            content: chunk.content.clone(),
+                            content: visible_content,
                         });
-                    } else if chunk.is_empty() && !chunk.done {
+                    } else if !chunk.done {
                         // The provider is still making progress, possibly in
                         // tool arguments that must not be rendered as text.
                         on_step(TurnStep::Streaming {

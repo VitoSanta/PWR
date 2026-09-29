@@ -387,9 +387,12 @@ class Inbox:
             self._sort(line)
 
 
+PROTOCOL_STDOUT = sys.stdout
+
+
 def emit(obj: dict) -> None:
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
+    PROTOCOL_STDOUT.write(json.dumps(obj) + "\n")
+    PROTOCOL_STDOUT.flush()
 
 
 def common_prefix(a: list[int], b: list[int]) -> int:
@@ -803,9 +806,10 @@ class Engine:
         base, _ = self.render(messages, tools, thinking, False, budget, effort)
         if isinstance(self.model, VisionText):
             self.model.set_prompt(full, images, images and images["digest"])
-        if full[:len(base)] != base:
+        if len(full) == len(base) or full[:len(base)] != base:
             # The template does not render the history the same way with and
-            # without a generation prompt; checkpoint just before the last token.
+            # without a generation prompt, or adds no generation token after
+            # a tool result (Gemma 4). Generation still needs one prompt token.
             base = full[:-1]
         reused = self.resume(base, lambda done, total: reply(
             {"event": "prefill", "processed": int(done), "total": int(total)}
@@ -855,6 +859,15 @@ class Engine:
                                 else "answer", text)
                 for channel, piece in pieces:
                     reply({"event": "delta", "channel": channel, "text": piece})
+                # Gemma 4's template closes a tool call or a turn with these
+                # tokens. mlx-lm may keep generating after them (observed:
+                # repeated empty tool responses), so end at the first close.
+                if "<|tool_call>" in template and (
+                    "<tool_call|>" in "".join(written[-12:])
+                    or "<turn|>" in "".join(written[-12:])
+                ):
+                    finish = "stop"
+                    return finish
                 if tracker.reopened:
                     return "reopened"
                 if enforce and tracker.in_reasoning and tracker.reasoning_tokens >= budget:
@@ -922,6 +935,9 @@ class Engine:
 
 
 def main() -> None:
+    # mlx-lm prints memory warnings during generation. stdout is our JSON-lines
+    # transport, so send library diagnostics to stderr before any model work.
+    sys.stdout = sys.stderr
     engine = Engine()
     inbox = Inbox(sys.stdin)
     while True:

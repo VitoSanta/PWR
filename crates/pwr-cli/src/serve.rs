@@ -1098,7 +1098,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             Err(why) => return self.send(error_response(id, -32000, &why)),
         };
         if replaying {
-            for update in replay(&resumed.messages) {
+            for update in replay(&resumed.messages, &resumed.turn_models) {
                 self.update(&session_id, update);
             }
         }
@@ -2943,18 +2943,111 @@ fn available_commands(session_id: &str) -> Value {
 /// A restored conversation as a client shows it: what the person asked and what
 /// the deployment said. Harness context -- the system prompt, ledgers, excerpts,
 /// tool results, the resume note -- is the deployment's, not the transcript's.
-fn replay(messages: &[ChatMessage]) -> Vec<Value> {
-    messages
-        .iter()
-        .filter(|message| !message.content.trim().is_empty())
-        .filter_map(|message| match (message.role.as_str(), message.purpose) {
-            ("user", None | Some(pwr_domain::MessagePurpose::Task)) => {
-                Some(message_chunk("user_message_chunk", &message.content))
-            }
-            ("assistant", _) => Some(message_chunk("agent_message_chunk", &message.content)),
-            _ => None,
+fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value> {
+    let chunk = |kind: &str, text: &str| {
+        json!({
+            "sessionUpdate": kind,
+            "content": {"type": "text", "text": text},
+            "_meta": {"pwr": {"replay": true}},
         })
-        .collect()
+    };
+    let mut shown = Vec::new();
+    let mut pending = std::collections::VecDeque::<(String, Option<String>)>::new();
+    let mut user_index = 0;
+    for (index, message) in messages.iter().enumerate() {
+        match (message.role.as_str(), message.purpose) {
+            ("user", None | Some(pwr_domain::MessagePurpose::Task)) => {
+                if !message.content.trim().is_empty() {
+                    let mut update = chunk("user_message_chunk", &message.content);
+                    if let Some(Some(model)) = turn_models.get(user_index) {
+                        update["_meta"]["pwr"]["model"] = json!(model);
+                    }
+                    shown.push(update);
+                    user_index += 1;
+                }
+            }
+            ("assistant", _) => {
+                if !message.content.trim().is_empty() {
+                    // The console appends its independent-check verdict after
+                    // the model's final message. It is a tool message in the
+                    // snapshot, but belongs to the answer the person saw.
+                    let verdict = messages.get(index + 1).and_then(|next| {
+                        next.content
+                            .strip_prefix("The workspace checks were run after your edits: ")
+                    });
+                    let content = match verdict {
+                        Some("nothing verified this: the workspace declares no checks") => format!(
+                            "{}\n\nIndependent verification unavailable: this workspace declares no automated checks",
+                            message.content.trim_end()
+                        ),
+                        Some(verdict) => format!("{}\n\n{verdict}", message.content.trim_end()),
+                        None => message.content.clone(),
+                    };
+                    shown.push(chunk("agent_message_chunk", &content));
+                }
+                for (call_index, call) in message.tool_calls.iter().enumerate() {
+                    let id = format!("replay-{index}-{call_index}");
+                    let path = call.arguments.get("path").and_then(Value::as_str);
+                    let title = path
+                        .map_or_else(|| call.name.clone(), |path| format!("{} {path}", call.name));
+                    let detail = if call.name == "run_command" {
+                        let executable = call.arguments["executable"].as_str().unwrap_or("command");
+                        let args = call.arguments["args"]
+                            .as_array()
+                            .map(|args| {
+                                args.iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            })
+                            .unwrap_or_default();
+                        format!("{executable} {args}").trim().to_owned()
+                    } else {
+                        path.unwrap_or(&call.name).to_owned()
+                    };
+                    shown.push(json!({
+                        "sessionUpdate": "tool_call", "toolCallId": id, "title": title,
+                        "kind": tool_kind(&call.name), "status": "pending",
+                        "_meta": {"pwr": {"detail": detail, "replay": true}},
+                    }));
+                    pending.push_back((id, call.id.clone()));
+                }
+            }
+            ("tool", _) if !pending.is_empty() => {
+                let position = message
+                    .tool_call_id
+                    .as_ref()
+                    .and_then(|id| {
+                        pending
+                            .iter()
+                            .position(|(_, call_id)| call_id.as_ref() == Some(id))
+                    })
+                    .unwrap_or(0);
+                let (id, _) = pending.remove(position).expect("pending call exists");
+                let envelope = message
+                    .content
+                    .lines()
+                    .next()
+                    .and_then(|line| serde_json::from_str::<Value>(line).ok());
+                let result = envelope.as_ref().and_then(|value| value.get("result"));
+                let failed = result.is_none_or(|value| {
+                    value.get("denied").is_some()
+                        || value.get("error").is_some()
+                        || value
+                            .get("exit_code")
+                            .and_then(Value::as_i64)
+                            .is_some_and(|code| code != 0)
+                });
+                shown.push(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": id,
+                    "status": if failed { "failed" } else { "completed" },
+                    "_meta": {"pwr": {"replay": true}},
+                }));
+            }
+            _ => {}
+        }
+    }
+    shown
 }
 
 /// Puts an approval to the client as `session/request_permission`.
@@ -3847,6 +3940,7 @@ mod tests {
                     ChatMessage::text("assistant", "fixed"),
                     ChatMessage::text("tool", note),
                 ],
+                turn_models: vec![Some("test-model".into())],
                 checkpoint: pwr_orchestrator::conversation::Checkpoint {
                     changed_files: [("src/lib.rs".to_string(), "abc".to_string())].into(),
                     ..Default::default()
@@ -5296,7 +5390,11 @@ mod tests {
             let messages = client.until_response(1).await;
             let shown: Vec<(&str, &str)> = updates(&messages)
                 .into_iter()
-                .map(|update| {
+                .enumerate()
+                .map(|(index, update)| {
+                    if index < 2 {
+                        assert_eq!(update["_meta"]["pwr"]["replay"], true);
+                    }
                     (
                         update["sessionUpdate"].as_str().unwrap(),
                         update["content"]["text"].as_str().unwrap(),
@@ -5547,21 +5645,72 @@ mod tests {
         excerpts.purpose = Some(pwr_domain::MessagePurpose::RepositoryExcerpts);
         let mut task = ChatMessage::text("user", "the task");
         task.purpose = Some(pwr_domain::MessagePurpose::Task);
-        let shown = replay(&[
-            ChatMessage::text("system", "prompt"),
-            excerpts,
-            task,
-            ChatMessage::text("assistant", ""),
-            ChatMessage::text("tool", "result"),
-            ChatMessage::text("assistant", "done"),
-        ]);
+        let shown = replay(
+            &[
+                ChatMessage::text("system", "prompt"),
+                excerpts,
+                task,
+                ChatMessage::text("assistant", ""),
+                ChatMessage::text("tool", "result"),
+                ChatMessage::text("assistant", "done"),
+            ],
+            &[],
+        );
         assert_eq!(
             shown,
             [
-                message_chunk("user_message_chunk", "the task"),
-                message_chunk("agent_message_chunk", "done"),
+                json!({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "the task"}, "_meta": {"pwr": {"replay": true}}}),
+                json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "done"}, "_meta": {"pwr": {"replay": true}}}),
             ]
         );
+    }
+
+    #[test]
+    fn replay_attaches_the_recorded_model_to_each_user_turn() {
+        let messages = [
+            ChatMessage::text("user", "first"),
+            ChatMessage::text("assistant", "one"),
+            ChatMessage::text("user", "second"),
+            ChatMessage::text("assistant", "two"),
+        ];
+        let shown = replay(&messages, &[Some("gpt-oss".into()), Some("gemma-4".into())]);
+        assert_eq!(shown[0]["_meta"]["pwr"]["model"], "gpt-oss");
+        assert_eq!(shown[2]["_meta"]["pwr"]["model"], "gemma-4");
+    }
+
+    #[test]
+    fn replay_restores_saved_actions_and_the_final_check_verdict() {
+        let mut task = ChatMessage::text("user", "write result.txt");
+        task.purpose = Some(pwr_domain::MessagePurpose::Task);
+        let mut call = ChatMessage::text("assistant", "");
+        call.tool_calls.push(pwr_domain::ToolCall {
+            name: "read_file".into(),
+            arguments: json!({"path": "result.txt"}),
+            id: None,
+        });
+        let shown = replay(
+            &[
+                task,
+                call,
+                ChatMessage::text("tool", r#"{"result":{"content":"ok"}}"#),
+                ChatMessage::text("assistant", "The file is correct."),
+                ChatMessage::text(
+                    "tool",
+                    "The workspace checks were run after your edits: nothing verified this: the workspace declares no checks",
+                ),
+            ],
+            &[],
+        );
+        assert_eq!(shown.len(), 4);
+        assert_eq!(shown[1]["sessionUpdate"], "tool_call");
+        assert_eq!(shown[1]["kind"], "read");
+        assert_eq!(shown[2]["sessionUpdate"], "tool_call_update");
+        assert_eq!(shown[2]["status"], "completed");
+        assert_eq!(
+            shown[3]["content"]["text"],
+            "The file is correct.\n\nIndependent verification unavailable: this workspace declares no automated checks"
+        );
+        assert_eq!(shown[3]["_meta"]["pwr"]["replay"], true);
     }
 
     #[test]

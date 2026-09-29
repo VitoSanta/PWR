@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 
 /// The Quick Calibration suite's version. Evidence from another version of the
 /// suite measured different things and is not reused (see [`compare`]).
-pub const CALIBRATION_VERSION: &str = "quick-calibration-3";
+pub const CALIBRATION_VERSION: &str = "quick-calibration-5";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

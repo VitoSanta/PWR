@@ -43,6 +43,10 @@ export interface Entry {
   raw?: unknown[];
   /** For the person's message: its number in this session, when it can be rewound to. */
   turn?: number;
+  /** Loaded from saved conversation text; original event timing is unavailable. */
+  replayed?: boolean;
+  /** Model selected when this prompt was sent; older snapshots do not record it. */
+  modelName?: string;
   at: number;
 }
 

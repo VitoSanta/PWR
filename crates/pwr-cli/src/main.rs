@@ -4814,7 +4814,10 @@ async fn chat_turn(
             }
         }
         let verdict = match (&before, after_checks.is_empty(), checks == after_checks) {
-            (_, true, _) => "nothing verified this: the workspace declares no checks".to_owned(),
+            (_, true, _) => {
+                "Independent verification unavailable: this workspace declares no automated checks"
+                    .to_owned()
+            }
             (Some(before), false, true) => {
                 match pwr_verify::baseline(&verification_policy, &after_checks).await {
                     Ok(after) => {
