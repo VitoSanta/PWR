@@ -1601,3 +1601,59 @@ fn look_at_photographs_a_workspace_page_from_inside_the_sandbox() {
     .unwrap_err();
     assert!(refused.to_string().contains("on this machine"), "{refused}");
 }
+
+// ------------------------------------------------- outside the workspace
+
+/// Subfolders are the workspace; a parent or a sibling needs the person's
+/// permission, and with it the tools reach there.
+#[test]
+fn a_folder_outside_the_workspace_needs_its_own_grant() {
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().join("web");
+    fs::create_dir_all(root.join("web")).unwrap();
+    fs::write(parent.path().join("notes.md"), "outside").unwrap();
+    let mut policy = policy(&root);
+    // A subfolder, and a path that leaves only to come back, need nothing.
+    assert!(policy.resolve(Path::new("web")).is_ok());
+    assert!(policy.resolve(Path::new("../web/web")).is_ok());
+    assert!(!policy.leaves_root(Path::new("../web/web")));
+    // The parent is refused without the grant, and asked about exactly.
+    assert!(policy.resolve(Path::new("../notes.md")).is_err());
+    let read = ActionProposal::ReadFile {
+        path: "../notes.md".into(),
+        first_line: None,
+        max_lines: None,
+    };
+    let (approval, question) = leaves_workspace(&read, &policy).unwrap();
+    assert_eq!(approval, Approval::OutsideWorkspace);
+    assert!(question.contains("read ../notes.md"), "{question}");
+    let inside = ActionProposal::ReadFile {
+        path: "web/index.html".into(),
+        first_line: None,
+        max_lines: None,
+    };
+    assert!(leaves_workspace(&inside, &policy).is_none());
+    // Granted, it is read and written like any path.
+    policy.approvals.push(Approval::OutsideWorkspace);
+    let resolved = policy.resolve(Path::new("../notes.md")).unwrap();
+    assert_eq!(fs::read_to_string(resolved).unwrap(), "outside");
+    let absolute = parent.path().canonicalize().unwrap().join("new.txt");
+    assert!(policy.resolve(&absolute).is_ok());
+}
+
+/// `web/web` from a workspace named `web` names the subfolder `web`.
+#[test]
+fn a_cwd_with_the_workspace_name_in_front_says_which_folder_was_meant() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("site")).unwrap();
+    let policy = policy(root.path());
+    let refused = block_on(run_command_in(
+        &policy,
+        "echo",
+        &["hi".into()],
+        None,
+        Some("project/site"),
+    ))
+    .unwrap_err();
+    assert!(refused.to_string().contains("probably `site`"), "{refused}");
+}

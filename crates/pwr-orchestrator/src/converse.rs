@@ -793,7 +793,8 @@ pub fn chat_system_prompt(root: &std::path::Path) -> String {
          Answer questions directly and briefly. Read files, search and list the tree to ground \
          what you say rather than guessing, and say plainly when you have not checked something. \
          Every path is relative to the repository root -- `src/main.rs`, never a path beginning \
-         with `/` -- and anything outside it is refused.\n\
+         with `/`. A folder outside it (`../other`) is reached only with the engineer's \
+         permission, which is asked for you.\n\
          \n\
          The engineer's newest message is the one to act on: when it changes, narrows or adds \
          to an earlier request, follow it over anything said before.\n\
