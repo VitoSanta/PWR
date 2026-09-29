@@ -152,9 +152,9 @@ impl ModelBehaviorAdapter for QwenFamilyAdapter {
                 canonical.narrative = renamed;
                 canonical.diagnostics.push(diagnostic);
             }
-            if let Some((call, diagnostic)) = fenced_call(&canonical.narrative) {
-                canonical.narrative = String::new();
-                canonical.tool_calls = vec![call];
+            if let Some((prose, calls, diagnostic)) = fenced_calls(&canonical.narrative) {
+                canonical.narrative = prose;
+                canonical.tool_calls = calls;
                 canonical.diagnostics.push(diagnostic);
                 return canonical;
             }
@@ -257,30 +257,43 @@ fn tools_tag_as_call(content: &str) -> Option<(String, Diagnostic)> {
     })
 }
 
-/// Qwen2.5-Coder's other form: a reply that is nothing but one fenced JSON
-/// block holding one call. Measured 2026-09-29 in the capability probe: asked
-/// to edit a file, it answered only with ```json {"name": "apply_replace",
-/// "arguments": {...}} ```, the right call with the right hash, three trials
-/// out of three. Read only when the fence is the whole reply, so a code
-/// example inside an explanation never becomes an action.
-fn fenced_call(content: &str) -> Option<(ToolCall, Diagnostic)> {
-    let trimmed = content.trim();
-    let body = trimmed
-        .strip_prefix("```json")
-        .or_else(|| trimmed.strip_prefix("```"))?
-        .strip_suffix("```")?;
-    if body.contains("```") {
+/// Qwen2.5-Coder's other form: fenced JSON blocks each holding one call,
+/// alone or after a sentence about them. Measured 2026-09-29: in the
+/// capability probe it answered an edit with only ```json {"name":
+/// "apply_replace", ...} ```, and in suite A3 with "Let's read the file
+/// first." followed by one such block -- or two, to read two files -- and
+/// every task ended after three turns refused as calling no tool. Read only
+/// when the blocks end the reply, nothing but space between them, and every
+/// one is a call: a code example inside an explanation never becomes an
+/// action.
+fn fenced_calls(content: &str) -> Option<(String, Vec<ToolCall>, Diagnostic)> {
+    const FENCE: &str = "```";
+    let trimmed = content.trim_end();
+    let parts: Vec<&str> = trimmed.split(FENCE).collect();
+    // prose, body, gap, body, ..., body, "" -- an odd count ending empty.
+    if parts.len() < 3 || parts.len().is_multiple_of(2) || !parts[parts.len() - 1].is_empty() {
         return None;
     }
-    let call = parse_call(body)?;
+    let mut calls = Vec::new();
+    for (index, part) in parts.iter().enumerate().skip(1).take(parts.len() - 2) {
+        if index % 2 == 0 {
+            if !part.trim().is_empty() {
+                return None;
+            }
+            continue;
+        }
+        let body = part.strip_prefix("json").unwrap_or(part);
+        calls.push(parse_call(body)?);
+    }
+    let names: Vec<&str> = calls.iter().map(|call| call.name.as_str()).collect();
     let diagnostic = Diagnostic {
         kind: "qwen_fenced_tool_call",
         detail: format!(
-            "read {} from a reply that was one fenced JSON call",
-            call.name
+            "read {} from fenced JSON ending the reply",
+            names.join(", ")
         ),
     };
-    Some((call, diagnostic))
+    Some((parts[0].trim().to_owned(), calls, diagnostic))
 }
 
 /// Recovers `<tool_call>` blocks the backend left in the answer text.
@@ -340,7 +353,34 @@ fn parse_call(body: &str) -> Option<ToolCall> {
     if body.starts_with(OPEN_FUNCTION) {
         return parse_xml_call(body);
     }
-    parse_call_value(&serde_json::from_str(body).ok()?)
+    let value = serde_json::from_str(body)
+        .ok()
+        .or_else(|| serde_json::from_str(&python_quote_escapes(body)).ok())?;
+    parse_call_value(&value)
+}
+
+/// JSON with Python's `\'` read as the apostrophe it means. `\'` is never
+/// valid JSON, so there is one reading; `\\'` -- a backslash, then a quote --
+/// is left as it is. Measured 2026-09-29: Qwen2.5-Coder wrote a replace_text
+/// whose code held `\'Bag\'`, and the whole call went unread.
+fn python_quote_escapes(body: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('\'') => out.push('\''),
+            Some(next) => {
+                out.push('\\');
+                out.push(next);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 const OPEN_FUNCTION: &str = "<function=";
@@ -1032,6 +1072,39 @@ mod tests {
         assert_eq!(canonical.tool_calls.len(), 1);
         assert_eq!(canonical.tool_calls[0].name, "apply_replace");
         assert_eq!(canonical.tool_calls[0].arguments["path"], "probe.rs");
+        // After a sentence about it, as it writes calls in a run.
+        let after =
+            QwenFamilyAdapter.normalize(&reply(&format!("Let's read the file first.\n\n{text}")));
+        assert_eq!(after.tool_calls.len(), 1);
+        assert_eq!(after.narrative, "Let's read the file first.");
+        // Not after a fence that is not a call.
+        let two = format!("```python\nprint(1)\n```\n{text}");
+        assert!(
+            QwenFamilyAdapter
+                .normalize(&reply(&two))
+                .tool_calls
+                .is_empty()
+        );
+        // Two reads, one block each, as it asked for two files.
+        let read = |path: &str| {
+            format!(
+                "```json\n{{\"name\": \"read_file\", \"arguments\": {{\"path\": \"{path}\"}}}}\n```"
+            )
+        };
+        let both = QwenFamilyAdapter.normalize(&reply(&format!(
+            "Reading both.\n\n{}\n\n{}",
+            read("money.py"),
+            read("invoice.py")
+        )));
+        assert_eq!(both.tool_calls.len(), 2);
+        assert_eq!(both.tool_calls[1].arguments["path"], "invoice.py");
+        // Python's \' inside a string, as it wrote one replace_text.
+        let quoted = "```json\n{\"name\": \"replace_text\", \"arguments\": {\"path\": \"bag.py\", \"replace\": \"raise TypeError(\\'Bag\\')\"}}\n```";
+        let read_back = QwenFamilyAdapter.normalize(&reply(quoted));
+        assert_eq!(
+            read_back.tool_calls[0].arguments["replace"],
+            "raise TypeError('Bag')"
+        );
         // A fence inside prose is an example, not an action.
         let example = format!("Here is how a call looks:\n{text}\nYou can send one like that.");
         assert!(
