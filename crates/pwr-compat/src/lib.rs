@@ -152,6 +152,12 @@ impl ModelBehaviorAdapter for QwenFamilyAdapter {
                 canonical.narrative = renamed;
                 canonical.diagnostics.push(diagnostic);
             }
+            if let Some((call, diagnostic)) = fenced_call(&canonical.narrative) {
+                canonical.narrative = String::new();
+                canonical.tool_calls = vec![call];
+                canonical.diagnostics.push(diagnostic);
+                return canonical;
+            }
             let (narrative, calls, diagnostics) = extract_tool_calls(&canonical.narrative);
             canonical.narrative = narrative;
             canonical.tool_calls = calls;
@@ -249,6 +255,32 @@ fn tools_tag_as_call(content: &str) -> Option<(String, Diagnostic)> {
             },
         )
     })
+}
+
+/// Qwen2.5-Coder's other form: a reply that is nothing but one fenced JSON
+/// block holding one call. Measured 2026-09-29 in the capability probe: asked
+/// to edit a file, it answered only with ```json {"name": "apply_replace",
+/// "arguments": {...}} ```, the right call with the right hash, three trials
+/// out of three. Read only when the fence is the whole reply, so a code
+/// example inside an explanation never becomes an action.
+fn fenced_call(content: &str) -> Option<(ToolCall, Diagnostic)> {
+    let trimmed = content.trim();
+    let body = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))?
+        .strip_suffix("```")?;
+    if body.contains("```") {
+        return None;
+    }
+    let call = parse_call(body)?;
+    let diagnostic = Diagnostic {
+        kind: "qwen_fenced_tool_call",
+        detail: format!(
+            "read {} from a reply that was one fenced JSON call",
+            call.name
+        ),
+    };
+    Some((call, diagnostic))
 }
 
 /// Recovers `<tool_call>` blocks the backend left in the answer text.
@@ -991,6 +1023,32 @@ pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehavi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Qwen2.5-Coder's edit, as it wrote it in the capability probe.
+    #[test]
+    fn a_reply_that_is_one_fenced_call_is_read_as_one() {
+        let text = "```json\n{\n  \"name\": \"apply_replace\",\n  \"arguments\": {\n    \"expected_hash\": \"236e\",\n    \"path\": \"probe.rs\",\n    \"replacement\": \"pub fn value() -> i32 {\\n    2\\n}\"\n  }\n}\n```";
+        let canonical = QwenFamilyAdapter.normalize(&reply(text));
+        assert_eq!(canonical.tool_calls.len(), 1);
+        assert_eq!(canonical.tool_calls[0].name, "apply_replace");
+        assert_eq!(canonical.tool_calls[0].arguments["path"], "probe.rs");
+        // A fence inside prose is an example, not an action.
+        let example = format!("Here is how a call looks:\n{text}\nYou can send one like that.");
+        assert!(
+            QwenFamilyAdapter
+                .normalize(&reply(&example))
+                .tool_calls
+                .is_empty()
+        );
+        // Nor is a fenced object that is not a call.
+        let data = "```json\n{\"file\": \"src/parser.rs\", \"line\": 7}\n```";
+        assert!(
+            QwenFamilyAdapter
+                .normalize(&reply(data))
+                .tool_calls
+                .is_empty()
+        );
+    }
 
     /// Qwen2.5-Coder's call, as it wrote it in Quick Calibration.
     #[test]
