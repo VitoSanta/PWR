@@ -1474,7 +1474,8 @@ async fn take_turn_inner<P: ModelProvider>(
             elapsed: started.elapsed(),
             first_chunk: first_chunk.get(),
         }));
-        let reply = adapter.normalize(&reply);
+        let mut reply = adapter.normalize(&reply);
+        reply.tool_calls = crate::expand_numbered_commands(&reply.tool_calls);
         let counted = reply
             .metrics
             .as_ref()
