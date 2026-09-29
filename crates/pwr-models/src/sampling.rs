@@ -22,6 +22,10 @@ pub struct CardSampling {
     pub source_repository: String,
     pub source_revision: String,
     pub values: BTreeMap<String, Value>,
+    /// The file the values were read from: the card (`README.md`, the
+    /// default) or the original model's `generation_config.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_file: Option<String>,
 }
 
 /// Saved per installed model. Validation against the active engine happens
@@ -56,7 +60,8 @@ pub fn save_user_overrides(
 
 impl CardSampling {
     pub fn url(&self, hub: &HubClient) -> String {
-        hub.file_url(&self.source_repository, &self.source_revision, "README.md")
+        let file = self.source_file.as_deref().unwrap_or("README.md");
+        hub.file_url(&self.source_repository, &self.source_revision, file)
     }
 }
 
@@ -89,7 +94,7 @@ pub async fn for_installed(
     if let Ok(bytes) = std::fs::read(&cache_path)
         && bytes.len() <= 16 * 1024
         && let Ok(cache) = serde_json::from_slice::<Cached>(&bytes)
-        && cache.schema_version == 1
+        && cache.schema_version == 2
         && cache.artifact_revision == revision
         && cache
             .retry_after_unix
@@ -103,7 +108,9 @@ pub async fn for_installed(
         _ => (None, Some(chrono::Utc::now().timestamp() + 60)),
     };
     let cache = Cached {
-        schema_version: 1,
+        // 2: an original model's generation_config.json is read too, so a
+        // "none found" kept under 1 is looked for again.
+        schema_version: 2,
         artifact_revision: revision.into(),
         recommendation: recommendation.clone(),
         retry_after_unix,
@@ -123,6 +130,7 @@ async fn fetch(hub: &HubClient, repository: &str, revision: &str) -> Option<Opti
             source_repository: repository.into(),
             source_revision: revision.into(),
             values,
+            source_file: None,
         }));
     }
     // A quantization card often names the original model but omits its
@@ -151,10 +159,57 @@ async fn fetch(hub: &HubClient, repository: &str, revision: &str) -> Option<Opti
                 source_repository: base,
                 source_revision,
                 values,
+                source_file: None,
+            }));
+        }
+    }
+    // No card says, so the original model's own generation_config.json,
+    // which a conversion often leaves out. Measured 2026-09-29: the
+    // lmstudio-community MLX builds of Qwen2.5-Coder-14B and Qwen3-14B ship
+    // none, so they ran at temperature 0 -- greedy decoding, which Qwen's
+    // card for Qwen3 warns leads to endless repetition -- while
+    // Qwen/Qwen3-14B's says 0.6, top_p 0.95, top_k 20.
+    for base in hub.model(repository).await.ok()?.base_models {
+        if !crate::catalog::is_repository(&base) {
+            continue;
+        }
+        let Ok(source) = hub.model(&base).await else {
+            continue;
+        };
+        let Some(source_revision) = source.revision else {
+            continue;
+        };
+        let Ok(Some(config)) = hub.generation_config(&base, &source_revision).await else {
+            continue;
+        };
+        if let Some(values) = generation_sampling(&config) {
+            return Some(Some(CardSampling {
+                artifact_revision: revision.into(),
+                source_repository: base,
+                source_revision,
+                values,
+                source_file: Some("generation_config.json".into()),
             }));
         }
     }
     Some(None)
+}
+
+/// The sampling a `generation_config.json` sets, when it samples at all: a
+/// config with `do_sample: false` asks for greedy decoding, which is what an
+/// absent one already gives.
+pub fn generation_sampling(config: &Value) -> Option<BTreeMap<String, Value>> {
+    if config.get("do_sample").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let values: BTreeMap<String, Value> = ["temperature", "top_p", "top_k", "min_p", "repetition_penalty"]
+        .into_iter()
+        .filter_map(|name| {
+            let value = config.get(name)?;
+            value.is_number().then(|| (name.to_owned(), value.clone()))
+        })
+        .collect();
+    (!values.is_empty()).then_some(values)
 }
 
 /// Only literal `name=value` pairs in a section explicitly about sampling.
@@ -236,6 +291,19 @@ pub fn parse_recommendations(card: &str) -> Option<BTreeMap<String, Value>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_original_models_generation_config_gives_its_sampling() {
+        // Qwen/Qwen3-14B's, as the Hub serves it.
+        let qwen3 = serde_json::json!({"do_sample": true, "temperature": 0.6, "top_k": 20, "top_p": 0.95, "eos_token_id": [151645]});
+        let values = super::generation_sampling(&qwen3).unwrap();
+        assert_eq!(values["temperature"], 0.6);
+        assert_eq!(values["top_k"], 20);
+        assert!(!values.contains_key("eos_token_id"));
+        // Greedy on purpose, or nothing about sampling: nothing to take.
+        assert!(super::generation_sampling(&serde_json::json!({"do_sample": false, "temperature": 0.7})).is_none());
+        assert!(super::generation_sampling(&serde_json::json!({"bos_token_id": 1})).is_none());
+    }
+
     use super::*;
 
     #[test]
