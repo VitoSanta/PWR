@@ -21,7 +21,7 @@ import { Follow } from './kit/follow';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
-import { Markdown } from './markdown';
+import { Markdown, streamTail } from './markdown';
 
 const TOOL_ICONS: Record<string, IconName> = {
   read: 'eye',
@@ -43,6 +43,9 @@ const PHASE_ICONS: Record<PhaseName, IconName> = {
   Fixing: 'refresh',
   Finalizing: 'check',
 };
+
+/** How much of live reasoning its window is given: more than it shows. */
+const THOUGHT_TAIL = 900;
 
 /** Open state that the person chose, else open only for the live group. */
 abstract class Foldable {
@@ -241,8 +244,9 @@ export class TraceSteps extends Foldable {
   }
 
   /** The last paragraphs of the reasoning, enough to fill its window. */
+  /** The end of live reasoning, for the window that shows it (see `streamTail`). */
   protected tail(text: string): string {
-    return text.trimEnd().split(/\n{2,}/).slice(-3).join('\n\n');
+    return streamTail(text, THOUGHT_TAIL);
   }
 
   /** A one-line summary: the reasoning's first sentence. */
