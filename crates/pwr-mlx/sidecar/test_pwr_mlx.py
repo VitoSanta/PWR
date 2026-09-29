@@ -30,6 +30,21 @@ class Trace(unittest.TestCase):
             pwr_mlx.TRACE = original
 
 
+class StaysTrimmable(unittest.TestCase):
+    """gpt-oss's sliding-window layers: an empty rotating cache can be cut
+    back and a filled one cannot, so asking before the prefill said "no copy
+    needed" and every step prefilled the whole conversation."""
+
+    def test_a_cache_with_a_sliding_window_layer_keeps_its_copy(self):
+        from mlx_lm.models.cache import KVCache, RotatingKVCache
+        from pwr_mlx import stays_trimmable
+        sliding = [RotatingKVCache(max_size=128), KVCache()]
+        # Empty, it still says it can be cut back: the question is by kind.
+        self.assertTrue(all(layer.is_trimmable() for layer in sliding))
+        self.assertFalse(stays_trimmable(sliding))
+        self.assertTrue(stays_trimmable([KVCache(), KVCache()]))
+
+
 class Looping(unittest.TestCase):
     def test_a_block_repeated_back_to_back_is_a_loop(self):
         block = "def f(x):\n    return x + 1\n\n" * 12  # longer than REPEAT_SPAN
