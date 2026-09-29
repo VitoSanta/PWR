@@ -5000,6 +5000,58 @@ impl std::fmt::Display for MalformedCall {
 /// The call's name selects the capability and its arguments are decoded into
 /// the typed shape; a name that is not an offered capability is refused rather
 /// than guessed at.
+/// A whole file sent wrapped in a Markdown fence -- ```html on the first line,
+/// ``` on the last -- is written without the fence. Measured 2026-09-29:
+/// Qwen3-14B began every file it wrote that way, index.html and test.js
+/// among them, and each was broken by the marker on its first line. Only
+/// for whole-file text (`write_file`'s content, `apply_replace`'s
+/// replacement) and never for Markdown, where a fence is content.
+fn unfence_file_text(name: &str, arguments: &mut serde_json::Value) {
+    let field = match name {
+        "write_file" => "content",
+        "apply_replace" => "replacement",
+        _ => return,
+    };
+    let path = arguments["path"]
+        .as_str()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if [".md", ".markdown", ".mdx", ".txt", ".rst"]
+        .iter()
+        .any(|extension| path.ends_with(extension))
+    {
+        return;
+    }
+    let Some(text) = arguments[field].as_str() else {
+        return;
+    };
+    let mut body = text;
+    let opening = body.trim_start();
+    if let Some(rest) = opening.strip_prefix("```")
+        && let Some(newline) = rest.find('\n')
+        && rest[..newline]
+            .trim()
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+-_.".contains(c))
+    {
+        body = &rest[newline + 1..];
+    } else {
+        return;
+    }
+    let trimmed = body.trim_end();
+    if let Some(inner) = trimmed.strip_suffix("```")
+        && (inner.is_empty() || inner.ends_with('\n'))
+    {
+        body = inner;
+    }
+    let unfenced = if body.ends_with('\n') {
+        body.to_owned()
+    } else {
+        format!("{body}\n")
+    };
+    arguments[field] = serde_json::Value::String(unfenced);
+}
+
 pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionProposal, MalformedCall> {
     let mut arguments = call.arguments.clone();
     if !arguments.is_object() {
@@ -5026,6 +5078,7 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
             }
         }
     }
+    unfence_file_text(&call.name, &mut arguments);
     coerce_string_lists(&mut arguments).map_err(|problem| {
         MalformedCall::detailed(
             "argument_shape",
@@ -6305,6 +6358,38 @@ pub fn calibration_invalidations(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_whole_file_in_a_markdown_fence_is_written_without_it() {
+        let write = |path: &str, content: &str| {
+            action_from_tool_call(&pwr_domain::ToolCall {
+                name: "write_file".into(),
+                arguments: serde_json::json!({"path": path, "content": content}),
+                id: None,
+            })
+            .unwrap()
+        };
+        let content = |action: ActionProposal| match action {
+            ActionProposal::WriteFile { content, .. } => content,
+            other => panic!("{other:?}"),
+        };
+        // Qwen3-14B's index.html, fenced both ends; and opened only.
+        assert_eq!(
+            content(write(
+                "index.html",
+                "```html\n<!DOCTYPE html>\n<html></html>\n```"
+            )),
+            "<!DOCTYPE html>\n<html></html>\n"
+        );
+        assert_eq!(
+            content(write("test.js", "```javascript\nconst a = 1;\n")),
+            "const a = 1;\n"
+        );
+        // A Markdown file keeps its fences, and an unfenced file is untouched.
+        let readme = "```sh\nnpm test\n```\n";
+        assert_eq!(content(write("README.md", readme)), readme);
+        assert_eq!(content(write("a.js", "let x = `a`;\n")), "let x = `a`;\n");
+    }
 
     #[test]
     fn numbered_commands_are_the_calls_they_mean() {
