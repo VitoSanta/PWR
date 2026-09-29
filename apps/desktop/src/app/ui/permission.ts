@@ -63,6 +63,7 @@ export class Permission {
       local_service: 'Starts a service on this machine',
       toolchain_install: 'Runs a program this workspace does not list',
       container_engine: 'Uses Docker — containers run outside the sandbox',
+      outside_sandbox: 'Runs a command outside the sandbox, with your full rights',
     };
     return labels[kind] ?? kind.replaceAll('_', ' ');
   }

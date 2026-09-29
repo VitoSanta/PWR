@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { CARDS, WorkbenchStore } from '../core/workbench';
 import { AgentStore } from '../core/agent.store';
 import { LayoutService } from '../core/layout';
-import { modelLabel } from '../core/model';
+import { PERMISSION_MODES, modelLabel } from '../core/model';
 import { ModelsStore } from '../core/models.store';
 import { PALETTES } from '../core/palettes';
 import { LAYOUT_PALETTE, ThemeService } from '../core/theme';
@@ -185,14 +185,16 @@ export class CommandPalette {
         hint: store.goalMode() ? 'on' : 'off',
         run: () => store.goalMode.set(!store.goalMode()),
       });
-      list.push({
-        id: 'auto-approve',
-        label: store.permissionMode() === 'auto' ? 'Turn Auto-approve off' : 'Turn Auto-approve on',
-        group: 'Conversation',
-        icon: 'shield',
-        hint: store.permissionMode() === 'auto' ? 'on' : 'off',
-        run: () => store.setPermissionMode(store.permissionMode() === 'auto' ? 'ask' : 'auto'),
-      });
+      for (const option of PERMISSION_MODES) {
+        list.push({
+          id: `permissions-${option.mode}`,
+          label: `Permissions: ${option.label}`,
+          group: 'Conversation',
+          icon: 'shield',
+          hint: store.permissionMode() === option.mode ? 'on' : undefined,
+          run: () => store.setPermissionMode(option.mode),
+        });
+      }
     }
     for (const [name, label, icon] of [
       ['verify', 'Verify', 'shield-check'],

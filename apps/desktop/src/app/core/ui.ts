@@ -34,7 +34,7 @@ export class UiStore {
   readonly paletteOpen = signal(false);
   /** The conversation switcher, in the shells that have no sidebar (⌘B opens it). */
   readonly sessionsOpen = signal(false);
-  /** Goal mode and Auto-approve, open beside the control that asked for them. */
+  /** Goal mode and the permissions mode, open beside the control that asked for them. */
   readonly runControls = signal<HTMLElement | null>(null);
 }
 

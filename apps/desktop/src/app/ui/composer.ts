@@ -204,7 +204,8 @@ const MAX_HEIGHT = 260;
       ></textarea>
       <div class="composer-bar">
         @if (!store.chatMode()) {
-          @if (!store.sandboxed()) {
+          <!-- Full access says so itself; this is for a platform with no sandbox. -->
+          @if (!store.sandboxed() && store.permissionMode() !== 'full') {
             <span
               class="composer-warning"
               paTooltip="This platform has no sandbox adapter: commands the model runs are not confined to the workspace."
@@ -221,22 +222,22 @@ const MAX_HEIGHT = 260;
             <pa-icon name="lock" [size]="12" /> Read-only chat
           </span>
         }
-        @if (!store.chatMode() && (store.goalMode() || store.permissionMode() === 'auto')) {
+        @if (!store.chatMode() && (store.goalMode() || store.permissionMode() === 'full')) {
           <!-- Only while one is on: a state that changes what happens next stays in sight. -->
           <button
             #runNote
             type="button"
             class="run-note"
-            [class.tone-warning]="store.permissionMode() === 'auto'"
+            [class.tone-warning]="store.permissionMode() === 'full'"
             (click)="ui.runControls.set(ui.runControls() ? null : runNote)"
             [attr.aria-expanded]="!!ui.runControls()"
             aria-haspopup="dialog"
-            paTooltip="Goal mode and approvals"
+            paTooltip="Goal mode and permissions"
             animate.enter="anim-pop-in"
             animate.leave="anim-pop-out"
           >
             <pa-icon name="zap" [size]="12" />
-            {{ store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal' : 'Auto-approve' }}
+            {{ store.goalMode() && store.permissionMode() === 'full' ? 'Goal · Full access' : store.goalMode() ? 'Goal' : 'Full access' }}
           </button>
         }
         <span class="spacer"></span>

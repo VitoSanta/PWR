@@ -2770,6 +2770,7 @@ mod tests {
                 args: vec![],
                 stdin: None,
                 cwd: None,
+                outside_sandbox: false,
             }
         ));
         assert!(!crate::conversation::may_change_workspace(

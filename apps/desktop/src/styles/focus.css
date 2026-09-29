@@ -179,7 +179,7 @@
   border-radius: var(--radius-pill);
 }
 
-/* Tools: lit dots while Goal mode (accent) or Auto-approve (warning) is on,
+/* Tools: lit dots while Goal mode (accent) or Full access (warning) is on,
    so neither goes unnoticed with the row closed. */
 .focus-tools {
   position: relative;
@@ -290,6 +290,41 @@
 
 .focus-run-option.tone-warning[aria-pressed='true'] > .switch {
   background: var(--warning);
+}
+
+/* The permissions mode: one of three, a radio beside each. */
+.focus-run-modes {
+  padding-top: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.focus-run-heading {
+  padding: var(--space-2) var(--space-3) 0;
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.focus-run-radio {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+  transition:
+    border-color var(--dur) var(--ease),
+    border-width var(--dur) var(--ease);
+}
+
+.focus-run-option[aria-checked='true'] > .focus-run-radio {
+  border-width: 5px;
+  border-color: var(--accent-primary);
+}
+
+.focus-run-option.tone-warning[aria-checked='true'] > .focus-run-radio {
+  border-color: var(--warning);
 }
 
 .focus-run-copy {

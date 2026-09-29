@@ -62,6 +62,7 @@ async fn a_denied_command_is_recorded_with_the_executable_it_asked_for() {
         args: vec!["https://example.invalid".into()],
         stdin: None,
         cwd: None,
+        outside_sandbox: false,
     };
     assert!(
         pwr_orchestrator::execute_action(&store, run_id, &policy(root.path()), action)

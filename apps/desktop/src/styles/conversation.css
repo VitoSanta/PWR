@@ -780,7 +780,7 @@ pa-composer {
 }
 
 /* ------------------------------------------------------------ composer */
-/* Goal mode or Auto-approve, while on: in sight where the next message is
+/* Goal mode or Full access, while on: in sight where the next message is
    written, and a way to change them. */
 .run-note {
   display: inline-flex;

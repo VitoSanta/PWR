@@ -17,6 +17,31 @@ export type EntryKind =
   | 'generation'
   | 'note'
   | 'stop';
+/**
+ * How much the model's commands may do in a workspace: Protected (`ask`),
+ * Standard (`auto`), Full access (`full`) -- the core's names.
+ */
+export type PermissionMode = 'ask' | 'auto' | 'full';
+
+/** Each mode in words, for every place that offers or shows it. */
+export const PERMISSION_MODES: { mode: PermissionMode; label: string; summary: string }[] = [
+  {
+    mode: 'ask',
+    label: 'Protected',
+    summary: 'Sandboxed and offline. Asks before the network, dependencies, new programs and anything outside the workspace.',
+  },
+  {
+    mode: 'auto',
+    label: 'Standard',
+    summary: 'Sandboxed, with the network. Asks only before publishing, rewriting history, Docker or leaving the sandbox.',
+  },
+  {
+    mode: 'full',
+    label: 'Full access',
+    summary: 'No sandbox: commands run with your full rights, as in your terminal. For projects you trust.',
+  },
+];
+
 export type EntryStatus = 'live' | 'pending' | 'running' | 'done' | 'failed' | 'sent' | 'info' | 'error';
 
 export interface FileDiff {

@@ -1010,7 +1010,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                             return self.send(error_response(
                                 id,
                                 -32602,
-                                &format!("mode is \"ask\" or \"auto\": {error}"),
+                                &format!("mode is \"ask\", \"auto\" or \"full\": {error}"),
                             ));
                         }
                     },
