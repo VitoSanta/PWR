@@ -181,6 +181,14 @@ impl ModelShape {
 /// growing at its window, so it is left out of the per-token cost too -- its
 /// bounded size is small next to the weights, and a per-token figure cannot
 /// express it honestly.
+///
+/// Gemma 4 gives its full-attention layers a shape of their own: a wider head
+/// (`global_head_dim`) and, where keys double as values
+/// (`attention_k_eq_v`), fewer of them (`num_global_key_value_heads`), as
+/// mlx-lm builds them. Read with the sliding layers' shape, the 31B came out
+/// at 163,840 bytes a token against the 81,920 its cache holds -- half the
+/// window this machine can give it. Layers that reuse an earlier layer's
+/// cache (`num_kv_shared_layers`) keep none of their own.
 fn kv_bytes_per_token(text: &serde_json::Value, config: &serde_json::Value) -> Option<u64> {
     let get = |name: &str| {
         text.get(name)
@@ -199,6 +207,17 @@ fn kv_bytes_per_token(text: &serde_json::Value, config: &serde_json::Value) -> O
     let heads = get("num_attention_heads");
     let kv_heads = get("num_key_value_heads").or(heads)?;
     let head_dim = get("head_dim").or_else(|| Some(get("hidden_size")? / heads?))?;
+    let keys_are_values = text
+        .get("attention_k_eq_v")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let full_kv_heads = match get("num_global_key_value_heads") {
+        Some(global) if keys_are_values => global,
+        _ => kv_heads,
+    };
+    let full_head_dim = get("global_head_dim").unwrap_or(head_dim);
+    // Only the layers before the shared ones keep a cache.
+    let caching = layers.saturating_sub(get("num_kv_shared_layers").unwrap_or(0));
     // `layer_types` (Qwen 3.5/3.6) or `layers_block_type` (Nemotron-H, whose
     // Mamba and MoE layers keep no growing cache): either names each layer.
     let types = text
@@ -208,18 +227,20 @@ fn kv_bytes_per_token(text: &serde_json::Value, config: &serde_json::Value) -> O
     let growing_layers = match types.and_then(|t| t.as_array()) {
         Some(types) => types
             .iter()
+            .take(caching as usize)
             .filter(|t| matches!(t.as_str(), Some("full_attention" | "attention")))
             .count() as u64,
         None => match get("full_attention_interval") {
-            Some(interval) if interval > 0 => layers / interval,
-            _ => layers,
+            Some(interval) if interval > 0 => caching / interval,
+            _ => caching,
         },
     };
-    Some(growing_layers * kv_heads * head_dim * 2 * element)
+    Some(growing_layers * full_kv_heads * full_head_dim * 2 * element)
 }
 
 fn cache_element_bytes(text: &serde_json::Value) -> Option<u64> {
-    match text.get("torch_dtype")?.as_str()? {
+    // Newer configs say `dtype` where older ones said `torch_dtype`.
+    match text.get("torch_dtype").or_else(|| text.get("dtype"))?.as_str()? {
         "float32" => Some(4),
         "float16" | "bfloat16" => Some(2),
         _ => None,
@@ -531,6 +552,65 @@ mod tests {
         let shape = ModelShape::from_config(&qwen36());
         assert_eq!(shape.kv_bytes_per_token, Some(20_480));
         assert_eq!(shape.trained_max, Some(262_144));
+    }
+
+    /// The config of `lmstudio-community/gemma-4-31B-it-MLX-6bit`, reduced to
+    /// the fields that matter: fifty sliding layers, ten full ones every sixth.
+    fn gemma4_31b() -> serde_json::Value {
+        let types: Vec<_> = (0..60)
+            .map(|layer| if layer % 6 == 5 { "full_attention" } else { "sliding_attention" })
+            .collect();
+        serde_json::json!({
+            "model_type": "gemma4",
+            "text_config": {
+                "num_hidden_layers": 60,
+                "num_attention_heads": 32,
+                "num_key_value_heads": 16,
+                "num_global_key_value_heads": 4,
+                "head_dim": 256,
+                "global_head_dim": 512,
+                "attention_k_eq_v": true,
+                "num_kv_shared_layers": 0,
+                "sliding_window": 1024,
+                "hidden_size": 5376,
+                "max_position_embeddings": 262144,
+                "dtype": "bfloat16",
+                "layer_types": types,
+            }
+        })
+    }
+
+    #[test]
+    fn gemma4_full_layers_are_read_with_their_own_shape() {
+        // 10 full layers x 4 global KV heads x 512 x key and value x 2 bytes,
+        // as mlx-lm's cache holds them; not 16 heads of 256.
+        let shape = ModelShape::from_config(&gemma4_31b());
+        assert_eq!(shape.kv_bytes_per_token, Some(81_920));
+        // Without keys doubling as values, the full layers keep every KV head.
+        let mut config = gemma4_31b();
+        config["text_config"]["attention_k_eq_v"] = serde_json::json!(false);
+        assert_eq!(ModelShape::from_config(&config).kv_bytes_per_token, Some(10 * 16 * 512 * 2 * 2));
+    }
+
+    #[test]
+    fn layers_sharing_an_earlier_cache_keep_none() {
+        // Gemma 3n style: the last twenty layers reuse earlier caches.
+        let mut config = gemma4_31b();
+        config["text_config"]["num_kv_shared_layers"] = serde_json::json!(20);
+        // Six full layers among the first forty.
+        assert_eq!(ModelShape::from_config(&config).kv_bytes_per_token, Some(6 * 4 * 512 * 2 * 2));
+    }
+
+    #[test]
+    fn on_this_mac_gemma4_31b_gets_twice_the_window_it_did() {
+        // 24.3 GiB of weights on a 64 GB host, MLX with fused attention.
+        let host = HostBudget::with_default_reserve(64 * GIB);
+        let mut shape = ModelShape::from_config(&gemma4_31b());
+        shape.weights_bytes = Some(26_087_568_907);
+        shape.prefill_scores_bytes = Some(0);
+        let decision = decide(&shape, Some(&host), None, None).unwrap();
+        assert_eq!(decision.bound_by, Some(Ceiling::Memory));
+        assert!(decision.tokens > 150_000, "{}", decision.tokens);
     }
 
     #[test]
