@@ -45,6 +45,48 @@ class StaysTrimmable(unittest.TestCase):
         self.assertTrue(stays_trimmable([KVCache(), KVCache()]))
 
 
+class StableHistoryForGptOss(unittest.TestCase):
+    def call(self, content):
+        return {"role": "assistant", "content": content,
+                "tool_calls": [{"type": "function", "function": {"name": "read_file", "arguments": {}}}]}
+
+    def test_gpt_oss_style_templates_never_show_the_text_beside_a_call(self):
+        from pwr_mlx import stable_history
+        template = "{%- set future_final_message = namespace(found=false) %}"
+        messages = [{"role": "user", "content": "hi"}, self.call("I will read it."),
+                    {"role": "tool", "content": "{}"}, {"role": "assistant", "content": "Done."}]
+        stable = stable_history(messages, template)
+        self.assertEqual(stable[1]["content"], "")
+        self.assertEqual(stable[1]["tool_calls"], messages[1]["tool_calls"])
+        # The answer and everything else are left as they are.
+        self.assertEqual(stable[3]["content"], "Done.")
+        self.assertEqual(messages[1]["content"], "I will read it.")
+
+    def test_other_templates_are_left_alone(self):
+        from pwr_mlx import stable_history
+        messages = [self.call("I will read it.")]
+        self.assertIs(stable_history(messages, "{{ messages }}"), messages)
+
+    def test_with_gpt_oss_the_history_stays_a_prefix_after_an_answer(self):
+        path = pathlib.Path.home() / ".pwr/models/mlx-community/gpt-oss-20b-MXFP4-Q8"
+        if not path.is_dir():
+            self.skipTest("gpt-oss is not installed here")
+        from transformers import AutoTokenizer
+        from pwr_mlx import stable_history
+        tokenizer = AutoTokenizer.from_pretrained(str(path))
+
+        def render(messages):
+            text = tokenizer.apply_chat_template(
+                stable_history(messages, tokenizer.chat_template), tokenize=False)
+            return tokenizer.encode(text, add_special_tokens=False)
+
+        before = [{"role": "user", "content": "Build it."}, self.call("I will read f1."),
+                  {"role": "tool", "content": "{}"}]
+        after = before + [{"role": "assistant", "content": "Done."}, {"role": "user", "content": "go on"}]
+        first, second = render(before), render(after)
+        self.assertEqual(second[:len(first)], first)
+
+
 class Looping(unittest.TestCase):
     def test_a_block_repeated_back_to_back_is_a_loop(self):
         block = "def f(x):\n    return x + 1\n\n" * 12  # longer than REPEAT_SPAN

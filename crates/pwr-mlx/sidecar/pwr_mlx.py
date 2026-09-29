@@ -534,6 +534,30 @@ class VisionText(nn.Module):
         return out.logits if hasattr(out, "logits") else out
 
 
+def stable_history(messages, template: str):
+    """The messages, so a template renders past steps the same way whatever
+    follows them.
+
+    gpt-oss's template shows the text beside a tool call as analysis only
+    until a final answer follows it, then drops it from every earlier step:
+    the history is rewritten from the first step on, and a prompt cache --
+    which only a prefix can reuse -- is lost once per answer. Measured
+    2026-09-29 with its tokenizer: a history of two steps and an answer
+    shared 129 of 529 tokens with the same history before the answer. Such a
+    template (it looks for a `future_final_message`) gets that text never,
+    so the history stays a prefix; the model's reasoning, which the template
+    never shows once an answer follows, is not lost by it either.
+    """
+    if "future_final_message" not in template:
+        return messages
+    return [
+        {**message, "content": ""}
+        if message.get("role") == "assistant" and message.get("tool_calls") and message.get("content")
+        else message
+        for message in messages
+    ]
+
+
 def image_parts(messages, accept: bool = True):
     """The images in `messages`, in order, and the messages as the chat
     template takes them: each image part becomes `{"type": "image"}`."""
@@ -615,6 +639,8 @@ class Engine:
         # before it and the prompt cache missed: 100-130 s of prefill on
         # steps that added 2-3K tokens (D.E2E-21). `preserve_thinking` keeps
         # the block on every turn; a template without the variable ignores it.
+        template = str(getattr(self.tokenizer, "chat_template", "") or "")
+        messages = stable_history(messages, template)
         images, messages = image_parts(messages, accept=self.processor is not None)
         kwargs = {
             "add_generation_prompt": generation_prompt,
@@ -623,7 +649,6 @@ class Engine:
         }
         if tools:
             kwargs["tools"] = tools
-        template = str(getattr(self.tokenizer, "chat_template", "") or "")
         if thinking is not False and budget is not None and "thinking_budget" in template:
             # The template's own budget (Seed-OSS), in steps; see NATIVE_BUDGET_STEP.
             kwargs["thinking_budget"] = int(budget) // NATIVE_BUDGET_STEP * NATIVE_BUDGET_STEP
