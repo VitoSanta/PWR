@@ -209,6 +209,13 @@ pub fn generation_sampling(config: &Value) -> Option<BTreeMap<String, Value>> {
             value.is_number().then(|| (name.to_owned(), value.clone()))
         })
         .collect();
+    // `do_sample: true` with no temperature samples at 1.0, the Hub's
+    // default -- and what OpenAI recommends for gpt-oss, whose config says
+    // only that. Left empty, it ran greedy instead.
+    let mut values = values;
+    if config.get("do_sample").and_then(Value::as_bool) == Some(true) {
+        values.entry("temperature".into()).or_insert(serde_json::json!(1.0));
+    }
     (!values.is_empty()).then_some(values)
 }
 
@@ -268,6 +275,18 @@ pub fn parse_recommendations(card: &str) -> Option<BTreeMap<String, Value>> {
                     .filter(|n| n.is_finite() && (0.0..=1.0).contains(n))
                     .map(|n| serde_json::json!(n)),
                 "top_k" => raw.parse::<u32>().ok().map(|n| serde_json::json!(n)),
+                // Qwen 3.5-family cards (Ornith's among them) recommend a
+                // presence penalty against repetition; the engine takes both.
+                "presence_penalty" => raw
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|n| n.is_finite() && (-2.0..=2.0).contains(n))
+                    .map(|n| serde_json::json!(n)),
+                "repetition_penalty" => raw
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|n| n.is_finite() && *n > 0.0)
+                    .map(|n| serde_json::json!(n)),
                 _ => None,
             };
             if let Some(value) = value {
@@ -292,6 +311,25 @@ pub fn parse_recommendations(card: &str) -> Option<BTreeMap<String, Value>> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn an_html_card_gives_its_general_sampling() {
+        // Ornith-1.5-9B-MLX-4bit's card, as the Hub serves it: HTML, with
+        // style attributes around every value.
+        let code = |value: &str| format!("<code style=\"background:rgba(253,142,91,0.15);padding:1px 5px;border-radius:4px\">{value}</code>");
+        let card = format!(
+            "<p style=\"margin:0 0 6px\">Recommended sampling parameters:</p>\n<ul style=\"margin:0;padding-left:20px\">\n<li><b>For general tasks:</b> {}, {}, {}, {}, {}, {}</li>\n<li><b>For precise coding tasks:</b> {}, {}, {}</li>\n</ul>\n</div>\n\n### Serving Ornith-1.5-9B\n",
+            code("temperature=1.0"), code("top_p=0.95"), code("top_k=20"), code("min_p=0.0"),
+            code("presence_penalty=1.5"), code("repetition_penalty=1.0"),
+            code("temperature=0.6"), code("top_p=0.95"), code("top_k=20"),
+        );
+        let values = super::parse_recommendations(&card).unwrap();
+        assert_eq!(values["temperature"], 1.0, "{values:?}");
+        assert_eq!(values["top_p"], 0.95);
+        assert_eq!(values["top_k"], 20);
+        assert_eq!(values["presence_penalty"], 1.5);
+        assert!(!values.contains_key("style"), "{values:?}");
+    }
+
+    #[test]
     fn an_original_models_generation_config_gives_its_sampling() {
         // Qwen/Qwen3-14B's, as the Hub serves it.
         let qwen3 = serde_json::json!({"do_sample": true, "temperature": 0.6, "top_k": 20, "top_p": 0.95, "eos_token_id": [151645]});
@@ -302,6 +340,9 @@ mod tests {
         // Greedy on purpose, or nothing about sampling: nothing to take.
         assert!(super::generation_sampling(&serde_json::json!({"do_sample": false, "temperature": 0.7})).is_none());
         assert!(super::generation_sampling(&serde_json::json!({"bos_token_id": 1})).is_none());
+        // openai/gpt-oss-20b's says only that it samples: at 1.0.
+        let gpt_oss = super::generation_sampling(&serde_json::json!({"do_sample": true, "eos_token_id": [200002]})).unwrap();
+        assert_eq!(gpt_oss["temperature"], 1.0);
     }
 
     use super::*;
