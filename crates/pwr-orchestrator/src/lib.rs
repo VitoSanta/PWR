@@ -5378,6 +5378,14 @@ fn repair_form(name: &str, arguments: &mut serde_json::Value) -> String {
         for expectation in ["stdout", "stderr", "expected_output", "description"] {
             object.remove(expectation);
         }
+        // Another spelling of `args`, seen on Ornith-1.5-9B the same day.
+        for spelling in ["arg_list", "arguments", "argv"] {
+            if !object.contains_key("args")
+                && let Some(value) = object.remove(spelling)
+            {
+                object.insert("args".into(), value);
+            }
+        }
     }
     if name == "run_command"
         && !object.contains_key("executable")
@@ -6725,6 +6733,9 @@ mod tests {
             serde_json::json!({"executable": "node", "args": ["a.js"], "stdout": "6.21 mi"});
         assert_eq!(repair_form("run_command", &mut arguments), "run_command");
         assert!(arguments.get("stdout").is_none());
+        let mut arguments = serde_json::json!({"executable": "node", "arg_list": ["a.js"]});
+        repair_form("run_command", &mut arguments);
+        assert_eq!(arguments["args"][0], "a.js");
         // Without the arguments that make it one reading, the name is kept
         // and refused as the unknown tool it is.
         let mut arguments = serde_json::json!({"path": "a.js"});

@@ -387,6 +387,8 @@ struct Eval {
     #[command(subcommand)]
     command: EvalCommand,
 }
+// Parsed once per invocation; boxing its arguments would buy nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum EvalCommand {
     Run {
@@ -471,6 +473,17 @@ enum EvalCommand {
         /// current deployment and profile.
         #[arg(long, value_name = "MANIFEST")]
         resume: Option<PathBuf>,
+        /// Bound each turn's reasoning as the desktop does at this Reasoning
+        /// Effort (`low`, `medium` or `high`), from the same assessment and
+        /// the same plan. Absent, the model reasons as its template lets it,
+        /// which is what every earlier report measured.
+        ///
+        /// Measured 2026-09-29: Ornith-1.5-9B lost three small tasks to one
+        /// reply each that reasoned for 16,384 tokens, where the desktop at
+        /// its default Medium would have closed the reasoning at a few
+        /// thousand.
+        #[arg(long, value_name = "EFFORT")]
+        reasoning_effort: Option<String>,
     },
     /// Pair two campaigns' reports by deployment, task and seed, and report
     /// what the second cost against the first.
@@ -5730,6 +5743,7 @@ async fn dispatch(cli: Cli) -> i32 {
                 context_policy,
                 context_share,
                 resume,
+                reasoning_effort,
             } => {
                 let used = model.clone();
                 let outcome = releasing_model(
@@ -5750,6 +5764,7 @@ async fn dispatch(cli: Cli) -> i32 {
                         context_policy,
                         context_share,
                         resume,
+                        reasoning_effort,
                     ),
                 )
                 .await;
@@ -6567,6 +6582,7 @@ async fn evaluate(
     context_policy: String,
     context_share: u8,
     resume: Option<PathBuf>,
+    reasoning_effort: Option<String>,
 ) -> Result<serde_json::Value, SafeError> {
     let mode: pwr_eval::EvaluationMode = mode.parse().map_err(|context| SafeError {
         category: "invalid_input",
@@ -6680,6 +6696,44 @@ async fn evaluate(
             category: "invalid_input",
             context,
         })?;
+    }
+    if let Some(name) = reasoning_effort.as_deref() {
+        let effort = pwr_domain::ReasoningEffort::parse(name).ok_or_else(|| SafeError {
+            category: "invalid_input",
+            context: format!("reasoning effort `{name}` is not low, medium or high"),
+        })?;
+        let assessment =
+            compatibility::assess(compatibility::subject(&provider, &inspection, profile).await);
+        // The first turn's plan, which is the Effort's budget: a task prompt
+        // is small beside the window, and the answer keeps the allowance a
+        // turn is given without one.
+        let plan = pwr_domain::plan_reasoning(
+            effort,
+            &assessment.reasoning,
+            pwr_domain::GenerationEnvelope {
+                context_limit: 65_536,
+                input_tokens: 0,
+                answer_allowance: 8_192,
+            },
+        );
+        match plan.directive {
+            pwr_domain::ReasoningDirective::Budget { tokens } => {
+                task_profile
+                    .sampling
+                    .insert("reasoning_budget".into(), serde_json::json!(tokens));
+            }
+            pwr_domain::ReasoningDirective::Level { effort } => {
+                task_profile
+                    .sampling
+                    .insert(REASONING_EFFORT.into(), serde_json::json!(effort.as_str()));
+            }
+            pwr_domain::ReasoningDirective::Off => {
+                task_profile
+                    .sampling
+                    .insert("think".into(), serde_json::json!(false));
+            }
+            pwr_domain::ReasoningDirective::TemplateDefault => {}
+        }
     }
     let task_profile = task_profile;
     // What the backend will actually receive, and where each value came from.
