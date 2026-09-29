@@ -3366,7 +3366,8 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             // deployment whose family is unknown gets the generic adapter, which
             // changes nothing, so this is the identity for every run that was
             // working before the compatibility layer existed.
-            let reply = tuning.adapter.normalize(&reply);
+            let mut reply = tuning.adapter.normalize(&reply);
+            reply.tool_calls = expand_numbered_commands(&reply.tool_calls);
             // The deployment's own turn goes into the history before the result of
             // it does. Without this the history is the task followed by a run of
             // tool messages answering nothing, and the deployment cannot see what
@@ -5569,6 +5570,84 @@ fn actions_from_reply(
     }
 }
 
+/// A `run_command` that numbers several commands -- `executable`,
+/// `executable_2`, `executable_3`... each a whole command line -- as the
+/// calls it means, one command each, in order. Measured 2026-09-29:
+/// Ornith-1.5-9B checked its tools with one call holding `node --version`,
+/// `npm --version`, `bun --version`, `pwd` and `npm prefix`, refused three
+/// times as not declaring `executable_2`, and the turn stopped. One reading:
+/// each is a command. A line with shell syntax runs through `sh -c`, as the
+/// tool's own description says to; any other is split on spaces.
+pub(crate) fn expand_numbered_commands(
+    calls: &[pwr_domain::ToolCall],
+) -> Vec<pwr_domain::ToolCall> {
+    let numbered = |call: &pwr_domain::ToolCall| {
+        call.name == "run_command"
+            && call.arguments.as_object().is_some_and(|fields| {
+                fields.keys().any(|key| {
+                    key.strip_prefix("executable_")
+                        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+                })
+            })
+    };
+    if !calls.iter().any(numbered) {
+        return calls.to_vec();
+    }
+    let mut expanded = Vec::new();
+    for call in calls {
+        if !numbered(call) {
+            expanded.push(call.clone());
+            continue;
+        }
+        let fields = call.arguments.as_object().expect("checked above");
+        let mut lines: Vec<(u32, &str)> = fields
+            .iter()
+            .filter_map(|(key, value)| {
+                let order = if key == "executable" {
+                    1
+                } else {
+                    key.strip_prefix("executable_")?.parse().ok()?
+                };
+                Some((order, value.as_str()?))
+            })
+            .collect();
+        lines.sort_by_key(|(order, _)| *order);
+        for (index, (order, line)) in lines.into_iter().enumerate() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            // The first keeps the arguments given beside it, if any.
+            let given = (order == 1).then(|| fields.get("args").cloned()).flatten();
+            let (executable, args) = if let Some(args) = given {
+                (line.to_owned(), args)
+            } else if line.contains(['|', '&', ';', '<', '>', '$', '`', '*']) {
+                ("sh".to_owned(), serde_json::json!(["-c", line]))
+            } else {
+                let mut words = line.split_whitespace();
+                let executable = words.next().unwrap_or_default().to_owned();
+                (executable, serde_json::json!(words.collect::<Vec<_>>()))
+            };
+            let mut arguments = serde_json::json!({"executable": executable, "args": args});
+            if let Some(cwd) = fields.get("cwd") {
+                arguments["cwd"] = cwd.clone();
+            }
+            expanded.push(pwr_domain::ToolCall {
+                name: "run_command".into(),
+                arguments,
+                id: call.id.clone().map(|id| {
+                    if index == 0 {
+                        id
+                    } else {
+                        format!("{id}-{}", index + 1)
+                    }
+                }),
+            });
+        }
+    }
+    expanded
+}
+
 /// Every call of a reply decoded, in order, with the id each answers; `None`
 /// when any of them cannot be decoded, which stays a refusal.
 fn sequential_calls(
@@ -6226,6 +6305,56 @@ pub fn calibration_invalidations(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numbered_commands_are_the_calls_they_mean() {
+        // Ornith-1.5-9B's call, as it wrote it.
+        let call = pwr_domain::ToolCall {
+            name: "run_command".into(),
+            arguments: serde_json::json!({
+                "executable": "node",
+                "executable_2": "node --version",
+                "executable_3": "npm --version",
+                "executable_10": "ls src | head",
+                "executable_5": "pwd",
+            }),
+            id: Some("c1".into()),
+        };
+        let calls = expand_numbered_commands(&[call]);
+        let lines: Vec<(String, serde_json::Value)> = calls
+            .iter()
+            .map(|call| {
+                (
+                    call.arguments["executable"].as_str().unwrap().to_owned(),
+                    call.arguments["args"].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            vec![
+                ("node".to_owned(), serde_json::json!([])),
+                ("node".to_owned(), serde_json::json!(["--version"])),
+                ("npm".to_owned(), serde_json::json!(["--version"])),
+                ("pwd".to_owned(), serde_json::json!([])),
+                ("sh".to_owned(), serde_json::json!(["-c", "ls src | head"])),
+            ]
+        );
+        assert_eq!(calls[0].id.as_deref(), Some("c1"));
+        assert_eq!(calls[1].id.as_deref(), Some("c1-2"));
+        // Each decodes as the ordinary call it now is.
+        assert!(calls.iter().all(|call| action_from_tool_call(call).is_ok()));
+        // An ordinary call is left alone.
+        let plain = pwr_domain::ToolCall {
+            name: "run_command".into(),
+            arguments: serde_json::json!({"executable": "npm", "args": ["test"]}),
+            id: None,
+        };
+        assert_eq!(
+            expand_numbered_commands(std::slice::from_ref(&plain)),
+            vec![plain]
+        );
+    }
 
     /// The loop asks before a command leaves the sandbox; the executor
     /// refuses one that reached it without the grant, whatever else is given.
