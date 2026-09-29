@@ -5326,6 +5326,15 @@ fn repair_form(name: &str, arguments: &mut serde_json::Value) -> String {
     // after it, any arguments. Measured 2026-09-25 on Ornith 1.5 35B, five
     // calls refused in one conversation, each written in markup, so the list
     // arrives as JSON text.
+    // What the caller expects the command to print, sent as if it were an
+    // argument. It changes nothing about what runs, so it is dropped rather
+    // than refused. Measured 2026-09-29 on Ornith-1.5-9B: three `run_command`
+    // calls in one task refused for carrying `stdout`, each an action lost.
+    if name == "run_command" {
+        for expectation in ["stdout", "stderr", "expected_output", "description"] {
+            object.remove(expectation);
+        }
+    }
     if name == "run_command"
         && !object.contains_key("executable")
         && let Some(value) = object.remove("executables")
@@ -6536,6 +6545,10 @@ mod tests {
         assert_eq!(arguments["find"], "x");
         let mut arguments = serde_json::json!({"path": "a.js", "content": "x"});
         assert_eq!(repair_form("create_file", &mut arguments), "write_file");
+        let mut arguments =
+            serde_json::json!({"executable": "node", "args": ["a.js"], "stdout": "6.21 mi"});
+        assert_eq!(repair_form("run_command", &mut arguments), "run_command");
+        assert!(arguments.get("stdout").is_none());
         // Without the arguments that make it one reading, the name is kept
         // and refused as the unknown tool it is.
         let mut arguments = serde_json::json!({"path": "a.js"});
