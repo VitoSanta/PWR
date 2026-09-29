@@ -357,8 +357,53 @@ fn parse_call(body: &str) -> Option<ToolCall> {
     }
     let value = serde_json::from_str(body)
         .ok()
-        .or_else(|| serde_json::from_str(&python_quote_escapes(body)).ok())?;
+        .or_else(|| serde_json::from_str(&python_quote_escapes(body)).ok())
+        .or_else(|| {
+            let closed = close_unterminated(&python_quote_escapes(body))?;
+            serde_json::from_str(&closed).ok()
+        })?;
     parse_call_value(&value)
+}
+
+/// A call whose block the model closed without closing the JSON inside it:
+/// the last string and the objects around it left open. Measured 2026-09-29:
+/// Qwen2.5-Coder ended a `write_file` block right after the file's last line,
+/// with no `"`, `}` or `}` -- the whole reply, a write, a check and a
+/// completion, went unread. Only called for a block whose fence or tag was
+/// closed, so a reply cut off by the length limit is never completed this
+/// way; and only where the text ends inside what it opened, so a stray or
+/// unbalanced closer is left to fail as it is.
+fn close_unterminated(body: &str) -> Option<String> {
+    let mut open = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    for c in body.chars() {
+        if in_string {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '{' => open.push('}'),
+            '[' => open.push(']'),
+            '}' | ']' if open.pop() != Some(c) => return None,
+            _ => {}
+        }
+    }
+    if !in_string && open.is_empty() {
+        return None;
+    }
+    let mut closed = body.trim_end().to_owned();
+    if in_string {
+        closed.push('"');
+    }
+    closed.extend(open.iter().rev());
+    Some(closed)
 }
 
 /// JSON with Python's `\'` read as the apostrophe it means. `\'` is never
@@ -1130,6 +1175,14 @@ mod tests {
                 .tool_calls
                 .is_empty()
         );
+        // A write whose block ends without closing the content or the call,
+        // then a sentence and a second call, as Qwen2.5-Coder wrote one.
+        let unclosed = QwenFamilyAdapter.normalize(&reply(&format!(
+            "Creating it.\n\n```json\n{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"server.js\",\n    \"content\": \"listen();\\n\n```\n\nNow check it.\n\n{}",
+            read("server.js")
+        )));
+        assert_eq!(unclosed.tool_calls.len(), 2);
+        assert_eq!(unclosed.tool_calls[0].arguments["content"], "listen();\n");
         // Nor is a fenced object that is not a call.
         let data = "```json\n{\"file\": \"src/parser.rs\", \"line\": 7}\n```";
         assert!(
