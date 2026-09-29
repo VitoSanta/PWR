@@ -90,9 +90,15 @@ pub fn rope_extension(config: &serde_json::Value) -> Option<RopeExtension> {
         .or_else(|| config.get("model_type"))?
         .as_str()?;
     let trained = text.get("max_position_embeddings")?.as_u64()?;
-    (matches!(model_type, "qwen2" | "qwen3") && trained == 32_768).then_some(RopeExtension {
+    // Qwen3's configs say 40,960 -- its native 32,768 and room for the
+    // answer -- while YaRN is still counted from 32,768 (Qwen3's card).
+    let native = match (model_type, trained) {
+        ("qwen2", 32_768) | ("qwen3", 32_768 | 40_960) => 32_768,
+        _ => return None,
+    };
+    Some(RopeExtension {
         factor: 4.0,
-        original: 32_768,
+        original: native,
         extended: 131_072,
     })
 }
@@ -605,6 +611,9 @@ mod rope_tests {
         assert_eq!((extension.original, extension.extended), (32_768, 131_072));
         assert_eq!(extension.rope_scaling()["type"], "yarn");
         assert!(crate::rope_extension(&serde_json::json!({"model_type": "qwen3", "max_position_embeddings": 32768})).is_some());
+        // Qwen3-14B's config says 40960; YaRN still starts from 32768.
+        let qwen3 = crate::rope_extension(&serde_json::json!({"model_type": "qwen3", "max_position_embeddings": 40960})).unwrap();
+        assert_eq!((qwen3.original, qwen3.extended), (32_768, 131_072));
         for config in [
             serde_json::json!({"model_type": "qwen2", "max_position_embeddings": 32768, "rope_scaling": {"type": "yarn", "factor": 4.0}}),
             serde_json::json!({"model_type": "qwen2", "max_position_embeddings": 131072}),
