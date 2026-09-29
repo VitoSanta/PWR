@@ -605,6 +605,45 @@ impl HubClient {
         Ok(serde_json::from_slice(&bytes).ok())
     }
 
+    /// The repository's `generation_config.json` at a commit -- the sampling
+    /// its authors ship -- or `None` if it has none or it cannot be read.
+    pub async fn generation_config(
+        &self,
+        repository: &str,
+        revision: &str,
+    ) -> Result<Option<serde_json::Value>, HubError> {
+        check_repository(repository)?;
+        check_revision(revision)?;
+        let url = self.url(&[repository, "resolve", revision, "generation_config.json"]);
+        let mut request = self.http.get(url);
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().await.map_err(|error| {
+            HubError::new(
+                HubErrorKind::Offline,
+                format!("generation_config.json could not be fetched: {error}"),
+            )
+        })?;
+        if !response.status().is_success()
+            || response
+                .content_length()
+                .is_some_and(|length| length as usize > CONFIG_LIMIT_BYTES)
+        {
+            return Ok(None);
+        }
+        let bytes = response.bytes().await.map_err(|error| {
+            HubError::new(
+                HubErrorKind::Offline,
+                format!("generation_config.json could not be read: {error}"),
+            )
+        })?;
+        if bytes.len() > CONFIG_LIMIT_BYTES {
+            return Ok(None);
+        }
+        Ok(serde_json::from_slice(&bytes).ok())
+    }
+
     /// A model card at an exact commit. Only its bounded text is read; model
     /// repositories cannot supply code or instructions to the agent through
     /// this path.
