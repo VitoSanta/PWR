@@ -2242,7 +2242,9 @@ impl ToolPolicy {
         runtime_writes
             .push_str(r#"(allow file-write* (regex #"^/private/tmp/[.]dotnet[.][^/]+(/|$)"))"#);
         // MSBuild's node sockets, created where it always puts them (above).
-        runtime_writes.push_str(&format!(r#"(allow file-write* (regex #"{MSBUILD_NODE_SOCKET}"))"#));
+        runtime_writes.push_str(&format!(
+            r#"(allow file-write* (regex #"{MSBUILD_NODE_SOCKET}"))"#
+        ));
         Some(format!(
             "(version 1)(allow default)(deny file-write*)(allow file-write* (subpath \"{root}\")){runtime_writes}{harness_state_writes}(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\")){reads}{secrets}{network}"
         ))

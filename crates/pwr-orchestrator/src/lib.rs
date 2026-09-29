@@ -1504,8 +1504,14 @@ async fn attempt_action(
                 policy
             };
             serialize_tool_result(
-                pwr_tools::run_command_in(policy, executable, args, stdin.as_deref(), cwd.as_deref())
-                    .await,
+                pwr_tools::run_command_in(
+                    policy,
+                    executable,
+                    args,
+                    stdin.as_deref(),
+                    cwd.as_deref(),
+                )
+                .await,
             )
         }
         ActionProposal::FetchUrl { url, save_as } => {
@@ -5087,11 +5093,9 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
     let name = repair_form(&call.name, &mut arguments);
     if name == "run_command"
         && let Some(object) = arguments.as_object()
-        && let Some(unknown) = object
-            .keys()
-            .find(|key| {
-                !["executable", "args", "stdin", "cwd", "outside_sandbox"].contains(&key.as_str())
-            })
+        && let Some(unknown) = object.keys().find(|key| {
+            !["executable", "args", "stdin", "cwd", "outside_sandbox"].contains(&key.as_str())
+        })
     {
         return Err(MalformedCall::detailed(
             "schema_mismatch",
@@ -6196,9 +6200,14 @@ mod tests {
         };
         let mut services = pwr_tools::service::ServiceSupervisor::new();
         let refused = attempt_action(&policy, &action, &mut services).await;
-        assert!(matches!(refused, Err(ActionExecutionError::Denied(_))), "{refused:?}");
+        assert!(
+            matches!(refused, Err(ActionExecutionError::Denied(_))),
+            "{refused:?}"
+        );
         policy.approvals.push(pwr_tools::Approval::OutsideSandbox);
-        let ran = attempt_action(&policy, &action, &mut services).await.unwrap();
+        let ran = attempt_action(&policy, &action, &mut services)
+            .await
+            .unwrap();
         assert_eq!(ran["sandboxed"], false);
         assert_eq!(ran["exit_code"], 0);
     }
