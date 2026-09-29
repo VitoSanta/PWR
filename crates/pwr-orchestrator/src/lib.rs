@@ -1486,10 +1486,28 @@ async fn attempt_action(
             args,
             stdin,
             cwd,
-        } => serialize_tool_result(
-            pwr_tools::run_command_in(policy, executable, args, stdin.as_deref(), cwd.as_deref())
-                .await,
-        ),
+            outside_sandbox,
+        } => {
+            // Outside the sandbox only when the person granted it: the loop
+            // asked before acting, and this refuses whatever slipped past.
+            let unconfined;
+            let policy = if *outside_sandbox {
+                if let Err(error) = policy.require(pwr_tools::Approval::OutsideSandbox) {
+                    return serialize_tool_result::<pwr_tools::ToolResult>(Err(error));
+                }
+                unconfined = pwr_tools::ToolPolicy {
+                    sandbox: pwr_tools::SandboxPolicy::FullAccess,
+                    ..policy.clone()
+                };
+                &unconfined
+            } else {
+                policy
+            };
+            serialize_tool_result(
+                pwr_tools::run_command_in(policy, executable, args, stdin.as_deref(), cwd.as_deref())
+                    .await,
+            )
+        }
         ActionProposal::FetchUrl { url, save_as } => {
             serialize_tool_result(pwr_tools::fetch_url(policy, url, save_as.as_deref()).await)
         }
@@ -2230,17 +2248,20 @@ fn action_fingerprint(action: &ActionProposal) -> String {
             args,
             stdin,
             cwd,
+            outside_sandbox,
         } => {
             // The input is part of what makes an invocation distinct: the same
             // program on different input is not the same action repeated, and
-            // neither is the same program run in another directory.
+            // neither is the same program run in another directory, or outside
+            // the sandbox after failing inside it.
             format!(
-                "run_command:{executable}:{}:{}{}",
+                "run_command:{executable}:{}:{}{}{}",
                 args.join(" "),
                 stdin.as_deref().unwrap_or_default(),
                 cwd.as_deref()
                     .map(|dir| format!(":in {dir}"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                if *outside_sandbox { ":outside" } else { "" }
             )
         }
         ActionProposal::FetchUrl { url, save_as } => match save_as {
@@ -4548,12 +4569,13 @@ pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
         ),
         function(
             "run_command",
-            "Run one command directly. `executable` is the program alone and `args` is a list of what follows it: `cargo test` is executable \"cargo\" with args [\"test\"]; `npm run build` is executable \"npm\" with args [\"run\", \"build\"]. Never repeat the program inside args. args are arguments, not syntax: `cd`, `&&`, pipes, redirection and globs written into them do nothing. To run in a subdirectory, set cwd to its workspace-relative path (`cd web && npm run build` is executable \"npm\", args [\"run\", \"build\"], cwd \"web\"). To give the program input, put it in stdin. When you do need shell syntax -- a pipeline, `&&`, a glob -- run executable \"sh\" with args [\"-c\", \"the whole command line\"]; it runs in the same sandbox as any other command.",
+            "Run one command directly. `executable` is the program alone and `args` is a list of what follows it: `cargo test` is executable \"cargo\" with args [\"test\"]; `npm run build` is executable \"npm\" with args [\"run\", \"build\"]. Never repeat the program inside args. args are arguments, not syntax: `cd`, `&&`, pipes, redirection and globs written into them do nothing. To run in a subdirectory, set cwd to its workspace-relative path (`cd web && npm run build` is executable \"npm\", args [\"run\", \"build\"], cwd \"web\"). To give the program input, put it in stdin. When you do need shell syntax -- a pipeline, `&&`, a glob -- run executable \"sh\" with args [\"-c\", \"the whole command line\"]; it runs in the same sandbox as any other command. When a command fails because the sandbox refused it -- `Operation not permitted`, a write outside the workspace refused, or a build that hangs until it is stopped -- and not because of the project, run it again with outside_sandbox true: the person is asked, and it runs with their full rights only if they allow it.",
             serde_json::json!({
                 "executable": {"type": "string"},
                 "args": {"type": "array", "items": {"type": "string"}},
                 "stdin": {"type": "string"},
                 "cwd": {"type": "string", "description": "Workspace-relative directory to run in; the root when omitted."},
+                "outside_sandbox": {"type": "boolean", "description": "Ask the person to run this outside the sandbox. Only after the sandbox, not the project, refused it."},
             }),
             &["executable", "args"],
         ),
@@ -5067,13 +5089,15 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
         && let Some(object) = arguments.as_object()
         && let Some(unknown) = object
             .keys()
-            .find(|key| !["executable", "args", "stdin", "cwd"].contains(&key.as_str()))
+            .find(|key| {
+                !["executable", "args", "stdin", "cwd", "outside_sandbox"].contains(&key.as_str())
+            })
     {
         return Err(MalformedCall::detailed(
             "schema_mismatch",
             format!(
                 "run_command does not accept `{unknown}`; send `executable` and `args` \
-                 (a list of strings), with optional `cwd` or `stdin`"
+                 (a list of strings), with optional `cwd`, `stdin` or `outside_sandbox`"
             ),
             format!("run_command: {unknown}"),
         ));
@@ -6154,6 +6178,31 @@ pub fn calibration_invalidations(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The loop asks before a command leaves the sandbox; the executor
+    /// refuses one that reached it without the grant, whatever else is given.
+    #[tokio::test]
+    async fn a_command_outside_the_sandbox_needs_its_own_grant() {
+        let root = tempfile::tempdir().unwrap();
+        let mut policy = pwr_tools::PolicyProfile::Safe.build(root.path().to_path_buf());
+        policy.allow_commands = vec!["echo".into()];
+        policy.approvals = vec![pwr_tools::Approval::NetworkAccess];
+        let action = ActionProposal::RunCommand {
+            executable: "echo".into(),
+            args: vec!["hi".into()],
+            stdin: None,
+            cwd: None,
+            outside_sandbox: true,
+        };
+        let mut services = pwr_tools::service::ServiceSupervisor::new();
+        let refused = attempt_action(&policy, &action, &mut services).await;
+        assert!(matches!(refused, Err(ActionExecutionError::Denied(_))), "{refused:?}");
+        policy.approvals.push(pwr_tools::Approval::OutsideSandbox);
+        let ran = attempt_action(&policy, &action, &mut services).await.unwrap();
+        assert_eq!(ran["sandboxed"], false);
+        assert_eq!(ran["exit_code"], 0);
+    }
+
     #[test]
     fn slips_in_a_list_of_arguments_with_one_reading_are_put_right() {
         let read = |text: &str| string_list_with_raw_newlines(text);

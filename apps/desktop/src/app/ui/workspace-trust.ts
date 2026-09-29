@@ -23,7 +23,7 @@ import { Icon } from './kit/icon';
             <h2 class="dialog-title" id="trust-title">Trust this folder?</h2>
             <p class="dialog-description" id="trust-description">
               PWR can read and edit files and run commands here. Review this folder and its project
-              instructions before continuing. Your Ask or Auto-approve setting stays as configured.
+              instructions before continuing. Your permissions mode stays as configured.
             </p>
           </div>
         </div>

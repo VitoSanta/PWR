@@ -225,6 +225,8 @@ enum ApprovalArg {
     /// again, which is the unattended case; without it a proposal is asked
     /// about when a terminal is attached, and refused when none is.
     VerifierProposal,
+    /// Running a command outside the sandbox, with your full rights.
+    OutsideSandbox,
 }
 impl From<ApprovalArg> for pwr_tools::Approval {
     fn from(value: ApprovalArg) -> Self {
@@ -237,6 +239,7 @@ impl From<ApprovalArg> for pwr_tools::Approval {
             ApprovalArg::ToolchainInstall => Self::ToolchainInstall,
             ApprovalArg::ContainerEngine => Self::ContainerEngine,
             ApprovalArg::VerifierProposal => Self::VerifierProposal,
+            ApprovalArg::OutsideSandbox => Self::OutsideSandbox,
         }
     }
 }
@@ -1071,16 +1074,40 @@ struct ChatConfig {
 /// maintainer, after an external review found that the conversation granted
 /// dependency changes, network access and toolchain installs in advance --
 /// which left the installed-dependency guard (backlog D.E2E-29) inert in the
-/// app. Two modes, named for what they do.
+/// app. Three since 2026-09-29, when a third was added at the maintainer's
+/// request after the sandbox kept a .NET build from running: the stored names
+/// stay, so no saved configuration changes meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PermissionMode {
-    /// Ask before what reaches outside the workspace or cannot be taken back:
-    /// the kinds in `ask_before`. The default.
+    /// Protected: ask before what reaches outside the workspace or cannot be
+    /// taken back -- the kinds in `ask_before`. The default.
     Ask,
-    /// Every permission granted. The sandbox and the policy's own limits
-    /// still hold; what is lifted is the question, not the boundary.
+    /// Standard: the network, dependencies and toolchains granted; asks only
+    /// before what cannot be taken back or leaves the sandbox
+    /// ([`STANDARD_ASKED`]). The sandbox and the policy's own limits hold.
     Auto,
+    /// Full access: no sandbox, the person's own environment, nothing asked.
+    /// A command runs as it would in their terminal.
+    Full,
+}
+
+/// What Standard still asks about: publishing and rewriting history, which
+/// cannot be taken back, and the container engine and a command run outside
+/// the sandbox, which leave it.
+const STANDARD_ASKED: [pwr_tools::Approval; 4] = [
+    pwr_tools::Approval::Publish,
+    pwr_tools::Approval::HistoryRewrite,
+    pwr_tools::Approval::ContainerEngine,
+    pwr_tools::Approval::OutsideSandbox,
+];
+
+/// The boundary a workspace's commands run in, given its mode.
+fn sandbox_for(config: &ChatConfig) -> pwr_tools::SandboxPolicy {
+    match config.permission_mode.unwrap_or(PermissionMode::Ask) {
+        PermissionMode::Full => pwr_tools::SandboxPolicy::FullAccess,
+        PermissionMode::Ask | PermissionMode::Auto => pwr_tools::SandboxPolicy::Preferred,
+    }
 }
 
 /// What `Ask` asks about by default: changing dependencies, reaching the
@@ -1102,8 +1129,12 @@ fn asked_before_by_default() -> Vec<pwr_tools::Approval> {
 /// The container engine is the grant that leaves the sandbox. A list saved
 /// before it existed does not name it, and "not named" means "granted" --
 /// so without this, a person who had only ever chosen `Ask` would have had
-/// Docker handed to the model without a question the day it was added.
-const ALWAYS_ASKED: [pwr_tools::Approval; 1] = [pwr_tools::Approval::ContainerEngine];
+/// Docker handed to the model without a question the day it was added. The
+/// same holds for running a command outside the sandbox, added 2026-09-29.
+const ALWAYS_ASKED: [pwr_tools::Approval; 2] = [
+    pwr_tools::Approval::ContainerEngine,
+    pwr_tools::Approval::OutsideSandbox,
+];
 
 /// The list the old default asked about, before the modes existed. A saved
 /// configuration still holding exactly this was never chosen by anyone, so it
@@ -1118,7 +1149,8 @@ fn asked_before_by_default_until_2026_09_23() -> Vec<pwr_tools::Approval> {
 /// What the conversation actually asks about, given its mode.
 fn effective_ask_before(config: &ChatConfig) -> Vec<pwr_tools::Approval> {
     match config.permission_mode.unwrap_or(PermissionMode::Ask) {
-        PermissionMode::Auto => Vec::new(),
+        PermissionMode::Full => Vec::new(),
+        PermissionMode::Auto => STANDARD_ASKED.to_vec(),
         PermissionMode::Ask => {
             let mut asked = config.ask_before.clone();
             for approval in ALWAYS_ASKED {
@@ -1178,6 +1210,7 @@ fn approval_label(approval: pwr_tools::Approval) -> &'static str {
             "use Docker or another container engine (containers run outside the sandbox)"
         }
         Approval::VerifierProposal => "adopt a check the model proposes",
+        Approval::OutsideSandbox => "run a command outside the sandbox, with your full rights",
     }
 }
 
@@ -1844,6 +1877,7 @@ fn all_approvals() -> Vec<pwr_tools::Approval> {
         ApprovalArg::ToolchainInstall,
         ApprovalArg::ContainerEngine,
         ApprovalArg::VerifierProposal,
+        ApprovalArg::OutsideSandbox,
     ]
     .into_iter()
     .map(Into::into)
@@ -3232,7 +3266,7 @@ impl serve::TurnRunner for ConsoleTurns {
                 // `Preferred` runs unconfined where the platform has no
                 // sandbox, and until 2026-09-23 nothing said so (backlog R.3).
                 let sandboxed = pwr_tools::ToolPolicy {
-                    sandbox: pwr_tools::SandboxPolicy::Preferred,
+                    sandbox: sandbox_for(&config),
                     ..pwr_tools::PolicyProfile::Safe.build(root.clone())
                 }
                 .will_sandbox()
@@ -4677,7 +4711,7 @@ async fn chat_turn(
             allow_commands: pwr_verify::required_executables(&root),
             output_limit: CONVERSATION_OUTPUT_LIMIT,
             timeout: Duration::from_secs(120),
-            sandbox: pwr_tools::SandboxPolicy::Preferred,
+            sandbox: sandbox_for(&config),
             // The grant the console makes for work in this workspace, less what
             // Settings say to ask about, plus what was allowed for this session
             // when asked. The policy still confines writes and records every action.
@@ -10037,7 +10071,8 @@ async fn verify_in(
         allow_commands: pwr_verify::required_executables(&root),
         output_limit: 64 * 1024,
         timeout: Duration::from_secs(120),
-        sandbox: pwr_tools::SandboxPolicy::Preferred,
+        // The workspace's mode: a check runs where the model's commands do.
+        sandbox: sandbox_for(&load_chat_config(&root).unwrap_or_default()),
         // What the caller was granted: nothing from the command line, the
         // session's grants from a conversation. Measured 2026-09-26: a goal's
         // checks ran with none, so `dotnet test` failed its restore (NU1301)
@@ -11710,16 +11745,35 @@ mod tests {
         }
         assert!(granted.contains(&Approval::LocalService));
 
-        // Auto mode grants everything.
-        let auto = ChatConfig {
+        // Standard grants all but what cannot be taken back or leaves the
+        // sandbox; Full grants everything, and lifts the sandbox.
+        let standard = ChatConfig {
             permission_mode: Some(PermissionMode::Auto),
             ..ChatConfig::default()
         };
-        assert_eq!(chat_approvals(&effective_ask_before(&auto), &[]), {
+        let granted = chat_approvals(&effective_ask_before(&standard), &[]);
+        for asked in STANDARD_ASKED {
+            assert!(!granted.contains(&asked), "{asked:?}");
+        }
+        assert!(granted.contains(&Approval::NetworkAccess));
+        assert!(granted.contains(&Approval::ToolchainInstall));
+        assert_eq!(sandbox_for(&standard), pwr_tools::SandboxPolicy::Preferred);
+        let full = ChatConfig {
+            permission_mode: Some(PermissionMode::Full),
+            ..ChatConfig::default()
+        };
+        assert_eq!(chat_approvals(&effective_ask_before(&full), &[]), {
             let mut all = all_approvals();
             all.sort();
             all
         });
+        assert_eq!(sandbox_for(&full), pwr_tools::SandboxPolicy::FullAccess);
+        // Protected asks before leaving the sandbox whatever a saved list says.
+        let protected = ChatConfig {
+            ask_before: vec![Approval::Publish],
+            ..ChatConfig::default()
+        };
+        assert!(effective_ask_before(&protected).contains(&Approval::OutsideSandbox));
 
         let after_session_grant = chat_approvals(&default.ask_before, &[Approval::Publish]);
         assert!(after_session_grant.contains(&Approval::Publish));

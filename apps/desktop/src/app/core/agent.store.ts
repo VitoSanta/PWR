@@ -12,6 +12,7 @@ import {
   ReasoningInfo,
   Entry,
   FileDiff,
+  PermissionMode,
   PermissionRequest,
   SessionSummary,
   modelLabel,
@@ -126,7 +127,8 @@ export class AgentStore {
   // server twice until the timeout, 2026-09-22).
   readonly goalMode = signal(false);
   /** Ask before what leaves the workspace, or run with every permission. */
-  readonly permissionMode = signal<'ask' | 'auto'>('ask');
+  /** Protected (`ask`), Standard (`auto`) or Full access (`full`): the core's names. */
+  readonly permissionMode = signal<PermissionMode>('ask');
   /** What the core actually asks about in the current mode. */
   readonly asking = signal<string[]>([]);
   /** False where the platform gives no sandbox: commands then run unconfined. */
@@ -420,13 +422,13 @@ export class AgentStore {
 
   async refreshPermissions(params: Record<string, unknown> = {}): Promise<void> {
     const reply = await this.request('_pwr/approvals', { cwd: this.workspace(), ...params });
-    this.permissionMode.set(reply.mode === 'auto' ? 'auto' : 'ask');
+    this.permissionMode.set(reply.mode === 'auto' || reply.mode === 'full' ? reply.mode : 'ask');
     this.asking.set(reply.asking ?? []);
     this.sandboxed.set(reply.sandboxed !== false);
   }
 
-  /** Switches between asking and running with every permission; saved in the workspace. */
-  setPermissionMode(mode: 'ask' | 'auto'): Promise<void> {
+  /** Chooses how much the model's commands may do; saved in the workspace. */
+  setPermissionMode(mode: PermissionMode): Promise<void> {
     return this.refreshPermissions({ mode });
   }
 

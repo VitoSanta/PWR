@@ -408,6 +408,7 @@ mod tests {
             args: args.iter().map(|arg| (*arg).to_owned()).collect(),
             stdin: None,
             cwd: None,
+            outside_sandbox: false,
         }
     }
 

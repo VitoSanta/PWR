@@ -1,10 +1,11 @@
 import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
+import { PERMISSION_MODES } from '../../core/model';
 import { Icon } from '../kit/icon';
 import { Popover } from '../kit/popover';
 
 /**
- * Goal mode and Auto-approve, anchored to whatever asked for them: the
+ * Goal mode and the permissions mode, anchored to whatever asked for them: the
  * composer's note that one is on, or the Tools row.
  */
 @Component({
@@ -39,21 +40,25 @@ import { Popover } from '../kit/popover';
           </span>
           <span class="switch" aria-hidden="true"></span>
         </button>
-        <button
-          class="focus-run-option tone-warning"
-          [attr.aria-pressed]="store.permissionMode() === 'auto'"
-          (click)="store.setPermissionMode(store.permissionMode() === 'auto' ? 'ask' : 'auto')"
-        >
-          <span class="focus-run-copy">
-            <strong>Auto-approve</strong>
-            <small>{{
-              store.permissionMode() === 'auto'
-                ? 'Permissions are granted automatically.'
-                : 'PWR asks before sensitive actions.'
-            }}</small>
-          </span>
-          <span class="switch" aria-hidden="true"></span>
-        </button>
+      </div>
+      <div class="focus-run-options focus-run-modes" role="radiogroup" aria-label="Permissions">
+        <span class="focus-run-heading">Permissions</span>
+        @for (option of modes; track option.mode) {
+          <button
+            class="focus-run-option"
+            [class.tone-warning]="option.mode === 'full'"
+            role="radio"
+            [attr.aria-checked]="store.permissionMode() === option.mode"
+            [attr.aria-pressed]="store.permissionMode() === option.mode"
+            (click)="store.setPermissionMode(option.mode)"
+          >
+            <span class="focus-run-copy">
+              <strong>{{ option.label }}</strong>
+              <small>{{ option.summary }}</small>
+            </span>
+            <span class="focus-run-radio" aria-hidden="true"></span>
+          </button>
+        }
       </div>
     </pa-popover>
   `,
@@ -61,6 +66,7 @@ import { Popover } from '../kit/popover';
 })
 export class RunControls {
   protected readonly store = inject(AgentStore);
+  protected readonly modes = PERMISSION_MODES;
   readonly anchor = input.required<HTMLElement>();
   readonly closed = output<void>();
 

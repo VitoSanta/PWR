@@ -173,6 +173,71 @@ fn a_sandboxed_command_cannot_write_outside_the_workspace() {
     assert_ne!(result.exit_code, Some(0));
 }
 
+/// A refusal says it was the sandbox, and what to do about it -- rather
+/// than reading as a project that cannot write its own files.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_sandbox_refusal_says_it_was_the_sandbox() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().canonicalize().unwrap().join("escaped.txt");
+    let result = block_on(run_command(
+        &policy(root.path()),
+        "sh",
+        &["-c".to_string(), format!("echo x > {}", target.display())],
+    ))
+    .unwrap();
+    assert!(result.sandboxed);
+    assert!(result.stderr.contains("Operation not permitted"), "{result:?}");
+    assert!(result.stderr.contains("[PWR] This command ran in the sandbox"), "{result:?}");
+    assert!(result.stderr.contains("outside_sandbox"), "{result:?}");
+}
+
+/// Full access: the person's own environment, no boundary -- and the record
+/// says the command was not sandboxed.
+#[cfg(target_os = "macos")]
+#[test]
+fn full_access_runs_unconfined_in_the_persons_environment() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().canonicalize().unwrap().join("written.txt");
+    let mut policy = policy(root.path());
+    policy.sandbox = SandboxPolicy::FullAccess;
+    let result = block_on(run_command(
+        &policy,
+        "sh",
+        &[
+            "-c".to_string(),
+            format!("echo ok > {} && echo \"$HOME\"", target.display()),
+        ],
+    ))
+    .unwrap();
+    assert!(!result.sandboxed);
+    assert_eq!(result.exit_code, Some(0), "{result:?}");
+    assert!(target.exists());
+    let home = std::env::var("HOME").unwrap();
+    assert_eq!(result.stdout.trim(), home);
+}
+
+#[test]
+fn running_outside_the_sandbox_asks_for_exactly_that() {
+    let action = ActionProposal::RunCommand {
+        executable: "dotnet".into(),
+        args: vec!["build".into()],
+        stdin: None,
+        cwd: None,
+        outside_sandbox: true,
+    };
+    let (approval, question) = required_approval(&action).unwrap();
+    assert_eq!(approval, Approval::OutsideSandbox);
+    assert!(question.contains("dotnet build"), "{question}");
+    assert!(question.contains("outside the sandbox"), "{question}");
+    // Granting something else does not lift the sandbox.
+    let mut policy = policy(Path::new("/tmp"));
+    policy.approvals = vec![Approval::NetworkAccess];
+    assert!(policy.require(Approval::OutsideSandbox).is_err());
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn a_sandboxed_command_can_still_write_inside_the_workspace() {

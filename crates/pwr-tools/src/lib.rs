@@ -290,6 +290,12 @@ pub enum ActionProposal {
         /// and every attempt looked like a success.
         #[serde(default)]
         cwd: Option<String>,
+        /// Run outside the sandbox, with the person's full rights. Asked
+        /// about every time it is not already granted (`OutsideSandbox`):
+        /// the way forward when the sandbox, not the project, is what stops a
+        /// command -- a toolchain writing where the boundary does not reach.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        outside_sandbox: bool,
     },
     FetchUrl {
         url: String,
@@ -421,6 +427,14 @@ pub enum SandboxPolicy {
     /// person would look (backlog R.3).
     Preferred,
     Disabled,
+    /// Full access, chosen by the person for a workspace: no sandbox, and the
+    /// person's own environment -- the real HOME with its caches and
+    /// credentials, the system's temporary directory -- so a command behaves
+    /// exactly as it would in their terminal. Unlike `Disabled`, which only
+    /// the harness's own tests use and which keeps the hermetic environment,
+    /// this is a boundary lifted on purpose, and the audit says so
+    /// (`sandboxed: false`).
+    FullAccess,
 }
 
 /// Actions whose effects reach past the workspace, and which a user must
@@ -498,6 +512,11 @@ pub enum Approval {
     /// `effective_ask_before` in the CLI), and the question says what it
     /// gives away.
     ContainerEngine,
+    /// Running one command outside the sandbox, with the person's full rights,
+    /// when the sandbox rather than the project is what stops it. Asked in
+    /// every mode that sandboxes, whatever Settings say: it is the boundary
+    /// itself, lifted for a command.
+    OutsideSandbox,
 }
 
 /// Host paths under the real home directory that no run has a reason to read.
@@ -1485,6 +1504,18 @@ pub fn required_approval(action: &ActionProposal) -> Option<(Approval, String)> 
             },
         )),
         ActionProposal::RunCommand {
+            executable,
+            args,
+            outside_sandbox: true,
+            ..
+        } => Some((
+            Approval::OutsideSandbox,
+            format!(
+                "run `{}` outside the sandbox, with your full rights",
+                command_line(executable, args)
+            ),
+        )),
+        ActionProposal::RunCommand {
             executable, args, ..
         } => command_approval(executable, args).map(|approval| {
             (
@@ -2220,7 +2251,7 @@ impl ToolPolicy {
     /// and cannot.
     pub fn will_sandbox(&self) -> Result<bool, ToolError> {
         let available = match self.sandbox {
-            SandboxPolicy::Disabled => None,
+            SandboxPolicy::Disabled | SandboxPolicy::FullAccess => None,
             SandboxPolicy::Preferred | SandboxPolicy::Required => self.sandbox_profile(),
         };
         self.refuse_if_unconfined(available.is_some())?;
@@ -2234,7 +2265,7 @@ impl ToolPolicy {
             return Ok(());
         }
         match self.sandbox {
-            SandboxPolicy::Disabled => Ok(()),
+            SandboxPolicy::Disabled | SandboxPolicy::FullAccess => Ok(()),
             SandboxPolicy::Required => Err(ToolError::Denied(
                 "policy requires a sandbox and this platform provides none".into(),
             )),
@@ -2255,7 +2286,7 @@ impl ToolPolicy {
     /// environment. A long-running service goes through exactly this.
     pub fn prepare_command(&self, executable: &str, args: &[String]) -> Result<Command, ToolError> {
         let profile = match self.sandbox {
-            SandboxPolicy::Disabled => None,
+            SandboxPolicy::Disabled | SandboxPolicy::FullAccess => None,
             SandboxPolicy::Preferred | SandboxPolicy::Required => self.sandbox_profile(),
         };
         self.refuse_if_unconfined(profile.is_some())?;
@@ -2302,6 +2333,21 @@ impl ToolPolicy {
         }
         let path = std::env::join_paths(&path_entries)
             .unwrap_or_else(|_| std::env::var_os("PATH").unwrap_or_default());
+        if self.sandbox == SandboxPolicy::FullAccess {
+            // The person's environment as it is, less what only makes output
+            // harder for a model to read.
+            command
+                .current_dir(&self.root)
+                .env("PATH", path)
+                .env("DOTNET_NOLOGO", "1")
+                .env("NO_COLOR", "1")
+                .env("FORCE_COLOR", "0")
+                .env("CI", "1");
+            for (variable, home) in toolchain_homes(&canonical_root) {
+                command.env(variable, home);
+            }
+            return Ok(command);
+        }
         command
             .current_dir(&self.root)
             .env_clear()
@@ -6218,8 +6264,9 @@ async fn run_command_once(
             return Err(ToolError::CommandTimedOut(format!(
                 "the command did not finish within {} s and was stopped. A command that hangs is \
                  usually waiting for something that never comes -- a test blocked on a lock, a \
-                 wait or a loop, a server that is never stopped, input it expects. {}",
+                 wait or a loop, a server that is never stopped, input it expects.{} {}",
                 policy.timeout.as_secs(),
+                if sandboxed { SANDBOX_HANG_HINT } else { "" },
                 if printed.is_empty() {
                     "It printed nothing before it was stopped.".to_owned()
                 } else {
@@ -6251,6 +6298,9 @@ async fn run_command_once(
         stderr_capture.hash,
         status.code()
     ));
+    if sandboxed && status.code() != Some(0) && refused_by_sandbox(&stdout, &stderr) {
+        stderr.push_str(SANDBOX_REFUSAL_HINT);
+    }
     let failing_files = (status.code() != Some(0))
         .then(|| diagnostics_summary(&stdout, &stderr))
         .flatten();
@@ -6266,6 +6316,29 @@ async fn run_command_once(
         sandboxed,
         failing_files,
     })
+}
+
+/// Said when a sandboxed command hangs. Measured 2026-09-29: MSBuild's build
+/// node died when the sandbox refused its socket, and the build waited for
+/// it until it was stopped -- which read as a project that hangs.
+const SANDBOX_HANG_HINT: &str = " It ran in the sandbox, and a program waiting on a socket, \
+     a file or a process the sandbox refused hangs the same way: if nothing in the project \
+     explains it, run it again with outside_sandbox true, and the person is asked.";
+
+/// Said when a sandboxed command failed the way a sandbox refusal reads.
+const SANDBOX_REFUSAL_HINT: &str = "\n[PWR] This command ran in the sandbox and its output \
+     reads like the sandbox refusing it (\"Operation not permitted\"): writes outside the \
+     workspace, and some sockets, are refused there. If the project is not what failed, run it \
+     again with outside_sandbox true -- the person is asked first.";
+
+/// Whether a failed command's output reads like the sandbox refusing it.
+/// macOS's sandbox refuses with EPERM, which programs print as "Operation
+/// not permitted"; a plain "Permission denied" is a file mode, not the
+/// sandbox, and is left alone.
+fn refused_by_sandbox(stdout: &str, stderr: &str) -> bool {
+    [stdout, stderr]
+        .iter()
+        .any(|text| text.contains("Operation not permitted") || text.contains("EPERM"))
 }
 
 /// `.git/config` as it was before a command, to take out afterwards what
@@ -6655,6 +6728,7 @@ mod tests {
             args: vec![],
             stdin: Some("RUST_BACKTRACE=1 cargo test --test ranges".into()),
             cwd: None,
+            outside_sandbox: false,
         };
         let (_, question) = super::unlisted_program(&action, &policy).unwrap();
         assert!(
