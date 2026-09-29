@@ -148,6 +148,10 @@ impl ModelBehaviorAdapter for QwenFamilyAdapter {
         // recovering the same call from the text it was rendered in would
         // report one action as two.
         if canonical.tool_calls.is_empty() {
+            if let Some((renamed, diagnostic)) = tools_tag_as_call(&canonical.narrative) {
+                canonical.narrative = renamed;
+                canonical.diagnostics.push(diagnostic);
+            }
             let (narrative, calls, diagnostics) = extract_tool_calls(&canonical.narrative);
             canonical.narrative = narrative;
             canonical.tool_calls = calls;
@@ -201,6 +205,50 @@ fn split_thinking(content: &str) -> (String, String, Option<Diagnostic>) {
             detail,
         }),
     )
+}
+
+/// Qwen2.5-Coder writes its call inside `<tools>` -- the tag its template
+/// lists the available tools in -- rather than `<tool_call>`. Measured
+/// 2026-09-29 in Quick Calibration: asked to read a file, it wrote
+/// `<tools>{"name": "read_file", "arguments": {"path": "src/parser.rs"}}</tools>`,
+/// a well-formed call, and failed tool selection for it. A `<tools>` block
+/// whose whole body is one call is read as one; any other is left as text.
+fn tools_tag_as_call(content: &str) -> Option<(String, Diagnostic)> {
+    const OPEN: &str = "<tools>";
+    const CLOSE: &str = "</tools>";
+    if content.contains(OPEN_TOOL) || !content.contains(OPEN) {
+        return None;
+    }
+    let mut renamed = String::new();
+    let mut rest = content;
+    let mut found = 0;
+    while let Some(open) = rest.find(OPEN) {
+        let body_start = open + OPEN.len();
+        let Some(close) = rest[body_start..].find(CLOSE) else {
+            break;
+        };
+        let body = &rest[body_start..body_start + close];
+        renamed.push_str(&rest[..open]);
+        if parse_call(body).is_some() {
+            renamed.push_str(OPEN_TOOL);
+            renamed.push_str(body);
+            renamed.push_str(CLOSE_TOOL);
+            found += 1;
+        } else {
+            renamed.push_str(&rest[open..body_start + close + CLOSE.len()]);
+        }
+        rest = &rest[body_start + close + CLOSE.len()..];
+    }
+    renamed.push_str(rest);
+    (found > 0).then(|| {
+        (
+            renamed,
+            Diagnostic {
+                kind: "qwen_tools_tag_tool_call",
+                detail: format!("read {found} call(s) written inside <tools> as <tool_call>"),
+            },
+        )
+    })
 }
 
 /// Recovers `<tool_call>` blocks the backend left in the answer text.
@@ -943,6 +991,22 @@ pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehavi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Qwen2.5-Coder's call, as it wrote it in Quick Calibration.
+    #[test]
+    fn a_call_written_inside_tools_is_read_as_one() {
+        let text = "<tools>\n{\n  \"name\": \"read_file\",\n  \"arguments\": {\n    \"path\": \"src/parser.rs\"\n  }\n}\n</tools>";
+        let canonical = QwenFamilyAdapter.normalize(&reply(text));
+        assert_eq!(canonical.tool_calls.len(), 1);
+        assert_eq!(canonical.tool_calls[0].name, "read_file");
+        assert_eq!(canonical.tool_calls[0].arguments["path"], "src/parser.rs");
+        assert!(canonical.narrative.is_empty(), "{}", canonical.narrative);
+        assert!(canonical.diagnostics.iter().any(|d| d.kind == "qwen_tools_tag_tool_call"));
+        // A <tools> block that is not a call stays text; nothing is invented.
+        let prose = QwenFamilyAdapter.normalize(&reply("Use <tools>the read tool</tools> next."));
+        assert!(prose.tool_calls.is_empty());
+        assert!(prose.narrative.contains("<tools>the read tool</tools>"));
+    }
     /// The two readings suite A1 records as unreadable (2026-09-18 traces):
     /// a value closed by half a tag, and an opening tag that never closed.
     #[test]
