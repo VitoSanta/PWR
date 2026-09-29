@@ -637,6 +637,8 @@ fn without_nested_sandbox(executable: &str, args: &[String]) -> Vec<String> {
 /// long or, where it fit, the bind was refused, and the browser gave up.
 /// Sockets are allowed here and nowhere else.
 pub const BROWSER_SCRATCH: &str = "/private/tmp/pwr-look";
+/// Where MSBuild puts its build nodes' sockets, whatever TMPDIR says.
+const MSBUILD_NODE_SOCKET: &str = "^/private/tmp/MSBuild[0-9]+$";
 
 /// Programs a run is told the machine has or lacks, so a model does not guess:
 /// asked to use Go on a Mac without it, one downloaded the linux-amd64 build.
@@ -2152,6 +2154,32 @@ impl ToolPolicy {
                  (allow network-outbound (remote unix-socket (subpath \"{BROWSER_SCRATCH}\")))"
             ));
         }
+        // Sockets between the command's own processes. Measured 2026-09-29:
+        // `dotnet build` of a three-project solution hung until it was
+        // stopped. MSBuild's build nodes are separate processes that talk
+        // over Unix sockets, and MSBuild puts them at `/tmp/MSBuild<pid>`
+        // whatever TMPDIR says (macOS keeps socket paths short);
+        // `(deny network*)` and the write denial refused the node's socket,
+        // the node died in `NamedPipeServerStream`'s constructor, and the
+        // parent waited for it. .NET's other pipes follow TMPDIR, the
+        // workspace's scratch directory.
+        //
+        // What stays open: a socket named like an MSBuild node could also be
+        // one a build outside the sandbox left running for reuse. Commands
+        // here are told not to reuse nodes (MSBUILDDISABLENODEREUSE), so a
+        // build never looks for one; reaching one on purpose is the residual
+        // risk of letting .NET build at all.
+        if !self.network_allowed() {
+            let scratch = format!("{root}/{SCRATCH_DIRECTORY}");
+            network.push_str(&format!(
+                "(allow network-bind (local unix-socket (subpath \"{scratch}\")))\
+                 (allow network-inbound (local unix-socket (subpath \"{scratch}\")))\
+                 (allow network-outbound (remote unix-socket (subpath \"{scratch}\")))\
+                 (allow network-bind (local unix-socket (regex #\"{MSBUILD_NODE_SOCKET}\")))\
+                 (allow network-inbound (local unix-socket (regex #\"{MSBUILD_NODE_SOCKET}\")))\
+                 (allow network-outbound (remote unix-socket (regex #\"{MSBUILD_NODE_SOCKET}\")))"
+            ));
+        }
         // The engine's socket and nothing else of the filesystem's sockets,
         // after the denial it carves out of. Measured 2026-09-26: `docker
         // version` under `(deny network*)` is "permission denied while trying
@@ -2182,6 +2210,8 @@ impl ToolPolicy {
         // created path, so allow only that runtime's temporary directories.
         runtime_writes
             .push_str(r#"(allow file-write* (regex #"^/private/tmp/[.]dotnet[.][^/]+(/|$)"))"#);
+        // MSBuild's node sockets, created where it always puts them (above).
+        runtime_writes.push_str(&format!(r#"(allow file-write* (regex #"{MSBUILD_NODE_SOCKET}"))"#));
         Some(format!(
             "(version 1)(allow default)(deny file-write*)(allow file-write* (subpath \"{root}\")){runtime_writes}{harness_state_writes}(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\")){reads}{secrets}{network}"
         ))
@@ -2282,6 +2312,9 @@ impl ToolPolicy {
             .env("DOTNET_NOLOGO", "1")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
             .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
+            // A build here starts its own nodes, never one left running
+            // outside the sandbox (see the MSBuild socket rule).
+            .env("MSBUILDDISABLENODEREUSE", "1")
             .env("TMPDIR", &scratch)
             // Clang's module cache (Swift's too) defaults to the per-user
             // cache directory, shared by every build on the machine; inside

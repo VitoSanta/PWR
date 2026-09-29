@@ -1263,6 +1263,82 @@ fn dotnet_runs_in_the_sandbox_on_its_first_run() {
     assert_eq!(result.exit_code, Some(0), "{result:?}");
 }
 
+/// Measured 2026-09-29: `dotnet build` in the sandbox hung until the 120 s
+/// limit. MSBuild runs its build nodes as separate processes that talk over
+/// Unix sockets in `TMPDIR`; `(deny network*)` refused the node's socket, the
+/// node died in `NamedPipeServerStream`'s constructor, and the parent waited
+/// for it. The sockets now stay allowed where `TMPDIR` points, the
+/// workspace's scratch directory, and nowhere else.
+#[cfg(target_os = "macos")]
+#[test]
+fn dotnet_build_runs_its_build_nodes_in_the_sandbox() {
+    let dotnet = [
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".dotnet/dotnet")),
+        Some(PathBuf::from("/usr/local/share/dotnet/dotnet")),
+        Some(PathBuf::from("/opt/homebrew/bin/dotnet")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|path| path.is_file());
+    let Some(dotnet) = dotnet else {
+        return; // No .NET on this machine: nothing to show.
+    };
+    // Three projects, as a solution: one alone builds in MSBuild's own
+    // process and never starts a node.
+    let root = tempfile::tempdir().unwrap();
+    let project = |name: &str, kind: &str, reference: Option<&str>| {
+        let dir = root.path().join(name);
+        fs::create_dir_all(&dir).unwrap();
+        let reference = reference
+            .map(|other| format!(r#"<ItemGroup><ProjectReference Include="../{other}/{other}.csproj" /></ItemGroup>"#))
+            .unwrap_or_default();
+        fs::write(
+            dir.join(format!("{name}.csproj")),
+            format!(r#"<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>{kind}</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup>{reference}</Project>"#),
+        )
+        .unwrap();
+        let body = if kind == "Exe" { "System.Console.WriteLine(\"hi\");" } else { "public static class Marker { }" };
+        fs::write(dir.join("Code.cs"), body).unwrap();
+    };
+    project("Shared", "Library", None);
+    project("Client", "Library", Some("Shared"));
+    project("App", "Exe", Some("Client"));
+    // The solution as dotnet writes one, outside the sandbox: only the build
+    // is under test.
+    let setup = |args: &[&str]| {
+        let status = std::process::Command::new(&dotnet)
+            .args(args)
+            .current_dir(root.path())
+            .env("DOTNET_NOLOGO", "1")
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+    };
+    setup(&["new", "sln", "--name", "Hello", "--format", "sln"]);
+    setup(&["sln", "Hello.sln", "add", "Shared/Shared.csproj", "Client/Client.csproj", "App/App.csproj"]);
+    let mut policy = policy(root.path());
+    policy.sandbox = SandboxPolicy::Required;
+    policy.timeout = Duration::from_secs(150);
+    policy
+        .allow_commands
+        .push(dotnet.to_string_lossy().into_owned());
+    // With the network closed, and granted -- Auto-approve's case, where
+    // the sockets were never the problem and the write to /tmp was.
+    for approvals in [vec![], vec![Approval::NetworkAccess]] {
+        policy.approvals = approvals;
+        let result = block_on(run_command(
+            &policy,
+            dotnet.to_str().unwrap(),
+            &["build".into(), "Hello.sln".into(), "--no-incremental".into()],
+        ))
+        .unwrap();
+        assert!(result.sandboxed);
+        assert!(!result.stdout.contains("NamedPipeServerStream"), "{result:?}");
+        assert_eq!(result.exit_code, Some(0), "{result:?}");
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn dotnet_first_run_can_create_its_narrow_tmp_directory() {
