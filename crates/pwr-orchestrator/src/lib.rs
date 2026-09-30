@@ -5,6 +5,7 @@ pub mod context;
 pub mod conversation;
 pub mod converse;
 pub mod evidence;
+pub mod executor;
 pub mod graph;
 pub mod personal;
 pub mod plan;
