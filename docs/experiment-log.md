@@ -43,6 +43,11 @@ scripted hold; **they do not pair with later ones under `--strict` unless
 `harness_rev` is declared as the treatment**, which the build identity already
 forces. No campaign has been run on the new behaviour.
 
+**Also changed the same day** (decision D-2026-09-30-6): `eval run
+--reasoning-effort` now defaults to `medium` (`off` restores the earlier
+template-controlled reasoning), and `record_progress` is offered to a scripted
+run only when it has a plan. Both change what a campaign sends the model.
+
 **Kept** (not yet measured). To be reassessed on the small-apps corpus once the
 maintainer allows model runs; the hold's cost is one turn, its value is the
 completions of 2026-09-30 it would have stopped.
