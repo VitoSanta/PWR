@@ -138,6 +138,7 @@ proptest! {
                     id: None,
                 })
                 .collect(),
+            prefill: None,
             done,
         };
         let decoded: ModelChunk =

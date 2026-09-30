@@ -4117,6 +4117,7 @@ fn console_line(step: converse::TurnStep) -> Option<String> {
         // the answer once it is whole.
         converse::TurnStep::ToolCall(_)
         | converse::TurnStep::Streaming { .. }
+        | converse::TurnStep::Prefill { .. }
         | converse::TurnStep::Usage { .. }
         | converse::TurnStep::Retry { .. }
         | converse::TurnStep::Recovered { .. }

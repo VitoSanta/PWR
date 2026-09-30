@@ -92,6 +92,10 @@ export class AgentStore {
   readonly timeline = signal<Entry[]>([]);
   readonly turnActive = signal(false);
   readonly lastEventAt = signal(Date.now());
+  /** How far the engine has read the prompt it must process before it can
+   *  answer, and when that was last reported. A long conversation on a cold
+   *  cache (after a model switch) takes minutes to read. */
+  readonly prefill = signal<{ processed: number; total: number; at: number } | null>(null);
   readonly outcome = signal('');
   /** How the last run ended, and whether it can be retried or continued. */
   readonly runOutcome = signal<RunOutcome | null>(null);
@@ -920,6 +924,19 @@ export class AgentStore {
         this.usage.set({ used, window, estimated: estimated === true });
         // The count now covers everything streamed before it.
         this.streamedChars.set(0);
+      }
+      return;
+    }
+    if (message.method === '_pwr/model_progress') {
+      const { sessionId, prefill } = message.params ?? {};
+      const { processed, total } = prefill ?? {};
+      if (
+        (sessionId === undefined || sessionId === this.sessionId()) &&
+        typeof processed === 'number' &&
+        typeof total === 'number' &&
+        total > 0
+      ) {
+        this.prefill.set({ processed: Math.min(processed, total), total, at: Date.now() });
       }
       return;
     }

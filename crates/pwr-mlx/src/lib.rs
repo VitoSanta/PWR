@@ -1168,6 +1168,7 @@ impl Live {
             thinking: (!new_thinking.is_empty()).then_some(new_thinking),
             tool_calls: Vec::new(),
             metrics: None,
+            prefill: None,
             done: false,
         })
     }
@@ -1235,11 +1236,24 @@ fn step_of(
                     thinking: Some(text),
                     tool_calls: Vec::new(),
                     metrics: None,
+                    prefill: None,
                     done: false,
                 }),
                 _ => Step::Answer(text),
             }
         }
+        // The engine reading a long prompt: how far along it is. Reported so a
+        // person waiting minutes for a first word can see it is not stuck.
+        Some("prefill") => match (event["processed"].as_u64(), event["total"].as_u64()) {
+            (Some(processed), Some(total)) if total > 0 => Step::Yield(ModelChunk {
+                prefill: Some(pwr_domain::PrefillProgress {
+                    processed: processed.min(total),
+                    total,
+                }),
+                ..Default::default()
+            }),
+            _ => Step::Skip,
+        },
         Some("done") => match terminal_of(event) {
             Ok(mut chunk) => {
                 let canonical = adapter.normalize(&pwr_provider::ModelReply {
@@ -1347,6 +1361,7 @@ fn terminal_of(event: &serde_json::Value) -> Result<ModelChunk, ProviderError> {
             prompt_eval_duration_ns: nanos("prefill_secs"),
             generation_duration_ns: nanos("generation_secs"),
         }),
+        prefill: None,
         done: true,
     })
 }
@@ -1953,6 +1968,34 @@ mod tests {
             "artifact_generation_config"
         );
         assert_eq!(sampling["_pwr_sampling_sources"]["min_p"], "request");
+    }
+
+    #[test]
+    fn the_engines_prefill_progress_becomes_a_progress_chunk() {
+        let adapter = pwr_compat::adapter_for(None, "any/model");
+        let step = step_of(
+            &serde_json::json!({"event": "prefill", "processed": 4096, "total": 20000}),
+            "",
+            adapter.as_ref(),
+        );
+        let Step::Yield(chunk) = step else {
+            panic!("a progress event was not yielded");
+        };
+        assert_eq!(
+            chunk.prefill,
+            Some(pwr_domain::PrefillProgress {
+                processed: 4096,
+                total: 20000
+            })
+        );
+        assert!(chunk.is_empty() && !chunk.done);
+        // An event with no total says nothing worth showing.
+        let none = step_of(
+            &serde_json::json!({"event": "prefill", "processed": 1, "total": 0}),
+            "",
+            adapter.as_ref(),
+        );
+        assert!(matches!(none, Step::Skip));
     }
 
     #[test]

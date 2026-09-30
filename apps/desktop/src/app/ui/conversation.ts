@@ -255,6 +255,13 @@ export class Conversation {
   protected readonly workingLabel = computed(() => {
     const quiet = Math.floor((this.now() - this.store.lastEventAt()) / 1000);
     const chat = this.store.chatMode();
+    // The engine reads the whole prompt before its first word; on a cold cache
+    // that is minutes, and it says how far along it is.
+    const reading = this.store.prefill();
+    if (reading && this.now() - reading.at < 60_000) {
+      const percent = Math.min(99, Math.floor((reading.processed / reading.total) * 100));
+      return `Reading the conversation · ${percent}% (${reading.processed.toLocaleString('en-US')} of ${reading.total.toLocaleString('en-US')} tokens)`;
+    }
     if (quiet < 5) return chat ? 'Thinking' : 'Working';
     const minutes = Math.floor(quiet / 60);
     const seconds = String(quiet % 60).padStart(2, '0');

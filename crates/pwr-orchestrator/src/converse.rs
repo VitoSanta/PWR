@@ -320,6 +320,14 @@ pub enum TurnStep {
         thinking: String,
         content: String,
     },
+    /// The engine is reading the prompt before it can answer: tokens processed
+    /// of the total. A long conversation on a cold cache (after a model switch,
+    /// say) takes minutes; measured 2026-09-30, a 32-minute first word that
+    /// looked like a hang.
+    Prefill {
+        processed: u64,
+        total: u64,
+    },
     /// A fact the model proposed to remember, for the person to confirm or
     /// dismiss. Nothing is saved by the model.
     MemoryProposed {
@@ -1120,11 +1128,7 @@ async fn take_turn_inner<P: ModelProvider>(
     // can say the turn recovered and after how many.
     let mut retrying = 0usize;
     loop {
-        if actions
-            >= continuity
-                .action_limit
-                .unwrap_or(DEFAULT_ACTIONS_PER_TURN)
-        {
+        if actions >= continuity.action_limit.unwrap_or(DEFAULT_ACTIONS_PER_TURN) {
             return stopped(actions, edited, StopReason::BudgetSpent);
         }
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1336,6 +1340,15 @@ async fn take_turn_inner<P: ModelProvider>(
             // backend stops generating rather than being politely waited out.
             Ok(stream) => tokio::select! {
                 outcome = pwr_provider::collect_reply_with_guard(stream, |chunk| {
+                    if let Some(progress) = chunk.prefill {
+                        // Reading the prompt is not the first word of the
+                        // answer, and time-to-first-chunk stays about that.
+                        on_step(TurnStep::Prefill {
+                            processed: progress.processed,
+                            total: progress.total,
+                        });
+                        return;
+                    }
                     if first_chunk.get().is_none() && !chunk.done {
                         first_chunk.set(Some(started.elapsed()));
                     }

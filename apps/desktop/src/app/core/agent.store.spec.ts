@@ -67,6 +67,23 @@ describe('AgentStore context', () => {
     expect(store.usage()).toEqual({ used: 54_000, window: 128_000, estimated: false });
   });
 
+  it('keeps how far the engine has read the prompt, for this session only', () => {
+    store.sessionId.set('s1');
+    store.receive({
+      jsonrpc: '2.0',
+      method: '_pwr/model_progress',
+      params: { sessionId: 's1', prefill: { processed: 4_096, total: 20_000 } },
+    });
+    expect(store.prefill()).toMatchObject({ processed: 4_096, total: 20_000 });
+    store.receive({
+      jsonrpc: '2.0',
+      method: '_pwr/model_progress',
+      params: { sessionId: 'other', prefill: { processed: 9, total: 10 } },
+    });
+    store.receive({ jsonrpc: '2.0', method: '_pwr/model_progress', params: { sessionId: 's1' } });
+    expect(store.prefill()).toMatchObject({ processed: 4_096, total: 20_000 });
+  });
+
   it("numbers the person's message with the turn the core started for it", () => {
     store.sessionId.set('s1');
     store.timeline.set([{ key: 'u1', kind: 'user', title: 'You', text: 'build it', status: 'sent', at: 1 }]);

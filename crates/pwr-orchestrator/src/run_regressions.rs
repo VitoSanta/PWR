@@ -15,7 +15,7 @@ impl ModelProvider for RecordingProvider {
     }
 }
 fn regression_reply(content: String, tool_calls: Vec<pwr_domain::ToolCall>) -> ModelChunk {
-    ModelChunk { content, thinking:None, tool_calls, metrics:None, done:true }
+    ModelChunk { content, thinking:None, tool_calls, metrics:None, prefill:None, done:true }
 }
 fn regression_policy(root: &Path) -> ToolPolicy {
     ToolPolicy { root:root.to_path_buf(), extra_readable:vec![], protected:vec![], allow_commands:vec!["sh".into()],

@@ -7072,6 +7072,7 @@ mod tests {
                     prompt_tokens: Some(u64::from(request.context_tokens) * 3 / 4),
                     ..Default::default()
                 }),
+                prefill: None,
                 done: true,
             })])))
         }
@@ -7102,6 +7103,7 @@ mod tests {
                 thinking: None,
                 tool_calls: Vec::new(),
                 metrics: None,
+                prefill: None,
                 done: true,
             })])))
         }
