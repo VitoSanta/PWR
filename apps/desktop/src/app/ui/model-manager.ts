@@ -587,7 +587,7 @@ import { Tooltip } from './kit/tooltip';
                     (input)="models.setProfileValue(field.name, $any($event.target).value)"
                     [attr.aria-label]="samplingLabel(field.name) + ' override'"
                   />
-                  <small class="t-caption">Automatic: {{ field.automatic === null ? 'off' : field.automatic }} · {{ samplingSource(field.automaticSource) }}</small>
+                  <small class="t-caption">Automatic: {{ samplingAutomatic(field.name, field.automatic) }} · {{ samplingSource(field.automaticSource) }}</small>
                   @if (samplingUrl(field.automaticSource); as url) {
                     <a class="t-caption" [href]="url" target="_blank" rel="noopener">Source</a>
                   }
@@ -685,6 +685,14 @@ export class ModelManager {
       : '';
   });
 
+
+  /** What the engine will do with a value: 0 is not "zero" for temperature (greedy decoding) or for a truncation (off). */
+  protected samplingAutomatic(name: string, value: number | null): string {
+    if (value === null) return 'off';
+    if (value === 0 && name === 'temperature') return '0 (greedy: always the likeliest token)';
+    if (value === 0 && (name === 'top_k' || name === 'top_p')) return 'off';
+    return String(value);
+  }
 
   protected samplingLabel(name: string): string {
     return name.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase());
