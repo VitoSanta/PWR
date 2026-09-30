@@ -45,7 +45,7 @@ is [archived](archive/glossary.md).
 | **Sandbox** | The macOS Seatbelt profile a command runs under; absent in Full access |
 | **Confined / unconfined** | Whether a command ran under the sandbox |
 | **Protected path** | A path in `.pwr/protected.json`: readable, not changeable by the file tools (commands: not yet, W1.3) |
-| **Known version** | (planned, W1.1) the hash of the file as the model last saw it |
+| **Known version** | The hash of a file as the conversation last saw it — read, created or edited (`Continuity::known`); a whole-file rewrite is checked against it |
 
 ## Verification
 

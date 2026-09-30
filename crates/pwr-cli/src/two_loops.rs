@@ -3056,3 +3056,287 @@ fn a_completion_before_anything_was_done_is_asked_about_once() {
     assert!(outcome.report.completed);
     assert_eq!(outcome.requests.len(), 2);
 }
+
+// ------------------------------------- a rewrite is of the version that was read
+
+/// Runs the script, letting `between` change the workspace while the model
+/// composes its `n`th reply: the person editing a file, or a build writing one,
+/// after the model has read it and before it acts on what it read.
+struct Meddling {
+    inner: Scripted,
+    at_request: usize,
+    between: Box<dyn Fn() + Send + Sync>,
+}
+
+impl Recording for Meddling {
+    fn requests(&self) -> Vec<ModelRequest> {
+        self.inner.requests()
+    }
+}
+
+#[async_trait]
+impl ModelProvider for Meddling {
+    async fn inspect(&self, _: &DeploymentDescriptor) -> Result<ModelInspection, ProviderError> {
+        unreachable!("a fixture does not inspect")
+    }
+    async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+        unreachable!("a fixture has no backend to describe")
+    }
+    async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
+        if self.inner.requests.lock().unwrap().len() == self.at_request {
+            (self.between)();
+        }
+        self.inner.chat(request).await
+    }
+}
+
+/// One turn under `continuity`, on `store`, so a fixture can run several turns
+/// of one conversation and read what was audited.
+fn overwrite_turn<P: Recording>(
+    root: &std::path::Path,
+    provider: &P,
+    store: &pwr_store::Store,
+    conversation: pwr_domain::Id,
+    continuity: &converse::Continuity,
+    prompt: &str,
+) -> converse::TurnReport {
+    let mut messages = vec![ChatMessage::text("user", prompt)];
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(converse::take_turn(
+            provider,
+            pwr_compat::adapter_for(None, "fake").as_ref(),
+            &deployment(),
+            store,
+            conversation,
+            &policy_for(root),
+            &mut messages,
+            8192,
+            &[],
+            Default::default(),
+            pwr_compat::render_tools(&converse::chat_tool_catalog()),
+            &std::sync::atomic::AtomicBool::new(false),
+            continuity,
+            &pwr_orchestrator::DenyWithoutAsking,
+            |_| {},
+        ))
+        .expect("the turn returned an error rather than a report")
+}
+
+fn rewrite_of(path: &str, content: &str) -> ModelChunk {
+    calls(
+        "write_file",
+        serde_json::json!({"path": path, "content": content}),
+    )
+}
+
+fn read_of(path: &str) -> ModelChunk {
+    calls("read_file", serde_json::json!({"path": path}))
+}
+
+fn denied_writes(store: &pwr_store::Store, conversation: pwr_domain::Id) -> usize {
+    store
+        .typed_events_for_run(conversation)
+        .unwrap()
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                pwr_domain::RunEvent::ToolAction {
+                    status: pwr_domain::ToolActionStatus::Denied,
+                    action,
+                    ..
+                } if action["capability"] == "write_file"
+            )
+        })
+        .count()
+}
+
+/// The defect of 2026-09-30: `write_file` onto a file the conversation had
+/// never opened replaced it, because the harness took the file's own hash as
+/// the expected one.
+#[test]
+fn a_file_the_model_never_read_is_not_overwritten_until_it_reads_it() {
+    let dir = workspace();
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let conversation = pwr_domain::new_id();
+    let provider = Scripted::new(vec![
+        rewrite_of("code.rs", "clobbered\n"),
+        read_of("code.rs"),
+        rewrite_of("code.rs", "two\n"),
+        says("done"),
+    ]);
+    let report = overwrite_turn(
+        dir.path(),
+        &provider,
+        &store,
+        conversation,
+        &converse::Continuity::default(),
+        "rewrite code.rs",
+    );
+    assert_eq!(report.stopped, None);
+    let requests = provider.requests();
+    // What the model was told after the refusal, and how to proceed.
+    let told = requests[1]
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == "tool")
+        .unwrap()
+        .content
+        .clone();
+    assert!(told.contains("has not read it"), "{told}");
+    assert!(told.contains("read_file"), "{told}");
+    assert_eq!(denied_writes(&store, conversation), 1);
+    // After the read the same rewrite went through.
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "two\n"
+    );
+}
+
+/// A refusal that ran the write anyway would have left this file "clobbered".
+#[test]
+fn a_refused_rewrite_leaves_the_file_as_it_was() {
+    let dir = workspace();
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let provider = Scripted::new(vec![rewrite_of("code.rs", "clobbered\n"), says("gave up")]);
+    overwrite_turn(
+        dir.path(),
+        &provider,
+        &store,
+        pwr_domain::new_id(),
+        &converse::Continuity::default(),
+        "rewrite code.rs",
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "one\n"
+    );
+}
+
+/// The person edits the file between the model's read and its rewrite. The
+/// rewrite must not discard the edit.
+#[test]
+fn an_edit_made_after_the_read_survives_the_models_rewrite() {
+    let dir = workspace();
+    let root = dir.path().to_path_buf();
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let conversation = pwr_domain::new_id();
+    let provider = Meddling {
+        inner: Scripted::new(vec![
+            read_of("code.rs"),
+            rewrite_of("code.rs", "the model's version\n"),
+            says("stopped"),
+        ]),
+        // The model's second reply is the write; the person edits while it is
+        // composed.
+        at_request: 1,
+        between: Box::new({
+            let root = root.clone();
+            move || std::fs::write(root.join("code.rs"), "one\nmy edit\n").unwrap()
+        }),
+    };
+    overwrite_turn(
+        &root,
+        &provider,
+        &store,
+        conversation,
+        &converse::Continuity::default(),
+        "rewrite code.rs",
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("code.rs")).unwrap(),
+        "one\nmy edit\n",
+        "the rewrite discarded the person's edit"
+    );
+    let told = provider.requests()[2]
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == "tool")
+        .unwrap()
+        .content
+        .clone();
+    assert!(told.contains("changed since you last read"), "{told}");
+    assert_eq!(denied_writes(&store, conversation), 1);
+}
+
+/// What a conversation read in one turn it may rewrite in the next, and a
+/// change in between is caught in the next.
+#[test]
+fn what_was_read_last_turn_is_known_this_turn() {
+    let dir = workspace();
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let conversation = pwr_domain::new_id();
+    let continuity = converse::Continuity::default();
+
+    let first = Scripted::new(vec![read_of("code.rs"), says("read it")]);
+    overwrite_turn(
+        dir.path(),
+        &first,
+        &store,
+        conversation,
+        &continuity,
+        "look",
+    );
+
+    // Unchanged since: the next turn's rewrite goes through.
+    let second = Scripted::new(vec![rewrite_of("code.rs", "two\n"), says("done")]);
+    overwrite_turn(
+        dir.path(),
+        &second,
+        &store,
+        conversation,
+        &continuity,
+        "now rewrite it",
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "two\n"
+    );
+
+    // Changed between turns by someone else: refused.
+    std::fs::write(dir.path().join("code.rs"), "two\nsomeone else\n").unwrap();
+    let third = Scripted::new(vec![rewrite_of("code.rs", "three\n"), says("stopped")]);
+    overwrite_turn(
+        dir.path(),
+        &third,
+        &store,
+        conversation,
+        &continuity,
+        "again",
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "two\nsomeone else\n"
+    );
+    assert_eq!(denied_writes(&store, conversation), 1);
+}
+
+/// A file the conversation created is its own to rewrite in the same turn
+/// without reading it back: the edit that made it is what it last saw.
+#[test]
+fn a_file_the_model_created_is_rewritten_without_a_read() {
+    let dir = workspace();
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let conversation = pwr_domain::new_id();
+    let provider = Scripted::new(vec![
+        rewrite_of("page.html", "<p>one</p>\n"),
+        rewrite_of("page.html", "<p>two</p>\n"),
+        says("done"),
+    ]);
+    overwrite_turn(
+        dir.path(),
+        &provider,
+        &store,
+        conversation,
+        &converse::Continuity::default(),
+        "build the page",
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("page.html")).unwrap(),
+        "<p>two</p>\n"
+    );
+    assert_eq!(denied_writes(&store, conversation), 0);
+}

@@ -621,7 +621,7 @@ fn annotate(
         | ActionProposal::ApplyPatchHunks { path, .. }
         | ActionProposal::ReplaceText { path, .. } => {
             if let Some(hash) = outcome.get("new_hash").and_then(serde_json::Value::as_str) {
-                reads.known.insert(path.clone(), hash.to_owned());
+                reads.known.insert(known_key(path), hash.to_owned());
             }
         }
         ActionProposal::ReadFile { path, .. } => {
@@ -632,7 +632,7 @@ fn annotate(
             else {
                 return;
             };
-            reads.known.insert(path.clone(), hash.clone());
+            reads.known.insert(known_key(path), hash.clone());
             match reads.seen.get(path) {
                 Some((earlier, seen)) if *seen == hash => {
                     if let Some(object) = outcome.as_object_mut() {
@@ -1047,7 +1047,30 @@ pub struct ReadHistory {
     originals: std::collections::BTreeMap<String, Option<Vec<u8>>>,
 }
 
+/// The key a path is remembered under, so `./a.txt`, `a.txt` and `/a.txt`
+/// (which the tools all resolve to the same workspace file) are one entry.
+pub fn known_key(path: &str) -> String {
+    path.split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 impl ReadHistory {
+    /// The hash of `path` as this history last saw it: read, created or
+    /// edited. `None` for a file it has never seen.
+    pub fn known_hash(&self, path: &str) -> Option<&str> {
+        self.known.get(&known_key(path)).map(String::as_str)
+    }
+
+    /// Starts from what an earlier turn of the conversation knew. A turn's
+    /// own reads and edits then replace it, as they happen.
+    pub fn seed_known(&mut self, versions: &std::collections::BTreeMap<String, String>) {
+        for (path, hash) in versions {
+            self.known.insert(known_key(path), hash.clone());
+        }
+    }
+
     /// A delete sent without a hash, of a file this turn last read or wrote
     /// and that has not changed since, is given the hash it would have sent.
     ///
@@ -1073,7 +1096,7 @@ impl ReadHistory {
             .map(pwr_domain::hash_bytes);
         let expected_hash = self
             .known
-            .get(&path)
+            .get(&known_key(&path))
             .filter(|known| current.as_deref() == Some(known.as_str()))
             .cloned();
         ActionProposal::DeletePath {
@@ -1203,6 +1226,31 @@ pub async fn execute_action_recorded(
         .append_event(Some(run_id), &payload)
         .map_err(|error| ActionExecutionError::Audit(error.to_string()))?;
     result
+}
+
+/// Audits an action the harness refused before it reached the tools, so that
+/// a refusal made here leaves the record one made by a tool does.
+pub fn record_refused_action(
+    store: &Store,
+    run_id: pwr_domain::Id,
+    action: &ActionProposal,
+    denial: &str,
+) -> Result<(), String> {
+    store
+        .append_event(
+            Some(run_id),
+            &pwr_domain::RunEvent::ToolAction {
+                action: serde_json::to_value(action).unwrap_or_default(),
+                status: pwr_domain::ToolActionStatus::Denied,
+                outcome_class: "policy_denial".into(),
+                outcome: None,
+                denial: Some(denial.to_owned()),
+                failure: None,
+                failure_category: None,
+            },
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 #[derive(Debug)]

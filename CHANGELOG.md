@@ -20,6 +20,11 @@ Recorded in detail, with what was checked, in
 
 ### Agent
 
+- A whole-file rewrite (`write_file` onto an existing file) is checked against
+  the version the conversation last read or wrote, never against the file as it
+  is at write time. A file it has not read, or that a person or a command
+  changed since, is refused with an instruction to read it, and the file is
+  left as it was (plan W1.1).
 - Gemma 4 and gpt-oss calibrate and run in agent mode (tool-call adapters,
   engine diagnostics kept off the protocol, a stop at the model's closing
   marker; Quick Calibration suite 5).

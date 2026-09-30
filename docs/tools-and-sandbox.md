@@ -20,7 +20,7 @@ The scripted loop offers all of it; a conversation removes two and adds four
 | `replace_text` | Replace one exact, unique occurrence | ✓ | ✓ |
 | `apply_patch` | Several replacements in one file under one hash guard | ✓ | ✓ |
 | `apply_replace` | Replace a whole file, given the hash from a prior read | ✓ | ✓ |
-| `write_file` | Create a file. In a conversation, onto an existing file it becomes a whole replacement (`own_overwrite`, see below) | ✓ | ✓ (refuses an existing file) |
+| `write_file` | Create a file. In a conversation, onto an existing file it becomes a whole replacement (`own_overwrite`, see [Edits](#edits)) | ✓ | ✓ (refuses an existing file) |
 | `delete_path`, `move_path`, `make_directory` | File-system changes inside the workspace; delete needs the file's hash | ✓ | ✓ |
 | `restore_file` | Put a file back as it was when first read or changed in this run | ✓ | ✓ |
 | `run_command` | Run one program with an argument list; no shell; `outside_sandbox` asks to run it unconfined | ✓ | ✓ |
@@ -76,14 +76,29 @@ installed dependencies are refused without `dependency_change`; paths in
 `crates/pwr-tools/src/lib.rs:1984`), as are `.pwr/` and `.git/hooks`,
 `.git/config`.
 
-Two defects:
+**A rewrite is of the version the model read.** In a conversation, `write_file`
+onto an existing file becomes `apply_replace` (`own_overwrite`,
+`crates/pwr-orchestrator/src/converse.rs`) with the hash the conversation *last
+saw* for that path — from a `read_file` (any window), or from the edit or
+creation that left the file as it is — kept across turns
+(`Continuity::known`) and, after a restart, seeded from the checkpoint's
+changed files. It is refused, without running, when:
 
-- **`own_overwrite`** (`converse.rs:2498`): in a conversation, `write_file` onto
-  any existing file becomes `apply_replace` with the hash the file has *at
-  execution time*. A rewrite made from stale content therefore passes and
-  overwrites a newer edit, whether or not the conversation ever read the file.
-  An in-memory copy kept for rewind (`FileEdit`, bounded, lost when the session
-  ends) is the only protection. Plan W1.1.
+- the file exists and the conversation has not read it ("read it with
+  `read_file` first, or change part of it with `replace_text`/`apply_patch`");
+- the file no longer holds what the conversation last saw — the person edited
+  it, or a command changed it ("read it again").
+
+Neither refusal names the file's current hash, which would let a caller send
+it back without reading anything. The refusal is audited as a denied
+`write_file`. A file that does not exist is created as before. Paths are
+compared after normalising `./` and `//`. (Before 2026-09-30 the hash was read
+from the file at write time, so the check compared the file with itself.)
+`apply_replace` called directly still refuses a stale hash and names the
+current one, as it always has.
+
+One defect remains here:
+
 - **Writes are not atomic** — read, check hash, `std::fs::write`
   (`lib.rs:3493`, `3927`, `4067`, `5036`). A crash can leave a partial file; a
   change between the check and the write is lost. Plan W1.2.

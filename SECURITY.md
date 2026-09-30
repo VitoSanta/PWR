@@ -76,10 +76,6 @@ lands, **do not rely on the protection it names**.
   tools, not from commands.** A script, an interpreter or a build the agent
   runs — and the checks — can change a file the edit tools would refuse
   ([plan W1.3](docs/plan/implementation-plan.md#w13-the-same-protections-for-commands-as-for-file-tools)).
-- **A rewrite can overwrite your newer edit.** In a conversation, `write_file`
-  onto an existing file uses the file's hash at the moment of writing, not the
-  version the model read ([W1.1](docs/plan/implementation-plan.md#w11-bind-an-overwrite-to-the-version-the-model-read)).
-  Diffs and Revert let you recover within the session.
 - **Writes are not atomic**: a crash mid-write can leave a partial file
   ([W1.2](docs/plan/implementation-plan.md#w12-atomic-checked-writes)).
 - **"Verified" can follow a weakened test.** Goal mode freezes

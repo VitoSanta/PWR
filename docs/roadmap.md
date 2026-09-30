@@ -37,7 +37,7 @@ Campaign evidence: no campaign has measured the current product path. The last p
 | Item | What |
 |---|---|
 | W0.2 | **Done.** Tests say what they exercised; the Docker test tells a stopped daemon from a failure |
-| W1.1 | An overwrite is bound to the version the model read, never the current one |
+| W1.1 | **Done.** An overwrite is bound to the version the model read, never the current one |
 | W1.2 | Atomic, checked writes for every file-writing tool |
 | W1.3 | Protected paths and dependency trees enforced for commands and checks, not only file tools |
 | W1.4 | A goal budget (actions, refused completions, time) that bounds every branch |
