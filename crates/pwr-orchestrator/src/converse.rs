@@ -141,6 +141,13 @@ const ANSWER_ALLOWANCE: u32 = 16_384;
 /// prose.
 const AGENT_UNSTRUCTURED_REPLY_GUARD: (usize, usize) = (3_000, 12_000);
 const RUNAWAY_RETRY_MAX_TOKENS: u32 = 8_192;
+
+/// The presence penalty a turn asks for after one of its generations looped.
+/// Qwen's cards say to raise it, between 0 and 2, "to reduce endless
+/// repetitions"; 1.0 is half way. Measured 2026-09-30: Qwen3.5-9B with its
+/// card's sampling (penalty 0) still looped in its reasoning on a Bash task --
+/// the same passage four times, five generations in an hour.
+const ANTI_LOOP_PRESENCE_PENALTY: f64 = 1.0;
 /// Replies a turn may lose to being cut off inside a tool call, in all.
 ///
 /// Not consecutive, unlike the counters beside it. Measured 2026-09-30 (Bonsai
@@ -1114,6 +1121,9 @@ async fn take_turn_inner<P: ModelProvider>(
     let mut reasoning_calls = 0usize;
     let mut answer_without_thinking = false;
     let mut runaway_retry = false;
+    // Set once a generation of this turn looped: every later one is sampled
+    // with a presence penalty (see `ANTI_LOOP_PRESENCE_PENALTY`).
+    let mut anti_loop = false;
     let mut turn = 0u32;
     // What the backend said the last prompt actually cost. `None` until the
     // first reply, which is the only turn with nothing to measure.
@@ -1226,6 +1236,29 @@ async fn take_turn_inner<P: ModelProvider>(
             }
         }
         let mut request_sampling = sampling.clone();
+        if anti_loop {
+            let current = request_sampling
+                .get("presence_penalty")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(0.0);
+            // A person's or a profile's own value is never lowered, and a
+            // higher one is kept.
+            if current < ANTI_LOOP_PRESENCE_PENALTY {
+                request_sampling.insert(
+                    "presence_penalty".into(),
+                    serde_json::json!(ANTI_LOOP_PRESENCE_PENALTY),
+                );
+                if let Some(sources) = request_sampling
+                    .get_mut("_pwr_sampling_sources")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    sources.insert(
+                        "presence_penalty".into(),
+                        serde_json::json!("pwr_loop_recovery"),
+                    );
+                }
+            }
+        }
         if std::mem::take(&mut runaway_retry) {
             let current = request_sampling
                 .get("max_tokens")
@@ -1509,6 +1542,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 // try, so a second loop costs minutes rather than a turn.
                 if matches!(fault, crate::ReplyFault::Looped(_)) {
                     runaway_retry = true;
+                    anti_loop = true;
                 }
                 failed(&mut turn, fault.kind(), fault.detail().to_owned())?;
                 unparseable = unparseable.saturating_add(1);
