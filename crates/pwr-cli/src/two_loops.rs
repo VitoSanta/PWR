@@ -2606,6 +2606,77 @@ fn a_turn_that_outgrows_its_window_compacts_itself_and_audits_it() {
     assert!(record.content.contains("part0.rs"), "{}", record.content);
 }
 
+/// A window of a million tokens does not let a conversation grow to three
+/// quarters of it: the default ceiling compacts first, and a person's own
+/// setting lifts it.
+#[test]
+fn a_huge_window_still_compacts_at_the_ceiling() {
+    let run = |ceiling: Option<usize>| {
+        let dir = workspace();
+        let names: Vec<String> = (0..6).map(|n| format!("part{n}.rs")).collect();
+        for name in &names {
+            std::fs::write(dir.path().join(name), "fn one() {}\n".repeat(300)).unwrap();
+        }
+        let mut script: Vec<ModelChunk> = names
+            .iter()
+            .map(|name| calls("read_file", serde_json::json!({"path": name})))
+            .collect();
+        script.push(says("Read them all."));
+        let provider = Scripted::new(script);
+        let adapter = pwr_compat::adapter_for(None, "fake");
+        let store = pwr_store::Store::open(":memory:").unwrap();
+        let tools = pwr_compat::render_tools(&converse::chat_tool_catalog());
+        let mut messages = vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", "read every part file"),
+        ];
+        let mut compactions = 0;
+        let continuity = converse::Continuity {
+            compact_ceiling_tokens: ceiling,
+            ..Default::default()
+        };
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(converse::take_turn(
+                &provider,
+                adapter.as_ref(),
+                &deployment(),
+                &store,
+                pwr_domain::new_id(),
+                &policy_for(dir.path()),
+                &mut messages,
+                1_048_576,
+                &[],
+                Default::default(),
+                tools,
+                &std::sync::atomic::AtomicBool::new(false),
+                &continuity,
+                &pwr_orchestrator::DenyWithoutAsking,
+                |step| {
+                    if let converse::TurnStep::Compacted(_) = step {
+                        compactions += 1;
+                    }
+                },
+            ))
+            .expect("the turn returned an error");
+        compactions
+    };
+    assert!(run(Some(4096)) > 0, "a 4k ceiling did not compact");
+    assert_eq!(run(None), 0, "no ceiling, and a 1M window filled to 3/4?");
+    assert_eq!(
+        converse::Continuity {
+            compact_ceiling_tokens: Some(65_536),
+            ..Default::default()
+        }
+        .compaction_room(262_144),
+        65_536
+    );
+    assert_eq!(
+        converse::Continuity::default().compaction_room(8_192),
+        6_144
+    );
+}
+
 /// Replies from a script of stream outcomes, keeping every request: a reply
 /// or a provider error, the way the engine ends one.
 struct Reasoned {

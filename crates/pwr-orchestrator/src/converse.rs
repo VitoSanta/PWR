@@ -30,6 +30,16 @@ use std::collections::BTreeMap;
 /// The default; a workspace may set its own within [`COMPACT_AT_BOUNDS`].
 pub const COMPACT_AT: f64 = 0.75;
 
+/// The most a conversation grows before it compacts, in tokens, when the person
+/// chose neither a window nor a threshold. HYPOTHESIS, a usability decision
+/// rather than a quality measurement: a model with a 262k window on a 64 GB
+/// Mac has a window far above any size at which a 4-bit model was seen to stay
+/// coherent, and every compaction (like a model switch) re-reads the whole
+/// prompt -- 32 minutes for a 30B at that size, measured 2026-09-30. Nemotron,
+/// GLM and Qwen3.5 went off the rails in long conversations in the same pass.
+/// Set `context_tokens` or the compaction percentage to opt out.
+pub const DEFAULT_COMPACTION_CEILING_TOKENS: usize = 65_536;
+
 /// The thresholds, in percent of the window, a person may choose. Below half,
 /// a conversation compacts so often it forgets what it just read; above nine
 /// tenths, a single file read can overflow the window before the check runs.
@@ -515,6 +525,10 @@ pub struct Continuity {
     /// The share of the window at which the conversation compacts itself, in
     /// percent, when the workspace chose one; [`COMPACT_AT`] otherwise.
     pub compact_at_percent: Option<u8>,
+    /// An absolute ceiling on the tokens a conversation holds before it
+    /// compacts, applied under the percentage of the window. `None`: only the
+    /// percentage bounds it (the person chose a window or a threshold).
+    pub compact_ceiling_tokens: Option<usize>,
     /// Files this conversation wrote, by workspace path, with the hash each
     /// had when it last wrote it. See [`own_overwrite`].
     pub written: std::sync::Arc<std::sync::Mutex<BTreeMap<String, String>>>,
@@ -633,6 +647,15 @@ impl Continuity {
                 f64::from(percent.clamp(COMPACT_AT_BOUNDS.0, COMPACT_AT_BOUNDS.1)) / 100.0
             })
             .unwrap_or(COMPACT_AT)
+    }
+
+    /// The prompt size at which the conversation compacts: the share of the
+    /// window, under the ceiling when there is one.
+    pub fn compaction_room(&self, context_tokens: u32) -> usize {
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+        let share = (f64::from(context_tokens) * self.compact_at()) as usize;
+        self.compact_ceiling_tokens
+            .map_or(share, |ceiling| share.min(ceiling))
     }
 
     /// A new request from the operator, as opposed to a goal continuing on
@@ -1161,8 +1184,7 @@ async fn take_turn_inner<P: ModelProvider>(
         // Checked before the request rather than after the failure: a prompt
         // that has outgrown the window comes back as a provider error about
         // its length, which tells the operator nothing they can do.
-        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
-        let room = (f64::from(context_tokens) * continuity.compact_at()) as usize;
+        let room = continuity.compaction_room(context_tokens);
         let objective_tokens = continuity
             .checkpoint
             .lock()

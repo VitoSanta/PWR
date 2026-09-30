@@ -208,3 +208,11 @@ inside one `take_turn`, whatever the goal allowed. A manual pass stopped a
 working model mid-build. The default is now 100 and `actions_per_turn` sets it;
 the stall detectors, not this number, stop a loop that repeats. Campaigns
 through the app path at `414d3ae1` or earlier have the old cap.
+
+## 2026-09-30 — Compaction ceiling (measurement-changing, HYPOTHESIS)
+
+A conversation compacts at the lower of 75 % of the window and 65,536 tokens
+when the person chose no window or threshold
+(`Continuity::compaction_room`). Campaign tasks stay far below the ceiling, so
+this changes no campaign result made so far; it changes long app sessions. Not
+yet measured for quality (plan W4): it is justified by prefill time alone.
