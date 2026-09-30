@@ -2974,3 +2974,45 @@ fn a_turn_that_wrote_its_files_hands_them_over_after_five_failed_runs() {
     );
     assert!(dir.path().join("page.html").exists());
 }
+
+/// A completion in the same reply as the calls before it waits for their
+/// results. Seen 2026-09-30 (Qwen3-14B in the desktop): two writes and
+/// complete in one reply, and the writes' warnings were never read.
+#[test]
+fn a_completion_behind_other_calls_of_its_reply_waits_for_their_results() {
+    let dir = workspace();
+    let both = ModelChunk {
+        tool_calls: vec![
+            ToolCall {
+                name: "write_file".into(),
+                arguments: serde_json::json!({"path": "page.html", "content": "<p>bank</p>\n"}),
+                id: Some("w".into()),
+            },
+            ToolCall {
+                name: "complete".into(),
+                arguments: serde_json::json!({"rationale": "written"}),
+                id: Some("c".into()),
+            },
+        ],
+        done: true,
+        ..Default::default()
+    };
+    let again = calls(
+        "complete",
+        serde_json::json!({"rationale": "page.html is ready"}),
+    );
+    let outcome = drive_chat(dir.path(), vec![both, again]);
+    assert!(outcome.report.completed);
+    assert_eq!(outcome.report.answer, "page.html is ready");
+    assert_eq!(
+        outcome.requests.len(),
+        2,
+        "the turn ended on the first reply"
+    );
+    assert!(
+        outcome.requests[1]
+            .messages
+            .iter()
+            .any(|message| message.content.contains("complete was not carried out")),
+    );
+}

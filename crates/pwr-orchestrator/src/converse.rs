@@ -1672,7 +1672,7 @@ async fn take_turn_inner<P: ModelProvider>(
         }
         silent = 0;
         reasoning_calls = 0;
-        for call in &reply.tool_calls {
+        for (position, call) in reply.tool_calls.iter().enumerate() {
             if stop.load(std::sync::atomic::Ordering::Relaxed) {
                 // Between actions; inside one only for a command, below,
                 // whose process group is killed with it. An edit is never
@@ -1728,6 +1728,23 @@ async fn take_turn_inner<P: ModelProvider>(
                     continue;
                 }
             };
+            // A completion sent in the same reply as the calls before it
+            // waits for their results to be read. Measured 2026-09-30
+            // (Qwen3-14B in the desktop, the bank page): two write_file calls
+            // and complete in one reply; the writes came back warning that
+            // `@playwright/test` was not installed and that the test opened
+            // a placeholder path, and the turn had already ended on the
+            // completion, so neither warning was ever read.
+            if position > 0 && matches!(action, ActionProposal::Complete { .. }) {
+                on_step(TurnStep::Refused(
+                    "complete: waits for the results of the calls before it".into(),
+                ));
+                messages.push(tool_message(
+                    call,
+                    serde_json::json!({"not_completed": COMPLETION_OVER_UNSEEN_RESULTS}),
+                ));
+                continue;
+            }
             actions += 1;
             // Ending the turn is itself an action the model can take, and its
             // rationale is the answer.
@@ -2432,6 +2449,11 @@ fn conservative_prompt_tokens(
         .sum();
     base.saturating_add(since)
 }
+
+/// Said to a `complete` that arrived behind other calls of its reply.
+const COMPLETION_OVER_UNSEEN_RESULTS: &str = "complete was not carried out: it came in the same \
+     reply as the calls before it, so their results had not been read. They are above. If they \
+     show the work is done, call complete again; otherwise act on what they say.";
 
 /// A `write_file` onto a file that exists, as the whole-file replacement it
 /// means.
