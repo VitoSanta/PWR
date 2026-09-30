@@ -15,6 +15,11 @@
 use pwr_domain::ChatMessage;
 use pwr_orchestrator::conversation::{Listed, Resumed};
 use pwr_orchestrator::converse::{self, ToolPhase, TurnReport, TurnStep};
+use pwr_orchestrator::executor::{
+    self, GoalLimitReached, Policy, SessionEnd, SessionHost, SessionRequest, SessionResult,
+    SharedStepSink, VerifyError,
+};
+pub use pwr_orchestrator::executor::{GoalLimits, GoalVerification, TurnInput};
 use pwr_orchestrator::{ApprovalDecision, ApprovalPrompt};
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -26,76 +31,11 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 
-/// Where a turn's steps go, shared between the turn and the notifier that
-/// forwards them to the client.
-type SharedStepSink = Rc<RefCell<Box<dyn FnMut(TurnStep)>>>;
-
 /// The ACP version this server speaks.
 pub const PROTOCOL_VERSION: u64 = 1;
 
 /// Sessions per `session/list` page.
 const LIST_PAGE: usize = 50;
-
-/// What a turn needs from the server.
-pub struct TurnInput {
-    pub root: PathBuf,
-    pub conversation_id: pwr_domain::Id,
-    pub messages: Vec<ChatMessage>,
-    pub stop: Arc<AtomicBool>,
-    /// Where the turn reports each step, called in order on the turn's own
-    /// task: a step queued for another task to forward can reach the client
-    /// after a permission request about it.
-    pub steps: Box<dyn FnMut(TurnStep)>,
-    pub continuity: converse::Continuity,
-    pub approvals: Arc<dyn ApprovalPrompt>,
-    /// What the person allowed for the rest of the session, as it stands:
-    /// shared rather than copied, so a grant made during the turn reaches the
-    /// checks that close it.
-    pub session_grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
-    /// Goal mode keeps a single task moving across ordinary turn checkpoints.
-    /// The runner still owns completion evidence; the server owns the bounded
-    /// continuation policy and the operator's stop control.
-    pub goal_mode: bool,
-}
-
-/// Evidence the core gathered after a model declared a goal complete.
-#[derive(Clone, Default)]
-pub struct GoalVerification {
-    pub checks: Option<pwr_domain::ChecksOutcome>,
-    pub contract_changed: Vec<String>,
-    /// True only when both repository checks and an explicit product-level
-    /// acceptance check have passed.
-    pub passed: bool,
-    /// Compilation, unit, integration, and other repository checks passed.
-    pub technical_passed: bool,
-    /// The repository declared at least one executed acceptance check.
-    pub acceptance_available: bool,
-    pub summary: String,
-    /// The checks that failed, by command.
-    pub failing: Vec<String>,
-    /// Stable identities of the failures, rather than just check commands.
-    pub failure_fingerprints: Vec<String>,
-    /// Those of `failing` the workspace declares as acceptance checks.
-    pub failing_acceptance: Vec<String>,
-}
-
-/// What a goal is told about checks that failed before it started.
-///
-/// Seen 2026-09-23 (web_pwr, Qwen3.6, goal mode): asked why a page showed
-/// no text, the model fixed it, then found `npm test` failing -- it had been
-/// failing since before the request, with no test target configured -- and
-/// spent the next fifty actions and three check-ins rebuilding the test setup
-/// (karma, then vitest, rewriting package.json), while the engineer asked
-/// "why are you still changing things?". A check broken before the goal is
-/// not the goal's to repair unless the engineer asks.
-fn already_failing_note(failing: &[String]) -> String {
-    format!(
-        "Before this goal started, the core ran the repository's checks and these were already failing: {}. \
-         They are not part of this goal. Do not repair them -- not their configuration, not their dependencies -- \
-         unless the engineer asks; mention them in your answer instead. They do not block completion.",
-        failing.join(", ")
-    )
-}
 
 /// Progress emitted while a download is written to its `.part` files.
 pub type DownloadProgress = Box<dyn FnMut(&pwr_models::download::Progress)>;
@@ -484,355 +424,6 @@ struct RewindPoint {
     text: String,
 }
 
-const GOAL_MAX_ACTIONS: usize = 208;
-/// Completions the checks may refuse before a goal stops, however the failing
-/// checks change from one to the next. The same-failure limit below catches a
-/// wall hit three times; this catches a goal that alternates between two.
-const GOAL_MAX_REFUSED_COMPLETIONS: usize = 6;
-/// The most wall-clock time one goal may take. A goal runs unattended between
-/// check-ins, and nothing else bounded how long: a slow model with slow checks
-/// spends the hour before the action count says anything.
-const GOAL_MAX_WALL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
-
-/// What bounds a goal, whichever branch of its loop it is going round.
-///
-/// The action limit used to be tested only when a turn did not end in a
-/// completion. A goal whose completions were all refused, with a failing set
-/// that alternated so the same-failure count never reached its limit, never
-/// took that branch and had no limit at all (technical review of 2026-09-30,
-/// verified the same day). Every limit is now tested before each turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct GoalLimits {
-    pub actions: usize,
-    pub refused_completions: usize,
-    pub verification_runs: usize,
-    pub review_rounds: usize,
-    #[serde(with = "goal_seconds")]
-    pub wall: std::time::Duration,
-}
-
-impl Default for GoalLimits {
-    fn default() -> Self {
-        Self {
-            actions: GOAL_MAX_ACTIONS,
-            refused_completions: GOAL_MAX_REFUSED_COMPLETIONS,
-            verification_runs: 9, // baseline + six refusals + passing checks before/after review
-            review_rounds: 1,
-            wall: GOAL_MAX_WALL,
-        }
-    }
-}
-
-/// A limit a goal reached, and how much of it was spent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GoalLimitReached {
-    Actions { spent: usize, allowed: usize },
-    RefusedCompletions { spent: usize, allowed: usize },
-    Time { spent_secs: u64, allowed_secs: u64 },
-    VerificationRuns { spent: usize, allowed: usize },
-    ReviewRounds { spent: usize, allowed: usize },
-}
-
-impl GoalLimits {
-    /// The first limit `spent` has reached, in the order a person would want it
-    /// named: time, then refused completions, then actions.
-    pub fn reached(
-        &self,
-        actions: usize,
-        refused_completions: usize,
-        elapsed: std::time::Duration,
-    ) -> Option<GoalLimitReached> {
-        if elapsed >= self.wall {
-            return Some(GoalLimitReached::Time {
-                spent_secs: elapsed.as_secs(),
-                allowed_secs: self.wall.as_secs(),
-            });
-        }
-        if refused_completions >= self.refused_completions {
-            return Some(GoalLimitReached::RefusedCompletions {
-                spent: refused_completions,
-                allowed: self.refused_completions,
-            });
-        }
-        if actions >= self.actions {
-            return Some(GoalLimitReached::Actions {
-                spent: actions,
-                allowed: self.actions,
-            });
-        }
-        None
-    }
-}
-
-impl GoalLimitReached {
-    /// What the person is told, and what a client reads in `_meta.pwr.budget`.
-    fn said(self) -> String {
-        match self {
-            Self::VerificationRuns { spent, .. } => format!(
-                "Goal mode paused after {spent} verification runs. Review the current changes before continuing."
-            ),
-            Self::ReviewRounds { spent, .. } => format!(
-                "Goal mode paused after {spent} review rounds. Review the current changes before continuing."
-            ),
-            Self::Actions { spent, .. } => format!(
-                "Goal mode paused after {spent} actions without verified completion. Review the current changes, then continue deliberately if the objective still needs work."
-            ),
-            Self::RefusedCompletions { spent, .. } => format!(
-                "Goal mode paused: the work was declared complete {spent} times and verification refused it each time, Review the checks' output, then continue deliberately."
-            ),
-            Self::Time { spent_secs, .. } => format!(
-                "Goal mode paused after {} minutes without verified completion. Review the current changes, then continue deliberately if the objective still needs work.",
-                spent_secs / 60
-            ),
-        }
-    }
-
-    fn meta(self) -> Value {
-        match self {
-            Self::VerificationRuns { spent, allowed } => {
-                json!({"limit": "verification_runs", "spent": spent, "allowed": allowed})
-            }
-            Self::ReviewRounds { spent, allowed } => {
-                json!({"limit": "review_rounds", "spent": spent, "allowed": allowed})
-            }
-            Self::Actions { spent, allowed } => {
-                json!({"limit": "actions", "spent": spent, "allowed": allowed})
-            }
-            Self::RefusedCompletions { spent, allowed } => {
-                json!({"limit": "refused_completions", "spent": spent, "allowed": allowed})
-            }
-            Self::Time {
-                spent_secs,
-                allowed_secs,
-            } => {
-                json!({"limit": "time", "spentSeconds": spent_secs, "allowedSeconds": allowed_secs})
-            }
-        }
-    }
-}
-// Configuration uses whole seconds rather than serde's Duration object.
-mod goal_seconds {
-    pub fn serialize<S: serde::Serializer>(
-        value: &std::time::Duration,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u64(value.as_secs())
-    }
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<std::time::Duration, D::Error> {
-        <u64 as serde::Deserialize>::deserialize(deserializer).map(std::time::Duration::from_secs)
-    }
-}
-
-struct GoalBudget {
-    limits: GoalLimits,
-    started: tokio::time::Instant,
-    actions: usize,
-    refused: usize,
-    verifications: usize,
-    reviews: usize,
-}
-impl GoalBudget {
-    fn new(limits: GoalLimits) -> Self {
-        Self {
-            limits,
-            started: tokio::time::Instant::now(),
-            actions: 0,
-            refused: 0,
-            verifications: 0,
-            reviews: 0,
-        }
-    }
-    fn reached(&self) -> Option<GoalLimitReached> {
-        self.limits
-            .reached(self.actions, self.refused, self.started.elapsed())
-    }
-    fn time_limit(&self) -> GoalLimitReached {
-        GoalLimitReached::Time {
-            spent_secs: self.started.elapsed().as_secs(),
-            allowed_secs: self.limits.wall.as_secs(),
-        }
-    }
-    fn remaining(&self) -> std::time::Duration {
-        self.limits.wall.saturating_sub(self.started.elapsed())
-    }
-    fn snapshot(&self) -> Value {
-        json!({"limits": self.limits, "spent": {"actions": self.actions, "refused_completions": self.refused, "verification_runs": self.verifications, "review_rounds": self.reviews, "wall_seconds": self.started.elapsed().as_secs()}})
-    }
-}
-
-/// Check-ins in a row that took no action before a goal pauses as stalled.
-/// Measured 2026-09-26: a model that could not run its toolchain answered in
-/// prose, and the goal re-prompted it 57 times in 23 minutes, the action count
-/// standing still at 20 -- far below [`GOAL_MAX_ACTIONS`], so nothing stopped it.
-const GOAL_IDLE_LIMIT: usize = 3;
-/// Completions in a row that verification refuses with the same failing checks
-/// before a goal stops as blocked: the same wall three times is the
-/// environment or the task, not a step the next attempt will take.
-const GOAL_SAME_FAILURE_LIMIT: usize = 3;
-/// Actions between two checkpoint notices; a notice per check-in made the
-/// conversation a column of them while a run was stuck.
-const GOAL_NOTICE_EVERY: usize = 10;
-
-/// What a goal is asked once, the first time its checks pass: to hold the
-/// work against the request before calling it done.
-///
-/// Measured on the stack matrix, 2026-09-26: three of four failed tasks had
-/// every declared check green and broke a rule the request stated plainly and
-/// no visible test covered -- "blank lines are ignored", "copies above N are
-/// deleted". A model makes the checks pass and stops; the checks are rarely
-/// the whole request.
-const GOAL_REVIEW: &str = "The checks pass. Before finishing, hold the work against what was \
-    asked, because checks rarely cover every rule: re-read the request and any specification \
-    it points to (a README, a spec file), go through each rule it states, and for each one \
-    find where the code does it. A rule no check exercises is only known to work once it has \
-    run: try it -- a short script, or a test file of your own that gives the same result \
-    on any machine (not on this one's time zone, locale or paths) -- rather than trusting a \
-    reading of the code. Where the request names something -- an image, a version, a \
-    library, a file and where it goes -- the work must use exactly that; something else that \
-    behaves the same is not what was asked. Fix any rule that is missing or wrong, run the \
-    checks again, then finish. If a named thing could not be used, say so and why instead of \
-    counting a substitute as done. If every rule is met, finish and say so.";
-
-/// What a reviewer that has not seen the conversation reads: the person's
-/// requests, the README, and the source this session changed -- tests left
-/// out, each file and the whole bounded. `None` when there is no source.
-///
-/// Why a second reader. Stack matrix c2 (2026-09-27): three of the first ten
-/// tasks failed on a rule the README states plainly -- copies above N deleted,
-/// fields separated by any whitespace, `opts[:name]` registering the process --
-/// each after a review round in which the model listed that very rule as
-/// verified. The model that wrote the code reads it the way it meant it.
-fn review_prompt(
-    root: &Path,
-    requests: &str,
-    changed: &BTreeMap<String, String>,
-) -> Option<String> {
-    const FILE_CHARS: usize = 20_000;
-    const CODE_CHARS: usize = 60_000;
-    const SPEC_CHARS: usize = 16_000;
-    let mut code = String::new();
-    let mut left_out = 0usize;
-    for path in changed.keys().filter(|path| reviewable(path)) {
-        let Ok(text) = std::fs::read_to_string(root.join(path)) else {
-            continue;
-        };
-        let shown: String = text.chars().take(FILE_CHARS).collect();
-        if code.len() + shown.len() > CODE_CHARS {
-            left_out += 1;
-            continue;
-        }
-        code.push_str(&format!("--- {path} ---\n{shown}\n"));
-        if shown.len() < text.len() {
-            code.push_str("(the rest of this file is not shown)\n");
-        }
-    }
-    if code.is_empty() {
-        return None;
-    }
-    if left_out > 0 {
-        code.push_str(&format!("({left_out} more changed file(s) not shown)\n"));
-    }
-    let spec = std::fs::read_to_string(root.join("README.md"))
-        .map(|text| text.chars().take(SPEC_CHARS).collect::<String>())
-        .unwrap_or_else(|_| "(there is no README.md)".into());
-    Some(format!(
-        "The request:\n{requests}\n\nThe specification (README.md):\n{spec}\n\n\
-         The code as it is now:\n{code}\n\
-         Go through the specification and the request rule by rule -- every option, error case, \
-         input form and edge case they state -- and write one line per rule:\n\
-         - <the rule> -- MET: <file and function that does it>\n\
-         or\n\
-         - <the rule> -- NOT MET: <what the code does instead>\n\
-         Judge each rule against the code as it is written, reading the lines that would do it, \
-         not against what the code seems meant to do. Write only the list."
-    ))
-}
-
-/// Source a reviewer should read: not tests, not anything under a hidden
-/// directory (PWR's state, toolchains, scratch).
-fn reviewable(path: &str) -> bool {
-    let segments: Vec<&str> = path.split('/').collect();
-    let (name, directories) = segments.split_last().unwrap_or((&"", &[]));
-    let name = name.to_ascii_lowercase();
-    !directories.iter().any(|segment| {
-        segment.starts_with('.')
-            || matches!(
-                *segment,
-                "test" | "tests" | "spec" | "__tests__" | "node_modules"
-            )
-    }) && !name.contains("_test.")
-        && !name.contains(".test.")
-        && !name.contains(".spec.")
-        && !name.starts_with("test_")
-        && !name.ends_with(".lock")
-        && name != "package-lock.json"
-}
-
-/// The person's own requests in this conversation, latest last, bounded.
-fn person_requests(messages: &[ChatMessage]) -> String {
-    let requests: Vec<String> = messages
-        .iter()
-        .filter(|message| {
-            message.role == "user"
-                && matches!(
-                    message.purpose,
-                    None | Some(pwr_domain::MessagePurpose::Task)
-                )
-        })
-        .map(|message| {
-            let text = message.content.as_str();
-            text.split_once("\n\nGoal mode is enabled.")
-                .map_or(text, |(request, _)| request)
-                .trim()
-                .to_owned()
-        })
-        .filter(|text| !text.is_empty())
-        .collect();
-    let joined = requests.join("\n---\n");
-    let skip = joined.chars().count().saturating_sub(4_000);
-    joined.chars().skip(skip).collect()
-}
-
-/// The review round's message, with the rules the reviewer marked NOT MET.
-///
-/// A checklist, not a question: asked instead to list what the code does not
-/// do "or answer NO DISCREPANCIES", the same model answered that in three
-/// seconds for all seven c2 workspaces probed, five of which had failed on a
-/// rule their README states. Made to mark every rule, it found them.
-fn review_guidance(findings: Option<&str>) -> String {
-    let unmet: Vec<&str> = findings
-        .unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.contains("NOT MET"))
-        .take(12)
-        .collect();
-    match unmet.as_slice() {
-        [] => GOAL_REVIEW.to_owned(),
-        lines => {
-            let found: String = lines.join("\n").chars().take(4_000).collect();
-            format!(
-                "{GOAL_REVIEW}\n\nA reviewer who has not seen this conversation read the \
-                 specification against the code as it is now and marked these rules not met:\n\n\
-                 {found}\n\n\
-                 It can be wrong. For each point, read the rule and the code: fix what is really \
-                 missing or wrong, and try it; leave what is not."
-            )
-        }
-    }
-}
-
-/// A message goal mode writes between its own turns, marked as the
-/// harness's so it is not composed, replayed or summarised as a request.
-fn goal_guidance(text: impl Into<String>) -> ChatMessage {
-    let mut message = ChatMessage::text("user", text);
-    message.purpose = Some(pwr_domain::MessagePurpose::GoalGuidance);
-    message
-}
-
 impl Session {
     fn new(
         root: PathBuf,
@@ -994,6 +585,54 @@ struct Server<R> {
     /// Whether wiki summaries are being written in the background.
     summarising: Rc<std::cell::Cell<bool>>,
     summary_cancel: RefCell<pwr_provider::Cancel>,
+}
+
+/// The server as the executor's host: one session's notifications and
+/// runner, in the shape the executor asks for them.
+struct ServerHost<'a, R> {
+    server: &'a Rc<Server<R>>,
+    session_id: &'a str,
+}
+
+#[async_trait::async_trait(?Send)]
+impl<R: TurnRunner + 'static> SessionHost for ServerHost<'_, R> {
+    async fn run_turn(&self, input: TurnInput) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+        self.server.runner.run(input).await
+    }
+
+    async fn verify(&self) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+        let context = self
+            .server
+            .sessions
+            .borrow()
+            .get(self.session_id)
+            .map(Session::command_context);
+        let Some(context) = context else {
+            return Err(VerifyError::NoSuchSession);
+        };
+        let changed = context.changed_files.clone();
+        self.server
+            .runner
+            .verify_goal(context)
+            .await
+            .map(|verification| (verification, changed))
+            .map_err(VerifyError::Failed)
+    }
+
+    async fn review(&self, root: &Path, prompt: String) -> Result<String, String> {
+        self.server.runner.review(root, prompt).await
+    }
+
+    fn say(&self, text: &str) {
+        self.server
+            .update(self.session_id, message_chunk("agent_message_chunk", text));
+    }
+
+    fn keep_messages(&self, messages: &[ChatMessage]) {
+        if let Some(session) = self.server.sessions.borrow_mut().get_mut(self.session_id) {
+            session.messages = messages.to_vec();
+        }
+    }
 }
 
 /// Serves one client until its input closes.
@@ -2268,7 +1907,7 @@ impl<R: TurnRunner + 'static> Server<R> {
         steps: SharedStepSink,
         continuity: converse::Continuity,
         approvals: Arc<dyn ApprovalPrompt>,
-        session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
+        session_grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
         goal_mode: bool,
     ) -> Value {
         let limits = match self.runner.goal_limits(&root) {
@@ -2276,11 +1915,15 @@ impl<R: TurnRunner + 'static> Server<R> {
             Err(why) if goal_mode => return error_response(id, -32000, &why),
             Err(_) => GoalLimits::default(),
         };
-        let mut budget = GoalBudget::new(limits);
-        let mut reply = self
-            .run_prompt_turns_budgeted(
-                id,
-                session_id,
+        // What a prompt amounts to is the executor's to decide; this only
+        // turns how it ended into the reply the client reads.
+        let host = ServerHost {
+            server: self,
+            session_id: &session_id,
+        };
+        let SessionResult { end, budget } = executor::execute(
+            &host,
+            SessionRequest {
                 root,
                 conversation_id,
                 messages,
@@ -2289,10 +1932,34 @@ impl<R: TurnRunner + 'static> Server<R> {
                 continuity,
                 approvals,
                 session_grants,
-                goal_mode,
-                &mut budget,
-            )
-            .await;
+                policy: if goal_mode {
+                    Policy::Goal
+                } else {
+                    Policy::Conversation
+                },
+            },
+            limits,
+        )
+        .await;
+        let mut reply = match end {
+            SessionEnd::Reply {
+                report,
+                total_actions,
+                goal,
+                verification,
+            } => self.turn_reply(id, &session_id, report, total_actions, goal, verification),
+            SessionEnd::Stopped {
+                report,
+                total_actions,
+                terminal,
+                text,
+            } => self.goal_stopped(id, &session_id, &report, total_actions, terminal, &text),
+            SessionEnd::OutOfBudget {
+                total_actions,
+                reached,
+            } => self.goal_out_of_budget(id, &session_id, total_actions, reached),
+            SessionEnd::Error { code, message } => error_response(id, code, &message),
+        };
         if goal_mode {
             if let Some(meta) = reply
                 .pointer_mut("/result/_meta/pwr")
@@ -2349,394 +2016,6 @@ impl<R: TurnRunner + 'static> Server<R> {
             }
         }
         reply
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn run_prompt_turns_budgeted(
-        self: &Rc<Self>,
-        id: Value,
-        session_id: String,
-        root: PathBuf,
-        conversation_id: pwr_domain::Id,
-        mut messages: Vec<ChatMessage>,
-        stop: Arc<AtomicBool>,
-        steps: SharedStepSink,
-        continuity: converse::Continuity,
-        approvals: Arc<dyn ApprovalPrompt>,
-        session_grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
-        goal_mode: bool,
-        budget: &mut GoalBudget,
-    ) -> Value {
-        // A deadline covers the operation in progress, not just loop boundaries.
-        // Set the shared cancellation flag before dropping its future so the
-        // managed inference worker also sees cancellation.
-        macro_rules! bounded {
-            ($operation:expr) => {
-                bounded!($operation, false)
-            };
-            ($operation:expr, $running_turn:expr) => {{
-                if let Some(reached) = budget.reached() {
-                    return self.goal_out_of_budget(id, &session_id, budget.actions, reached);
-                }
-                match tokio::time::timeout(budget.remaining(), $operation).await {
-                    Ok(value) if budget.started.elapsed() < budget.limits.wall => value,
-                    _ => {
-                        stop.store(true, Ordering::Relaxed);
-                        if $running_turn && let Ok(checkpoint) = continuity.checkpoint.lock() {
-                            budget.actions = budget.actions.saturating_add(checkpoint.actions);
-                        }
-                        return self.goal_out_of_budget(
-                            id,
-                            &session_id,
-                            budget.actions,
-                            budget.time_limit(),
-                        );
-                    }
-                }
-            }};
-        }
-        macro_rules! verify {
-            ($context:expr) => {{
-                if let Some(reached) = budget.reached() {
-                    return self.goal_out_of_budget(id, &session_id, budget.actions, reached);
-                }
-                if budget.verifications >= budget.limits.verification_runs {
-                    return self.goal_out_of_budget(
-                        id,
-                        &session_id,
-                        budget.actions,
-                        GoalLimitReached::VerificationRuns {
-                            spent: budget.verifications,
-                            allowed: budget.limits.verification_runs,
-                        },
-                    );
-                }
-                budget.verifications += 1;
-                bounded!(self.runner.verify_goal($context))
-            }};
-        }
-        let mut total_actions = 0usize;
-        // Each turn numbers its calls from one, and a goal runs several turns
-        // under one prompt: without an offset the second turn's first call
-        // reused `turnN-call1`, and a client merged two different actions.
-        let highest_call = Rc::new(std::cell::Cell::new(0u64));
-        // The checks already failing when the goal starts, so the goal is
-        // neither sent to repair them nor held open by them.
-        let mut already_failing: Vec<String> = Vec::new();
-        if goal_mode {
-            let context = self
-                .sessions
-                .borrow()
-                .get(&session_id)
-                .map(Session::command_context);
-            if let Some(context) = context
-                && let Ok(baseline) = verify!(context)
-                && !baseline.failing.is_empty()
-            {
-                already_failing = baseline.failing;
-                if let Some(last) = messages.last_mut().filter(|last| last.role == "user") {
-                    last.content
-                        .push_str(&format!("\n\n{}", already_failing_note(&already_failing)));
-                }
-            }
-        }
-        let mut idle_rounds = 0usize;
-        let mut same_failure: (Vec<String>, usize) = (Vec::new(), 0);
-        let mut noticed_at: Option<usize> = None;
-        // The verification that passed before the review round, kept so a
-        // review that changes nothing ends on it without re-running checks.
-        let mut reviewed: Option<GoalVerification> = None;
-        let mut review_done = false;
-        let mut goal_edited = false;
-        loop {
-            // Before the turn, on every way round: the limits are not one
-            // branch's business.
-            if goal_mode && let Some(reached) = budget.reached() {
-                return self.goal_out_of_budget(id, &session_id, total_actions, reached);
-            }
-            let base = highest_call.get();
-            let mut turn_continuity = continuity.clone();
-            if goal_mode {
-                if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
-                    checkpoint.actions = 0;
-                }
-                turn_continuity.action_limit =
-                    Some(budget.limits.actions.saturating_sub(total_actions));
-            }
-            let turn = self.runner.run(TurnInput {
-                root: root.clone(),
-                conversation_id,
-                messages,
-                stop: Arc::clone(&stop),
-                steps: Box::new({
-                    let steps = Rc::clone(&steps);
-                    let highest_call = Rc::clone(&highest_call);
-                    move |mut step| {
-                        if let TurnStep::ToolCall(call) = &mut step {
-                            call.id += base;
-                            highest_call.set(highest_call.get().max(call.id));
-                        }
-                        if let Ok(mut sink) = steps.try_borrow_mut() {
-                            sink(step);
-                        }
-                    }
-                }),
-                continuity: turn_continuity,
-                approvals: Arc::clone(&approvals),
-                // Shared, not copied: what the person allowed for the
-                // session during one turn of a goal holds for the next.
-                // Copied once per prompt, it did not -- measured
-                // 2026-09-26, Docker allowed for the session and asked
-                // about again on the goal's next turn.
-                session_grants: Arc::clone(&session_grants),
-                goal_mode,
-            });
-            let outcome = if goal_mode {
-                bounded!(turn, true)
-            } else {
-                turn.await
-            };
-            let (report, next_messages) = match outcome {
-                Ok(value) => value,
-                Err(problem) => return error_response(id, -32000, &problem),
-            };
-            total_actions = total_actions.saturating_add(report.actions);
-            budget.actions = total_actions;
-            messages = next_messages;
-            if let Some(session) = self.sessions.borrow_mut().get_mut(&session_id) {
-                session.messages = messages.clone();
-            }
-
-            if !goal_mode
-                || report.declined
-                || report.stopped.is_some()
-                    && !matches!(report.stopped, Some(converse::StopReason::BudgetSpent))
-            {
-                return self.turn_reply(id, &session_id, report, total_actions, goal_mode, None);
-            }
-            idle_rounds = if report.actions == 0 && !report.completed {
-                idle_rounds + 1
-            } else {
-                0
-            };
-
-            // A verification from before a change says nothing about after it.
-            goal_edited |= report.edited;
-            if report.edited {
-                reviewed = None;
-            }
-            if report.completed {
-                if let Some(verification) = reviewed.take() {
-                    return self.turn_reply(
-                        id,
-                        &session_id,
-                        report,
-                        total_actions,
-                        true,
-                        Some(verification),
-                    );
-                }
-                let context = self
-                    .sessions
-                    .borrow()
-                    .get(&session_id)
-                    .map(Session::command_context);
-                let Some(context) = context else {
-                    return error_response(id, -32602, "no such session");
-                };
-                let changed = context.changed_files.clone();
-                match verify!(context) {
-                    Ok(verification) if verification.passed && goal_edited && !review_done => {
-                        if budget.reviews >= budget.limits.review_rounds {
-                            return self.goal_out_of_budget(
-                                id,
-                                &session_id,
-                                total_actions,
-                                GoalLimitReached::ReviewRounds {
-                                    spent: budget.reviews,
-                                    allowed: budget.limits.review_rounds,
-                                },
-                            );
-                        }
-                        budget.reviews += 1;
-                        review_done = true;
-                        reviewed = Some(verification);
-                        let prompt = review_prompt(&root, &person_requests(&messages), &changed);
-                        // The second reading takes about a minute and streams
-                        // nothing: said, so a person does not take it for a hang.
-                        self.update(
-                            &session_id,
-                            message_chunk(
-                                "agent_message_chunk",
-                                if prompt.is_some() {
-                                    "The checks pass. Reviewing the work against the request before \
-                                     finishing: first the specification is read against the code \
-                                     once more, rule by rule (about a minute)."
-                                } else {
-                                    "The checks pass. Reviewing the work against the request before finishing."
-                                },
-                            ),
-                        );
-                        let findings = match prompt {
-                            Some(prompt) => bounded!(self.runner.review(&root, prompt)).ok(),
-                            None => None,
-                        };
-                        messages.push(goal_guidance(review_guidance(findings.as_deref())));
-                    }
-                    Ok(verification) if !verification.contract_changed.is_empty() => {
-                        return self.turn_reply(
-                            id,
-                            &session_id,
-                            report,
-                            total_actions,
-                            true,
-                            Some(verification),
-                        );
-                    }
-                    Ok(verification) if verification.passed => {
-                        return self.turn_reply(
-                            id,
-                            &session_id,
-                            report,
-                            total_actions,
-                            true,
-                            Some(verification),
-                        );
-                    }
-                    // A check broken before the goal is not the goal's to fix --
-                    // unless it is an acceptance check, which *is* the goal:
-                    // ending "left alone" on one reported a failed task as done.
-                    Ok(verification)
-                        if !verification.technical_passed
-                            && !verification.failing.is_empty()
-                            && verification.failing_acceptance.is_empty()
-                            && verification
-                                .failing
-                                .iter()
-                                .all(|check| already_failing.contains(check)) =>
-                    {
-                        self.update(
-                            &session_id,
-                            message_chunk(
-                                "agent_message_chunk",
-                                &format!(
-                                    "The checks that fail were already failing before this goal started, and were left alone: {}.\n{}",
-                                    verification.failing.join(", "),
-                                    verification.summary
-                                ),
-                            ),
-                        );
-                        return self.turn_reply(
-                            id,
-                            &session_id,
-                            report,
-                            total_actions,
-                            true,
-                            Some(verification),
-                        );
-                    }
-                    Ok(verification)
-                        if verification.technical_passed && !verification.acceptance_available =>
-                    {
-                        self.update(
-                            &session_id,
-                            message_chunk(
-                                "agent_message_chunk",
-                                &format!(
-                                    "Technical checks passed, but the goal is not verified because this workspace has no declared acceptance check.\n{}",
-                                    verification.summary
-                                ),
-                            ),
-                        );
-                        return self.turn_reply(
-                            id,
-                            &session_id,
-                            report,
-                            total_actions,
-                            true,
-                            Some(verification),
-                        );
-                    }
-                    Ok(verification) => {
-                        budget.refused += 1;
-                        let fingerprints = if verification.failure_fingerprints.is_empty() {
-                            verification.failing.clone()
-                        } else {
-                            verification.failure_fingerprints.clone()
-                        };
-                        if same_failure.0 == fingerprints {
-                            same_failure.1 += 1;
-                        } else {
-                            same_failure = (fingerprints, 1);
-                        }
-                        if same_failure.1 >= GOAL_SAME_FAILURE_LIMIT {
-                            return self.goal_stopped(
-                                id,
-                                &session_id,
-                                &report,
-                                total_actions,
-                                "blocked",
-                                &format!(
-                                    "Goal mode stopped: the work was declared complete {} times and verification refused it the same way each time ({}). Something the code cannot change is probably in the way -- a missing tool, a permission, the environment; the checks' output says which.\n{}",
-                                    same_failure.1,
-                                    verification.failing.join(", "),
-                                    verification.summary
-                                ),
-                            );
-                        }
-                        self.update(
-                            &session_id,
-                            message_chunk(
-                                "agent_message_chunk",
-                                &format!(
-                                    "Goal verification did not pass:\n{}\n\nContinuing from the current workspace.",
-                                    verification.summary
-                                ),
-                            ),
-                        );
-                        messages.push(goal_guidance(format!(
-                            "The goal is not complete: full repository verification failed. Fix the remaining issue. Evidence:\n{}",
-                            verification.summary
-                        )));
-                    }
-                    Err(problem) => {
-                        return error_response(
-                            id,
-                            -32000,
-                            &format!("goal verification could not run: {problem}"),
-                        );
-                    }
-                }
-            } else {
-                if idle_rounds >= GOAL_IDLE_LIMIT {
-                    return self.goal_stopped(
-                        id,
-                        &session_id,
-                        &report,
-                        total_actions,
-                        "stalled",
-                        &format!(
-                            "Goal mode paused: the last {idle_rounds} check-ins took no action. Read the last replies for what is in the way, then continue deliberately."
-                        ),
-                    );
-                }
-                if noticed_at.is_none_or(|at| total_actions >= at + GOAL_NOTICE_EVERY) {
-                    noticed_at = Some(total_actions);
-                    self.update(
-                        &session_id,
-                        message_chunk(
-                            "agent_message_chunk",
-                            &format!(
-                                "Checkpoint after {total_actions} action(s). Continuing toward the goal; use Stop to interrupt."
-                            ),
-                        ),
-                    );
-                }
-                messages.push(goal_guidance(
-                    "Continue the same goal from the saved workspace state. Do not stop with prose: either make the next necessary change, investigate an unmet requirement, or call complete only when the full objective is ready for verification.",
-                ));
-            }
-        }
     }
 
     /// Pauses a goal that reached one of its limits. The work stays where it
@@ -4308,6 +3587,7 @@ fn memory_request(id: Value, params: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pwr_orchestrator::executor::GOAL_REVIEW;
 
     #[test]
     fn a_rewind_writes_only_inside_the_workspace() {
@@ -5746,97 +5026,6 @@ mod tests {
         assert_eq!(limits.wall.as_secs(), 90);
         assert_eq!(limits.refused_completions, 6);
         assert!(serde_json::from_value::<GoalLimits>(json!({"actons": 12})).is_err());
-    }
-
-    /// The first passing verification asks once for a review against the
-    /// request; a review that changes nothing ends the goal on it.
-    #[test]
-    fn the_reviewer_reads_source_not_tests_or_pwr_state() {
-        for path in [
-            "lib/stock.ex",
-            "bin/rotate",
-            "Dockerfile",
-            ".dockerignore",
-            "src/app/app.ts",
-        ] {
-            assert!(reviewable(path), "{path}");
-        }
-        for path in [
-            "test/cron_extra_test.dart",
-            "tests/test_rotate.py",
-            "src/app/todo-list.spec.ts",
-            "src/app/store.test.ts",
-            "test_hidden.py",
-            ".pwr-scratch/check.sh",
-            ".toolchains/elixir/bin/mix",
-            "package-lock.json",
-            "Cargo.lock",
-        ] {
-            assert!(!reviewable(path), "{path}");
-        }
-    }
-
-    #[test]
-    fn the_reviewer_gets_the_request_the_readme_and_the_changed_source() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::write(
-            root.path().join("README.md"),
-            "`opts[:name]` registers the process",
-        )
-        .unwrap();
-        std::fs::create_dir_all(root.path().join("lib")).unwrap();
-        std::fs::create_dir_all(root.path().join("test")).unwrap();
-        std::fs::write(root.path().join("lib/stock.ex"), "def start_link(opts)").unwrap();
-        std::fs::write(root.path().join("test/extra_test.exs"), "assert true").unwrap();
-        let changed = BTreeMap::from([
-            ("lib/stock.ex".to_owned(), "h1".to_owned()),
-            ("test/extra_test.exs".to_owned(), "h2".to_owned()),
-        ]);
-        let prompt = review_prompt(root.path(), "Implement Stock", &changed).unwrap();
-        assert!(prompt.contains("Implement Stock"));
-        assert!(prompt.contains("`opts[:name]` registers the process"));
-        assert!(prompt.contains("--- lib/stock.ex ---\ndef start_link(opts)"));
-        assert!(!prompt.contains("extra_test"));
-        let only_tests = BTreeMap::from([("test/extra_test.exs".to_owned(), "h2".to_owned())]);
-        assert!(review_prompt(root.path(), "Implement Stock", &only_tests).is_none());
-    }
-
-    #[test]
-    fn the_person_s_requests_are_theirs_without_the_goal_s_instructions() {
-        let mut guidance = ChatMessage::text("user", "The checks pass. Before finishing...");
-        guidance.purpose = Some(pwr_domain::MessagePurpose::GoalGuidance);
-        let messages = vec![
-            ChatMessage::text("system", "you are PWR"),
-            ChatMessage::text(
-                "user",
-                "Implement the cron parser\n\nGoal mode is enabled. Keep working.",
-            ),
-            ChatMessage::text("assistant", "done"),
-            guidance,
-            ChatMessage::text("user", "Also accept tabs"),
-        ];
-        assert_eq!(
-            person_requests(&messages),
-            "Implement the cron parser\n---\nAlso accept tabs"
-        );
-    }
-
-    #[test]
-    fn what_the_reviewer_found_is_added_to_the_review_and_nothing_else_is() {
-        assert_eq!(review_guidance(None), GOAL_REVIEW);
-        assert_eq!(review_guidance(Some("  NO DISCREPANCIES\n")), GOAL_REVIEW);
-        assert_eq!(
-            review_guidance(Some("- ids are never reused -- MET: lib/stock.ex next_id")),
-            GOAL_REVIEW
-        );
-        let found = review_guidance(Some(
-            "- ids are never reused -- MET: lib/stock.ex next_id\n\
-             - `opts[:name]` registers the process -- NOT MET: start_link ignores it",
-        ));
-        assert!(found.starts_with(GOAL_REVIEW));
-        assert!(found.contains("NOT MET: start_link ignores it"));
-        assert!(!found.contains("next_id"));
-        assert!(found.contains("It can be wrong"));
     }
 
     #[tokio::test]
