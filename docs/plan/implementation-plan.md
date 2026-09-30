@@ -73,8 +73,10 @@ A gate is recorded as passed in [roadmap.md](../roadmap.md) and
 
 ## Working-tree implementation ledger — 2026-09-30
 
-This ledger describes local code, not completed gates. No item below is marked
-DONE without its integration commit and complete acceptance evidence. G1, G2
+This ledger describes code integrated in `8deb4ba3` on `develop` (not pushed, CI
+not run), not completed gates. No item below is marked DONE without a green CI
+run and complete acceptance evidence; "Integration commit" in the last column
+is now satisfied and the remaining evidence is what else it names. G1, G2
 and G3 remain unpassed; no confirmatory model campaign or release was run.
 
 | Items | Implemented locally | Remaining evidence or implementation |
@@ -305,7 +307,7 @@ the person's work or report a boundary it does not have.
 
 ### W1.4 A goal budget that bounds every path
 
-**Status:** NOW · implemented in working tree; integration commit pending
+**Status:** NOW · integrated in 8deb4ba3; CI pending
 
 - **Problem.** `GOAL_MAX_ACTIONS` is checked only when the model did *not*
   complete, so refused completions with alternating failures loop without
