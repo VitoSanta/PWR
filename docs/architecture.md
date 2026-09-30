@@ -69,6 +69,7 @@ workspace-wide.
 ## The production path
 
 1. The app sends `session/prompt` (with `goalMode` true or false) to `pwr serve`.
+   (The terminal console takes the same path with `ConsoleHost` as its host.)
 2. `serve.rs` resolves the session, its workspace configuration and permission
    mode, and hands the prompt to the **session executor**
    (`pwr_orchestrator::executor::execute`, policy *conversation* or *goal*),
