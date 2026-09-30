@@ -8,6 +8,36 @@ still holds it is restated here.
 
 ---
 
+## D-2026-09-30-6 — Dispositions for converging the scripted loop
+
+**Decision.** The maintainer accepted, on 2026-09-30, the dispositions
+proposed in [plan/executor-parity.md](plan/executor-parity.md), to be followed
+rigorously on `develop` (with `stage` as the fallback if something goes wrong):
+
+- Rows 1, 2, 4, 7, 17, 19: one budget, one sequence of checks, one approval
+  interface — the executor's.
+- Rows 5 and 6: both completion holds (nothing done; built a program and never
+  ran it) apply on every path.
+- Row 14: reasoning effort is always on in campaigns; a campaign that wants the
+  old behaviour declares it as the treatment.
+- Row 8: `record_progress` leaves the scripted catalogue; `propose_verifier`
+  stays where a person can answer.
+- Rows 3, 9, 10: the recovery cycle, `--plan` and the task ledger/`--session`
+  stay with the scripted control (`legacy` arm) until W8.4 measures them; they
+  are not part of the executor.
+- Row 11: one compaction (the conversation's); `recency-fill` and
+  `evidence-state` stay experiments until W4.7.
+- The product arm `b1` is the executor; the earlier scripted B1 remains
+  available as the `legacy` arm so older campaigns stay reproducible, and pairs
+  with executor campaigns only under `--declare harness_rev` and `mode`.
+- `pwr run` becomes a thin call of the executor.
+
+**Why.** A campaign must measure the path the app ships (review §2, §3.2;
+plan G2), and every behaviour that exists in only one loop is a fix a user
+does not get or a measurement no user benefits from.
+
+**Reversible by** a new entry naming the row and the evidence.
+
 ## D-2026-09-30-1 — Adopt the review's direction
 
 **Decision.** PWR is positioned as a dependable local coding agent for

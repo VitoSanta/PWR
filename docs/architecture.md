@@ -101,7 +101,7 @@ architecture's main problem (review §2, §3.2; plan W2).
 |---|---|---|---|
 | Code | `converse::take_turn` + `run_chat_turn`, sequenced by `executor::execute` | `executor::execute` (goal policy) around the turn | `run_action_loop_with_prompt_budget_and_context_tiers`, `orchestrator/src/lib.rs:2936` |
 | Verification | `executor::close_turn` after the turn; the turn is already over | full verification on each `complete`, acceptance contract, one review round | inside the loop: baseline, checks on completion, recovery cycle |
-| Completion | `complete` held once if unseen results or nothing done | verified only with a declared, unchanged acceptance check | `verified: false` allowed when no verifier exists |
+| Completion | `complete` held if unseen results, held once if nothing done or a built program never ran (all three on every path) | verified only with a declared, unchanged acceptance check | `verified: false` allowed when no verifier exists |
 | Compaction | mechanical record (`compaction.rs`) | same | ledger compaction; optional `recency-fill` / `evidence-state` policies |
 | Catalogue | no `record_progress`, `propose_verifier`; adds `remember`, `recall_project`, `wiki_query`, `look_at` | same | the full action catalogue |
 | Used by | the app, `pwr chat` | the app | the command line and every campaign |

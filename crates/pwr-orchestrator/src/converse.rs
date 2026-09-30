@@ -1049,6 +1049,14 @@ async fn take_turn_inner<P: ModelProvider>(
     let mut echoes = crate::repetition::Echoes::default();
     let mut failed_runs = crate::repetition::FailedRuns::default();
     let mut held_empty_completion = false;
+    // What the never-ran hold judges: whether this turn built a program and
+    // ever ran anything. The scripted loop had it and the conversation did not,
+    // so a model that wrote code and declared it done, unrun, was stopped in
+    // campaigns and not in the app (plan W2.4, row 6).
+    let mut created_here: std::collections::BTreeSet<String> = Default::default();
+    let mut ran_something = false;
+    let mut changed_runnable = false;
+    let mut asked_to_run = false;
     // Acting and getting nowhere is the other half of being stuck, and the
     // conversation had neither half. A turn could spend its whole budget
     // reading the same three files in a circle, or editing a line and putting
@@ -1891,6 +1899,26 @@ async fn take_turn_inner<P: ModelProvider>(
                 ));
                 continue;
             }
+            // A program was built here and nothing that runs it has run: asked
+            // once, exactly as the scripted loop asks. No checks are passed
+            // because a conversation runs them after the turn, not during it.
+            if matches!(action, ActionProposal::Complete { .. })
+                && !continuity.chat_only
+                && changed_runnable
+                && !ran_something
+                && !asked_to_run
+                && let Some(held) = crate::completion_held(false, true, &[])
+            {
+                asked_to_run = true;
+                on_step(TurnStep::Refused(
+                    "complete: what was built has not been run".into(),
+                ));
+                messages.push(tool_message(
+                    call,
+                    serde_json::json!({"not_completed": held.message}),
+                ));
+                continue;
+            }
             actions += 1;
             // Ending the turn is itself an action the model can take, and its
             // rationale is the answer.
@@ -2059,6 +2087,16 @@ async fn take_turn_inner<P: ModelProvider>(
             // workspace, and the answer then carried "the checks passed after
             // the change" about a change that never happened.
             let would_mutate = crate::conversation::may_change_workspace(&action);
+            ran_something |= crate::runs_the_work(&action);
+            if let ActionProposal::WriteFile { path, .. } = &action
+                && !policy.root.join(path).exists()
+            {
+                created_here.insert(path.clone());
+            }
+            // Only a program this turn created: an edit to one the workspace
+            // already had is judged by the workspace's own checks.
+            changed_runnable |= crate::changes_runnable_file(&action)
+                && crate::action_path(&action).is_some_and(|path| created_here.contains(path));
             let capability = call.name.clone();
             let detail = tool_call_detail(call);
             call_sequence += 1;
@@ -2637,7 +2675,7 @@ fn conservative_prompt_tokens(
 }
 
 /// Said to a `complete` in a turn that has written, run and read nothing.
-const COMPLETION_WITH_NOTHING_DONE: &str = "complete was not carried out: nothing has been \
+pub(crate) const COMPLETION_WITH_NOTHING_DONE: &str = "complete was not carried out: nothing has been \
      written, run or read in this turn, so any file or result it describes does not exist yet. \
      If the request needs files or commands, do that now with the tools. If it needed only an \
      answer, call complete again.";

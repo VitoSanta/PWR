@@ -3225,6 +3225,8 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
     let mut ran_something = false;
     let mut changed_runnable = false;
     let mut asked_to_run = false;
+    let mut acted = false;
+    let mut held_empty_completion = false;
     // Files this run created, which a later `write_file` may replace whole.
     let mut created_here: std::collections::HashSet<String> = std::collections::HashSet::new();
     while step < max_actions {
@@ -3643,6 +3645,29 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 }),
             });
         }
+        // A completion in a run that has done nothing at all is asked about once,
+        // as the conversation asks it (plan W2.4, row 5): "the files were created
+        // and the tests validated" as a first and only call, over an empty folder.
+        if matches!(action, ActionProposal::Complete { .. }) && !acted && !held_empty_completion {
+            held_empty_completion = true;
+            store
+                .append(
+                    Some(run_id),
+                    "completion.held",
+                    serde_json::json!({"step": step, "reason": "nothing_done", "turn": turns}),
+                )
+                .map_err(|e| e.to_string())?;
+            request.messages.push(pwr_domain::ChatMessage {
+                role: "tool".into(),
+                content: serde_json::json!({
+                    "not_completed": converse::COMPLETION_WITH_NOTHING_DONE
+                })
+                .to_string(),
+                tool_call_id: answering,
+                ..Default::default()
+            });
+            continue;
+        }
         if matches!(action, ActionProposal::Complete { .. })
             && let Some(reason) = completion_held(
                 completion_unseen,
@@ -3969,6 +3994,9 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         // Repetition and approval, the decisions both loops share. A repeat of a
         // refused action is named rather than run; an action needing an
         // approval is put to the person, and a refusal is a tool result.
+        // Anything the deployment proposes but a completion counts as having
+        // acted, a refused proposal included: it asked something of someone.
+        acted = true;
         let fingerprint = action_fingerprint(&action);
         match session::gate(
             store,
@@ -8023,7 +8051,9 @@ mod tests {
             &RunTuning::default(),
         )
         .await;
-        assert_eq!(*contexts.lock().unwrap(), vec![8192, 2048]);
+        // The run's first completion is held once (nothing was done), which is
+        // a further request at the lower tier and not what this test is about.
+        assert_eq!(contexts.lock().unwrap()[..2], [8192, 2048]);
         let events = store.events_for_run(run_id).unwrap();
         let changed = events
             .iter()
@@ -8255,6 +8285,9 @@ mod tests {
             let mut actions = std::collections::VecDeque::new();
             if edited {
                 actions.push_back(serde_json::json!({"capability":"replace_text", "path":"code.rs", "expected_hash":pwr_domain::hash_bytes("one"), "find":"one", "replace":"two"}).to_string());
+            }
+            if !edited {
+                actions.push_back(r#"{"capability":"read_file","path":"code.rs"}"#.into());
             }
             actions.push_back(r#"{"capability":"complete","rationale":"diagnosis"}"#.into());
             let provider = SequenceProvider(std::sync::Mutex::new(actions));
@@ -8499,14 +8532,17 @@ mod tests {
             sandbox: pwr_tools::SandboxPolicy::Disabled,
             approvals: Vec::new(),
         };
+        // The first completion, in a run that has done nothing, is held once;
+        // the second is carried out (plan W2.4, row 5).
         let provider = SequenceProvider(std::sync::Mutex::new(std::collections::VecDeque::from([
+            r#"{"capability":"complete","rationale":"done"}"#.into(),
             r#"{"capability":"complete","rationale":"done"}"#.into(),
         ])));
         let store = Store::open(":memory:").unwrap();
         let run_id = new_id();
         let request = ModelRequest {
             deployment: deployment(),
-            context_tokens: 32,
+            context_tokens: 64,
             tools: None,
             seed: None,
             sampling: Default::default(),
@@ -8527,6 +8563,12 @@ mod tests {
                 .iter()
                 .any(|event| event.event_type == "task.complete")
         );
+        let held: Vec<_> = events
+            .iter()
+            .filter(|event| event.event_type == "completion.held")
+            .collect();
+        assert_eq!(held.len(), 1, "asked once, not twice");
+        assert_eq!(held[0].payload["reason"], "nothing_done");
     }
     struct CalibrationFixture {
         answer: &'static str,
@@ -8665,6 +8707,9 @@ mod tests {
         let mut actions = std::collections::VecDeque::new();
         if edit {
             actions.push_back(serde_json::json!({"capability":"replace_text", "path":"code.rs", "expected_hash":pwr_domain::hash_bytes("one"), "find":"one", "replace":"two"}).to_string());
+        } else {
+            // A run that has done nothing is held at its first completion.
+            actions.push_back(r#"{"capability":"read_file","path":"code.rs"}"#.into());
         }
         actions.push_back(r#"{"capability":"complete","rationale":"done"}"#.into());
         let store = Store::open(":memory:").unwrap();

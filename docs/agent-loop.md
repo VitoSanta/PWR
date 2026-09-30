@@ -33,9 +33,11 @@ Each step of the loop:
    was wrong; three in a row end the turn.
 6. **Completion holds.** A `complete` is not carried out, and the model is told
    why, when it arrived in the same reply as other calls whose results it has
-   not read (`COMPLETION_OVER_UNSEEN_RESULTS`, `converse.rs:2482`), or when the
-   turn has written, run and read nothing in a workspace (asked once;
-   `COMPLETION_WITH_NOTHING_DONE`, `converse.rs:2476`).
+   not read (`COMPLETION_OVER_UNSEEN_RESULTS`), when the turn has written, run
+   and read nothing in a workspace (asked once; `COMPLETION_WITH_NOTHING_DONE`),
+   or when the turn created a program and ran nothing that runs it (asked once;
+   the *never ran* hold of `completion_held`). The scripted loop holds the same
+   three (plan W2.4, rows 5 and 6; decision D-2026-09-30-6).
 7. **Execution.** Each call is checked against policy and run
    ([tools-and-sandbox.md](tools-and-sandbox.md)). A `write_file` onto an
    existing file becomes a whole-file replacement of the version the conversation
@@ -175,9 +177,9 @@ measures and the app does not ship:
 - a baseline of the checks before editing, checks on completion, and a
   recovery cycle (reproduce, classify, diagnose, retry within budget; stop on
   environment, policy or non-determinism);
-- completion holds of its own: unseen results, and *never ran* — a program
-  that was only syntax-checked must be run once (`completion_held`,
-  `lib.rs:5857`), a hold the conversation does not have;
+- the same three completion holds as the conversation: unseen results, nothing
+  done (asked once) and *never ran* — a program that was only syntax-checked
+  must be run once (`completion_held`);
 - `record_progress` (a ledger the loop carries) and `propose_verifier` (a
   check the person adopts) in its catalogue;
 - ledger compaction, and optional context policies (`--context-policy

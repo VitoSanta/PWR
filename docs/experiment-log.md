@@ -25,6 +25,28 @@ unchanged. Any new product-path campaign must record these effective limits;
 results from the previous unbounded refusal path are not silently equivalent.
 No model campaign was run for this change.
 
+## 2026-09-30 — Two completion holds now apply on every path (a measurement-changing change)
+
+**Question.** Does anything change for a campaign when the scripted loop and
+the app's conversation hold the same completions (plan W2.4, decision
+D-2026-09-30-6)?
+
+**Change.** The scripted loop (`pwr run`, `eval run`) now holds a first
+`complete` in a run that has done nothing, once; the conversation now holds a
+`complete` over a program the turn created and never ran, once. Same
+predicates and wording as the loop that already had each.
+
+**Effect on measurement.** A scripted run that completes as its first act, or a
+conversation that builds and never runs, now spends one extra model turn
+before it can finish. Campaigns recorded before this commit did not have the
+scripted hold; **they do not pair with later ones under `--strict` unless
+`harness_rev` is declared as the treatment**, which the build identity already
+forces. No campaign has been run on the new behaviour.
+
+**Kept** (not yet measured). To be reassessed on the small-apps corpus once the
+maintainer allows model runs; the hold's cost is one turn, its value is the
+completions of 2026-09-30 it would have stopped.
+
 ## 2026-09-30 — Review verified; no experiment run
 
 The technical review of 2026-09-30 was checked claim by claim
