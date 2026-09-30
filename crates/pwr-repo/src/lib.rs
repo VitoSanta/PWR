@@ -386,6 +386,11 @@ const MAX_TERMS: usize = 4_000;
 /// a repository's own ignore file cannot be relied on to say so -- of six
 /// Python projects prepared for R3 on 2026-09-16, one ignored `venv*` but not
 /// `.venv`, and older commits ignore neither.
+/// A file another tool is writing and has not yet moved into place
+/// (`pwr_tools::atomic`). Never indexed: it is not part of the project, and one
+/// left behind by a crash must not reach the model.
+pub const TEMPORARY_WRITE_PREFIX: &str = ".pwr-tmp-";
+
 const POLICY_EXCLUSIONS: [&str; 6] = [
     ".git",
     "target",
@@ -526,6 +531,10 @@ fn walk_with_cache(
             !POLICY_EXCLUSIONS
                 .iter()
                 .any(|blocked| entry.file_name() == *blocked)
+                && !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(TEMPORARY_WRITE_PREFIX)
         })
         .build();
     for entry in walker {

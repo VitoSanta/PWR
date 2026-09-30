@@ -176,7 +176,7 @@ the person's work or report a boundary it does not have.
 
 ### W1.2 Atomic, checked writes
 
-**Status:** NOW · M
+**Status:** DONE (2026-09-30)
 
 - **Problem.** Edits are read → check hash → `std::fs::write`; a crash or error
   leaves a partial file, and a concurrent change between check and write is
@@ -203,6 +203,20 @@ the person's work or report a boundary it does not have.
 - **Tests.** Unit tests with a failure hook; permissions (`0o755` script stays
   executable); symlink-to-inside and symlink-to-outside behave as before; a
   change between hash check and rename is refused.
+- **Implemented** in `crates/pwr-tools/src/atomic.rs` (`write_atomic`, with
+  `Expect::{Anything, Absent, Hash}` and a stage hook for tests). Differences
+  from the sketch above: the temporary name is `.pwr-tmp-<pid>-<n>-<name>`
+  (`pwr_repo::TEMPORARY_WRITE_PREFIX`); a new file is created with `hard_link`,
+  which fails if the name is taken, instead of a check-then-rename; a read-only
+  target is still refused; `resolve` already returns the real path of a
+  symlink, so no separate resolution step was needed. Wired into `write_file`,
+  `apply_patch`, `replace_text`, `apply_replace`, `restore_file`,
+  `extract_document`, the core's Revert and rewind. Tests: eight in `atomic.rs`
+  (failure at each stage leaves the original, a change after the check is
+  refused and kept, a deleted file is not recreated, permissions, symlink,
+  read-only, create and a lost creation race) and three tool-level tests
+  (no stray file after each tool, an edited script stays executable, a write in
+  flight is not listed or searched).
 - **Docs.** [tools-and-sandbox.md](../tools-and-sandbox.md), [SECURITY.md](../../SECURITY.md).
 
 ### W1.3 The same protections for commands as for file tools

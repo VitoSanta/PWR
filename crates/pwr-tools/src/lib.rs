@@ -1,4 +1,5 @@
 //! Typed, bounded workspace tools and policy enforcement.
+pub mod atomic;
 pub mod document;
 pub mod service;
 
@@ -3074,6 +3075,10 @@ fn walk_workspace_filtered(
             !POLICY_EXCLUSIONS
                 .iter()
                 .any(|blocked| entry.file_name() == *blocked)
+                && !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(atomic::TEMPORARY_PREFIX)
         });
     if let Some(filter) = filter {
         builder.overrides(filter.clone());
@@ -3494,7 +3499,7 @@ pub fn apply_patch(
             "patched content exceeds policy size limit".into(),
         ));
     }
-    std::fs::write(&path, content.as_bytes())?;
+    atomic::write_atomic(&path, content.as_bytes(), atomic::Expect::Hash(&current))?;
     let new_hash = hash_bytes(content.as_bytes());
     Ok(ApplyResult {
         path: relative.display().to_string(),
@@ -3928,7 +3933,11 @@ pub fn apply_replace(
             relative.display()
         )));
     }
-    std::fs::write(&path, replacement.as_bytes())?;
+    atomic::write_atomic(
+        &path,
+        replacement.as_bytes(),
+        atomic::Expect::Hash(&previous_hash),
+    )?;
     let new_hash = hash_bytes(replacement.as_bytes());
     Ok(ApplyResult {
         path: relative.display().to_string(),
@@ -4068,7 +4077,11 @@ pub fn replace_text(
             relative.display()
         )));
     }
-    std::fs::write(&path, updated.as_bytes())?;
+    atomic::write_atomic(
+        &path,
+        updated.as_bytes(),
+        atomic::Expect::Hash(&previous_hash),
+    )?;
     let new_hash = hash_bytes(updated.as_bytes());
     Ok(ApplyResult {
         path: relative.display().to_string(),
@@ -5037,7 +5050,7 @@ pub fn write_file(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, content.as_bytes())?;
+    atomic::write_atomic(&path, content.as_bytes(), atomic::Expect::Absent)?;
     let new_hash = hash_bytes(content.as_bytes());
     Ok(ApplyResult {
         path: relative.display().to_string(),
@@ -5379,7 +5392,7 @@ pub fn extract_document(
             )));
         }
     } else {
-        std::fs::write(&target_path, &body)?;
+        atomic::write_atomic(&target_path, body.as_bytes(), atomic::Expect::Absent)?;
     }
 
     let total_lines = body.lines().count();
@@ -6214,7 +6227,7 @@ pub fn restore_file(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, original)?;
+    atomic::write_atomic(&path, original, atomic::Expect::Anything)?;
     Ok(ApplyResult {
         path: relative.display().to_string(),
         normalized: None,

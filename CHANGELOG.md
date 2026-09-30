@@ -25,6 +25,10 @@ Recorded in detail, with what was checked, in
   is at write time. A file it has not read, or that a person or a command
   changed since, is refused with an instruction to read it, and the file is
   left as it was (plan W1.1).
+- File writes are atomic: a temporary file, then a move, with the target
+  re-checked just before it. A crash leaves the original whole, and a change
+  made while an edit was being prepared is refused instead of overwritten
+  (plan W1.2).
 - Gemma 4 and gpt-oss calibrate and run in agent mode (tool-call adapters,
   engine diagnostics kept off the protocol, a stop at the model's closing
   marker; Quick Calibration suite 5).
