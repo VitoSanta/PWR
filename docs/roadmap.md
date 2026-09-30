@@ -40,7 +40,7 @@ Campaign evidence: no campaign has measured the current product path. The last p
 | W1.1 | **Done.** An overwrite is bound to the version the model read, never the current one |
 | W1.2 | **Done.** Atomic, checked writes for every file-writing tool |
 | W1.3 | Protected paths and dependency trees enforced for commands and checks, not only file tools |
-| W1.4 | A goal budget (actions, refused completions, time) that bounds every branch |
+| W1.4 | **Done (working tree).** Goal-wide actions, refusals, verification/review caps and a deadline, with workspace overrides and outcome counters |
 | W1.5 | Goal progress judged by failure fingerprints, not check names |
 | W1.6–W1.8 | Bounded PDF inflation, bounded repository walk, a timeout on the embedding sidecar |
 | W1.9 | Each grant says what it actually opens |

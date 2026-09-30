@@ -190,7 +190,7 @@ class TrimmedCache(unittest.TestCase):
         self.addCleanup(lambda: [setattr(pwr_mlx, n, v) for n, v in self.saved.items()])
         self.engine = pwr_mlx.Engine()
 
-        def prefill(tokens, offset, progress):
+        def prefill(tokens, offset, progress, cancelled=lambda: False):
             self.prefilled.append(len(tokens))
             for layer in self.engine.cache:
                 layer.offset += len(tokens)
@@ -225,7 +225,7 @@ class TrimmedCache(unittest.TestCase):
         engine = self.engine
         engine.resume([1, 2, 3], lambda *_: None)
 
-        def fail(tokens, offset, progress):
+        def fail(tokens, offset, progress, cancelled=lambda: False):
             raise MemoryError("out of memory")
 
         engine.prefill = fail
@@ -267,7 +267,7 @@ class CopiedCache(unittest.TestCase):
         self.engine = pwr_mlx.Engine()
         self.engine.tokenizer = Tokenizer()
 
-        def prefill(tokens, offset, progress):
+        def prefill(tokens, offset, progress, cancelled=lambda: False):
             self.prefilled.append(list(tokens))
             for layer in self.engine.cache:
                 layer.offset = offset + len(tokens)
@@ -473,7 +473,7 @@ class Chat(unittest.TestCase):
         engine = pwr_mlx.Engine()
         engine.model = object()
         engine.tokenizer = FakeTokenizer()
-        engine.prefill = lambda tokens, offset, progress=None: None
+        engine.prefill = lambda tokens, offset, progress=None, cancelled=lambda: False: None
         self.engine = engine
 
     def tearDown(self):
@@ -627,3 +627,18 @@ class TurnEndsStopGeneration(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+class PrefillCancellation(unittest.TestCase):
+    def test_stop_is_observed_between_chunks(self):
+        import mlx.core as mx
+        from pwr_mlx import Engine, PrefillCancelled
+        from types import SimpleNamespace
+        engine = Engine.__new__(Engine)
+        engine.cache = [SimpleNamespace(state=mx.array([0]))]
+        engine.prefill_step = lambda offset: 2
+        calls = []
+        engine.model = lambda tokens, cache: calls.append(tokens)
+        with self.assertRaises(PrefillCancelled):
+            engine.prefill([1, 2, 3, 4, 5, 6], 0, cancelled=lambda: bool(calls))
+        self.assertEqual(len(calls), 1)

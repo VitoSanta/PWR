@@ -253,6 +253,8 @@ export interface RunOutcome {
   /** The core's own words for why it stopped, shown in a phase's steps. */
   detail: string | null;
   tone: 'done' | 'paused' | 'stopped' | 'failed';
+  confinement?: string | null;
+  acceptanceChanges?: string[];
 }
 
 export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
@@ -262,8 +264,12 @@ export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
   const detail: string | null = meta.stoppedBecause ?? null;
   const terminal: string | null = meta.terminal ?? null;
   const plural = (n: number) => `${n} action${n === 1 ? '' : 's'}`;
-  const base = { terminal, detail };
-  if (goal?.verified) return { ...base, text: `Goal verified by the declared acceptance checks after ${plural(actions)}.`, action: null, tone: 'done' };
+  const evidence = meta.outcome;
+  const confinement = evidence?.confinement?.status === 'unconfined' ? 'Unconfined: commands run with your full rights' : evidence?.confinement?.status === 'partially_enforced' ? `Partially enforced: ${(evidence.confinement.what ?? []).join('; ')}` : evidence?.confinement?.status === 'sandboxed' ? 'Sandboxed' : null;
+  const acceptanceChanges: string[] = evidence?.acceptance?.status === 'contract_changed' ? evidence.acceptance.what : goal?.contractChanged ?? [];
+  const base = { terminal, detail, confinement, acceptanceChanges };
+  if (terminal === 'contract_changed' || evidence?.acceptance?.status === 'contract_changed') return { ...base, text: 'Acceptance artifacts changed; the goal requires human review.', detail: acceptanceChanges.join(', ') || detail, action: null, tone: 'failed' };
+  if (evidence?.acceptance?.status === 'accepted' || (!evidence && goal?.verified)) return { ...base, text: `Goal verified by the declared acceptance checks after ${plural(actions)}.`, action: null, tone: 'done' };
   // Stalled or blocked: the core says why, and it is not a success either way.
   if (goal?.guardReached && (terminal === 'stalled' || terminal === 'blocked'))
     return {
@@ -273,10 +279,14 @@ export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
       action: 'continue',
       tone: terminal === 'blocked' ? 'failed' : 'paused',
     };
-  if (goal?.guardReached) return { ...base, text: `Goal mode paused after ${plural(actions)} without a verified completion.`, action: 'continue', tone: 'paused' };
+  if (goal?.guardReached) return { ...base, detail: goal.reason ?? detail, text: `Goal mode paused after ${plural(actions)} without a verified completion.`, action: 'continue', tone: 'paused' };
   if (goal?.needsAcceptance)
     return { ...base, text: 'Technical checks passed; no acceptance contract was declared, so the goal is not verified.', action: null, tone: 'done' };
   if (cancelled || reply?.stopReason === 'cancelled' || terminal === 'interrupted') return { ...base, text: 'Stopped.', action: null, tone: 'stopped' };
+  if (evidence?.checks?.status === 'failed') return { ...base, text: evidence.baseline?.status === 'preserved' ? 'Existing checks still fail; the baseline was preserved, but the work is not verified.' : 'The repository checks failed; the work is not verified.', action: null, tone: 'failed' };
+  if (evidence?.checks?.status === 'could_not_run') return { ...base, text: 'Verification could not run.', detail: evidence.checks.why, action: null, tone: 'failed' };
+  if (evidence?.checks?.status === 'ran_zero_tests') return { ...base, text: 'Checks exited successfully but ran zero tests; behavior is unverified.', action: null, tone: 'paused' };
+  if (evidence?.checks?.status === 'unavailable') return { ...base, text: 'Work delivered; independent verification is unavailable.', detail: evidence.checks.why, action: null, tone: 'paused' };
   switch (terminal) {
     case 'budget':
       return { ...base, text: `Paused after ${plural(actions)} to check in. Nothing was discarded.`, action: 'continue', tone: 'paused' };

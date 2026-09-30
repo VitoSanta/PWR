@@ -43,6 +43,17 @@ pub const REWOUND_EVENT: &str = "conversation.rewound";
 /// Where a conversation stood at an action boundary.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Checkpoint {
+    #[serde(default)]
+    pub commands_sandboxed: Option<bool>,
+    #[serde(default)]
+    pub authorized_acceptance_changes: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    pub acceptance_initialized: bool,
+    #[serde(default)]
+    pub acceptance: Option<pwr_verify::acceptance::AcceptanceSnapshot>,
+    /// Human objectives and revisions, kept outside compressible history.
+    #[serde(default)]
+    pub objectives: Vec<String>,
     /// Turns started in this conversation, the current one included.
     pub turn: u32,
     /// Actions taken in the current turn.

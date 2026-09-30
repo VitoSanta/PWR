@@ -83,6 +83,7 @@ fn working_session() -> Vec<ChatMessage> {
 
 fn carry() -> Carry {
     Carry {
+        objectives: Vec::new(),
         changed_files: BTreeMap::from([("src/cli.rs".to_owned(), "a1b2c3d4e5f6a7b8".to_owned())]),
     }
 }
@@ -309,4 +310,29 @@ fn a_compaction_is_audited_with_its_trigger_and_leaves_the_workspace_alone() {
         std::fs::read_to_string(workspace.path().join("main.rs")).unwrap(),
         "fn main() {}\n"
     );
+}
+
+#[test]
+fn an_objective_and_steering_survive_three_compactions_verbatim() {
+    let specification = format!(
+        "{}\nDecisive constraint: preserve every account balance.",
+        "Long requirement. ".repeat(700)
+    );
+    let revision = "Revision: leave the migration unchanged.".to_owned();
+    let carry = Carry {
+        objectives: vec![specification.clone(), revision.clone()],
+        ..Default::default()
+    };
+    let mut messages = working_session();
+    for _ in 0..3 {
+        for _ in 0..10 {
+            messages.push(said("assistant", &"investigation ".repeat(1000)));
+        }
+        messages.push(said("user", "continue"));
+        messages.push(said("assistant", "working"));
+        compaction::compact(&mut messages, 1000, &carry, Trigger::Automatic).unwrap();
+        let record = record_of(&messages);
+        assert!(record.contains(&specification));
+        assert!(record.contains(&revision));
+    }
 }

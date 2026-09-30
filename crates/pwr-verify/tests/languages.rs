@@ -350,3 +350,15 @@ fn markup_does_not_displace_a_project_that_states_its_own_checks() {
     let checks = discover_checks(root.path(), "targeted").unwrap();
     assert_eq!(checks.first().map(|(e, _)| e.as_str()), Some("cargo"));
 }
+
+#[test]
+fn malformed_check_declarations_never_fall_back_to_inferred_checks() {
+    for body in ["not json", "{}", "{\"checks\":\"cargo test\"}"] {
+        let root = project(&[("Cargo.toml", "[package]"), (".pwr/checks.json", body)]);
+        assert!(discover_checks(root.path(), "full").is_err(), "{body}");
+        assert!(
+            pwr_verify::declared_acceptance_checks(root.path()).is_err(),
+            "{body}"
+        );
+    }
+}

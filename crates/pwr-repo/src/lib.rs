@@ -479,7 +479,7 @@ impl IndexCache {
     ///
     /// A deleted file that stays in the cache is a file retrieval can still
     /// rank, which is worse than a slow index.
-    fn retain(&self, present: &[String]) -> Result<usize, RepoError> {
+    fn retain(&self, present: &std::collections::HashSet<String>) -> Result<usize, RepoError> {
         let mut statement = self
             .connection
             .prepare("SELECT path FROM files")
@@ -489,15 +489,22 @@ impl IndexCache {
             .map_err(|error| RepoError::Walk(error.to_string()))?
             .filter_map(Result::ok)
             .collect();
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|error| RepoError::Walk(error.to_string()))?;
         let mut removed = 0;
         for path in known {
             if !present.contains(&path) {
-                self.connection
+                transaction
                     .execute("DELETE FROM files WHERE path=?1", rusqlite::params![path])
                     .map_err(|error| RepoError::Walk(error.to_string()))?;
                 removed += 1;
             }
         }
+        transaction
+            .commit()
+            .map_err(|error| RepoError::Walk(error.to_string()))?;
         Ok(removed)
     }
 }
@@ -552,6 +559,10 @@ fn walk_with_cache(
             .display()
             .to_string();
         let size = metadata.len();
+        if size > MAX_INDEXED_BYTES as u64 {
+            work.files += 1;
+            continue;
+        }
         let mtime_ns = metadata
             .modified()
             .ok()
@@ -564,7 +575,11 @@ fn walk_with_cache(
             files.push(cached);
             continue;
         }
-        let bytes = fs::read(path)?;
+        let mut bytes = Vec::new();
+        use std::io::Read;
+        fs::File::open(path)?
+            .take(MAX_INDEXED_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
         work.read += 1;
         if bytes.len() > MAX_INDEXED_BYTES || bytes.iter().take(4096).any(|b| *b == 0) {
             continue;
@@ -586,7 +601,8 @@ fn walk_with_cache(
         files.push(record);
     }
     if let Some(cache) = cache {
-        let present: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
+        let present: std::collections::HashSet<String> =
+            files.iter().map(|file| file.path.clone()).collect();
         work.forgotten = cache.retain(&present)?;
     }
     Ok(work)
@@ -1017,6 +1033,11 @@ pub fn retrieve_with(
             .similarities(query, &sections)
             .filter(|scores| scores.len() == units.len())
     });
+    if ranker.is_some() && similarities.is_none() {
+        // Rebuild the lexical candidate set too: the semantic catalogue may
+        // have included documents with no shared terms before it failed.
+        return retrieve_with(root, index, query, max_excerpts, token_budget, None);
+    }
     let ranked: Vec<(f64, usize, String)> = match &similarities {
         None => lexical
             .iter()
@@ -1196,5 +1217,19 @@ mod tests {
         let second_path = persist(&second, &state).unwrap();
         assert_ne!(first_path, second_path);
         assert_eq!(fs::read(first_path).unwrap(), first_bytes);
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    #[test]
+    fn retention_handles_twenty_thousand_paths_in_one_transaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = IndexCache::open(dir.path()).unwrap();
+        cache.connection.execute_batch("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<20000) INSERT INTO files SELECT 'f'||x,0,0,'hash','{}' FROM n;").unwrap();
+        let present = (1..=10000).map(|n| format!("f{n}")).collect();
+        assert_eq!(cache.retain(&present).unwrap(), 10000);
+        assert_eq!(cache.retain(&present).unwrap(), 0);
     }
 }

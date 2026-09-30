@@ -162,3 +162,52 @@ fn proximity_never_outranks_a_direct_match() {
         excerpts.iter().map(|e| &e.path).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn files_above_the_index_limit_are_skipped_before_any_read() {
+    let root = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let file = fs::File::create(root.path().join("large.txt")).unwrap();
+    file.set_len(1024 * 1024 + 1).unwrap();
+    let (index, work) = index_incremental(root.path(), Some(state.path())).unwrap();
+    assert_eq!(work.files, 1);
+    assert_eq!(work.read, 0);
+    assert!(index.files.is_empty());
+}
+
+#[test]
+fn unavailable_or_malformed_semantic_scores_restore_the_exact_lexical_result() {
+    struct FailingRanker(bool);
+    impl pwr_repo::SectionRanker for FailingRanker {
+        fn similarities(&mut self, _: &str, _: &[pwr_repo::SectionText<'_>]) -> Option<Vec<f32>> {
+            self.0.then(Vec::new)
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("needle.md"), "# Repair\nneedle parser\n").unwrap();
+    for i in 0..30 {
+        fs::write(
+            root.path().join(format!("unrelated{i}.md")),
+            "# Other\nunrelated words\n",
+        )
+        .unwrap();
+    }
+    let (index, _) = index_incremental(root.path(), None).unwrap();
+    let expected = retrieve(root.path(), &index, "needle", 3, 1024).unwrap();
+    assert!(!expected.is_empty());
+    for malformed in [false, true] {
+        let actual = pwr_repo::retrieve_with(
+            root.path(),
+            &index,
+            "needle",
+            3,
+            1024,
+            Some(&mut FailingRanker(malformed)),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
+    }
+}

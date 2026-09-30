@@ -1989,20 +1989,31 @@ impl ToolPolicy {
     pub fn refuse_if_protected(&self, relative: &Path) -> Result<(), ToolError> {
         // Compared as `resolve` will read it, so `/spec.md` (root-anchored)
         // or `./spec.md` cannot reach a protected `spec.md` around this check.
-        let anchored = self.root_anchored(relative);
+        let anchored = self
+            .reenter_workspace(relative)
+            .or_else(|| self.root_anchored(relative));
         let normalized: PathBuf = anchored
             .as_deref()
             .unwrap_or(relative)
             .components()
             .filter(|c| !matches!(c, Component::CurDir))
             .collect();
-        self.refuse_if_installed_dependency(&normalized)?;
-        refuse_if_runs_outside(&normalized)?;
-        if !self
-            .protected
-            .iter()
-            .any(|frozen| frozen == relative || *frozen == normalized)
-        {
+        let physical = self.resolve(relative).ok().map(|path| {
+            self.root
+                .canonicalize()
+                .ok()
+                .and_then(|root| path.strip_prefix(root).ok().map(Path::to_path_buf))
+                .unwrap_or(path)
+        });
+        for path in std::iter::once(&normalized).chain(physical.iter()) {
+            self.refuse_if_installed_dependency(path)?;
+            refuse_if_runs_outside(path)?;
+        }
+        if !self.protected.iter().any(|frozen| {
+            std::iter::once(&normalized)
+                .chain(physical.iter())
+                .any(|path| path.starts_with(frozen) || frozen.starts_with(path))
+        }) {
             return Ok(());
         }
         Err(ToolError::Denied(format!(
@@ -2259,6 +2270,30 @@ impl ToolPolicy {
         let mut harness_state_writes = quotable(&state)
             .map(|state| format!("(deny file-write* {state})"))
             .unwrap_or_default();
+        // Apply the same frozen-path contract to interpreters and checks.
+        // An unquotable path refuses the profile; it never silently weakens it.
+        for protected in &self.protected {
+            let path = self.root.join(protected);
+            let path = path.canonicalize().unwrap_or(path);
+            let filter = quotable(&path)?;
+            harness_state_writes.push_str(&format!("(deny file-write* {filter})"));
+            // Renaming a parent would relocate protected children without a
+            // write to their own paths. Deny unlink/rename of ancestors, while
+            // sibling files and directory creation remain writable.
+            for parent in path
+                .ancestors()
+                .skip(1)
+                .take_while(|parent| parent.starts_with(root))
+            {
+                let literal = quotable(parent)?.replacen("(subpath", "(literal", 1);
+                harness_state_writes.push_str(&format!("(deny file-write-unlink {literal})"));
+            }
+        }
+        if !self.approvals.contains(&Approval::DependencyChange) {
+            harness_state_writes.push_str(
+                r#"(deny file-write* (regex #"(^|/)(node_modules|site-packages|vendor)(/|$)"))"#,
+            );
+        }
         // A repository's hooks, for the reason `refuse_if_runs_outside`
         // gives: git runs them later, unconfined. Only once `.git` exists:
         // `git init` writes them. Its configuration stays writable -- `git
@@ -6834,6 +6869,9 @@ async fn run_command_once(
     ));
     if sandboxed && status.code() != Some(0) && refused_by_sandbox(&stdout, &stderr) {
         stderr.push_str(SANDBOX_REFUSAL_HINT);
+        if !policy.approvals.contains(&Approval::DependencyChange) {
+            stderr.push_str("\n[PWR] Installed dependency trees are read-only without DependencyChange approval; dependency installs or rewrites require that grant. Protected task paths remain read-only even with it.\n");
+        }
     }
     if let Some(note) = npx_fetched_package(&stderr) {
         stderr.push_str(&note);

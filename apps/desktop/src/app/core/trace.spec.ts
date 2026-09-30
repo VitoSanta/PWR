@@ -15,6 +15,21 @@ const tool = (toolKind: string, text: string, extra: Partial<Entry> = {}) =>
   entry('tool', { toolKind, text, title: `${toolKind === 'execute' ? 'run_command' : 'read_file ' + text}`, ...extra });
 
 describe('the execution trace', () => {
+  it('uses typed verification evidence and exposes unconfined execution', () => {
+    const reply = { _meta: { pwr: { goal: { verified: true }, outcome: { checks: { status: 'ran_zero_tests' }, acceptance: { status: 'not_declared' }, confinement: { status: 'unconfined' } } } } };
+    expect(runOutcome(reply, false)).toMatchObject({ tone: 'paused', action: null, confinement: 'Unconfined: commands run with your full rights' });
+    expect(runOutcome(reply, false).text).toContain('zero tests');
+  });
+
+  it('never labels changed acceptance evidence as verified', () => {
+    expect(runOutcome({ _meta: { pwr: { terminal: 'contract_changed', goal: { verified: true, contractChanged: ['tests/acceptance.rs'] } } } }, false)).toMatchObject({ tone: 'failed', detail: 'tests/acceptance.rs', action: null });
+  });
+  it('shows which goal budget stopped the run', () => {
+    const outcome = runOutcome({ _meta: { pwr: { terminal: 'budget', totalActions: 5, goal: { guardReached: true, reason: 'Goal mode paused after 60 minutes.' } } } }, false);
+    expect(outcome.detail).toBe('Goal mode paused after 60 minutes.');
+    expect(outcome.tone).toBe('paused');
+    expect(outcome.action).toBe('continue');
+  });
   beforeEach(() => (clock = 0));
 
   it('names phases by what the work did', () => {

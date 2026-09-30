@@ -47,7 +47,18 @@ describe('the Knowledge card', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Write summaries');
   });
 
-  it('in a workspace, reads that workspace', async () => {
+  it('opens an outline without instantiating the experimental 3D view', async () => {
+    agent.workspace.set('/projects/app');
+    const fixture = TestBed.createComponent(KnowledgeCard);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('input[aria-label="Search repository outline"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('pa-graph3d')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Experimental 3D');
+  });
+
+  it('in a workspace, reads that workspace' , async () => {
     agent.workspace.set('/projects/app');
     const fixture = TestBed.createComponent(KnowledgeCard);
     fixture.detectChanges();

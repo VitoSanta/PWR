@@ -3,7 +3,7 @@
 //! Deterministic, conservative, and not a performance claim. It answers one
 //! question -- can this be loaded here with a useful context? -- by the same
 //! arithmetic PWR uses to choose a working window after a model is chosen
-//! ([`pwr_orchestrator::window::decide`]): the weights, the memory one token
+//! ([`pwr_runtime::window::decide`]): the weights, the memory one token
 //! of context costs (from the model's `config.json`), prefill's transient, and
 //! the reserve the host keeps for itself. A download rated "should fit" is one
 //! the window computation will then give a window of at least that size.
@@ -27,8 +27,8 @@
 //! File size alone is never treated as the memory a model needs.
 
 use crate::catalog::Format;
-use pwr_orchestrator::window::{self, HostBudget, ModelShape};
 use pwr_runtime::host::HostProfile;
+use pwr_runtime::window::{self, HostBudget, ModelShape};
 use serde::{Deserialize, Serialize};
 
 const GIB: u64 = 1024 * 1024 * 1024;

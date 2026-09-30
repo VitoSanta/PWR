@@ -1692,3 +1692,79 @@ fn a_cwd_with_the_workspace_name_in_front_says_which_folder_was_meant() {
     .unwrap_err();
     assert!(refused.to_string().contains("probably `site`"), "{refused}");
 }
+
+#[test]
+fn frozen_paths_and_dependency_trees_are_read_only_for_commands() {
+    if !cfg!(target_os = "macos") {
+        common::skip("requires Seatbelt");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let mut policy = policy(dir.path());
+    policy.protected = vec!["spec.md".into(), "specs".into()];
+    for path in [
+        "spec.md",
+        "specs/nested.md",
+        "node_modules/pkg/index.js",
+        "lib/vendor/pkg/file.txt",
+        ".venv/lib/site-packages/pkg/a.py",
+    ] {
+        let target = dir.path().join(path);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, "original").unwrap();
+        let result = block_on(run_command(
+            &policy,
+            "sh",
+            &["-c".into(), format!("echo changed > {path}")],
+        ))
+        .unwrap();
+        assert_ne!(result.exit_code, Some(0), "{path}: {result:?}");
+        assert_eq!(std::fs::read_to_string(target).unwrap(), "original");
+    }
+    policy.approvals.push(Approval::DependencyChange);
+    let result = block_on(run_command(
+        &policy,
+        "sh",
+        &[
+            "-c".into(),
+            "echo changed > node_modules/pkg/index.js".into(),
+        ],
+    ))
+    .unwrap();
+    assert_eq!(result.exit_code, Some(0), "{result:?}");
+    let result = block_on(run_command(
+        &policy,
+        "sh",
+        &["-c".into(), "echo changed > specs/nested.md".into()],
+    ))
+    .unwrap();
+    assert_ne!(result.exit_code, Some(0));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn commands_cannot_move_an_ancestor_of_frozen_acceptance_evidence() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("tests/nested")).unwrap();
+    fs::write(dir.path().join("tests/nested/acceptance.rs"), "original").unwrap();
+    let mut policy = policy(dir.path());
+    policy.protected = vec!["tests/nested/acceptance.rs".into()];
+    let result = block_on(run_command(
+        &policy,
+        "sh",
+        &["-c".into(), "mv tests elsewhere".into()],
+    ))
+    .unwrap();
+    assert_ne!(result.exit_code, Some(0), "{result:?}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("tests/nested/acceptance.rs")).unwrap(),
+        "original"
+    );
+    let sibling = block_on(run_command(
+        &policy,
+        "sh",
+        &["-c".into(), "echo allowed > tests/sibling.rs".into()],
+    ))
+    .unwrap();
+    assert_eq!(sibling.exit_code, Some(0), "{sibling:?}");
+}

@@ -1,4 +1,7 @@
 //! Deterministic verification baselines and bounded recovery taxonomy.
+pub mod acceptance;
+pub mod evidence;
+pub mod failure;
 pub mod web;
 use pwr_domain::{hash_bytes, now};
 use pwr_tools::{ToolError, ToolPolicy, ToolResult, run_command};
@@ -236,7 +239,7 @@ pub fn required_executables(root: &std::path::Path) -> Vec<String> {
         executables.push("npm".into());
         executables.push("node".into());
     }
-    if let Some(declared) = declared_checks(root) {
+    if let Ok(Some(declared)) = declared_checks(root) {
         executables.extend(declared.into_iter().map(|(executable, _)| executable));
     }
     if let Ok(known) = known_failure_checks(root) {
@@ -299,7 +302,9 @@ pub fn declared_readable(root: &std::path::Path) -> Vec<std::path::PathBuf> {
 /// The escape hatch that keeps the registry from being a closed world: a
 /// project PWR does not recognise says how it is verified, rather than
 /// being worked on blind.
-fn declared_checks(root: &std::path::Path) -> Option<Vec<(String, Vec<String>)>> {
+type DeclaredCheckCommands = Vec<(String, Vec<String>)>;
+
+fn declared_checks(root: &std::path::Path) -> Result<Option<DeclaredCheckCommands>, String> {
     #[derive(serde::Deserialize)]
     struct Declared {
         checks: Vec<Check>,
@@ -310,15 +315,21 @@ fn declared_checks(root: &std::path::Path) -> Option<Vec<(String, Vec<String>)>>
         #[serde(default)]
         args: Vec<String>,
     }
-    let bytes = std::fs::read(root.join(".pwr/checks.json")).ok()?;
-    let declared: Declared = serde_json::from_slice(&bytes).ok()?;
-    Some(
+    let path = root.join(".pwr/checks.json");
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    let declared: Declared =
+        serde_json::from_slice(&bytes).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(Some(
         declared
             .checks
             .into_iter()
             .map(|check| (check.executable, check.args))
             .collect(),
-    )
+    ))
 }
 
 /// Acceptance checks are the repository owner's executable evidence that the
@@ -335,7 +346,6 @@ pub fn declared_acceptance_checks(
 ) -> Result<Vec<(String, Vec<String>)>, String> {
     #[derive(Deserialize)]
     struct Declared {
-        #[serde(default)]
         checks: Vec<Check>,
     }
     #[derive(Deserialize)]
@@ -545,7 +555,7 @@ pub fn discover_checks(
     // Ordered by how directly the source speaks for the repository. An explicit
     // declaration is the repository saying it; CI configuration is the
     // repository doing it; the registry is PWR guessing from a file name.
-    if let Some(declared) = declared_checks(root) {
+    if let Some(declared) = declared_checks(root)? {
         return Ok(declared);
     }
     let from_ci = ci_declared_checks(root);
@@ -1009,7 +1019,10 @@ pub async fn classify_with_reproduction(
         return Ok(classify(first));
     }
     let second = run_command(policy, command, args).await?;
-    if second.exit_code != first.exit_code {
+    if second.exit_code != first.exit_code
+        || failure::fingerprint(&first.stdout, &first.stderr)
+            != failure::fingerprint(&second.stdout, &second.stderr)
+    {
         return Ok(FailureClass::NonDeterminism);
     }
     Ok(classify(first))

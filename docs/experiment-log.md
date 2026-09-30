@@ -13,6 +13,18 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-09-30 — W1.4 goal budget (working tree; commit pending)
+
+**IMPLEMENTED, not a capability measurement.** The product goal path now shares
+limits across baseline, generation, completion verification and review: defaults
+208 actions, 6 refusals, 9 verification runs, 1 review round and 3,600 seconds.
+Workspace overrides and actual counters accompany the outcome. Calls inside a
+batch respect the remaining actions. Deadline expiry cancels work at the
+existing async/safe points. Ordinary chat and scripted evaluation budgets are
+unchanged. Any new product-path campaign must record these effective limits;
+results from the previous unbounded refusal path are not silently equivalent.
+No model campaign was run for this change.
+
 ## 2026-09-30 — Review verified; no experiment run
 
 The technical review of 2026-09-30 was checked claim by claim
@@ -56,3 +68,21 @@ vendor's temperature 0.6; `eval run --reasoning-effort`.
 **Open.** Several of these fixes exist in one loop only; the campaigns
 measured the scripted loop, not the app's (plan W2.4). Full record:
 [release/v0.2.x-mac-verification.md](release/v0.2.x-mac-verification.md).
+
+## 2026-09-30 — implementation consolidation (working tree)
+
+Implemented bounded goal execution, acceptance artifact protection and persisted
+hashes, named human authorization, failure fingerprints, PDF/index/embedding
+bounds, typed conversational outcomes, persistent objectives, default-off
+cancellable summaries, journal concurrency protection and strict comparison.
+Tests use deterministic fakes, filesystem fixtures and real macOS confinement;
+they do not establish model improvement. G1/G2/G3 remain unpassed, the scripted
+runner is not yet unified, and no confirmatory campaign or release was run.
+
+Consolidation validation: workspace Rust 1,327 passed / zero failures / five
+explicitly ignored tests; lexical fallback regression passed separately; CLI
+216 unit tests included in the workspace run; desktop 106 tests and production
+build passed; installed-engine Python sidecar 38 tests passed; workspace Clippy
+with warnings denied, formatting, diff and release-shell syntax checks passed.
+GitHub CLI is not authenticated here, so remote CI was not dispatched and G1
+remains unpassed. Changes are in the working tree, without an integration commit.

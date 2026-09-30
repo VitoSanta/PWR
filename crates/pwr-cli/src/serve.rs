@@ -61,6 +61,8 @@ pub struct TurnInput {
 /// Evidence the core gathered after a model declared a goal complete.
 #[derive(Clone, Default)]
 pub struct GoalVerification {
+    pub checks: Option<pwr_domain::ChecksOutcome>,
+    pub contract_changed: Vec<String>,
     /// True only when both repository checks and an explicit product-level
     /// acceptance check have passed.
     pub passed: bool,
@@ -71,6 +73,8 @@ pub struct GoalVerification {
     pub summary: String,
     /// The checks that failed, by command.
     pub failing: Vec<String>,
+    /// Stable identities of the failures, rather than just check commands.
+    pub failure_fingerprints: Vec<String>,
     /// Those of `failing` the workspace declares as acceptance checks.
     pub failing_acceptance: Vec<String>,
 }
@@ -137,6 +141,14 @@ pub trait TurnRunner {
     /// The opening messages of a new session in `root`, or why the workspace
     /// cannot hold one -- no model chosen, or the chosen one not prepared.
     async fn open(&self, root: &Path) -> Result<Vec<ChatMessage>, String>;
+    fn persist_checkpoint(
+        &self,
+        _root: &Path,
+        _id: pwr_domain::Id,
+        _checkpoint: &pwr_orchestrator::conversation::Checkpoint,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     async fn run(&self, turn: TurnInput) -> Result<(TurnReport, Vec<ChatMessage>), String>;
     /// The conversations saved in `root`, most recently active first.
     async fn list(&self, root: &Path) -> Result<Vec<Listed>, String>;
@@ -154,6 +166,18 @@ pub trait TurnRunner {
     async fn summarise(&self, _root: &Path, _prompt: String) -> Result<(String, String), String> {
         Err("summaries are not available for this runner".into())
     }
+    fn background_summaries(&self, _root: &Path) -> bool {
+        false
+    }
+    async fn summarise_cancellable(
+        &self,
+        root: &Path,
+        prompt: String,
+        cancel: pwr_provider::Cancel,
+    ) -> Result<(String, String), String> {
+        tokio::select! { result = self.summarise(root, prompt) => result, () = cancel.cancelled() => Err("summary cancelled".into()) }
+    }
+
     /// One reading of the work against its specification by the same model
     /// with none of the conversation, for the goal's review round: what the
     /// code does not do that the request and the README say it should.
@@ -165,6 +189,11 @@ pub trait TurnRunner {
     /// than prose the server would need to parse.
     async fn verify_goal(&self, _context: CommandContext) -> Result<GoalVerification, String> {
         Err("goal verification is not available for this runner".into())
+    }
+    /// What bounds a goal in this workspace. The defaults unless the runner
+    /// knows better.
+    fn goal_limits(&self, _root: &Path) -> Result<GoalLimits, String> {
+        Ok(GoalLimits::default())
     }
     /// The workspace's settings a client reads or changes, as JSON.
     async fn settings(&self, root: &Path, request: SettingsRequest) -> Result<Value, String>;
@@ -336,6 +365,9 @@ pub fn with_attachments(task: String, attachments: &[String]) -> String {
 /// What a client asks of a workspace's settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsRequest {
+    WikiSummaries {
+        enabled: Option<bool>,
+    },
     /// The backend, the models it has, and the selected model. Passing a model
     /// selects it when it is one of the backend's discovered artifacts.
     Models {
@@ -348,7 +380,9 @@ pub enum SettingsRequest {
     },
     /// The window in force, the model, and the auto-compaction threshold
     /// (replaced first when given, in percent of the window).
-    Context { compact_at_percent: Option<u8> },
+    Context {
+        compact_at_percent: Option<u8>,
+    },
     /// The kinds of action the conversation asks about and the permission
     /// mode, each replaced first when given -- the choice Settings makes, with
     /// the same authority.
@@ -411,6 +445,8 @@ pub struct CommandContext {
     /// Hash of the acceptance contract present before this conversation began.
     /// A model must not be able to create or rewrite its own completion proof.
     pub acceptance_contract_hash: Option<String>,
+    pub acceptance_snapshot: Option<pwr_verify::acceptance::AcceptanceSnapshot>,
+    pub authorized_acceptance_changes: std::collections::BTreeSet<String>,
     /// Files the session changed, by the content it left them with.
     pub changed_files: BTreeMap<String, String>,
     /// What the person allowed for the rest of the session. The checks run
@@ -423,6 +459,7 @@ struct Session {
     root: PathBuf,
     conversation_id: pwr_domain::Id,
     acceptance_contract_hash: Option<String>,
+    acceptance_snapshot: Option<pwr_verify::acceptance::AcceptanceSnapshot>,
     messages: Vec<ChatMessage>,
     continuity: converse::Continuity,
     stop: Arc<AtomicBool>,
@@ -448,6 +485,184 @@ struct RewindPoint {
 }
 
 const GOAL_MAX_ACTIONS: usize = 208;
+/// Completions the checks may refuse before a goal stops, however the failing
+/// checks change from one to the next. The same-failure limit below catches a
+/// wall hit three times; this catches a goal that alternates between two.
+const GOAL_MAX_REFUSED_COMPLETIONS: usize = 6;
+/// The most wall-clock time one goal may take. A goal runs unattended between
+/// check-ins, and nothing else bounded how long: a slow model with slow checks
+/// spends the hour before the action count says anything.
+const GOAL_MAX_WALL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// What bounds a goal, whichever branch of its loop it is going round.
+///
+/// The action limit used to be tested only when a turn did not end in a
+/// completion. A goal whose completions were all refused, with a failing set
+/// that alternated so the same-failure count never reached its limit, never
+/// took that branch and had no limit at all (technical review of 2026-09-30,
+/// verified the same day). Every limit is now tested before each turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GoalLimits {
+    pub actions: usize,
+    pub refused_completions: usize,
+    pub verification_runs: usize,
+    pub review_rounds: usize,
+    #[serde(with = "goal_seconds")]
+    pub wall: std::time::Duration,
+}
+
+impl Default for GoalLimits {
+    fn default() -> Self {
+        Self {
+            actions: GOAL_MAX_ACTIONS,
+            refused_completions: GOAL_MAX_REFUSED_COMPLETIONS,
+            verification_runs: 9, // baseline + six refusals + passing checks before/after review
+            review_rounds: 1,
+            wall: GOAL_MAX_WALL,
+        }
+    }
+}
+
+/// A limit a goal reached, and how much of it was spent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GoalLimitReached {
+    Actions { spent: usize, allowed: usize },
+    RefusedCompletions { spent: usize, allowed: usize },
+    Time { spent_secs: u64, allowed_secs: u64 },
+    VerificationRuns { spent: usize, allowed: usize },
+    ReviewRounds { spent: usize, allowed: usize },
+}
+
+impl GoalLimits {
+    /// The first limit `spent` has reached, in the order a person would want it
+    /// named: time, then refused completions, then actions.
+    pub fn reached(
+        &self,
+        actions: usize,
+        refused_completions: usize,
+        elapsed: std::time::Duration,
+    ) -> Option<GoalLimitReached> {
+        if elapsed >= self.wall {
+            return Some(GoalLimitReached::Time {
+                spent_secs: elapsed.as_secs(),
+                allowed_secs: self.wall.as_secs(),
+            });
+        }
+        if refused_completions >= self.refused_completions {
+            return Some(GoalLimitReached::RefusedCompletions {
+                spent: refused_completions,
+                allowed: self.refused_completions,
+            });
+        }
+        if actions >= self.actions {
+            return Some(GoalLimitReached::Actions {
+                spent: actions,
+                allowed: self.actions,
+            });
+        }
+        None
+    }
+}
+
+impl GoalLimitReached {
+    /// What the person is told, and what a client reads in `_meta.pwr.budget`.
+    fn said(self) -> String {
+        match self {
+            Self::VerificationRuns { spent, .. } => format!(
+                "Goal mode paused after {spent} verification runs. Review the current changes before continuing."
+            ),
+            Self::ReviewRounds { spent, .. } => format!(
+                "Goal mode paused after {spent} review rounds. Review the current changes before continuing."
+            ),
+            Self::Actions { spent, .. } => format!(
+                "Goal mode paused after {spent} actions without verified completion. Review the current changes, then continue deliberately if the objective still needs work."
+            ),
+            Self::RefusedCompletions { spent, .. } => format!(
+                "Goal mode paused: the work was declared complete {spent} times and verification refused it each time, Review the checks' output, then continue deliberately."
+            ),
+            Self::Time { spent_secs, .. } => format!(
+                "Goal mode paused after {} minutes without verified completion. Review the current changes, then continue deliberately if the objective still needs work.",
+                spent_secs / 60
+            ),
+        }
+    }
+
+    fn meta(self) -> Value {
+        match self {
+            Self::VerificationRuns { spent, allowed } => {
+                json!({"limit": "verification_runs", "spent": spent, "allowed": allowed})
+            }
+            Self::ReviewRounds { spent, allowed } => {
+                json!({"limit": "review_rounds", "spent": spent, "allowed": allowed})
+            }
+            Self::Actions { spent, allowed } => {
+                json!({"limit": "actions", "spent": spent, "allowed": allowed})
+            }
+            Self::RefusedCompletions { spent, allowed } => {
+                json!({"limit": "refused_completions", "spent": spent, "allowed": allowed})
+            }
+            Self::Time {
+                spent_secs,
+                allowed_secs,
+            } => {
+                json!({"limit": "time", "spentSeconds": spent_secs, "allowedSeconds": allowed_secs})
+            }
+        }
+    }
+}
+// Configuration uses whole seconds rather than serde's Duration object.
+mod goal_seconds {
+    pub fn serialize<S: serde::Serializer>(
+        value: &std::time::Duration,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(value.as_secs())
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<std::time::Duration, D::Error> {
+        <u64 as serde::Deserialize>::deserialize(deserializer).map(std::time::Duration::from_secs)
+    }
+}
+
+struct GoalBudget {
+    limits: GoalLimits,
+    started: tokio::time::Instant,
+    actions: usize,
+    refused: usize,
+    verifications: usize,
+    reviews: usize,
+}
+impl GoalBudget {
+    fn new(limits: GoalLimits) -> Self {
+        Self {
+            limits,
+            started: tokio::time::Instant::now(),
+            actions: 0,
+            refused: 0,
+            verifications: 0,
+            reviews: 0,
+        }
+    }
+    fn reached(&self) -> Option<GoalLimitReached> {
+        self.limits
+            .reached(self.actions, self.refused, self.started.elapsed())
+    }
+    fn time_limit(&self) -> GoalLimitReached {
+        GoalLimitReached::Time {
+            spent_secs: self.started.elapsed().as_secs(),
+            allowed_secs: self.limits.wall.as_secs(),
+        }
+    }
+    fn remaining(&self) -> std::time::Duration {
+        self.limits.wall.saturating_sub(self.started.elapsed())
+    }
+    fn snapshot(&self) -> Value {
+        json!({"limits": self.limits, "spent": {"actions": self.actions, "refused_completions": self.refused, "verification_runs": self.verifications, "review_rounds": self.reviews, "wall_seconds": self.started.elapsed().as_secs()}})
+    }
+}
+
 /// Check-ins in a row that took no action before a goal pauses as stalled.
 /// Measured 2026-09-26: a model that could not run its toolchain answered in
 /// prose, and the goal re-prompted it 57 times in 23 minutes, the action count
@@ -625,11 +840,30 @@ impl Session {
         messages: Vec<ChatMessage>,
         continuity: converse::Continuity,
     ) -> Session {
-        let acceptance_contract_hash = acceptance_contract_hash(&root);
+        let acceptance_snapshot = continuity
+            .checkpoint
+            .lock()
+            .ok()
+            .and_then(|mut checkpoint| {
+                if !checkpoint.acceptance_initialized {
+                    // Legacy resumed sessions cannot acquire new evidence after edits.
+                    checkpoint.acceptance = if checkpoint.turn == 0 {
+                        pwr_verify::acceptance::snapshot(&root).ok().flatten()
+                    } else {
+                        None
+                    };
+                    checkpoint.acceptance_initialized = true;
+                }
+                checkpoint.acceptance.clone()
+            });
+        let acceptance_contract_hash = acceptance_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.digest());
         Session {
             root,
             conversation_id,
             acceptance_contract_hash,
+            acceptance_snapshot,
             messages,
             continuity,
             stop: Arc::new(AtomicBool::new(false)),
@@ -646,6 +880,13 @@ impl Session {
             root: self.root.clone(),
             conversation_id: self.conversation_id,
             acceptance_contract_hash: self.acceptance_contract_hash.clone(),
+            acceptance_snapshot: self.acceptance_snapshot.clone(),
+            authorized_acceptance_changes: self
+                .continuity
+                .checkpoint
+                .lock()
+                .map(|checkpoint| checkpoint.authorized_acceptance_changes.clone())
+                .unwrap_or_default(),
             changed_files: self
                 .continuity
                 .checkpoint
@@ -728,13 +969,10 @@ fn revert_file(
 /// full verifier compares this hash again at completion, so a task cannot
 /// promote a newly-created or self-relaxed check into evidence for itself.
 pub fn acceptance_contract_hash(root: &Path) -> Option<String> {
-    let checks = pwr_verify::declared_acceptance_checks(root).ok()?;
-    if checks.is_empty() {
-        return None;
-    }
-    std::fs::read(root.join(".pwr/checks.json"))
+    pwr_verify::acceptance::snapshot(root)
         .ok()
-        .map(pwr_domain::hash_bytes)
+        .flatten()
+        .map(|snapshot| snapshot.digest())
 }
 
 type Sessions = Rc<RefCell<HashMap<String, Session>>>;
@@ -755,6 +993,7 @@ struct Server<R> {
     usage: Rc<RefCell<HashMap<String, (u64, u64)>>>,
     /// Whether wiki summaries are being written in the background.
     summarising: Rc<std::cell::Cell<bool>>,
+    summary_cancel: RefCell<pwr_provider::Cancel>,
 }
 
 /// Serves one client until its input closes.
@@ -785,6 +1024,7 @@ where
         calibrations: Rc::default(),
         usage: Rc::default(),
         summarising: Rc::default(),
+        summary_cancel: RefCell::default(),
     });
     let mut lines = input.lines();
     while let Some(line) = lines.next_line().await.map_err(|error| error.to_string())? {
@@ -900,6 +1140,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             "_pwr/session_delete" => self.delete_session(id, &params).await,
             "session/prompt" => self.prompt(id, &params),
             "_pwr/steer" => self.steer(id, &params),
+            "_pwr/acceptance_authorize" => self.authorize_acceptance(id, &params),
             "_pwr/models" => {
                 let selected = match params.get("model") {
                     None | Some(Value::Null) => None,
@@ -987,12 +1228,16 @@ impl<R: TurnRunner + 'static> Server<R> {
                 if self.is_chat_home(&root) {
                     return self.send(error_response(id, -32000, "chat mode has no wiki"));
                 }
-                let started = !self.summarising.get();
+                let started = !self.summarising.get() && !self.sessions.borrow().values().any(|session| session.busy);
                 self.summarise_while_idle(root);
                 self.send(result(id, json!({"started": started})));
             }
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
+            "_pwr/wiki_settings" => {
+                let enabled = match params.get("enabled") { None | Some(Value::Null) => None, Some(Value::Bool(enabled)) => Some(*enabled), _ => return self.send(error_response(id, -32602, "enabled must be a boolean")) };
+                self.settings(id, &params, SettingsRequest::WikiSummaries { enabled });
+            }
             "_pwr/compact" => self.compact(id, &params).await,
             "_pwr/revert" => self.revert(id, &params),
             "_pwr/approvals" => {
@@ -1923,8 +2168,191 @@ impl<R: TurnRunner + 'static> Server<R> {
         });
     }
 
+    /// Only the human-facing client can invoke this; it is absent from the model catalogue.
+    fn authorize_acceptance(self: &Rc<Self>, request_id: Value, params: &Value) {
+        let Some(session_id) = params["sessionId"].as_str().map(str::to_owned) else {
+            return self.send(error_response(request_id, -32602, "sessionId is required"));
+        };
+        let Some(path) = params["path"].as_str().map(str::to_owned) else {
+            return self.send(error_response(
+                request_id,
+                -32602,
+                "name one acceptance artifact",
+            ));
+        };
+        let mut sessions = self.sessions.borrow_mut();
+        let Some(session) = sessions.get_mut(&session_id) else {
+            return self.send(error_response(request_id, -32602, "unknown session"));
+        };
+        if session.busy {
+            return self.send(error_response(
+                request_id,
+                -32000,
+                "stop the turn before authorizing acceptance changes",
+            ));
+        }
+        if !session
+            .acceptance_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| {
+                path == ".pwr/checks.json"
+                    || snapshot.artifacts.contains_key(&path)
+                    || pwr_verify::acceptance::snapshot(&session.root)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|current| current.artifacts.contains_key(&path))
+            })
+        {
+            return self.send(error_response(
+                request_id,
+                -32602,
+                "the path is not part of this session's frozen acceptance evidence",
+            ));
+        }
+        session.busy = true;
+        drop(sessions);
+        let server = Rc::clone(self);
+        tokio::task::spawn_local(async move {
+            let id = server.next_id.fetch_add(1, Ordering::Relaxed);
+            let (sender, answer) = oneshot::channel();
+            if let Ok(mut pending) = server.pending.lock() {
+                pending.insert(id, (session_id.clone(), sender));
+            }
+            server.send(json!({"jsonrpc":"2.0", "id":id, "method":"session/request_permission", "params": {
+                "sessionId":session_id,
+                "toolCall":{"toolCallId":format!("acceptance-{id}"), "title":format!("Allow changes to acceptance artifact `{path}` for this session? This file decides whether the goal passes. Review its diff before allowing."), "status":"pending"},
+                "options":[{"optionId":"allow_always","name":"Allow this file for this session","kind":"allow_always"},{"optionId":"reject_once","name":"Refuse","kind":"reject_once"}],
+                "_meta":{"pwr":{"approval":"acceptance_change", "path":path}}
+            }}));
+            let allowed = answer
+                .await
+                .ok()
+                .is_some_and(|reply| reply["result"]["outcome"]["optionId"] == "allow_always");
+            let mut sessions = server.sessions.borrow_mut();
+            let Some(session) = sessions.get_mut(&session_id) else {
+                return server.send(error_response(request_id, -32000, "session closed"));
+            };
+            let recorded = if allowed {
+                match session.continuity.checkpoint.lock() {
+                    Ok(mut checkpoint) => {
+                        let mut candidate = checkpoint.clone();
+                        candidate.authorized_acceptance_changes.insert(path.clone());
+                        server
+                            .runner
+                            .persist_checkpoint(&session.root, session.conversation_id, &candidate)
+                            .map(|()| *checkpoint = candidate)
+                    }
+                    Err(_) => Err("checkpoint lock unavailable".into()),
+                }
+            } else {
+                Ok(())
+            };
+            session.busy = false;
+            drop(sessions);
+            server.send(match recorded {
+                Ok(()) => result(request_id, json!({"allowed":allowed,"path":path})),
+                Err(why) => error_response(request_id, -32000, &why),
+            });
+        });
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn run_prompt_turns(
+        self: &Rc<Self>,
+        id: Value,
+        session_id: String,
+        root: PathBuf,
+        conversation_id: pwr_domain::Id,
+        messages: Vec<ChatMessage>,
+        stop: Arc<AtomicBool>,
+        steps: SharedStepSink,
+        continuity: converse::Continuity,
+        approvals: Arc<dyn ApprovalPrompt>,
+        session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
+        goal_mode: bool,
+    ) -> Value {
+        let limits = match self.runner.goal_limits(&root) {
+            Ok(limits) => limits,
+            Err(why) if goal_mode => return error_response(id, -32000, &why),
+            Err(_) => GoalLimits::default(),
+        };
+        let mut budget = GoalBudget::new(limits);
+        let mut reply = self
+            .run_prompt_turns_budgeted(
+                id,
+                session_id,
+                root,
+                conversation_id,
+                messages,
+                stop,
+                steps,
+                continuity,
+                approvals,
+                session_grants,
+                goal_mode,
+                &mut budget,
+            )
+            .await;
+        if goal_mode {
+            if let Some(meta) = reply
+                .pointer_mut("/result/_meta/pwr")
+                .and_then(Value::as_object_mut)
+            {
+                let mut outcome: pwr_domain::TurnOutcome = meta
+                    .get("outcome")
+                    .and_then(|value| serde_json::from_value(value.clone()).ok())
+                    .unwrap_or_default();
+                outcome.terminal = match meta.get("terminal").and_then(Value::as_str) {
+                    Some("budget") => pwr_domain::TurnTerminal::BudgetExhausted,
+                    Some("blocked" | "stalled" | "contract_changed") => {
+                        pwr_domain::TurnTerminal::Blocked
+                    }
+                    Some("interrupted") => pwr_domain::TurnTerminal::Interrupted,
+                    Some("declined") => pwr_domain::TurnTerminal::Declined,
+                    _ => outcome.terminal,
+                };
+                for (name, spent, limit) in [
+                    ("actions", budget.actions as u64, limits.actions as u64),
+                    (
+                        "refused_completions",
+                        budget.refused as u64,
+                        limits.refused_completions as u64,
+                    ),
+                    (
+                        "verification_runs",
+                        budget.verifications as u64,
+                        limits.verification_runs as u64,
+                    ),
+                    (
+                        "review_rounds",
+                        budget.reviews as u64,
+                        limits.review_rounds as u64,
+                    ),
+                    (
+                        "wall_seconds",
+                        budget.started.elapsed().as_secs(),
+                        limits.wall.as_secs(),
+                    ),
+                ] {
+                    outcome.budget.insert(
+                        name.into(),
+                        pwr_domain::BudgetCounter {
+                            spent,
+                            limit: Some(limit),
+                        },
+                    );
+                }
+                meta.insert("outcome".into(), json!(outcome));
+                meta.insert("goalBudget".into(), budget.snapshot());
+            } else if let Some(error) = reply.get_mut("error").and_then(Value::as_object_mut) {
+                error.insert("data".into(), json!({"goalBudget": budget.snapshot()}));
+            }
+        }
+        reply
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_prompt_turns_budgeted(
         self: &Rc<Self>,
         id: Value,
         session_id: String,
@@ -1935,9 +2363,58 @@ impl<R: TurnRunner + 'static> Server<R> {
         steps: SharedStepSink,
         continuity: converse::Continuity,
         approvals: Arc<dyn ApprovalPrompt>,
-        session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
+        session_grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
         goal_mode: bool,
+        budget: &mut GoalBudget,
     ) -> Value {
+        // A deadline covers the operation in progress, not just loop boundaries.
+        // Set the shared cancellation flag before dropping its future so the
+        // managed inference worker also sees cancellation.
+        macro_rules! bounded {
+            ($operation:expr) => {
+                bounded!($operation, false)
+            };
+            ($operation:expr, $running_turn:expr) => {{
+                if let Some(reached) = budget.reached() {
+                    return self.goal_out_of_budget(id, &session_id, budget.actions, reached);
+                }
+                match tokio::time::timeout(budget.remaining(), $operation).await {
+                    Ok(value) if budget.started.elapsed() < budget.limits.wall => value,
+                    _ => {
+                        stop.store(true, Ordering::Relaxed);
+                        if $running_turn && let Ok(checkpoint) = continuity.checkpoint.lock() {
+                            budget.actions = budget.actions.saturating_add(checkpoint.actions);
+                        }
+                        return self.goal_out_of_budget(
+                            id,
+                            &session_id,
+                            budget.actions,
+                            budget.time_limit(),
+                        );
+                    }
+                }
+            }};
+        }
+        macro_rules! verify {
+            ($context:expr) => {{
+                if let Some(reached) = budget.reached() {
+                    return self.goal_out_of_budget(id, &session_id, budget.actions, reached);
+                }
+                if budget.verifications >= budget.limits.verification_runs {
+                    return self.goal_out_of_budget(
+                        id,
+                        &session_id,
+                        budget.actions,
+                        GoalLimitReached::VerificationRuns {
+                            spent: budget.verifications,
+                            allowed: budget.limits.verification_runs,
+                        },
+                    );
+                }
+                budget.verifications += 1;
+                bounded!(self.runner.verify_goal($context))
+            }};
+        }
         let mut total_actions = 0usize;
         // Each turn numbers its calls from one, and a goal runs several turns
         // under one prompt: without an offset the second turn's first call
@@ -1953,7 +2430,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 .get(&session_id)
                 .map(Session::command_context);
             if let Some(context) = context
-                && let Ok(baseline) = self.runner.verify_goal(context).await
+                && let Ok(baseline) = verify!(context)
                 && !baseline.failing.is_empty()
             {
                 already_failing = baseline.failing;
@@ -1972,43 +2449,59 @@ impl<R: TurnRunner + 'static> Server<R> {
         let mut review_done = false;
         let mut goal_edited = false;
         loop {
+            // Before the turn, on every way round: the limits are not one
+            // branch's business.
+            if goal_mode && let Some(reached) = budget.reached() {
+                return self.goal_out_of_budget(id, &session_id, total_actions, reached);
+            }
             let base = highest_call.get();
-            let outcome = self
-                .runner
-                .run(TurnInput {
-                    root: root.clone(),
-                    conversation_id,
-                    messages,
-                    stop: Arc::clone(&stop),
-                    steps: Box::new({
-                        let steps = Rc::clone(&steps);
-                        let highest_call = Rc::clone(&highest_call);
-                        move |mut step| {
-                            if let TurnStep::ToolCall(call) = &mut step {
-                                call.id += base;
-                                highest_call.set(highest_call.get().max(call.id));
-                            }
-                            if let Ok(mut sink) = steps.try_borrow_mut() {
-                                sink(step);
-                            }
+            let mut turn_continuity = continuity.clone();
+            if goal_mode {
+                if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
+                    checkpoint.actions = 0;
+                }
+                turn_continuity.action_limit =
+                    Some(budget.limits.actions.saturating_sub(total_actions));
+            }
+            let turn = self.runner.run(TurnInput {
+                root: root.clone(),
+                conversation_id,
+                messages,
+                stop: Arc::clone(&stop),
+                steps: Box::new({
+                    let steps = Rc::clone(&steps);
+                    let highest_call = Rc::clone(&highest_call);
+                    move |mut step| {
+                        if let TurnStep::ToolCall(call) = &mut step {
+                            call.id += base;
+                            highest_call.set(highest_call.get().max(call.id));
                         }
-                    }),
-                    continuity: continuity.clone(),
-                    approvals: Arc::clone(&approvals),
-                    // Shared, not copied: what the person allowed for the
-                    // session during one turn of a goal holds for the next.
-                    // Copied once per prompt, it did not -- measured
-                    // 2026-09-26, Docker allowed for the session and asked
-                    // about again on the goal's next turn.
-                    session_grants: Arc::clone(&session_grants),
-                    goal_mode,
-                })
-                .await;
+                        if let Ok(mut sink) = steps.try_borrow_mut() {
+                            sink(step);
+                        }
+                    }
+                }),
+                continuity: turn_continuity,
+                approvals: Arc::clone(&approvals),
+                // Shared, not copied: what the person allowed for the
+                // session during one turn of a goal holds for the next.
+                // Copied once per prompt, it did not -- measured
+                // 2026-09-26, Docker allowed for the session and asked
+                // about again on the goal's next turn.
+                session_grants: Arc::clone(&session_grants),
+                goal_mode,
+            });
+            let outcome = if goal_mode {
+                bounded!(turn, true)
+            } else {
+                turn.await
+            };
             let (report, next_messages) = match outcome {
                 Ok(value) => value,
                 Err(problem) => return error_response(id, -32000, &problem),
             };
             total_actions = total_actions.saturating_add(report.actions);
+            budget.actions = total_actions;
             messages = next_messages;
             if let Some(session) = self.sessions.borrow_mut().get_mut(&session_id) {
                 session.messages = messages.clone();
@@ -2052,8 +2545,20 @@ impl<R: TurnRunner + 'static> Server<R> {
                     return error_response(id, -32602, "no such session");
                 };
                 let changed = context.changed_files.clone();
-                match self.runner.verify_goal(context).await {
+                match verify!(context) {
                     Ok(verification) if verification.passed && goal_edited && !review_done => {
+                        if budget.reviews >= budget.limits.review_rounds {
+                            return self.goal_out_of_budget(
+                                id,
+                                &session_id,
+                                total_actions,
+                                GoalLimitReached::ReviewRounds {
+                                    spent: budget.reviews,
+                                    allowed: budget.limits.review_rounds,
+                                },
+                            );
+                        }
+                        budget.reviews += 1;
                         review_done = true;
                         reviewed = Some(verification);
                         let prompt = review_prompt(&root, &person_requests(&messages), &changed);
@@ -2073,10 +2578,20 @@ impl<R: TurnRunner + 'static> Server<R> {
                             ),
                         );
                         let findings = match prompt {
-                            Some(prompt) => self.runner.review(&root, prompt).await.ok(),
+                            Some(prompt) => bounded!(self.runner.review(&root, prompt)).ok(),
                             None => None,
                         };
                         messages.push(goal_guidance(review_guidance(findings.as_deref())));
+                    }
+                    Ok(verification) if !verification.contract_changed.is_empty() => {
+                        return self.turn_reply(
+                            id,
+                            &session_id,
+                            report,
+                            total_actions,
+                            true,
+                            Some(verification),
+                        );
                     }
                     Ok(verification) if verification.passed => {
                         return self.turn_reply(
@@ -2143,10 +2658,16 @@ impl<R: TurnRunner + 'static> Server<R> {
                         );
                     }
                     Ok(verification) => {
-                        if same_failure.0 == verification.failing {
+                        budget.refused += 1;
+                        let fingerprints = if verification.failure_fingerprints.is_empty() {
+                            verification.failing.clone()
+                        } else {
+                            verification.failure_fingerprints.clone()
+                        };
+                        if same_failure.0 == fingerprints {
                             same_failure.1 += 1;
                         } else {
-                            same_failure = (verification.failing.clone(), 1);
+                            same_failure = (fingerprints, 1);
                         }
                         if same_failure.1 >= GOAL_SAME_FAILURE_LIMIT {
                             return self.goal_stopped(
@@ -2186,29 +2707,6 @@ impl<R: TurnRunner + 'static> Server<R> {
                         );
                     }
                 }
-            } else if total_actions >= GOAL_MAX_ACTIONS {
-                self.update(
-                    &session_id,
-                    message_chunk(
-                        "agent_message_chunk",
-                        &format!(
-                            "Goal mode paused after {total_actions} actions without verified completion. Review the current changes, then continue deliberately if the objective still needs work."
-                        ),
-                    ),
-                );
-                return result(
-                    id,
-                    json!({
-                        "stopReason": "max_turn_requests",
-                        "_meta": {"pwr": {
-                            "terminal": "budget",
-                            "actions": report.actions,
-                            "totalActions": total_actions,
-                            "edited": report.edited,
-                            "goal": {"enabled": true, "completed": false, "verified": false, "guardReached": true},
-                        }},
-                    }),
-                );
             } else {
                 if idle_rounds >= GOAL_IDLE_LIMIT {
                     return self.goal_stopped(
@@ -2239,6 +2737,33 @@ impl<R: TurnRunner + 'static> Server<R> {
                 ));
             }
         }
+    }
+
+    /// Pauses a goal that reached one of its limits. The work stays where it
+    /// is and the next message continues it; nothing is discarded.
+    fn goal_out_of_budget(
+        &self,
+        id: Value,
+        session_id: &str,
+        total_actions: usize,
+        reached: GoalLimitReached,
+    ) -> Value {
+        self.update(
+            session_id,
+            message_chunk("agent_message_chunk", &reached.said()),
+        );
+        result(
+            id,
+            json!({
+                "stopReason": "max_turn_requests",
+                "_meta": {"pwr": {
+                    "terminal": "budget",
+                    "totalActions": total_actions,
+                    "budget": reached.meta(),
+                    "goal": {"enabled": true, "completed": false, "verified": false, "guardReached": true, "reason": reached.said()},
+                }},
+            }),
+        )
     }
 
     /// Ends a goal that cannot finish on its own: `terminal` says why
@@ -2503,6 +3028,36 @@ impl<R: TurnRunner + 'static> Server<R> {
         }
         self.remember_work(session_id, &report, &answer);
         let (stop_reason, terminal) = stop_reason(&report);
+        let mut outcome = report.outcome.clone();
+        if let Some(verification) = &goal_verification {
+            outcome.checks = verification.checks.clone().unwrap_or_else(|| {
+                if verification.technical_passed {
+                    pwr_domain::ChecksOutcome::Passed
+                } else if !verification.failure_fingerprints.is_empty() {
+                    pwr_domain::ChecksOutcome::Failed {
+                        fingerprints: verification.failure_fingerprints.clone(),
+                    }
+                } else {
+                    outcome.checks.clone()
+                }
+            });
+            outcome.acceptance = if !verification.contract_changed.is_empty() {
+                pwr_domain::AcceptanceOutcome::ContractChanged {
+                    what: verification.contract_changed.clone(),
+                }
+            } else if verification.passed {
+                pwr_domain::AcceptanceOutcome::Accepted
+            } else if verification.acceptance_available {
+                pwr_domain::AcceptanceOutcome::Failed
+            } else {
+                pwr_domain::AcceptanceOutcome::NotDeclared
+            };
+            if !verification.contract_changed.is_empty() {
+                outcome.terminal = pwr_domain::TurnTerminal::Blocked;
+            }
+        }
+        outcome.delivered = !answer.is_empty() || report.edited;
+
         let mut meta = if goal_mode {
             json!({
                 "terminal": terminal,
@@ -2515,6 +3070,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     "completed": report.completed,
                     "verified": goal_verification.as_ref().is_some_and(|verification| verification.passed),
                     "technicalPassed": goal_verification.as_ref().is_some_and(|verification| verification.technical_passed),
+                    "contractChanged": goal_verification.as_ref().map(|verification| &verification.contract_changed),
                     "acceptanceAvailable": goal_verification.as_ref().is_some_and(|verification| verification.acceptance_available),
                     "needsAcceptance": goal_verification.as_ref().is_some_and(|verification| verification.technical_passed && !verification.acceptance_available),
                     "verification": goal_verification.as_ref().map(|verification| &verification.summary),
@@ -2527,6 +3083,13 @@ impl<R: TurnRunner + 'static> Server<R> {
                 "edited": report.edited,
             })
         };
+        if goal_verification
+            .as_ref()
+            .is_some_and(|verification| !verification.contract_changed.is_empty())
+        {
+            meta["terminal"] = json!("contract_changed");
+        }
+        meta["outcome"] = json!(outcome);
         // The stop's own words, which the answer above ends with, so a client
         // can show them as the run's state instead of as the model's prose.
         if let Some(reason) = report.stopped {
@@ -2622,6 +3185,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             with_attachments(text, &attached)
         };
         session.busy = true;
+        self.summary_cancel.borrow().cancel();
         let server = Rc::clone(self);
         // A prompt that is only `/name` runs the command, as the console does,
         // rather than sending the deployment a slash it cannot act on.
@@ -2781,7 +3345,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 )
                 .await;
             server.finish(&session_id, reply);
-            if !chat_only {
+            if !chat_only && server.runner.background_summaries(&summary_root) {
                 server.summarise_while_idle(summary_root);
             }
         });
@@ -2793,9 +3357,12 @@ impl<R: TurnRunner + 'static> Server<R> {
     /// must not wait behind more than one short summary. What is left is
     /// picked up after the next turn.
     fn summarise_while_idle(self: &Rc<Self>, root: PathBuf) {
-        if self.summarising.replace(true) {
+        if self.sessions.borrow().values().any(|session| session.busy)
+            || self.summarising.replace(true)
+        {
             return;
         }
+        *self.summary_cancel.borrow_mut() = pwr_provider::Cancel::new();
         let server = Rc::clone(self);
         tokio::task::spawn_local(async move {
             server.summarise_modules(&root).await;
@@ -2840,8 +3407,15 @@ impl<R: TurnRunner + 'static> Server<R> {
                 "_pwr/wiki_summarising",
                 json!({"cwd": cwd, "state": "writing", "module": id, "written": written}),
             ));
-            match self.runner.summarise(root, prompt).await {
-                Ok((text, model)) if !text.trim().is_empty() => {
+            let summary_cancel = self.summary_cancel.borrow().clone();
+            match self
+                .runner
+                .summarise_cancellable(root, prompt, summary_cancel)
+                .await
+            {
+                Ok((text, model))
+                    if !text.trim().is_empty() && !self.summary_cancel.borrow().is_cancelled() =>
+                {
                     let summary = graph::Summary {
                         text: text.trim().to_owned(),
                         source_hash: hash,
@@ -3795,6 +4369,7 @@ mod tests {
 
     fn report(answer: &str) -> TurnReport {
         TurnReport {
+            outcome: Default::default(),
             answer: answer.into(),
             actions: 0,
             edited: false,
@@ -3977,6 +4552,9 @@ mod tests {
 
         async fn settings(&self, root: &Path, request: SettingsRequest) -> Result<Value, String> {
             Ok(match request {
+                SettingsRequest::WikiSummaries { enabled } => {
+                    json!({"enabled":enabled.unwrap_or(false)})
+                }
                 SettingsRequest::Models { selected, .. } => {
                     json!({"root": root, "model": selected.unwrap_or_else(|| "scripted".into())})
                 }
@@ -4011,6 +4589,10 @@ mod tests {
     }
 
     struct GoalScripted {
+        limits: GoalLimits,
+        verifications: std::sync::atomic::AtomicUsize,
+        alternate: bool,
+        delay: Option<&'static str>,
         runs: std::sync::atomic::AtomicUsize,
         verification: GoalVerification,
         /// The last message each turn was given, in order.
@@ -4026,12 +4608,37 @@ mod tests {
 
     #[async_trait::async_trait(?Send)]
     impl TurnRunner for GoalScripted {
+        fn background_summaries(&self, _root: &Path) -> bool {
+            self.delay == Some("background_summary")
+        }
+        async fn summarise(
+            &self,
+            _root: &Path,
+            _prompt: String,
+        ) -> Result<(String, String), String> {
+            self.requests.lock().unwrap().push("SUMMARY_STARTED".into());
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            Ok(("a generated summary".into(), "scripted".into()))
+        }
+        fn goal_limits(&self, _root: &Path) -> Result<GoalLimits, String> {
+            Ok(self.limits)
+        }
+        async fn review(&self, _root: &Path, _prompt: String) -> Result<String, String> {
+            if self.delay == Some("review") {
+                tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            }
+            Ok("NO DISCREPANCIES".into())
+        }
         async fn open(&self, root: &Path) -> Result<Vec<ChatMessage>, String> {
             Scripted.open(root).await
         }
 
         async fn run(&self, turn: TurnInput) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+            if self.delay == Some("run") {
+                tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            }
             let run = self.runs.fetch_add(1, Ordering::Relaxed);
+            assert_eq!(turn.continuity.action_limit.is_some(), turn.goal_mode);
             self.grants_seen
                 .lock()
                 .unwrap()
@@ -4042,6 +4649,14 @@ mod tests {
                 turn.approvals
                     .ask(approval, "use the container engine")
                     .await;
+            }
+            if self.delay == Some("review") {
+                turn.continuity
+                    .checkpoint
+                    .lock()
+                    .unwrap()
+                    .changed_files
+                    .insert("lib.rs".into(), "hash".into());
             }
             let mut messages = turn.messages;
             if let Some(last) = messages.last() {
@@ -4065,6 +4680,7 @@ mod tests {
                 self.script[run.min(self.script.len() - 1)].clone()
             } else if run == 0 {
                 TurnReport {
+                    outcome: Default::default(),
                     answer: "first checkpoint".into(),
                     actions: 26,
                     edited: true,
@@ -4074,6 +4690,7 @@ mod tests {
                 }
             } else {
                 TurnReport {
+                    outcome: Default::default(),
                     answer: "implemented and ready".into(),
                     actions: 3,
                     edited: true,
@@ -4102,8 +4719,47 @@ mod tests {
             Scripted.command(command, context).await
         }
 
-        async fn verify_goal(&self, _context: CommandContext) -> Result<GoalVerification, String> {
-            Ok(self.verification.clone())
+        async fn verify_goal(&self, context: CommandContext) -> Result<GoalVerification, String> {
+            let round = self.verifications.fetch_add(1, Ordering::Relaxed);
+            if self.delay == Some("verify")
+                || (self.delay == Some("completion_verify") && round > 0)
+            {
+                tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            }
+            let mut verification = self.verification.clone();
+            if self.delay == Some("authorized_evidence") {
+                verification.passed = context
+                    .authorized_acceptance_changes
+                    .contains("tests/acceptance.rs");
+                verification.technical_passed = verification.passed;
+                verification.contract_changed = if verification.passed {
+                    Vec::new()
+                } else {
+                    vec!["tests/acceptance.rs".into()]
+                };
+            }
+            if self.delay == Some("shrinking_failures") {
+                verification.failure_fingerprints = vec![
+                    pwr_verify::failure::fingerprint(
+                        &(round..5)
+                            .map(|id| format!("test test_{id} ... FAILED"))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        "",
+                    )
+                    .digest,
+                ];
+                if round >= 5 {
+                    verification.passed = true;
+                    verification.technical_passed = true;
+                    verification.failing.clear();
+                    verification.failing_acceptance.clear();
+                }
+            }
+            if self.alternate && round > 0 {
+                verification.failing = vec![format!("check{}", round % 2)];
+            }
+            Ok(verification)
         }
 
         fn attach(&self, root: &Path, attachment: Attachment) -> Result<String, String> {
@@ -4122,6 +4778,7 @@ mod tests {
     }
 
     struct Client {
+        receive_wiki_notifications: bool,
         to_server: DuplexStream,
         from_server: Lines<BufReader<DuplexStream>>,
         /// The method of each request sent, so its response can be checked
@@ -4249,7 +4906,9 @@ mod tests {
                 }
                 // The wiki is refreshed in the background once a turn ends,
                 // so when these arrive depends on timing, not on the turn.
-                Some("_pwr/wiki_summarising" | "_pwr/wiki_updated") => {
+                Some("_pwr/wiki_summarising" | "_pwr/wiki_updated")
+                    if !self.receive_wiki_notifications =>
+                {
                     Box::pin(self.receive()).await
                 }
                 _ => message,
@@ -4315,6 +4974,7 @@ mod tests {
         let (to_server, server_input) = tokio::io::duplex(1 << 16);
         let (server_output, from_server) = tokio::io::duplex(1 << 16);
         let client = Client {
+            receive_wiki_notifications: false,
             to_server,
             from_server: BufReader::new(from_server).lines(),
             asked: HashMap::new(),
@@ -4744,6 +5404,10 @@ mod tests {
     async fn goal_mode_continues_past_a_checkpoint_and_requires_full_verification() {
         with_runner(
             GoalScripted {
+                limits: GoalLimits::default(),
+                verifications: Default::default(),
+                alternate: false,
+                delay: None,
                 runs: std::sync::atomic::AtomicUsize::new(0),
                 ask_on_first: None,
                 grants_seen: Default::default(),
@@ -4823,6 +5487,10 @@ mod tests {
     async fn a_check_failing_before_the_goal_is_named_to_it_and_does_not_hold_it_open() {
         let requests: Arc<Mutex<Vec<String>>> = Arc::default();
         let runner = GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: false,
+            delay: None,
             runs: std::sync::atomic::AtomicUsize::new(0),
             ask_on_first: None,
             grants_seen: Default::default(),
@@ -4873,6 +5541,7 @@ mod tests {
 
     fn turn(actions: usize, completed: bool, stopped: Option<StopReason>) -> TurnReport {
         TurnReport {
+            outcome: Default::default(),
             answer: if completed {
                 "done".into()
             } else {
@@ -4887,20 +5556,35 @@ mod tests {
     }
 
     async fn goal_prompt(runner: GoalScripted) -> (Vec<Value>, usize) {
+        prompt_mode(runner, true).await
+    }
+
+    async fn prompt_mode(runner: GoalScripted, goal_mode: bool) -> (Vec<Value>, usize) {
         let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counted = Arc::clone(&runs);
         let requests = Arc::clone(&runner.requests);
         let messages = Arc::new(Mutex::new(Vec::new()));
         let kept = Arc::clone(&messages);
         with_runner(runner, |mut client| async move {
-            let session = client.new_session(1).await;
+            let workspace = tempfile::tempdir().unwrap();
+            std::fs::write(workspace.path().join("lib.rs"), "pub fn value() {}\n").unwrap();
+            client
+                .request(
+                    1,
+                    "session/new",
+                    json!({"cwd": workspace.path(), "mcpServers": []}),
+                )
+                .await;
+            let response = client.receive().await;
+            client.receive().await;
+            let session = response["result"]["sessionId"].as_str().unwrap().to_owned();
             client
                 .request(
                     2,
                     "session/prompt",
                     json!({
                         "sessionId": session,
-                        "goalMode": true,
+                        "goalMode": goal_mode,
                         "prompt": [{"type": "text", "text": "Make the acceptance tests pass"}],
                     }),
                 )
@@ -4913,12 +5597,155 @@ mod tests {
         (messages, runs.load(Ordering::Relaxed))
     }
 
+    #[tokio::test]
+    async fn shrinking_failures_inside_the_same_suite_are_progress() {
+        let mut runner = budget_runner();
+        runner.alternate = false;
+        runner.delay = Some("shrinking_failures");
+        runner.verification.failing = vec!["cargo test".into()];
+        runner.verification.failing_acceptance = vec!["cargo test".into()];
+        runner.script = vec![turn(1, true, None)];
+        let (messages, runs) = goal_prompt(runner).await;
+        assert!(runs >= 5);
+        let result = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_eq!(result["goal"]["verified"], true);
+        assert_ne!(result["terminal"], "blocked");
+    }
+
+    #[tokio::test]
+    async fn changed_acceptance_evidence_is_a_terminal_failure_not_a_retry() {
+        let mut runner = budget_runner();
+        runner.alternate = false;
+        runner.verification.contract_changed = vec!["tests/acceptance.rs".into()];
+        runner.verification.passed = false;
+        runner.script = vec![turn(1, true, None)];
+        let (messages, runs) = goal_prompt(runner).await;
+        assert_eq!(runs, 1);
+        let result = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_eq!(result["terminal"], "contract_changed");
+        assert_eq!(result["goal"]["verified"], false);
+    }
+
     fn says(messages: &[Value], needle: &str) -> bool {
         updates(messages).iter().any(|update| {
             update["content"]["text"]
                 .as_str()
                 .is_some_and(|text| text.contains(needle))
         })
+    }
+
+    fn budget_runner() -> GoalScripted {
+        GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: true,
+            delay: None,
+            runs: Default::default(),
+            requests: Default::default(),
+            ask_on_first: None,
+            grants_seen: Default::default(),
+            script: vec![turn(1, true, None)],
+            verification: GoalVerification {
+                failing: vec!["baseline".into()],
+                acceptance_available: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn goal_budget_bounds_alternating_refused_completions() {
+        let (messages, turns) = goal_prompt(budget_runner()).await;
+        assert_eq!(turns, 6);
+        let meta = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_eq!(meta["terminal"], "budget");
+        assert_eq!(meta["budget"]["limit"], "refused_completions");
+        assert_eq!(meta["goalBudget"]["spent"]["verification_runs"], 7);
+        assert_eq!(meta["goalBudget"]["limits"]["wall"], 3600);
+    }
+
+    #[tokio::test]
+    async fn goal_budget_checks_actions_before_verification_on_completion() {
+        let mut runner = budget_runner();
+        runner.limits.actions = 3;
+        let (messages, turns) = goal_prompt(runner).await;
+        assert_eq!(turns, 3);
+        let meta = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_eq!(meta["budget"]["limit"], "actions");
+        assert_eq!(meta["goalBudget"]["spent"]["verification_runs"], 3); // baseline + first two turns
+    }
+
+    #[tokio::test]
+    async fn goal_budget_caps_verification_runs_including_baseline() {
+        let mut runner = budget_runner();
+        runner.limits.verification_runs = 2;
+        let (messages, _) = goal_prompt(runner).await;
+        let meta = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_eq!(meta["budget"]["limit"], "verification_runs");
+        assert_eq!(meta["goalBudget"]["spent"]["verification_runs"], 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn goal_budget_deadline_interrupts_generation_baseline_and_review() {
+        for phase in ["run", "verify", "completion_verify", "review"] {
+            let mut runner = budget_runner();
+            runner.limits.wall = std::time::Duration::from_secs(2);
+            runner.delay = Some(phase);
+            if phase == "review" {
+                runner.verification = GoalVerification {
+                    passed: true,
+                    technical_passed: true,
+                    acceptance_available: true,
+                    ..Default::default()
+                };
+                runner.alternate = false;
+            }
+            let (messages, _) = goal_prompt(runner).await;
+            let meta = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+            assert_eq!(meta["terminal"], "budget", "{phase}: {meta}");
+            assert_eq!(meta["budget"]["limit"], "time", "{phase}");
+            assert_eq!(meta["budget"]["spentSeconds"], 2, "{phase}");
+        }
+    }
+
+    #[tokio::test]
+    async fn goal_budget_caps_review_before_calling_it() {
+        let mut runner = budget_runner();
+        runner.limits.review_rounds = 0;
+        runner.verification = GoalVerification {
+            passed: true,
+            technical_passed: true,
+            acceptance_available: true,
+            ..Default::default()
+        };
+        runner.alternate = false;
+        let (messages, _) = goal_prompt(runner).await;
+        assert_eq!(
+            messages.last().unwrap()["result"]["_meta"]["pwr"]["budget"]["limit"],
+            "review_rounds"
+        );
+    }
+
+    #[tokio::test]
+    async fn goal_budget_does_not_apply_to_ordinary_chat() {
+        let mut runner = budget_runner();
+        runner.limits.actions = 0;
+        runner.limits.wall = std::time::Duration::ZERO;
+        let (messages, turns) = prompt_mode(runner, false).await;
+        assert_eq!(turns, 1);
+        let meta = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_ne!(meta["terminal"], "budget");
+        assert!(meta.get("goalBudget").is_none());
+    }
+
+    #[test]
+    fn goal_budget_configuration_defaults_missing_fields_and_rejects_typos() {
+        let limits: GoalLimits =
+            serde_json::from_value(json!({"actions": 12, "wall": 90})).unwrap();
+        assert_eq!(limits.actions, 12);
+        assert_eq!(limits.wall.as_secs(), 90);
+        assert_eq!(limits.refused_completions, 6);
+        assert!(serde_json::from_value::<GoalLimits>(json!({"actons": 12})).is_err());
     }
 
     /// The first passing verification asks once for a review against the
@@ -5016,6 +5843,10 @@ mod tests {
     async fn a_passing_goal_is_reviewed_once_against_the_request() {
         let requests: Arc<Mutex<Vec<String>>> = Arc::default();
         let runner = GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: false,
+            delay: None,
             runs: std::sync::atomic::AtomicUsize::new(0),
             ask_on_first: None,
             grants_seen: Default::default(),
@@ -5043,6 +5874,10 @@ mod tests {
     async fn a_grant_for_the_session_holds_for_the_rest_of_the_goal() {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let runner = GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: false,
+            delay: None,
             runs: std::sync::atomic::AtomicUsize::new(0),
             verification: GoalVerification {
                 passed: false,
@@ -5051,6 +5886,9 @@ mod tests {
                 summary: "1 of 1 acceptance check failing".into(),
                 failing: vec!["make test".into()],
                 failing_acceptance: vec!["make test".into()],
+                failure_fingerprints: Vec::new(),
+                contract_changed: Vec::new(),
+                checks: None,
             },
             requests: Default::default(),
             ask_on_first: Some(pwr_tools::Approval::ContainerEngine),
@@ -5094,6 +5932,10 @@ mod tests {
     async fn an_acceptance_check_failing_before_the_goal_is_never_left_alone() {
         let failing = vec!["dotnet test tests/Api.Tests".to_owned()];
         let (messages, turns) = goal_prompt(GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: false,
+            delay: None,
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
             ask_on_first: None,
@@ -5126,6 +5968,10 @@ mod tests {
     #[tokio::test]
     async fn a_goal_that_takes_no_action_pauses_as_stalled() {
         let (messages, turns) = goal_prompt(GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: false,
+            delay: None,
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
             ask_on_first: None,
@@ -5148,6 +5994,10 @@ mod tests {
         let mut script = vec![turn(3, false, Some(StopReason::BudgetSpent)); 6];
         script.push(turn(1, true, None));
         let (messages, _) = goal_prompt(GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: false,
+            delay: None,
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
             ask_on_first: None,
@@ -5180,6 +6030,10 @@ mod tests {
     async fn goal_mode_never_calls_technical_checks_alone_a_verified_goal() {
         with_runner(
             GoalScripted {
+                limits: GoalLimits::default(),
+                verifications: Default::default(),
+                alternate: false,
+                delay: None,
                 runs: std::sync::atomic::AtomicUsize::new(0),
                 ask_on_first: None,
                 grants_seen: Default::default(),
@@ -5221,6 +6075,116 @@ mod tests {
             },
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn background_summaries_are_off_by_default() {
+        let runner = budget_runner();
+        let requests = Arc::clone(&runner.requests);
+        goal_prompt(runner).await;
+        assert!(
+            !requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| request == "SUMMARY_STARTED")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_incoming_prompt_preempts_an_opted_in_background_summary() {
+        let mut runner = budget_runner();
+        runner.delay = Some("background_summary");
+        let requests = Arc::clone(&runner.requests);
+        with_runner(runner, |mut client| async move {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::write(root.path().join("lib.rs"), "pub fn value() {}\n").unwrap();
+            let index = pwr_orchestrator::wiki::index(root.path()).unwrap();
+            assert!(
+                !pwr_orchestrator::graph::summary_candidates(&index).is_empty(),
+                "{index:?}"
+            );
+            client
+                .request(1, "session/new", json!({"cwd":root.path(),"mcpServers":[]}))
+                .await;
+            let response = client.receive().await;
+            client.receive().await;
+            let session = response["result"]["sessionId"].as_str().unwrap().to_owned();
+            client.prompt(2, &session, "Work").await;
+            client.until_response(2).await;
+            client.receive_wiki_notifications = true;
+            let mut received = Vec::new();
+            let began = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    let message = client.receive().await;
+                    received.push(message.clone());
+                    if message["method"] == "_pwr/wiki_summarising"
+                        && message["params"]["state"] == "writing"
+                    {
+                        break;
+                    }
+                }
+            })
+            .await;
+            assert!(
+                began.is_ok(),
+                "summary did not start: {received:?}; requests {:?}",
+                requests.lock().unwrap()
+            );
+            client.prompt(3, &session, "Continue").await;
+            let mut stopped = false;
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    let message = client.receive().await;
+                    if message["method"] == "_pwr/wiki_summarising"
+                        && message["params"]["state"] == "finished"
+                    {
+                        stopped = true;
+                        break;
+                    }
+                }
+            })
+            .await
+            .expect("the summary blocked the new prompt");
+            assert!(stopped);
+            assert!(
+                requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|request| request == "SUMMARY_STARTED")
+            );
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn acceptance_authorization_names_one_file_and_reaches_verification() {
+        let mut runner = budget_runner();
+        runner.delay = Some("authorized_evidence");
+        runner.alternate = false;
+        runner.script = vec![turn(1, true, None)];
+        with_runner(runner, |mut client| async move {
+            let workspace = tempfile::tempdir().unwrap();
+            std::fs::create_dir(workspace.path().join(".pwr")).unwrap();
+            std::fs::create_dir(workspace.path().join("tests")).unwrap();
+            std::fs::write(workspace.path().join("tests/acceptance.rs"), "original").unwrap();
+            std::fs::write(workspace.path().join(".pwr/checks.json"), r#"{"checks":[{"executable":"cargo","kind":"acceptance"}],"acceptance":{"artifacts":["tests/*.rs"]}}"#).unwrap();
+            client.request(1, "session/new", json!({"cwd":workspace.path(), "mcpServers":[]})).await;
+            let response = client.receive().await;
+            client.receive().await;
+            let session = response["result"]["sessionId"].as_str().unwrap().to_owned();
+            client.request(2, "_pwr/acceptance_authorize", json!({"sessionId":session,"path":"tests/acceptance.rs"})).await;
+            let question = client.receive().await;
+            assert_eq!(question["method"], "session/request_permission");
+            assert!(question["params"]["toolCall"]["title"].as_str().unwrap().contains("tests/acceptance.rs"));
+            assert_eq!(question["params"]["options"].as_array().unwrap().len(), 2);
+            client.send(json!({"jsonrpc":"2.0","id":question["id"],"result":{"outcome":{"outcome":"selected","optionId":"allow_always"}}})).await;
+            assert_eq!(client.receive().await["result"]["allowed"], true);
+            client.request(3, "session/prompt", json!({"sessionId":session,"goalMode":true,"prompt":[{"type":"text","text":"Verify after human review"}]})).await;
+            let messages = client.until_response(3).await;
+            assert_eq!(messages.last().unwrap()["result"]["_meta"]["pwr"]["goal"]["verified"], true);
+        }).await;
     }
 
     #[test]

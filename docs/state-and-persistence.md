@@ -24,7 +24,7 @@ in Full access mode); the file tools refuse writes to it.
 | `state.sqlite` | Evidence (and authoritative for resume) | the core | The event log: every run, turn, tool attempt, generation, compaction, checkpoint and snapshot, hash-chained |
 | `checks.json` | Configuration, authoritative | the owner | Declared checks; `"kind": "acceptance"` marks acceptance checks ([verification.md](verification.md)) |
 | `protected.json` | Configuration, authoritative | the owner | Paths the agent may read but not change |
-| `chat-config.json` | Configuration, authoritative | the app / console | Model, window setting, reasoning effort, permission mode, asked-before list, compaction threshold, reference folders, acknowledged provisional models |
+| `chat-config.json` | Configuration, authoritative | the app / console | Model, window setting, reasoning effort, permission mode, asked-before list, compaction threshold, reference folders, acknowledged provisional models, goal budget |
 | `instructions.md` | Configuration | the project | Project instructions (else `AGENTS.md`, else `PWR.md` at the root) |
 | `memory.json` | Configuration | the person (a model only proposes) | Workspace memories |
 | `indexes/` | Cache | the core | Repository index (SQLite, keyed on mtime and size) |

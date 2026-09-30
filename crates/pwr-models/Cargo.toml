@@ -11,7 +11,6 @@ chrono.workspace = true
 futures-util.workspace = true
 pwr-compat = { path = "../pwr-compat" }
 pwr-domain = { path = "../pwr-domain" }
-pwr-orchestrator = { path = "../pwr-orchestrator" }
 pwr-provider = { path = "../pwr-provider" }
 pwr-runtime = { path = "../pwr-runtime" }
 reqwest.workspace = true

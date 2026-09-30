@@ -88,6 +88,10 @@ PWR's own class (`stop_reason`, `serve.rs:3327`):
 A goal's response also carries `_meta.pwr.goal` (`enabled`, `completed`,
 `verified`, and whether a guard was reached) and the action totals.
 
+Goal outcomes also carry `_meta.pwr.goalBudget` (effective limits and spent
+counters). A budget stop names the limit in `_meta.pwr.budget` and explains it
+in `goal.reason`; see [agent-loop.md](agent-loop.md#goal-mode).
+
 Plan W2.1 replaces these partial fields with one structured outcome carried
 in `_meta.pwr`.
 

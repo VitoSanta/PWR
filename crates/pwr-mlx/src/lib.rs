@@ -1783,6 +1783,21 @@ mod tests {
     }
 
     #[test]
+    fn typed_verification_feedback_is_a_user_note_without_an_orphan_tool_result() {
+        let mut feedback = ChatMessage::text("user", "Harness verification: checks failed");
+        feedback.purpose = Some(pwr_domain::MessagePurpose::VerificationFeedback);
+        let rendered = template_messages(&[feedback]);
+        assert_eq!(rendered[0]["role"], "user");
+        assert!(rendered[0].get("tool_call_id").is_none());
+        assert!(
+            rendered[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("checks failed")
+        );
+    }
+
+    #[test]
     fn a_harmony_call_is_held() {
         let (_, shown, _) = stream_of(&[
             "<|channel|>analysis<|message|>Read it.<|end|><|start|>assistant",

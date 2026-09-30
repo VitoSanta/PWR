@@ -133,6 +133,7 @@ const RUNAWAY_RETRY_MAX_TOKENS: u32 = 8_192;
 /// What one exchange produced.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TurnReport {
+    pub outcome: pwr_domain::TurnOutcome,
     /// What to say back. Empty when the turn only acted.
     pub answer: String,
     pub actions: usize,
@@ -462,6 +463,8 @@ pub struct FileDiff {
 /// not own while that turn runs on another task.
 #[derive(Debug, Clone, Default)]
 pub struct Continuity {
+    /// Remaining actions for this turn under a goal-wide budget.
+    pub action_limit: Option<usize>,
     /// The person's Reasoning Effort, and what is known about how this
     /// deployment reasons. Every generation turns the two into a budget with
     /// [`pwr_domain::plan_reasoning`], inside the room the context has left.
@@ -871,6 +874,48 @@ pub async fn take_turn<P: ModelProvider>(
     .await?;
     let mut report = report;
     report.declined = declined;
+    report.outcome.delivered = !report.answer.trim().is_empty() || report.edited;
+    report.outcome.terminal = if report.declined {
+        pwr_domain::TurnTerminal::Declined
+    } else {
+        match report.stopped {
+            None => pwr_domain::TurnTerminal::Completed,
+            Some(StopReason::Interrupted) => pwr_domain::TurnTerminal::Interrupted,
+            Some(StopReason::BudgetSpent) => pwr_domain::TurnTerminal::BudgetExhausted,
+            Some(reason) => pwr_domain::TurnTerminal::Failed {
+                class: match reason {
+                    StopReason::BackendFailing => pwr_domain::TerminalClass::Provider,
+                    StopReason::Unparseable
+                    | StopReason::ToolCallInReasoning
+                    | StopReason::Silent => pwr_domain::TerminalClass::Protocol,
+                    _ => pwr_domain::TerminalClass::Recovery,
+                },
+            },
+        }
+    };
+    report.outcome.confinement = match policy.will_sandbox() {
+        Ok(true) => pwr_domain::Confinement::Sandboxed,
+        Ok(false) => pwr_domain::Confinement::Unconfined,
+        Err(error) => pwr_domain::Confinement::PartiallyEnforced {
+            what: vec![error.to_string()],
+        },
+    };
+    if continuity
+        .checkpoint
+        .lock()
+        .map_err(|_| "checkpoint lock unavailable")?
+        .commands_sandboxed
+        == Some(false)
+    {
+        report.outcome.confinement = pwr_domain::Confinement::Unconfined;
+    }
+    report.outcome.budget.insert(
+        "actions".into(),
+        pwr_domain::BudgetCounter {
+            spent: report.actions as u64,
+            limit: continuity.action_limit.map(|limit| limit as u64),
+        },
+    );
     let terminal = match report.stopped {
         Some(reason) => Some(reason.terminal_class()),
         None if declined => Some(pwr_domain::TerminalClass::Declined),
@@ -886,6 +931,7 @@ pub async fn take_turn<P: ModelProvider>(
                 "terminal": terminal,
                 "actions": report.actions,
                 "edited": report.edited,
+                "outcome": report.outcome,
             }),
         )
         .map_err(|error| error.to_string())?;
@@ -947,8 +993,29 @@ async fn take_turn_inner<P: ModelProvider>(
         reads.seed_known(&unseen);
     }
     if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
+        for message in messages.iter().filter(|message| {
+            message.role == "user"
+                && matches!(
+                    message.purpose,
+                    None | Some(pwr_domain::MessagePurpose::Task)
+                )
+        }) {
+            if !checkpoint.objectives.contains(&message.content) {
+                checkpoint.objectives.push(message.content.clone());
+            }
+        }
+        if !checkpoint.acceptance_initialized {
+            checkpoint.acceptance = if checkpoint.turn == 0 {
+                pwr_verify::acceptance::snapshot(&policy.root)?
+            } else {
+                None
+            };
+            checkpoint.acceptance_initialized = true;
+        }
         checkpoint.turn += 1;
         checkpoint.actions = 0;
+        checkpoint.commands_sandboxed = None;
+        crate::conversation::record_checkpoint(store, conversation_id, &checkpoint)?;
     }
     // The semantic catalogue, kept beside the rendered one: a refusal names the
     // fields a capability takes, and the wire form has already been flattened
@@ -962,6 +1029,7 @@ async fn take_turn_inner<P: ModelProvider>(
     let mut edited = false;
     let stopped = |actions, edited, reason| {
         Ok(TurnReport {
+            outcome: Default::default(),
             answer: String::new(),
             actions,
             edited,
@@ -1027,7 +1095,12 @@ async fn take_turn_inner<P: ModelProvider>(
     // can say the turn recovered and after how many.
     let mut retrying = 0usize;
     loop {
-        if actions >= ACTIONS_BEFORE_CHECKING_IN {
+        if actions
+            >= continuity
+                .action_limit
+                .unwrap_or(ACTIONS_BEFORE_CHECKING_IN)
+                .min(ACTIONS_BEFORE_CHECKING_IN)
+        {
             return stopped(actions, edited, StopReason::BudgetSpent);
         }
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1049,6 +1122,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 .lock()
                 .map(|mut checkpoint| {
                     checkpoint.revision += 1;
+                    checkpoint.objectives.push(text.clone());
                     checkpoint.revision
                 })
                 .unwrap_or_default();
@@ -1061,6 +1135,23 @@ async fn take_turn_inner<P: ModelProvider>(
         // its length, which tells the operator nothing they can do.
         #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
         let room = (f64::from(context_tokens) * continuity.compact_at()) as usize;
+        let objective_tokens = continuity
+            .checkpoint
+            .lock()
+            .map(|checkpoint| {
+                checkpoint
+                    .objectives
+                    .iter()
+                    .map(|text| crate::context::estimate_tokens(text))
+                    .sum::<usize>()
+            })
+            .unwrap_or_default();
+        if objective_tokens >= room {
+            on_step(TurnStep::Note(format!(
+                "The objective and its revisions take {objective_tokens} estimated tokens of {room}; choose a larger context or shorten the objective."
+            )));
+            return stopped(actions, edited, StopReason::ContextFull);
+        }
         if prompt_tokens_now(messages, measured_prompt, measured_upto) >= room {
             if compactions >= COMPACTIONS_PER_TURN {
                 return stopped(actions, edited, StopReason::Looping);
@@ -1687,6 +1778,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 });
             }
             return Ok(TurnReport {
+                outcome: Default::default(),
                 answer: reply.narrative,
                 actions,
                 edited,
@@ -1698,6 +1790,14 @@ async fn take_turn_inner<P: ModelProvider>(
         silent = 0;
         reasoning_calls = 0;
         for (position, call) in reply.tool_calls.iter().enumerate() {
+            // A single generation can contain more calls than the goal has
+            // left. Bound each call, not only the next generation.
+            if continuity
+                .action_limit
+                .is_some_and(|limit| actions >= limit.min(ACTIONS_BEFORE_CHECKING_IN))
+            {
+                return stopped(actions, edited, StopReason::BudgetSpent);
+            }
             if stop.load(std::sync::atomic::Ordering::Relaxed) {
                 // Between actions; inside one only for a command, below,
                 // whose process group is killed with it. An edit is never
@@ -1799,6 +1899,7 @@ async fn take_turn_inner<P: ModelProvider>(
             {
                 *declined = matches!(action, ActionProposal::Decline { .. });
                 return Ok(TurnReport {
+                    outcome: Default::default(),
                     answer: rationale.clone(),
                     actions,
                     edited,

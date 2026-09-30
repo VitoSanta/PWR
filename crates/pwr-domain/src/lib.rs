@@ -7,6 +7,8 @@ use std::path::{Component, Path};
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod outcome;
+pub use outcome::*;
 pub mod reasoning;
 pub use reasoning::{
     ANSWER_RESERVE_MIN, BudgetSource, GenerationEnvelope, MIN_USEFUL_REASONING, ReasoningBudgets,
@@ -1627,6 +1629,8 @@ pub enum MessagePurpose {
     /// passages ranked against "The checks pass" on every goal turn), never
     /// replayed as the person's words, never summarised as a request.
     GoalGuidance,
+    /// Independent check feedback, not a tool result or a human request.
+    VerificationFeedback,
 }
 /// Provider-neutral tool invocation requested by a model.
 ///

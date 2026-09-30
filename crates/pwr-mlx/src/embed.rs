@@ -13,7 +13,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 
 /// Which side of a comparison a text is on. Some encoders (e5) were trained
 /// with a different prefix for each, and rank worse without them.
@@ -35,7 +35,8 @@ impl EmbedKind {
 pub struct Embedder {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    replies: std::sync::mpsc::Receiver<Result<String, String>>,
+    timeout: std::time::Duration,
     /// The model the sidecar loaded, as it reported it: part of the cache key,
     /// because vectors from two models are not comparable.
     pub model: String,
@@ -54,8 +55,16 @@ impl Embedder {
             || Path::new(env!("CARGO_MANIFEST_DIR")).join("sidecar/pwr_embed.py"),
             PathBuf::from,
         );
-        let mut child = Command::new(&python)
-            .arg(&script)
+        Self::start_with(&python, &script, std::time::Duration::from_secs(30))
+    }
+
+    fn start_with(
+        python: &Path,
+        script: &Path,
+        timeout: std::time::Duration,
+    ) -> Result<Self, String> {
+        let mut child = Command::new(python)
+            .arg(script)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -76,10 +85,27 @@ impl Embedder {
                 .take()
                 .ok_or("the embedding sidecar has no output")?,
         );
+        let (sender, replies) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut stdout = stdout;
+            loop {
+                let mut line = String::new();
+                let result = match stdout.read_line(&mut line) {
+                    Ok(0) => Err("embedding sidecar exited before replying".into()),
+                    Ok(_) => Ok(line),
+                    Err(error) => Err(error.to_string()),
+                };
+                let done = result.is_err();
+                if sender.send(result).is_err() || done {
+                    break;
+                }
+            }
+        });
         let mut embedder = Self {
             child,
             stdin,
-            stdout,
+            replies,
+            timeout,
             model: String::new(),
         };
         let ready = embedder.read_line()?;
@@ -136,17 +162,17 @@ impl Embedder {
     }
 
     fn read_line(&mut self) -> Result<serde_json::Value, String> {
-        let mut line = String::new();
-        let read = self
-            .stdout
-            .read_line(&mut line)
-            .map_err(|error| format!("the embedding sidecar stopped answering: {error}"))?;
-        if read == 0 {
-            return Err(
-                "the embedding sidecar exited; is mlx-embeddings installed and the model cached?"
-                    .into(),
-            );
-        }
+        let line = match self.replies.recv_timeout(self.timeout) {
+            Ok(line) => line?,
+            Err(error) => {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                return Err(format!(
+                    "embedding sidecar did not answer within {} seconds ({error}); using lexical retrieval",
+                    self.timeout.as_secs_f64()
+                ));
+            }
+        };
         serde_json::from_str(&line).map_err(|error| {
             format!("the embedding sidecar answered something unreadable: {error}")
         })
@@ -165,4 +191,25 @@ impl Drop for Embedder {
 /// Cosine similarity of two unit vectors: their dot product.
 pub fn similarity(left: &[f32], right: &[f32]) -> f32 {
     left.iter().zip(right).map(|(a, b)| a * b).sum()
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    #[test]
+    fn a_sidecar_that_never_announces_readiness_is_killed_by_the_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("sleep.py");
+        std::fs::write(&script, "import time; time.sleep(60)\n").unwrap();
+        let started = std::time::Instant::now();
+        let error = Embedder::start_with(
+            Path::new("/usr/bin/python3"),
+            &script,
+            std::time::Duration::from_millis(100),
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("lexical retrieval"), "{error}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
 }

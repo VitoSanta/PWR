@@ -10,6 +10,7 @@ async-trait.workspace = true
 pwr-compat = { path = "../pwr-compat" }
 pwr-domain = { path = "../pwr-domain" }
 pwr-provider = { path = "../pwr-provider" }
+pwr-runtime = { path = "../pwr-runtime" }
 pwr-repo = { path = "../pwr-repo" }
 pwr-store = { path = "../pwr-store" }
 pwr-tools = { path = "../pwr-tools" }

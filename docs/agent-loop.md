@@ -1,6 +1,6 @@
 # The agent loop
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** How a turn, a goal
+**Baseline checked at `0776ff4f`, 2026-09-30; goal budget updated for W1.4 in this working tree.** How a turn, a goal
 and a scripted run proceed, every limit that bounds them, and the defects the
 plan fixes. Three loops exist; see [architecture.md](architecture.md#three-execution-semantics)
 for why that matters.
@@ -108,18 +108,54 @@ used when the app sends a prompt with Goal on.
        *not verified*;
      - otherwise the model is sent back with the evidence; the same failing
        set three times → *blocked*.
-   - without `complete`, the goal continues with a nudge, unless the action
-     total reached `GOAL_MAX_ACTIONS` (208) → paused as *budget*.
+   - without `complete`, the goal continues with a nudge within the shared goal budget.
 3. A checkpoint note is shown every 10 actions.
 
-| Limit | Value | Where |
+A goal budget starts **before baseline verification**. Before each generation,
+verification, or review, the shared action/refusal/time limits are checked;
+verification and review counters are checked before their respective operations.
+The remaining action allowance is passed into the conversation and checked
+before each call, including multiple calls in one reply. A deadline also bounds
+asynchronous work in progress: on expiry the cancellation flag is set and the
+operation's future is dropped. Synchronous filesystem work cannot be pre-empted
+by Tokio; backend cancellation still depends on its existing safe points.
+
+| Limit | Default | Scope |
 |---|---|---|
-| Actions | 208 | `GOAL_MAX_ACTIONS`, `serve.rs:450` |
-| Idle rounds | 3 | `GOAL_IDLE_LIMIT`, `serve.rs:455` |
-| Same failing set on completion | 3 | `GOAL_SAME_FAILURE_LIMIT`, `serve.rs:459` |
-| Review rounds | 1 | `review_done` |
-| Checkpoint note | every 10 actions | `GOAL_NOTICE_EVERY`, `serve.rs:462` |
-| Wall-clock | none | — |
+| Actions | 208 | All turns, including the review continuation |
+| Refused completions | 6 | Every failed completion verification, independent of failure names |
+| Verification runs | 9 | Baseline plus completion verifications |
+| Review rounds | 1 | Specification review and its continuation |
+| Wall-clock | 3,600 seconds | From baseline through final result |
+| Idle rounds | 3 | Existing stalled guard |
+| Same failing set on completion | 3 | Existing blocked guard; W1.5 still open |
+| Checkpoint note | every 10 actions | Progress indication |
+
+Workspace overrides live under `goal_budget` in `.pwr/chat-config.json`:
+
+```json
+{
+  "goal_budget": {
+    "actions": 208,
+    "refused_completions": 6,
+    "verification_runs": 9,
+    "review_rounds": 1,
+    "wall": 3600
+  }
+}
+```
+
+Missing fields use defaults; unknown budget fields and invalid types are
+configuration errors. Zero means no allowance for that operation. Review remains
+at most once even if the configured cap is larger. A deliberate new prompt
+starts a new budget; this is per-goal, not a session-wide quota.
+
+Reached limits return terminal `budget`, the specific limit and spent/allowed
+values in `_meta.pwr.budget`, and a human explanation in `goal.reason` (also shown
+by the desktop). Every goal response records effective limits and counters in
+`_meta.pwr.goalBudget`; errors record them in `error.data.goalBudget`. Successful,
+blocked and stalled goals retain their existing terminal semantics. Ordinary
+chat turns do not use this goal budget.
 
 ## The scripted run
 
@@ -155,7 +191,6 @@ The B0 (conventional loop) and B2 (fixed staged workflow) controls live in
 
 | Defect | Evidence | Plan |
 |---|---|---|
-| The goal's action budget is checked only when the model did not complete; refused completions with alternating failures run without limit; no time limit | `serve.rs:2028`, `2182` | W1.4 |
 | Goal failures are compared by check name: progress inside one suite looks stuck; alternating suites look like progress | `serve.rs:2139`; `main.rs:3756-3773` | W1.5 |
 | Post-turn verification happens after the turn ended; the post-turn note is `✓` whatever it says | `main.rs:4851-4927` | W2.2, W2.3 |
 | Three loops with different holds, compaction, recovery and catalogues; fixes land in one | this page | W2.4 |

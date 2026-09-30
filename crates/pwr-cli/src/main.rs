@@ -499,15 +499,16 @@ enum EvalCommand {
         treatment: PathBuf,
         /// Refuse a pairing that cannot carry a causal reading.
         ///
-        /// The default pairs on deployment, task and seed alone, and two
-        /// campaigns that also changed their corpus revision, their sampling or
-        /// their hardware pair silently under it. Under `--strict` every field
+        /// Strict by default. Every condition field
         /// the two sides differ on must be named by `--declare`, a trial
         /// recorded twice is an error rather than an overwrite, and the
         /// denominator is every assigned trial including the ones whose backend
         /// failed.
         #[arg(long)]
         strict: bool,
+        /// Historical permissive pairing; cannot establish a causal comparison.
+        #[arg(long, conflicts_with_all = ["strict", "declare"])]
+        legacy_pairing: bool,
         /// A field the two campaigns are allowed to differ on, because it is
         /// the treatment. Repeatable; implies `--strict`.
         ///
@@ -981,6 +982,12 @@ async fn compute_context(
 /// Nobody edited them, which is luck rather than a guard. The same day showed
 /// the scripted run never read the file at all.
 fn frozen_paths(root: &Path) -> Result<Vec<PathBuf>, SafeError> {
+    frozen_paths_with_authorization(root, &Default::default())
+}
+fn frozen_paths_with_authorization(
+    root: &Path,
+    authorized: &std::collections::BTreeSet<String>,
+) -> Result<Vec<PathBuf>, SafeError> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Declared {
@@ -990,7 +997,9 @@ fn frozen_paths(root: &Path) -> Result<Vec<PathBuf>, SafeError> {
     let path = root.join(".pwr/protected.json");
     let body = match std::fs::read_to_string(&path) {
         Ok(body) => body,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            "{\"protected\": []}".to_owned()
+        }
         Err(error) => {
             return Err(SafeError {
                 category: "invalid_input",
@@ -998,7 +1007,7 @@ fn frozen_paths(root: &Path) -> Result<Vec<PathBuf>, SafeError> {
             });
         }
     };
-    serde_json::from_str::<Declared>(&body)
+    let mut protected = serde_json::from_str::<Declared>(&body)
         .map(|declared| declared.protected)
         .map_err(|error| SafeError {
             category: "invalid_input",
@@ -1008,7 +1017,25 @@ fn frozen_paths(root: &Path) -> Result<Vec<PathBuf>, SafeError> {
                  fixed: treating it as empty would leave unprotected exactly what it names.",
                 path.display()
             ),
-        })
+        })?;
+    if let Some(snapshot) = pwr_verify::acceptance::snapshot(root).map_err(|context| SafeError {
+        category: "invalid_input",
+        context,
+    })? {
+        if !authorized.contains(".pwr/checks.json") {
+            protected.push(PathBuf::from(".pwr/checks.json"));
+        }
+        protected.extend(
+            snapshot
+                .artifacts
+                .keys()
+                .filter(|path| !authorized.contains(*path))
+                .map(PathBuf::from),
+        );
+    }
+    protected.sort();
+    protected.dedup();
+    Ok(protected)
 }
 
 const CHAT_TIMEOUT_DEFAULT: u64 = 900;
@@ -1026,6 +1053,9 @@ const MAX_CHAT_FOLDER_DEPTH: usize = 4;
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 #[serde(default)]
 struct ChatConfig {
+    background_summaries: bool,
+    /// Goal-wide limits, including baseline verification and review.
+    goal_budget: serve::GoalLimits,
     /// The engine selected for this workspace. It remains workspace-local so a
     /// GGUF project need not repeat `--backend llama` on every launch.
     #[serde(default)]
@@ -1237,6 +1267,8 @@ fn approval_label(approval: pwr_tools::Approval) -> &'static str {
 impl Default for ChatConfig {
     fn default() -> Self {
         Self {
+            background_summaries: false,
+            goal_budget: serve::GoalLimits::default(),
             backend: None,
             require_probe: true,
             model: None,
@@ -2959,6 +2991,21 @@ struct ConsoleTurns {
 
 #[async_trait::async_trait(?Send)]
 impl serve::TurnRunner for ConsoleTurns {
+    fn goal_limits(&self, root: &Path) -> Result<serve::GoalLimits, String> {
+        load_chat_config(root)
+            .map(|config| config.goal_budget)
+            .map_err(|error| error.context)
+    }
+    fn persist_checkpoint(
+        &self,
+        root: &Path,
+        id: pwr_domain::Id,
+        checkpoint: &pwr_orchestrator::conversation::Checkpoint,
+    ) -> Result<(), String> {
+        let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
+            .map_err(|error| error.to_string())?;
+        pwr_orchestrator::conversation::record_checkpoint(&store, id, checkpoint)
+    }
     async fn open(&self, root: &Path) -> Result<Vec<ChatMessage>, String> {
         let root = self.ready(root).await?;
         // A new chat reads only what is attached to it: the folders of the
@@ -3061,6 +3108,13 @@ impl serve::TurnRunner for ConsoleTurns {
             .map_err(|error| format!("{}: {error}", root.display()))?;
         let mut config = load_chat_config(&root).map_err(|error| error.context)?;
         match request {
+            serve::SettingsRequest::WikiSummaries { enabled } => {
+                if let Some(enabled) = enabled {
+                    config.background_summaries = enabled;
+                    save_chat_config(&root, &config).map_err(|error| error.context)?;
+                }
+                Ok(serde_json::json!({"enabled":config.background_summaries}))
+            }
             serve::SettingsRequest::Models {
                 selected,
                 context_tokens,
@@ -3666,6 +3720,19 @@ impl serve::TurnRunner for ConsoleTurns {
         })
     }
 
+    fn background_summaries(&self, root: &Path) -> bool {
+        load_chat_config(root)
+            .map(|config| config.background_summaries)
+            .unwrap_or(false)
+    }
+    async fn summarise_cancellable(
+        &self,
+        root: &Path,
+        prompt: String,
+        cancel: pwr_provider::Cancel,
+    ) -> Result<(String, String), String> {
+        self.aside(root, "You write short, factual descriptions of source code for a project wiki. Describe only what the code shows.", prompt, 400, 16_384, None, Some(cancel)).await
+    }
     async fn summarise(&self, root: &Path, prompt: String) -> Result<(String, String), String> {
         // Short, factual and without reasoning: a summary is a few sentences,
         // and a model thinking for minutes about one would hold the engine
@@ -3677,6 +3744,7 @@ impl serve::TurnRunner for ConsoleTurns {
             prompt,
             400,
             16_384,
+            None,
             None,
         )
         .await
@@ -3698,6 +3766,7 @@ impl serve::TurnRunner for ConsoleTurns {
             // gap), at about 75 s a review; neither flagged anything in the
             // two passing controls.
             Some(4_000),
+            None,
         )
         .await
         .map(|(text, _)| text)
@@ -3707,6 +3776,23 @@ impl serve::TurnRunner for ConsoleTurns {
         &self,
         context: serve::CommandContext,
     ) -> Result<serve::GoalVerification, String> {
+        if let Some(before) = context.acceptance_snapshot.as_ref() {
+            let changed = pwr_verify::acceptance::changed_contract(
+                &context.root,
+                before,
+                &context.authorized_acceptance_changes,
+            )?;
+            if !changed.is_empty() {
+                return Ok(serve::GoalVerification {
+                    summary: format!(
+                        "Acceptance contract changed: {}. Human review is required before this evidence can certify a goal.",
+                        changed.join(", ")
+                    ),
+                    contract_changed: changed,
+                    ..Default::default()
+                });
+            }
+        }
         let acceptance = pwr_verify::declared_acceptance_checks(&context.root)?;
         let report = verify_in(
             &context.root,
@@ -3716,6 +3802,23 @@ impl serve::TurnRunner for ConsoleTurns {
         )
         .await
         .map_err(|error| error.context)?;
+        if let Some(before) = context.acceptance_snapshot.as_ref() {
+            let changed = pwr_verify::acceptance::changed_contract(
+                &context.root,
+                before,
+                &context.authorized_acceptance_changes,
+            )?;
+            if !changed.is_empty() {
+                return Ok(serve::GoalVerification {
+                    summary: format!(
+                        "Acceptance contract changed: {}. Human review is required before this evidence can certify a goal.",
+                        changed.join(", ")
+                    ),
+                    contract_changed: changed,
+                    ..Default::default()
+                });
+            }
+        }
         let no_tests: Vec<String> = report
             .get("baseline")
             .and_then(|baseline| baseline.get("checks"))
@@ -3724,12 +3827,14 @@ impl serve::TurnRunner for ConsoleTurns {
             .flatten()
             .filter(|check| {
                 check["result"]["exit_code"] == 0
-                    && check["command"]
-                        .as_str()
-                        .is_some_and(|command| command.starts_with("cargo test "))
-                    && check["result"]["stdout"]
-                        .as_str()
-                        .is_some_and(|output| !cargo_ran_tests(output))
+                    && pwr_verify::evidence::ran_zero_tests(
+                        check["command"].as_str().unwrap_or_default(),
+                        &format!(
+                            "{}\n{}",
+                            check["result"]["stdout"].as_str().unwrap_or_default(),
+                            check["result"]["stderr"].as_str().unwrap_or_default()
+                        ),
+                    )
             })
             .map(|check| {
                 format!(
@@ -3741,7 +3846,8 @@ impl serve::TurnRunner for ConsoleTurns {
         let technical_passed = report["verified"].as_bool().unwrap_or(false) && no_tests.is_empty();
         let acceptance_available = !acceptance.is_empty()
             && context.acceptance_contract_hash.is_some()
-            && context.acceptance_contract_hash == serve::acceptance_contract_hash(&context.root);
+            && (context.acceptance_contract_hash == serve::acceptance_contract_hash(&context.root)
+                || !context.authorized_acceptance_changes.is_empty());
         let summary = if no_tests.is_empty() {
             summarise_verification(&report)
         } else {
@@ -3793,7 +3899,37 @@ impl serve::TurnRunner for ConsoleTurns {
             })
             .cloned()
             .collect();
+        let mut failure_fingerprints: Vec<String> = report
+            .get("baseline")
+            .and_then(|baseline| baseline.get("checks"))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|check| check["result"]["exit_code"] != 0)
+            .map(|check| {
+                format!(
+                    "{}:{}",
+                    check["command"].as_str().unwrap_or("unknown"),
+                    pwr_verify::failure::fingerprint(
+                        check["result"]["stdout"].as_str().unwrap_or_default(),
+                        check["result"]["stderr"].as_str().unwrap_or_default()
+                    )
+                    .digest
+                )
+            })
+            .collect();
+        failure_fingerprints.sort();
+        let checks = report
+            .get("baseline")
+            .cloned()
+            .and_then(|value| {
+                serde_json::from_value::<pwr_verify::VerificationBaseline>(value).ok()
+            })
+            .map(|baseline| pwr_verify::evidence::checks(&baseline));
         Ok(serve::GoalVerification {
+            checks,
+            contract_changed: Vec::new(),
+            failure_fingerprints,
             failing_acceptance,
             failing,
             passed: technical_passed && acceptance_available,
@@ -3839,6 +3975,7 @@ impl ConsoleTurns {
     /// One generation beside the conversation: no tools, reasoning only when
     /// given a budget, on a cache of its own in the engine -- (the text, the
     /// model that wrote it).
+    #[allow(clippy::too_many_arguments)]
     async fn aside(
         &self,
         root: &Path,
@@ -3847,6 +3984,7 @@ impl ConsoleTurns {
         max_tokens: u32,
         context_cap: u32,
         reasoning_budget: Option<u32>,
+        cancel: Option<pwr_provider::Cancel>,
     ) -> Result<(String, String), String> {
         let root = self.ready(root).await?;
         let config = load_chat_config(&root).map_err(|error| error.context)?;
@@ -3884,7 +4022,7 @@ impl ConsoleTurns {
         };
         let stream = selection
             .backend
-            .chat(request)
+            .chat_cancellable(request, cancel.unwrap_or_default())
             .await
             .map_err(|error| error.to_string())?;
         let reply = pwr_provider::collect_reply(stream)
@@ -4085,6 +4223,13 @@ enum CheckVerdict {
 }
 
 impl CheckVerdict {
+    fn mark(&self) -> &'static str {
+        match self {
+            Self::Green => "✓",
+            Self::BaselinePreserved { .. } => "–",
+            Self::NewFailures(_) => "✗",
+        }
+    }
     fn said(&self) -> String {
         match self {
             Self::Green => "the repository's own checks passed after the change".to_owned(),
@@ -4150,6 +4295,7 @@ fn check_verdict(
 
 /// Cargo can exit successfully after running zero tests. That establishes a
 /// successful build, not that an application was exercised.
+#[cfg(test)]
 fn cargo_ran_tests(output: &str) -> bool {
     output.lines().any(|line| {
         line.trim()
@@ -4158,18 +4304,6 @@ fn cargo_ran_tests(output: &str) -> bool {
             .and_then(|count| count.parse::<usize>().ok())
             .is_some_and(|count| count > 0)
     })
-}
-
-fn cargo_checks_ran_zero_tests(baseline: &pwr_verify::VerificationBaseline) -> bool {
-    !baseline.checks.is_empty()
-        && baseline
-            .checks
-            .iter()
-            .all(|check| check.command.starts_with("cargo test "))
-        && baseline
-            .checks
-            .iter()
-            .all(|check| !cargo_ran_tests(&check.result.stdout))
 }
 
 #[cfg(test)]
@@ -4217,7 +4351,7 @@ fn compose_chat_turn(
     task_profile: &pwr_orchestrator::TaskProfile,
     ledger: Option<&str>,
     messages: &mut Vec<ChatMessage>,
-) -> Result<Option<usize>, String> {
+) -> Result<(Option<usize>, Option<String>), String> {
     // The deployment's own instructions, merged into the system message the way
     // a run merges them. A deployment told to behave one way on one turn and
     // not told on the next is being given two different agents, which is the
@@ -4225,7 +4359,7 @@ fn compose_chat_turn(
     // Refreshed rather than appended, because the model can be changed from
     // Settings mid-conversation and the suffix belongs to the model.
     if let Some(system) = messages.first().filter(|first| first.role == "system") {
-        let (merged, _) = pwr_orchestrator::context::compile(
+        let (merged, compiled) = pwr_orchestrator::context::compile(
             vec![
                 pwr_orchestrator::context::Section::new(
                     pwr_orchestrator::context::SectionKind::System,
@@ -4242,6 +4376,12 @@ fn compose_chat_turn(
             ],
             context_tokens,
         );
+        if compiled.over_budget_by > 0 {
+            return Err(format!(
+                "Context full: system instructions exceed budget by {} estimated tokens",
+                compiled.over_budget_by
+            ));
+        }
         if let Some(first) = merged.first()
             && first.content != system.content
         {
@@ -4255,7 +4395,7 @@ fn compose_chat_turn(
         .filter(|message| message.role == "user" && message.purpose.is_none())
         .map(|message| message.content.clone())
     else {
-        return Ok(None);
+        return Ok((None, None));
     };
     let (index, _work) = pwr_repo::index_incremental(root, Some(&root.join(".pwr")))
         .map_err(|error| error.to_string())?;
@@ -4281,8 +4421,8 @@ fn compose_chat_turn(
     // Started per turn, which costs the encoder's load (about a second) on top
     // of the ranking itself: acceptable while it is opt-in and measured, and
     // the section vectors are cached on disk between turns.
-    let mut ranker = semantic_ranker_if_requested(root);
-    let (composed, compiled) =
+    let (mut ranker, fallback) = semantic_ranker_if_requested(root);
+    let (composed, mut compiled) =
         pwr_orchestrator::context::compose_turn(pwr_orchestrator::context::TurnComposition {
             root,
             index: &index,
@@ -4294,7 +4434,17 @@ fn compose_chat_turn(
                 .as_mut()
                 .map(|ranker| ranker as &mut dyn pwr_repo::SectionRanker),
         });
+    compiled.retrieval_fallback = ranker
+        .as_ref()
+        .and_then(|ranker| ranker.fallback_reason.clone())
+        .or(fallback);
     drop(ranker);
+    if compiled.over_budget_by > 0 && compiled.estimated_tokens > context_tokens as usize * 3 / 4 {
+        return Err(format!(
+            "Context full: required prompt exceeds input budget by {} estimated tokens",
+            compiled.over_budget_by
+        ));
+    }
     let delivered = compiled
         .sections
         .iter()
@@ -4316,7 +4466,7 @@ fn compose_chat_turn(
         last.images = images;
     }
     messages.extend(composed);
-    Ok(delivered)
+    Ok((delivered, compiled.retrieval_fallback))
 }
 
 /// The console's reading of `doctor`, which answers a question in one line.
@@ -4616,6 +4766,23 @@ async fn chat_turn(
     session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
     _goal_mode: bool,
 ) -> ChatTurnResult {
+    {
+        let mut checkpoint = continuity
+            .checkpoint
+            .lock()
+            .map_err(|_| "checkpoint lock unavailable")?;
+        if !checkpoint.acceptance_initialized {
+            checkpoint.acceptance = if checkpoint.turn == 0 {
+                pwr_verify::acceptance::snapshot(&root)?
+            } else {
+                None
+            };
+            checkpoint.acceptance_initialized = true;
+        }
+        let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
+            .map_err(|error| error.to_string())?;
+        pwr_orchestrator::conversation::record_checkpoint(&store, conversation_id, &checkpoint)?;
+    }
     let model = config.model.clone().ok_or("no model is selected")?;
     // The workspace's auto-compaction threshold, if it chose one.
     continuity.compact_at_percent = config.compact_at_percent;
@@ -4723,7 +4890,25 @@ async fn chat_turn(
                 .chain(pwr_verify::declared_readable(&root))
                 .chain(pwr_tools::dependency_roots(&root))
                 .collect(),
-            protected: frozen_paths(&root).map_err(|error| error.context)?,
+            protected: {
+                let checkpoint = continuity
+                    .checkpoint
+                    .lock()
+                    .map_err(|_| "checkpoint lock unavailable")?;
+                let authorized = &checkpoint.authorized_acceptance_changes;
+                let mut paths = frozen_paths_with_authorization(&root, authorized)
+                    .map_err(|error| error.context)?;
+                if let Some(snapshot) = &checkpoint.acceptance {
+                    paths.extend(
+                        snapshot
+                            .artifacts
+                            .keys()
+                            .filter(|path| !authorized.contains(*path))
+                            .map(PathBuf::from),
+                    );
+                }
+                paths
+            },
             // Derived from what the repository is, exactly as a scripted run
             // derives it. A fixed list decides in advance which languages the
             // conversation can work in: `cargo, git, rg` is the right list for
@@ -4763,9 +4948,10 @@ async fn chat_turn(
     // record of what those bodies said about which files, with the hashes they
     // have now rather than the ones they had when they were read.
     let ledger = pwr_orchestrator::session_ledger(&store, &[conversation_id], &root).ok();
-    // Chat mode has no repository to rank passages from.
-    match if chat_only {
-        Ok(None)
+    // Report retrieval degradation to the operator and journal, without
+    // polluting a small model's task prompt with harness diagnostics.
+    let composition = if chat_only {
+        Ok((None, None))
     } else {
         compose_chat_turn(
             &root,
@@ -4774,17 +4960,39 @@ async fn chat_turn(
             ledger.as_deref(),
             &mut messages,
         )
-    } {
-        Ok(Some(tokens)) => {
-            steps(converse::TurnStep::Note(format!(
-                "⌕ {tokens} tokens of repository passages ranked against the request"
-            )));
+    };
+    match composition {
+        Ok((tokens, fallback)) => {
+            if let Some(tokens) = tokens {
+                steps(converse::TurnStep::Note(format!(
+                    "⌕ {tokens} tokens of repository passages ranked against the request"
+                )));
+            }
+            if let Some(reason) = fallback {
+                steps(converse::TurnStep::Note(format!(
+                    "⌕ Semantic retrieval unavailable; lexical ranking was used: {reason}"
+                )));
+                store
+                    .append(
+                        Some(conversation_id),
+                        "context.retrieval_fallback",
+                        serde_json::json!({"reason":reason,"ranking":"lexical"}),
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
         }
-        Ok(None) => {}
+        Err(error) if error.starts_with("Context full:") => return Err(error),
         Err(error) => {
             steps(converse::TurnStep::Note(format!(
                 "⌕ no repository passages this turn: {error}"
             )));
+            store
+                .append(
+                    Some(conversation_id),
+                    "context.retrieval_fallback",
+                    serde_json::json!({"reason":error,"ranking":"unavailable"}),
+                )
+                .map_err(|error| error.to_string())?;
         }
     }
     // The windows calibration measured on this deployment, so a prompt the
@@ -4868,30 +5076,47 @@ async fn chat_turn(
                 verification_policy.allow_commands.push(executable.clone());
             }
         }
-        let verdict = match (&before, after_checks.is_empty(), checks == after_checks) {
-            (_, true, _) => {
+        let mut evidence = pwr_domain::ChecksOutcome::Unavailable {
+            why: "this workspace declares no automated checks".into(),
+        };
+        let mut baseline_evidence = pwr_domain::BaselineOutcome::NoBaseline;
+        let (mark, verdict) = match (&before, after_checks.is_empty(), checks == after_checks) {
+            (_, true, _) => (
+                "–",
                 "Independent verification unavailable: this workspace declares no automated checks"
-                    .to_owned()
-            }
+                    .to_owned(),
+            ),
             (Some(before), false, true) => {
                 match pwr_verify::baseline(&verification_policy, &after_checks).await {
                     Ok(after) => {
+                        if after.checks.iter().any(|check| !check.result.sandboxed) {
+                            report.outcome.confinement = pwr_domain::Confinement::Unconfined;
+                        }
+                        evidence = pwr_verify::evidence::checks(&after);
+                        baseline_evidence = pwr_verify::evidence::baseline(Some(before), &after);
                         let verdict = check_verdict(before, &after);
                         if matches!(verdict, CheckVerdict::Green)
-                            && cargo_checks_ran_zero_tests(&after)
+                            && matches!(evidence, pwr_domain::ChecksOutcome::RanZeroTests)
                         {
-                            "the Rust checks exited successfully but ran zero tests; behavior \
-                             remains unverified"
-                                .to_owned()
+                            ("–", "the checks exited successfully but ran zero tests; behavior remains unverified".to_owned())
                         } else {
-                            verdict.said()
+                            (verdict.mark(), verdict.said())
                         }
                     }
-                    Err(error) => format!("the checks could not be run: {error}"),
+                    Err(error) => {
+                        evidence = pwr_domain::ChecksOutcome::CouldNotRun {
+                            why: error.to_string(),
+                        };
+                        ("!", format!("the checks could not be run: {error}"))
+                    }
                 }
             }
             _ => match pwr_verify::baseline(&verification_policy, &after_checks).await {
                 Ok(after) => {
+                    if after.checks.iter().any(|check| !check.result.sandboxed) {
+                        report.outcome.confinement = pwr_domain::Confinement::Unconfined;
+                    }
+                    evidence = pwr_verify::evidence::checks(&after);
                     let failing: Vec<_> = after
                         .checks
                         .iter()
@@ -4899,32 +5124,42 @@ async fn chat_turn(
                         .map(|check| check.command.as_str())
                         .collect();
                     if failing.is_empty() {
-                        if cargo_checks_ran_zero_tests(&after) {
-                            "the new Rust project builds, but cargo ran zero tests; its \
-                             behavior has not been verified"
-                                .to_owned()
+                        if matches!(evidence, pwr_domain::ChecksOutcome::RanZeroTests) {
+                            ("–", "the new project checks exited successfully but ran zero tests; its behavior has not been verified".to_owned())
                         } else {
-                            "the newly discovered project checks passed after the edit; no prior \
-                             baseline exists for them"
-                                .to_owned()
+                            ("✓", "the newly discovered project checks passed after the edit; no prior baseline exists for them".to_owned())
                         }
                     } else {
-                        format!(
-                            "the newly discovered project checks failed: {}; no prior \
-                                 baseline exists for them",
-                            failing.join(", ")
+                        (
+                            "✗",
+                            format!(
+                                "the newly discovered project checks failed: {}; no prior baseline exists for them",
+                                failing.join(", ")
+                            ),
                         )
                     }
                 }
-                Err(error) => format!("the newly discovered checks could not be run: {error}"),
+                Err(error) => {
+                    evidence = pwr_domain::ChecksOutcome::CouldNotRun {
+                        why: error.to_string(),
+                    };
+                    (
+                        "!",
+                        format!("the newly discovered checks could not be run: {error}"),
+                    )
+                }
             },
         };
-        steps(converse::TurnStep::Note(format!("✓ {verdict}")));
+        report.outcome.checks = evidence;
+        report.outcome.baseline = baseline_evidence;
+        steps(converse::TurnStep::Note(format!("{mark} {verdict}")));
         report.answer = format!("{}\n\n{verdict}", report.answer.trim());
-        messages.push(ChatMessage::text(
-            "tool",
-            format!("The workspace checks were run after your edits: {verdict}"),
-        ));
+        messages.push(ChatMessage {
+            role: "user".into(),
+            content: format!("Harness verification feedback after your edits: {verdict}"),
+            purpose: Some(pwr_domain::MessagePurpose::VerificationFeedback),
+            ..Default::default()
+        });
     }
     // The conversation as it now stands, so `pwr chat --continue` can pick
     // it up from here. Not being able to record it is said, not fatal: the
@@ -5774,13 +6009,14 @@ async fn dispatch(cli: Cli) -> i32 {
                 control,
                 treatment,
                 strict,
+                legacy_pairing,
                 declare,
             } => print(
                 cli.json,
                 compare_campaigns(
                     &control,
                     &treatment,
-                    strict || !declare.is_empty(),
+                    !legacy_pairing || strict || !declare.is_empty(),
                     &declare,
                 ),
             ),
@@ -9271,8 +9507,8 @@ async fn prepare_profiled_run(
     // Compiled from typed sections rather than concatenated. Each section
     // carries its own estimated cost and hash, and what was cut to make the
     // prompt fit is recorded rather than inferred from a shorter prompt.
-    let mut ranker = semantic_ranker_if_requested(&root);
-    let (compiled_messages, compiled) =
+    let (mut ranker, fallback) = semantic_ranker_if_requested(&root);
+    let (compiled_messages, mut compiled) =
         pwr_orchestrator::context::compose(pwr_orchestrator::context::ContextComposition {
             root: &root,
             index: &index,
@@ -9285,6 +9521,20 @@ async fn prepare_profiled_run(
                 .as_mut()
                 .map(|ranker| ranker as &mut dyn pwr_repo::SectionRanker),
         });
+    if compiled.over_budget_by > 0 {
+        return Err(SafeError {
+            category: "context_full",
+            context: format!(
+                "Required prompt exceeds the budget by {} estimated tokens",
+                compiled.over_budget_by
+            ),
+        });
+    }
+
+    compiled.retrieval_fallback = ranker
+        .as_ref()
+        .and_then(|ranker| ranker.fallback_reason.clone())
+        .or(fallback);
     drop(ranker);
     store
         .append_event(
@@ -9449,15 +9699,17 @@ async fn prepare_profiled_run(
 /// `PWR_SEMANTIC_RETRIEVAL=1` (backlog C.22). Opt-in until a run with a
 /// small model at a small window says what it is worth; when the encoder
 /// cannot start, retrieval is lexical and stderr says why, once.
-fn semantic_ranker_if_requested(root: &Path) -> Option<semantic::EmbeddingRanker> {
+fn semantic_ranker_if_requested(
+    root: &Path,
+) -> (Option<semantic::EmbeddingRanker>, Option<String>) {
     if std::env::var("PWR_SEMANTIC_RETRIEVAL").ok().as_deref() != Some("1") {
-        return None;
+        return (None, None);
     }
     match semantic::EmbeddingRanker::open(root) {
-        Ok(ranker) => Some(ranker),
+        Ok(ranker) => (Some(ranker), None),
         Err(error) => {
             eprintln!("semantic retrieval requested but unavailable, ranking lexically: {error}");
-            None
+            (None, Some(error))
         }
     }
 }
@@ -10000,7 +10252,7 @@ fn compare_campaigns(
         });
     }
     Ok(serde_json::json!({
-        "markdown": comparison.markdown(),
+        "markdown": format!("# Not a causal comparison (legacy pairing)\n\n{}", comparison.markdown()),
         "comparison": comparison,
         "skipped": {"control": control_skipped, "treatment": treatment_skipped},
     }))
@@ -10172,7 +10424,7 @@ async fn verify_in(
             .into_iter()
             .chain(pwr_tools::dependency_roots(&root))
             .collect(),
-        protected: Vec::new(),
+        protected: frozen_paths(&root)?,
         allow_commands: pwr_verify::required_executables(&root),
         output_limit: 64 * 1024,
         timeout: Duration::from_secs(120),
@@ -11162,6 +11414,51 @@ mod tests {
     }
 
     #[test]
+    fn campaign_cli_requires_an_explicit_legacy_opt_out() {
+        let cli = Cli::try_parse_from(["pwr", "eval", "compare", "control", "treatment"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Eval(Eval {
+                command: EvalCommand::Compare {
+                    legacy_pairing: false,
+                    ..
+                }
+            }))
+        ));
+        let cli = Cli::try_parse_from([
+            "pwr",
+            "eval",
+            "compare",
+            "control",
+            "treatment",
+            "--legacy-pairing",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Eval(Eval {
+                command: EvalCommand::Compare {
+                    legacy_pairing: true,
+                    ..
+                }
+            }))
+        ));
+        assert!(
+            Cli::try_parse_from([
+                "pwr",
+                "eval",
+                "compare",
+                "control",
+                "treatment",
+                "--legacy-pairing",
+                "--declare",
+                "corpus_rev"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
     fn controllable_context_window_does_not_require_a_measured_boundary() {
         let root = tempfile::tempdir().unwrap();
         let deployment = DeploymentDescriptor {
@@ -11799,6 +12096,106 @@ mod tests {
         assert!(REPLAY_IS_NOT_EXECUTION.contains("not a resumed run"));
     }
 
+    #[tokio::test]
+    async fn modifying_acceptance_artifacts_cannot_certify_a_goal_even_with_full_access() {
+        use serve::TurnRunner;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".pwr")).unwrap();
+        std::fs::create_dir(root.path().join("tests")).unwrap();
+        std::fs::write(root.path().join(".pwr/checks.json"), r#"{"checks":[{"executable":"cargo","args":["test"],"kind":"acceptance"}],"acceptance":{"artifacts":["tests/*.rs"]}}"#).unwrap();
+        let evidence = root.path().join("tests/acceptance.rs");
+        std::fs::write(&evidence, "assert!(false)").unwrap();
+        let snapshot = pwr_verify::acceptance::snapshot(root.path())
+            .unwrap()
+            .unwrap();
+        let context = serve::CommandContext {
+            root: root.path().to_owned(),
+            conversation_id: pwr_domain::new_id(),
+            acceptance_contract_hash: Some(snapshot.digest()),
+            acceptance_snapshot: Some(snapshot),
+            authorized_acceptance_changes: Default::default(),
+            changed_files: Default::default(),
+            session_grants: vec![pwr_tools::Approval::OutsideSandbox],
+        };
+        assert!(
+            frozen_paths(root.path())
+                .map_err(|error| error.context)
+                .unwrap()
+                .contains(&PathBuf::from("tests/acceptance.rs"))
+        );
+        std::fs::write(evidence, "assert!(true)").unwrap();
+        let runner = ConsoleTurns {
+            runtime: RuntimeFactory::local(BackendKind::Mlx),
+        };
+        let verdict = runner.verify_goal(context).await.unwrap();
+        assert!(!verdict.passed);
+        assert_eq!(verdict.contract_changed, ["tests/acceptance.rs"]);
+    }
+
+    #[tokio::test]
+    async fn a_check_that_rewrites_its_own_evidence_cannot_certify_a_goal() {
+        use serve::TurnRunner;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".pwr")).unwrap();
+        std::fs::create_dir(root.path().join("tests")).unwrap();
+        std::fs::write(root.path().join("tests/evidence.txt"), "original").unwrap();
+        let declaration = serde_json::json!({
+            "checks": [{"executable":"/usr/bin/python3", "args":["-c",
+                "from pathlib import Path; Path('tests/evidence.txt').write_text('weakened')"], "kind":"acceptance"}],
+            "acceptance":{"artifacts":["tests/evidence.txt"]}
+        });
+        std::fs::write(
+            root.path().join(".pwr/checks.json"),
+            declaration.to_string(),
+        )
+        .unwrap();
+        let config = ChatConfig {
+            permission_mode: Some(PermissionMode::Full),
+            ..Default::default()
+        };
+        save_chat_config(root.path(), &config)
+            .map_err(|error| error.context)
+            .unwrap();
+        let snapshot = pwr_verify::acceptance::snapshot(root.path())
+            .unwrap()
+            .unwrap();
+        let context = serve::CommandContext {
+            root: root.path().to_owned(),
+            conversation_id: pwr_domain::new_id(),
+            acceptance_contract_hash: Some(snapshot.digest()),
+            acceptance_snapshot: Some(snapshot),
+            authorized_acceptance_changes: Default::default(),
+            changed_files: Default::default(),
+            session_grants: vec![pwr_tools::Approval::OutsideSandbox],
+        };
+        let runner = ConsoleTurns {
+            runtime: RuntimeFactory::local(BackendKind::Mlx),
+        };
+        let verdict = runner.verify_goal(context).await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("tests/evidence.txt")).unwrap(),
+            "weakened"
+        );
+        assert!(!verdict.passed);
+        assert_eq!(verdict.contract_changed, ["tests/evidence.txt"]);
+    }
+
+    #[test]
+    fn verification_marks_follow_the_typed_verdict() {
+        assert_eq!(CheckVerdict::Green.mark(), "✓");
+        assert_eq!(
+            CheckVerdict::BaselinePreserved {
+                still_failing: vec!["cargo test".into()]
+            }
+            .mark(),
+            "–"
+        );
+        assert_eq!(
+            CheckVerdict::NewFailures(vec!["cargo test".into()]).mark(),
+            "✗"
+        );
+    }
+
     /// A goal's checks restore packages and start containers with what the
     /// person allowed for the session, and with nothing more.
     #[test]
@@ -11809,6 +12206,8 @@ mod tests {
             root: root.path().to_path_buf(),
             conversation_id: pwr_domain::new_id(),
             acceptance_contract_hash: None,
+            acceptance_snapshot: None,
+            authorized_acceptance_changes: Default::default(),
             changed_files: Default::default(),
             session_grants: grants,
         };
@@ -12824,7 +13223,7 @@ mod tests {
             &mut messages,
         )
         .unwrap();
-        assert_eq!(composed, None);
+        assert_eq!(composed, (None, None));
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1], note);
     }
@@ -12836,6 +13235,8 @@ mod tests {
         let external = external_directory.path().join("CV con spazi.txt");
         std::fs::write(&external, "The brief says: keep this read-only.").unwrap();
         let config = ChatConfig {
+            background_summaries: false,
+            goal_budget: serve::GoalLimits::default(),
             backend: None,
             require_probe: true,
             model: Some("example:latest".into()),
