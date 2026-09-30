@@ -8,6 +8,33 @@ still holds it is restated here.
 
 ---
 
+## D-2026-09-30-7 — Defaults that keep a local model usable
+
+**Decision.** Under the maintainer's mandate of 2026-09-30 to make the agent
+work fluidly on this Mac and to verify it, with every change general, tested and
+logged, three defaults changed (all reversible by a workspace setting):
+
+1. **Sampling floor.** When no profile, card, generation config or person
+   declares a temperature, the request is 0.6 / top_p 0.95 / top_k 20, reported
+   as source `pwr_sampling_floor`, instead of the engine's greedy decoding. A
+   card listing one set per mode gives its thinking, coding set. Explicit
+   temperature 0 stays greedy.
+2. **Actions per turn** 26 → 100 (`actions_per_turn`); a goal's own limit is
+   no longer capped at 26 inside a turn.
+3. **Compaction ceiling** of 65,536 tokens under the percentage of the window,
+   unless the person set a window (`context_tokens`) or a threshold. A
+   hypothesis: nothing shows yet that a 4-bit model stays coherent above that
+   size; what is certain is that every compaction or model switch re-reads the
+   whole prompt, minutes at 100k+ on a 30B.
+
+**Why.** Manual passes of 2026-09-29/30 (Qwen3.5-9B, GLM-4.7-Flash, Nemotron,
+Qwen3-14B, Qwen2.5-Coder-14B): greedy repetition, a working model stopped at 26
+actions, 32-minute prefills. Evidence and A/B in
+[experiment-log.md](experiment-log.md).
+
+**Reversible by** a new entry with campaign evidence; the compaction ceiling in
+particular is to be tested against the window it replaces (plan W4).
+
 ## D-2026-09-30-6 — Dispositions for converging the scripted loop
 
 **Decision.** The maintainer accepted, on 2026-09-30, the dispositions

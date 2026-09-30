@@ -4798,6 +4798,10 @@ async fn chat_turn(
     let model = config.model.clone().ok_or("no model is selected")?;
     // The workspace's auto-compaction threshold, if it chose one.
     continuity.compact_at_percent = config.compact_at_percent;
+    // Nobody chose a window or a threshold: the default ceiling applies.
+    continuity.compact_ceiling_tokens = (config.compact_at_percent.is_none()
+        && config.context_setting.is_none())
+    .then_some(pwr_orchestrator::converse::DEFAULT_COMPACTION_CEILING_TOKENS);
     let selection = runtime
         .select(model.clone(), Duration::from_secs(config.timeout_secs))
         .map_err(|error| error.to_string())?;
