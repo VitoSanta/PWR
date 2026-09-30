@@ -14,6 +14,7 @@ whole, in the [archive](archive/README.md).
 | [MASTER_SPEC](../MASTER_SPEC.md) | The product and research contract: promise, thesis, principles, evidence words |
 | [Implementation plan](plan/implementation-plan.md) | Every work item, with acceptance criteria and tests, and the gates |
 | [Roadmap](roadmap.md) | The plan in NOW / NEXT / LATER / NOT NOW, with milestone status |
+| [Executor parity](plan/executor-parity.md) | What the scripted loop does that the app's turn does not, and the proposed disposition of each |
 | [Decisions](decisions.md) | Dated decisions, including what is not built |
 
 ## How it works (current behaviour)

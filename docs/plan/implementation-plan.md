@@ -509,7 +509,7 @@ the same thing by "complete".
 
 ### W2.4 Converge the scripted runner onto the executor
 
-**Status:** NEXT · L
+**Status:** NEXT · L — step 1 (the inventory) is done: [executor-parity.md](executor-parity.md), every disposition proposed and awaiting a decision
 
 - **Problem.** `pwr run` and `eval run --arm b1` measure a loop the app does
   not ship; fixes land in one loop only (verification 3.2;
