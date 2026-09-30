@@ -1507,7 +1507,9 @@ fn a_turn_stops_to_check_in_rather_than_running_on_unasked() {
     };
     // More actions than a turn is given, every one of them novel, so nothing
     // else in the loop would have stopped it.
-    let script: Vec<_> = (0..40).map(read).collect();
+    let script: Vec<_> = (0..converse::DEFAULT_ACTIONS_PER_TURN + 50)
+        .map(read)
+        .collect();
 
     let outcome = drive_chat(dir.path(), script);
     assert_eq!(
@@ -1515,7 +1517,7 @@ fn a_turn_stops_to_check_in_rather_than_running_on_unasked() {
         Some(converse::StopReason::BudgetSpent)
     );
     // The count is the budget, and the turn did not quietly overrun it.
-    assert_eq!(outcome.report.actions, 26);
+    assert_eq!(outcome.report.actions, converse::DEFAULT_ACTIONS_PER_TURN);
     // What the operator reads has to sound like a check-in and not a failure.
     let said = converse::StopReason::BudgetSpent.said();
     assert!(said.contains("carry on"), "{said}");
@@ -1538,7 +1540,7 @@ fn a_turn_and_a_run_that_run_out_of_actions_are_classified_alike() {
             .collect()
     };
     let (chat_dir, run_dir) = (workspace(), workspace());
-    let chat_script = script(chat_dir.path(), 40);
+    let chat_script = script(chat_dir.path(), converse::DEFAULT_ACTIONS_PER_TURN + 50);
     let run_script = script(run_dir.path(), 40);
     let [chat, run] = drive_both(
         chat_dir.path(),
@@ -3389,6 +3391,34 @@ fn goal_budget_bounds_a_batch_of_tool_calls_before_the_next_generation() {
     assert!(dir.path().join("second.txt").exists());
     assert!(!dir.path().join("third.txt").exists());
     assert_eq!(provider.requests().len(), 1);
+}
+
+/// A turn was stopped at 26 actions whatever the goal or the person allowed;
+/// a manual pass on 2026-09-30 lost a working model's turn to it.
+#[test]
+fn a_turn_is_not_stopped_at_twenty_six_actions() {
+    let dir = workspace();
+    let read = |n: usize| {
+        std::fs::write(dir.path().join(format!("n{n}.txt")), format!("{n}\n")).unwrap();
+        calls(
+            "read_file",
+            serde_json::json!({"path": format!("n{n}.txt")}),
+        )
+    };
+    let mut script: Vec<ModelChunk> = (0..40).map(read).collect();
+    script.push(says("done reading"));
+    let provider = Scripted::new(script);
+    drive_continuing(dir.path(), &provider, &converse::Continuity::default());
+    assert_eq!(provider.requests().len(), 41, "every action was taken");
+
+    // A limit the person set is still kept.
+    let provider = Scripted::new((0..40).map(read).collect());
+    let continuity = converse::Continuity {
+        action_limit: Some(30),
+        ..Default::default()
+    };
+    drive_continuing(dir.path(), &provider, &continuity);
+    assert_eq!(provider.requests().len(), 30);
 }
 
 #[test]

@@ -1068,6 +1068,9 @@ struct ChatConfig {
     /// Reasoning Effort: the thinking budget per generation, where the model
     /// has a controllable thinking phase. Medium unless the person chose.
     reasoning_effort: pwr_domain::ReasoningEffort,
+    /// Actions one turn may take before it stops and asks; a goal has its own
+    /// budget (`goal_budget`). 0 or absent is the default.
+    actions_per_turn: usize,
     /// Untested models the person chose to use with conservative defaults
     /// rather than calibrate; only stops the app offering the choice again.
     acknowledged_provisional: Vec<String>,
@@ -1277,6 +1280,7 @@ impl Default for ChatConfig {
             require_probe: true,
             model: None,
             reasoning_effort: pwr_domain::ReasoningEffort::Medium,
+            actions_per_turn: pwr_orchestrator::converse::DEFAULT_ACTIONS_PER_TURN,
             acknowledged_provisional: Vec::new(),
             profile: None,
             prepared_for_model: None,
@@ -4865,6 +4869,10 @@ async fn chat_turn(
     // Reasoning Effort becomes a budget per generation, inside the room the
     // context has left then; see `pwr_domain::plan_reasoning`.
     continuity.reasoning_effort = config.reasoning_effort;
+    // A goal set its own limit; a conversation takes the workspace's.
+    if continuity.action_limit.is_none() && config.actions_per_turn > 0 {
+        continuity.action_limit = Some(config.actions_per_turn);
+    }
     continuity.reasoning = assessment.reasoning.clone();
     continuity.profile_status = serde_json::to_value(assessment.status)
         .ok()
@@ -13192,6 +13200,7 @@ mod tests {
             require_probe: true,
             model: Some("example:latest".into()),
             reasoning_effort: pwr_domain::ReasoningEffort::High,
+            actions_per_turn: 100,
             acknowledged_provisional: Vec::new(),
             profile: Some(PathBuf::from("/tmp/profile.json")),
             prepared_for_model: Some("example:latest".into()),

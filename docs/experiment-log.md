@@ -200,3 +200,11 @@ endless repetition, the commonest failure of a small model in the loop.
 `414d3ae1`) used greedy for these models; they are not paired with later ones
 unless the sampling is declared as the treatment. The A/B is run on the dev
 split (`base-q35-9b-a` before, the `fix-*` runs after).
+
+## 2026-09-30 — Per-turn action limit 26 → 100, configurable (measurement-changing)
+
+A turn stopped at 26 actions and a goal's per-step allowance was capped at 26
+inside one `take_turn`, whatever the goal allowed. A manual pass stopped a
+working model mid-build. The default is now 100 and `actions_per_turn` sets it;
+the stall detectors, not this number, stop a loop that repeats. Campaigns
+through the app path at `414d3ae1` or earlier have the old cap.
