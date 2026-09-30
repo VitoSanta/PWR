@@ -254,9 +254,12 @@ impl StopReason {
             }
             Self::Unparseable => {
                 "three turns running produced nothing this backend could use -- tool calls that \
-                 were not valid JSON, or replies that ran on until they were cut off -- so it \
-                 was stopped; a smaller task, or a deployment whose tool calling has been \
-                 demonstrated, is more likely to hold a long conversation together"
+                 were not valid JSON, replies that ran on until they were cut off, or replies \
+                 that went round in circles -- so it was stopped; everything done before that \
+                 is kept, and carrying on continues from it. A smaller task, a lower Reasoning \
+                 Effort (a small model that loops in its reasoning often stops when it has less \
+                 room to), or a deployment whose tool calling has been demonstrated is more \
+                 likely to hold a long conversation together"
                     .to_owned()
             }
             Self::BackendFailing => format!(
