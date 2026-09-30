@@ -119,7 +119,7 @@ pub const ECHO_WINDOW: usize = 10;
 /// timestamp does not make the same failure look new.
 #[derive(Debug, Default)]
 pub struct Echoes {
-    recent: std::collections::VecDeque<(String, u64)>,
+    recent: std::collections::VecDeque<(String, u64, bool)>,
 }
 
 impl Echoes {
@@ -127,22 +127,126 @@ impl Echoes {
     /// that is the limit or more.
     pub fn observe(&mut self, fingerprint: &str, outcome: &serde_json::Value) -> Option<usize> {
         let digest = outcome_digest(outcome);
-        self.recent.push_back((fingerprint.to_owned(), digest));
+        self.recent
+            .push_back((fingerprint.to_owned(), digest, failed(outcome)));
         if self.recent.len() > ECHO_WINDOW {
             self.recent.pop_front();
         }
         let seen = self
             .recent
             .iter()
-            .filter(|(seen, result)| seen == fingerprint && *result == digest)
+            .filter(|(seen, result, _)| seen == fingerprint && *result == digest)
             .count();
         (seen >= ECHO_LIMIT).then_some(seen)
+    }
+
+    /// How many times this action has just failed with the same result as
+    /// its last run, counting that run.
+    pub fn repeated_failures(&self, fingerprint: &str) -> usize {
+        let mut runs = self
+            .recent
+            .iter()
+            .rev()
+            .filter(|(seen, _, _)| seen == fingerprint);
+        let Some((_, last, true)) = runs.next() else {
+            return 0;
+        };
+        1 + runs
+            .take_while(|(_, result, failure)| *failure && result == last)
+            .count()
+    }
+}
+
+/// Failures of the same action, with the same result, after which it is not
+/// run again.
+pub const REPEATED_FAILURE_LIMIT: usize = 2;
+
+/// Whether a result is a failure: a command that exited non-zero, or a tool
+/// that reports one.
+pub fn failed(outcome: &serde_json::Value) -> bool {
+    outcome
+        .get("exit_code")
+        .is_some_and(|code| code.as_i64() != Some(0))
+        || outcome
+            .get("failure")
+            .is_some_and(|failure| !failure.is_null())
+}
+
+/// Said instead of running an action that failed the same way twice.
+pub fn repeated_failure_notice(seen: usize) -> String {
+    format!(
+        "Not run: this exact command has failed {seen} times in a row with the same result, so \
+         running it again would fail again. Change what it depends on or run something \
+         different -- or, if you cannot see what is wrong, stop here and tell the engineer what \
+         is ready and what did not work."
+    )
+}
+
+/// Consecutive failed runs after which a turn that has produced its files
+/// stops trying to run them and hands them over.
+///
+/// Measured 2026-09-29 (Qwen3-14B in the desktop): a bank page and its
+/// Playwright test were written in seven minutes and right; the next forty
+/// minutes were fourteen failed runs of that test -- a wrong `file://` path,
+/// browsers to download, a server started four ways -- and the person
+/// stopped a turn whose work had been done since the start.
+pub const FAILED_RUN_LIMIT: usize = 5;
+
+/// Failed runs in a row within a turn, and whether the hand-over was asked.
+#[derive(Debug, Default)]
+pub struct FailedRuns {
+    streak: usize,
+    handed_over: bool,
+}
+
+impl FailedRuns {
+    /// Records a run; returns the hand-over notice the first time the
+    /// streak reaches the limit in a turn that has changed files.
+    pub fn observe(&mut self, failed: bool, edited: bool) -> Option<String> {
+        self.streak = if failed { self.streak + 1 } else { 0 };
+        (edited && !self.handed_over && self.streak >= FAILED_RUN_LIMIT).then(|| {
+            self.handed_over = true;
+            format!(
+                "Stop running things now: the last {FAILED_RUN_LIMIT} runs all failed. The files \
+                 you wrote are kept. Answer the engineer instead: say which files are ready, what \
+                 you tried to run and why it failed, and the exact commands they can run \
+                 themselves. Further commands this turn will not be run."
+            )
+        })
+    }
+
+    /// Whether this turn has already been asked to hand over.
+    pub fn handed_over(&self) -> bool {
+        self.handed_over
+    }
+}
+
+/// A result without what differs between two runs of the same failure: the
+/// hash of its output and how long it took.
+///
+/// Measured 2026-09-29 (Qwen3-14B in the desktop, a bank page): the same
+/// `npx start --port 8080` failed four times with the same npm error and was
+/// never named, because npm writes a log named by the time, the output hash
+/// changed with it, and every failure looked new.
+fn comparable(outcome: &serde_json::Value) -> serde_json::Value {
+    match outcome {
+        serde_json::Value::Object(fields) => serde_json::Value::Object(
+            fields
+                .iter()
+                .filter(|(name, _)| !name.ends_with("_hash") && !name.ends_with("_ms"))
+                .map(|(name, value)| (name.clone(), comparable(value)))
+                .collect(),
+        ),
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.iter().map(comparable).collect())
+        }
+        other => other.clone(),
     }
 }
 
 fn outcome_digest(outcome: &serde_json::Value) -> u64 {
     use std::hash::{Hash, Hasher};
-    let mut text = outcome.to_string();
+    let mut text = comparable(outcome).to_string();
     // Any run of digits is the same run of digits.
     let mut masked = String::with_capacity(text.len());
     let mut in_number = false;
@@ -203,6 +307,43 @@ mod echo_tests {
                 echoes.observe(&format!("run:{n}"), &serde_json::json!({"exit_code": 0})),
                 None
             );
+        }
+    }
+
+    #[test]
+    fn the_same_failure_is_the_same_whatever_its_log_is_called() {
+        let mut echoes = Echoes::default();
+        let run = |log: &str, hash: &str| {
+            serde_json::json!({"exit_code": 1, "artifact_hash": hash, "duration_ms": 400,
+                "stderr": format!("npm error could not determine executable to run\nnpm error A complete log of this run can be found in: /Users/x/.npm/_logs/{log}-debug-0.log")})
+        };
+        echoes.observe("npx start", &run("2026-09-29T17_12_29_583Z", "ce55e0"));
+        assert_eq!(echoes.repeated_failures("npx start"), 1);
+        echoes.observe("read x", &serde_json::json!({"content": "x"}));
+        echoes.observe("npx start", &run("2026-09-29T17_14_12_138Z", "3d8f6c"));
+        assert_eq!(echoes.repeated_failures("npx start"), 2);
+        // A success in between, or another failure, starts it over.
+        echoes.observe("npx start", &serde_json::json!({"exit_code": 0}));
+        assert_eq!(echoes.repeated_failures("npx start"), 0);
+    }
+
+    #[test]
+    fn a_turn_that_wrote_its_files_hands_over_after_five_failed_runs_once() {
+        let mut runs = FailedRuns::default();
+        for _ in 0..4 {
+            assert_eq!(runs.observe(true, true), None);
+        }
+        runs.observe(false, true);
+        for _ in 0..4 {
+            assert_eq!(runs.observe(true, true), None);
+        }
+        assert!(runs.observe(true, true).is_some());
+        assert!(runs.handed_over());
+        assert_eq!(runs.observe(true, true), None);
+        // Nothing written, nothing to hand over: the failures are the answer.
+        let mut reading = FailedRuns::default();
+        for _ in 0..8 {
+            assert_eq!(reading.observe(true, false), None);
         }
     }
 

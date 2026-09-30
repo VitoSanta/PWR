@@ -3498,7 +3498,7 @@ pub fn apply_patch(
         previous_hash: expected_hash.to_string(),
         expected_hash: new_hash.clone(),
         new_hash,
-        warning: missing_package_warning(policy, &path, relative, &content),
+        warning: written_file_warning(policy, &path, relative, &content),
         excerpt: changed_excerpt(&String::from_utf8_lossy(&original), &content),
     })
 }
@@ -3932,7 +3932,7 @@ pub fn apply_replace(
         previous_hash,
         expected_hash: new_hash.clone(),
         new_hash,
-        warning: missing_package_warning(policy, &path, relative, replacement),
+        warning: written_file_warning(policy, &path, relative, replacement),
         excerpt: changed_excerpt(&String::from_utf8_lossy(&existing), replacement),
     })
 }
@@ -4072,7 +4072,7 @@ pub fn replace_text(
         previous_hash,
         expected_hash: new_hash.clone(),
         new_hash,
-        warning: missing_package_warning(policy, &path, relative, &updated),
+        warning: written_file_warning(policy, &path, relative, &updated),
         excerpt: changed_excerpt(&String::from_utf8_lossy(&existing), &updated),
     })
 }
@@ -4864,6 +4864,80 @@ pub fn missing_packages(root: &Path, file: &Path, text: &str) -> Vec<String> {
     missing
 }
 
+/// Everything about a file just written that will fail when it runs.
+fn written_file_warning(
+    policy: &ToolPolicy,
+    path: &Path,
+    relative: &Path,
+    text: &str,
+) -> Option<String> {
+    let found: Vec<String> = [
+        missing_package_warning(policy, path, relative, text),
+        broken_file_url_warning(policy, relative, text),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!found.is_empty()).then(|| found.join(" "))
+}
+
+/// `file://` addresses in a file just written that lead to nothing, each
+/// with the file of that name the workspace does have.
+///
+/// Measured 2026-09-29 (Qwen3-14B in the desktop): a Playwright test opened
+/// `file:///…/test/web/index.html` while the page it had written was
+/// `web/index.html` under that workspace; it rewrote the test seven times and
+/// never saw the path was one folder short, since it only ever wrote paths
+/// relative to the workspace.
+fn broken_file_url_warning(policy: &ToolPolicy, relative: &Path, text: &str) -> Option<String> {
+    static URL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let url =
+        URL.get_or_init(|| regex::Regex::new(r#"file://(/[^\s'"`)<>]+)"#).expect("static regex"));
+    let root = policy
+        .root
+        .canonicalize()
+        .unwrap_or_else(|_| policy.root.clone());
+    let mut notes = Vec::new();
+    for capture in url.captures_iter(text) {
+        let target = capture[1].trim_end_matches(['.', ',', ';']);
+        let target_path = Path::new(target);
+        if target_path.exists() || target.contains("${") || target.contains("__dirname") {
+            continue;
+        }
+        let Some(name) = target_path.file_name() else {
+            continue;
+        };
+        let found = walk_workspace(&root)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, directory)| !directory)
+            .map(|(candidate, _)| {
+                if candidate.is_absolute() {
+                    candidate
+                } else {
+                    root.join(candidate)
+                }
+            })
+            .find(|candidate| candidate.file_name() == Some(name));
+        notes.push(match found {
+            Some(real) => format!(
+                "`file://{target}` is not a file; the workspace's `{}` is at `file://{}`.",
+                name.to_string_lossy(),
+                real.display()
+            ),
+            None => format!("`file://{target}` is not a file on this machine."),
+        });
+    }
+    (!notes.is_empty()).then(|| {
+        format!(
+            "{} refers to a file that does not exist: {} The workspace is `{}`.",
+            relative.display(),
+            notes.join(" "),
+            root.display()
+        )
+    })
+}
+
 /// Says which imports of a file just written will fail when it runs, and how
 /// to fix that, or nothing when every import resolves.
 fn missing_package_warning(
@@ -4949,7 +5023,7 @@ pub fn write_file(
         previous_hash: String::new(),
         expected_hash: new_hash.clone(),
         new_hash,
-        warning: missing_package_warning(policy, &path, relative, content),
+        warning: written_file_warning(policy, &path, relative, content),
         excerpt: None,
     })
 }
@@ -7705,6 +7779,25 @@ mod tests {
             let ran = run_command_in(&policy, "pwd", &[], None, Some(cwd)).await;
             assert!(ran.is_ok(), "{cwd}: {ran:?}");
         }
+    }
+
+    #[test]
+    fn a_file_url_one_folder_short_is_named_with_the_real_one() {
+        let root = tempfile::tempdir().unwrap();
+        let policy = PolicyProfile::Development.build(root.path().to_path_buf());
+        let real = root.path().canonicalize().unwrap();
+        write_file(&policy, Path::new("web/index.html"), "<p>bank</p>").unwrap();
+        let test = format!("await page.goto('file://{}/index.html');\n", real.display());
+        let written = write_file(&policy, Path::new("web/test.js"), &test).unwrap();
+        let warning = written.warning.expect("no warning");
+        assert!(
+            warning.contains(&format!("file://{}/web/index.html", real.display())),
+            "{warning}"
+        );
+        // A file that is there is not named.
+        let good = format!("page.goto('file://{}/web/index.html')", real.display());
+        let written = write_file(&policy, Path::new("web/ok.js"), &good).unwrap();
+        assert_eq!(written.warning, None);
     }
 
     #[test]
