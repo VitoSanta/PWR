@@ -76,8 +76,11 @@ lands, **do not rely on the protection it names**.
   tools, not from commands.** A script, an interpreter or a build the agent
   runs — and the checks — can change a file the edit tools would refuse
   ([plan W1.3](docs/plan/implementation-plan.md#w13-the-same-protections-for-commands-as-for-file-tools)).
-- **Writes are not atomic**: a crash mid-write can leave a partial file
-  ([W1.2](docs/plan/implementation-plan.md#w12-atomic-checked-writes)).
+- **A change landing in the instant between a tool's last check and its
+  write is still lost.** File writes are atomic (a temporary file, then a move)
+  and the target is re-checked just before the move, so a crash leaves the
+  original whole and a change made while the edit was being prepared is
+  refused; the two system calls at the end cannot be made one.
 - **"Verified" can follow a weakened test.** Goal mode freezes
   `.pwr/checks.json`, not the tests it runs
   ([W3.1](docs/plan/implementation-plan.md#w31-freeze-what-decides-acceptance)).

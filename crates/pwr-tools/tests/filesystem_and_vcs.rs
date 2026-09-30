@@ -972,3 +972,91 @@ fn a_reference_folder_is_listed_with_readable_paths() {
     // Somewhere not attached stays refused.
     assert!(pwr_tools::list_tree_under(&policy, 50, Some("/etc")).is_err());
 }
+
+// ------------------------------------------------- writes are whole or absent
+
+fn only_the_files(root: &Path, names: &[&str]) {
+    let mut found: Vec<String> = fs::read_dir(root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    assert_eq!(found, names);
+}
+
+/// Every editing tool writes through a temporary file that is gone when it is
+/// done, and the edit is in the file: none of them leaves a stray name.
+#[test]
+fn no_editing_tool_leaves_a_temporary_file_behind() {
+    let root = tempfile::tempdir().unwrap();
+    let policy = policy(root.path());
+    write_file(&policy, Path::new("a.txt"), "one two three\n").unwrap();
+    let hash = hash_of(root.path(), "a.txt");
+    let replaced = replace_text(&policy, Path::new("a.txt"), &hash, "two", "2").unwrap();
+    let patched = apply_patch(
+        &policy,
+        Path::new("a.txt"),
+        &replaced.new_hash,
+        &[Hunk {
+            find: "three".into(),
+            replace: "3".into(),
+        }],
+    )
+    .unwrap();
+    apply_replace(
+        &policy,
+        Path::new("a.txt"),
+        &patched.new_hash,
+        "one 2 3 done\n",
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.txt")).unwrap(),
+        "one 2 3 done\n"
+    );
+    only_the_files(root.path(), &["a.txt"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_edited_script_is_still_executable() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = tempfile::tempdir().unwrap();
+    let policy = policy(root.path());
+    let script = root.path().join("run.sh");
+    fs::write(&script, "#!/bin/sh\necho one\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let hash = hash_of(root.path(), "run.sh");
+    replace_text(&policy, Path::new("run.sh"), &hash, "one", "two").unwrap();
+    assert_eq!(
+        fs::metadata(&script).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
+}
+
+/// A file being written is not part of the project. One left by a crash must
+/// not be listed or searched: the model would read half a file as a real one.
+#[test]
+fn a_write_in_flight_is_not_listed_or_searched() {
+    let root = tempfile::tempdir().unwrap();
+    let policy = policy(root.path());
+    fs::write(root.path().join("real.txt"), "needle\n").unwrap();
+    fs::write(
+        root.path()
+            .join(format!("{}1234-0-real.txt", atomic::TEMPORARY_PREFIX)),
+        "needle, half written",
+    )
+    .unwrap();
+    let listed: Vec<String> = list_tree(&policy, 100)
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect();
+    assert_eq!(listed, ["real.txt"]);
+    let found = search(&policy, "needle", 10).unwrap();
+    assert_eq!(found.files.len(), 1, "{found:?}");
+}
+
+fn hash_of(root: &Path, name: &str) -> String {
+    pwr_domain::hash_bytes(fs::read(root.join(name)).unwrap())
+}

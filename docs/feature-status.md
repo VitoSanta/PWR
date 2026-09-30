@@ -9,7 +9,7 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | Feature | Class | Status | Where | Plan |
 |---|---|---|---|---|
 | MLX engine with managed lifecycle (install, load, template, prompt cache, reasoning budgets) | KEEP | IMPLEMENTED | `crates/pwr-mlx`, `crates/pwr-mlx/sidecar/pwr_mlx.py`, `apps/desktop/src-tauri/src/engine.rs` | W5.1, W5.3, W9.2 |
-| Precise editing with hashes, diffs, revert with conflict detection | KEEP | IMPLEMENTED; whole-file rewrites bound to the version read (W1.1) | `crates/pwr-tools/src/lib.rs`; `converse.rs` `own_overwrite`; `_pwr/revert` | W1.2 |
+| Precise editing with hashes, diffs, revert with conflict detection | KEEP | IMPLEMENTED; rewrites bound to the version read (W1.1); atomic, re-checked writes (W1.2) | `crates/pwr-tools/src/lib.rs`, `atomic.rs`; `converse.rs` `own_overwrite`; `_pwr/revert` | — |
 | Repository checks and baseline before/after | KEEP | IMPLEMENTED | `crates/pwr-verify` | W3 |
 | Streaming, Stop, steering | KEEP | IMPLEMENTED | `converse.rs`; `_pwr/steer`, `session/cancel` | W5.1 (Stop during prefill) |
 | Search, windowed read, dependency source read | KEEP | IMPLEMENTED | `search` with `in_dependencies`, `read_file` windows | — |

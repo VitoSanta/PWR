@@ -97,11 +97,23 @@ from the file at write time, so the check compared the file with itself.)
 `apply_replace` called directly still refuses a stale hash and names the
 current one, as it always has.
 
-One defect remains here:
+**Writes are whole or absent.** Every file-writing tool — `write_file`,
+`apply_patch`, `replace_text`, `apply_replace`, `restore_file`, the text
+`extract_document` writes, and the core's Revert and rewind — goes through
+`pwr_tools::atomic::write_atomic` (`crates/pwr-tools/src/atomic.rs`): the new
+bytes are written to a temporary file beside the target (`.pwr-tmp-<pid>-<n>-<name>`),
+flushed, given the target's permissions, and moved over it with `rename`, then
+the folder is flushed. Immediately before the move the target is read again and
+must still hash to what the tool checked; otherwise nothing is written and the
+model is told to read it again. A new file is linked into place, which fails if
+the name was taken meanwhile. A crash or a disk error leaves the original
+intact; a read-only file is still refused; an executable stays executable.
+Temporary names are never indexed, listed or searched.
 
-- **Writes are not atomic** — read, check hash, `std::fs::write`
-  (`lib.rs:3493`, `3927`, `4067`, `5036`). A crash can leave a partial file; a
-  change between the check and the write is lost. Plan W1.2.
+What remains: the comparison and the `rename` are two system calls, so a
+change landing between them (microseconds, not the seconds between a tool's
+read and its write) is still lost; and no rollback of a completed edit is
+promised.
 
 ## Permission modes
 
@@ -168,7 +180,6 @@ and is recorded `sandboxed: false`.
 | Defect | Plan |
 |---|---|
 | Overwrite bound to the current hash, not the read version | W1.1 |
-| Non-atomic writes | W1.2 |
 | Protections missing from the command sandbox; none in Full access | W1.3 |
 | `complete` promises verification the loop does not always perform | W3.4 |
 | Unbounded PDF inflation | W1.6 |

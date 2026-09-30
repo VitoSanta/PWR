@@ -695,8 +695,15 @@ fn revert_file(
         ));
     }
     match restore {
-        Some(text) => std::fs::write(&target, text),
-        None => std::fs::remove_file(&target),
+        Some(text) => pwr_tools::atomic::write_atomic(
+            &target,
+            text.as_bytes(),
+            // The hash of what was just compared above, so a change in the
+            // moment between is refused rather than discarded.
+            pwr_tools::atomic::Expect::Hash(&pwr_domain::hash_bytes(expected.as_bytes())),
+        )
+        .map_err(|error| error.to_string()),
+        None => std::fs::remove_file(&target).map_err(|error| error.to_string()),
     }
     .map_err(|error| format!("{path}: {error}"))?;
     std::fs::create_dir_all(root.join(".pwr")).map_err(|error| error.to_string())?;
@@ -2348,7 +2355,14 @@ impl<R: TurnRunner + 'static> Server<R> {
                         converse::Before::Content(bytes) => target
                             .parent()
                             .map_or(Ok(()), std::fs::create_dir_all)
-                            .and_then(|()| std::fs::write(&target, bytes)),
+                            .and_then(|()| {
+                                pwr_tools::atomic::write_atomic(
+                                    &target,
+                                    bytes,
+                                    pwr_tools::atomic::Expect::Anything,
+                                )
+                                .map_err(|error| std::io::Error::other(error.to_string()))
+                            }),
                         converse::Before::Created => match std::fs::remove_file(&target) {
                             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                             other => other,
