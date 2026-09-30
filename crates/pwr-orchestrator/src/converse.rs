@@ -955,6 +955,7 @@ async fn take_turn_inner<P: ModelProvider>(
     // place of a run's action loop.
     let mut refused_streak = crate::repetition::RefusalStreak::new();
     let mut echoes = crate::repetition::Echoes::default();
+    let mut failed_runs = crate::repetition::FailedRuns::default();
     // Acting and getting nowhere is the other half of being stuck, and the
     // conversation had neither half. A turn could spend its whole budget
     // reading the same three files in a circle, or editing a line and putting
@@ -1903,6 +1904,38 @@ async fn take_turn_inner<P: ModelProvider>(
                 phase: ToolPhase::Proposed,
                 diff: None,
             }));
+            // A run that already failed the same way twice, or any run once
+            // the turn was asked to hand its work over, is answered without
+            // running it.
+            let runs_something = matches!(
+                action,
+                ActionProposal::RunCommand { .. } | ActionProposal::StartService { .. }
+            );
+            let repeated = echoes.repeated_failures(&fingerprint);
+            if runs_something
+                && (repeated >= crate::repetition::REPEATED_FAILURE_LIMIT
+                    || failed_runs.handed_over())
+            {
+                let why = if failed_runs.handed_over() {
+                    "Not run: this turn already stopped running things after repeated failures. \
+                     Answer the engineer with what is ready, what failed, and the commands they \
+                     can run themselves."
+                        .to_owned()
+                } else {
+                    crate::repetition::repeated_failure_notice(repeated)
+                };
+                on_step(TurnStep::Refused(format!("{capability}: not run again")));
+                on_step(TurnStep::ToolCall(ToolCallStep {
+                    id: call_id,
+                    capability: capability.clone(),
+                    detail: detail.clone(),
+                    path: path.clone(),
+                    phase: ToolPhase::Refused("not run again".into()),
+                    diff: None,
+                }));
+                messages.push(tool_message(call, serde_json::json!({"not_run": why})));
+                continue;
+            }
             let mut granted_once = match crate::session::gate(
                 store,
                 conversation_id,
@@ -2041,6 +2074,17 @@ async fn take_turn_inner<P: ModelProvider>(
                             "{capability}: the same result {seen} times"
                         )));
                     }
+                    if runs_something
+                        && let Some(notice) = failed_runs
+                            .observe(crate::repetition::failed(&value), edited || would_mutate)
+                        && let Some(object) = value.as_object_mut()
+                    {
+                        object.insert("stop".into(), serde_json::Value::String(notice));
+                        on_step(TurnStep::Refused(format!(
+                            "{capability}: {} failed runs in a row, handing over",
+                            crate::repetition::FAILED_RUN_LIMIT
+                        )));
+                    }
                     if let Some(path) = &path
                         && let Some(kept) = &kept
                         && let Ok(mut edits) = continuity.edits.lock()
@@ -2146,7 +2190,14 @@ async fn take_turn_inner<P: ModelProvider>(
                         diff: None,
                     }));
                     on_step(TurnStep::Refused(format!("{capability}: {problem}")));
-                    messages.push(tool_message(call, crate::action_outcome(Err(problem))));
+                    let mut outcome = crate::action_outcome(Err(problem));
+                    if runs_something
+                        && let Some(notice) = failed_runs.observe(true, edited)
+                        && let Some(object) = outcome.as_object_mut()
+                    {
+                        object.insert("stop".into(), serde_json::Value::String(notice));
+                    }
+                    messages.push(tool_message(call, outcome));
                 }
             }
         }

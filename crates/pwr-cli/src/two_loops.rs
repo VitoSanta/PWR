@@ -2886,3 +2886,91 @@ fn a_native_level_replaces_a_profiles_off_switch() {
     );
     assert!(!request.sampling.contains_key("think"));
 }
+
+/// The same command failing the same way twice is not run a third time.
+/// Seen 2026-09-29 (Qwen3-14B in the desktop): `npx start --port 8080`, four
+/// identical failures in a row.
+#[test]
+fn a_command_that_failed_the_same_way_twice_is_not_run_again() {
+    let dir = workspace();
+    let policy = ToolPolicy {
+        allow_commands: vec!["false".into()],
+        ..policy_for(dir.path())
+    };
+    let run = || {
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "false", "args": []}),
+        )
+    };
+    let provider = Scripted::new(vec![run(), run(), run(), says("It does not start.")]);
+    let outcome = drive_chat_under(
+        policy,
+        provider,
+        &[],
+        &std::sync::atomic::AtomicBool::new(false),
+    );
+    let last_result = |request: &ModelRequest| {
+        request
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == "tool")
+            .map(|message| message.content.clone())
+            .unwrap_or_default()
+    };
+    assert!(!last_result(&outcome.requests[2]).contains("Not run"));
+    assert!(
+        last_result(&outcome.requests[3]).contains("Not run: this exact command has failed 2"),
+        "{}",
+        last_result(&outcome.requests[3])
+    );
+}
+
+/// A turn that wrote its files and then failed five runs in a row is told to
+/// hand them over, and runs nothing more. Seen 2026-09-29 (Qwen3-14B in the
+/// desktop): the page and its test were right after seven minutes, followed by
+/// forty minutes of failing runs.
+#[test]
+fn a_turn_that_wrote_its_files_hands_them_over_after_five_failed_runs() {
+    let dir = workspace();
+    let policy = ToolPolicy {
+        allow_commands: vec!["false".into()],
+        ..policy_for(dir.path())
+    };
+    let run = |n: usize| {
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "false", "args": [format!("attempt-{n}")]}),
+        )
+    };
+    let mut script = vec![calls(
+        "write_file",
+        serde_json::json!({"path": "page.html", "content": "<p>bank</p>\n"}),
+    )];
+    script.extend((1..=6).map(run));
+    script.push(says("page.html is ready; the test would not run here."));
+    let outcome = drive_chat_under(
+        policy,
+        Scripted::new(script),
+        &[],
+        &std::sync::atomic::AtomicBool::new(false),
+    );
+    let told = |index: usize| {
+        outcome.requests[index]
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == "tool")
+            .map(|message| message.content.clone())
+            .unwrap_or_default()
+    };
+    assert!(!told(5).contains("Stop running things now"), "{}", told(5));
+    assert!(told(6).contains("Stop running things now"), "{}", told(6));
+    assert!(
+        told(7).contains("already stopped running things"),
+        "{}",
+        told(7)
+    );
+    assert!(dir.path().join("page.html").exists());
+}

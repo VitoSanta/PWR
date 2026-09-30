@@ -18,7 +18,7 @@ fn declared() -> Vec<ModelProfile> {
 #[test]
 fn every_profile_is_coherent_and_explains_itself() {
     let profiles = declared();
-    assert_eq!(profiles.len(), 16);
+    assert_eq!(profiles.len(), 17);
     for profile in &profiles {
         assert!(
             profile.context.is_coherent(),
@@ -66,7 +66,7 @@ fn every_qualifying_deployment_is_allocated_the_full_ceiling() {
         .iter()
         .filter(|p| p.context.maximum >= REQUIRED)
         .count();
-    assert_eq!(qualifying, 11);
+    assert_eq!(qualifying, 12);
 }
 
 /// The throughput cost of the choice stays recorded even though the choice was
