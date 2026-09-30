@@ -5,6 +5,8 @@
 //! repository could have implied. The grant widens that, and these check both
 //! halves — what it opens, and what stays shut.
 
+mod common;
+
 use pwr_tools::{Approval, SandboxPolicy, ToolPolicy, run_command};
 use std::path::Path;
 use std::time::Duration;
@@ -154,7 +156,7 @@ async fn a_command_cannot_plant_what_git_runs_outside_the_sandbox() {
 #[tokio::test]
 async fn the_hosts_credentials_are_not_readable() {
     let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
-        eprintln!("skipped: no HOME on this host");
+        common::skip("no HOME on this host");
         return;
     };
     // Whichever of the denied paths this host actually has. Testing one that is
@@ -163,7 +165,7 @@ async fn the_hosts_credentials_are_not_readable() {
         .into_iter()
         .find(|relative| home.join(relative).exists())
     else {
-        eprintln!("skipped: this host has none of the denied paths, so nothing is observable");
+        common::skip("this host has none of the denied paths, so nothing is observable");
         return;
     };
     let target = home.join(present);

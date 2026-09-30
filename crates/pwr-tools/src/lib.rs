@@ -839,6 +839,10 @@ pub fn is_container_client(executable: &str) -> bool {
 /// `DOCKER_HOST` first, then where Docker Desktop, OrbStack, Colima and
 /// Rancher Desktop put theirs, then the conventional path, which on a Mac is
 /// usually a link to one of those.
+///
+/// Where an engine would be, not whether one is running: the socket file
+/// stays on disk when Docker Desktop quits. It is what the sandbox grant opens,
+/// so it answers "which socket"; a caller that needs a live daemon asks it.
 pub fn container_socket() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(host) = std::env::var("DOCKER_HOST")
