@@ -25,6 +25,34 @@ unchanged. Any new product-path campaign must record these effective limits;
 results from the previous unbounded refusal path are not silently equivalent.
 No model campaign was run for this change.
 
+## 2026-09-30 — A model switched in the middle of a 130k-token conversation (found by hand)
+
+**What happened.** GLM-4.7-Flash, selected in a conversation Ornith 35B had built
+up to ~163k tokens. Its first generation spent **32.5 minutes** in prefill
+(`reasoning.started` at `elapsed_ms` 1,952,557: ~66 tokens/s for ~130k tokens,
+GPU at 98-100%, 45 GB resident, 4.9 GB of swap in use) -- the prompt cache is
+per model, so the whole history is read again from nothing. It then reasoned for
+736 tokens and was stopped by the engine's repetition guard; the reply after the
+retry message was "736 token." repeated.
+
+**Two causes found, one fixed.**
+1. The message that reached the model carried the engine's own account of the
+   stop ("after 736 tokens; repeated-window ratios: reasoning=5732bp"), which
+   a degenerating model latched on to. The model is now told only that the reply
+   was repeating itself; the log and the person keep the numbers. Fixed, with a
+   fixture.
+2. The sampling: GLM's `generation_config.json` sets only `temperature: 1.0`,
+   and every other parameter fell to the sidecar's "off" (top_p 0, top_k 0),
+   so the model sampled from the **whole, untruncated distribution** at
+   temperature 1.0, in a 4-bit quantization, at 130k tokens of context. Not
+   fixed: it is the second case, after Qwen3.5-9B's greedy temperature 0, of a
+   model with no declared truncation; a decision is pending on a floor for
+   every model.
+
+**Also not fixed.** The prefill's progress exists in the engine's events and is
+used only to show the engine is alive; nothing tells the person a model switch
+costs a full re-read (plan W5.5/W7.1).
+
 ## 2026-09-30 — A working site reported as failing its checks (found by hand)
 
 Bonsai 27B in the desktop built a site whose script held a card template with

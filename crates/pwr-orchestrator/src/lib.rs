@@ -870,6 +870,22 @@ impl ReplyFault {
         }
     }
 
+    /// The fault's detail as the deployment should read it.
+    ///
+    /// The engine's own account of a repetition -- "stopped the reply
+    /// (repetition) after 736 tokens; repeated-window ratios: reasoning=5732bp"
+    /// -- is for the log and the person. Put in front of a model it is a number
+    /// to fixate on: measured 2026-09-30 (GLM-4.7-Flash, the reply after such a
+    /// message was "736 token." repeated until it was cut off). The model is
+    /// told that the reply repeated itself, and nothing to count.
+    fn told_detail(&self) -> String {
+        let detail = self.detail();
+        if detail.contains("(repetition)") || detail.contains("repeated-window ratios") {
+            return "the reply was repeating itself".to_owned();
+        }
+        detail.to_owned()
+    }
+
     /// What reaches the deployment.
     ///
     /// Carries what the harness already knows rather than only that something
@@ -880,6 +896,7 @@ impl ReplyFault {
     /// Both now carry both, which is an enrichment of each rather than a choice
     /// between them.
     pub fn told(&self) -> String {
+        let told_detail = self.told_detail();
         match self {
             Self::Unparsed(detail) => format!(
                 "Your last tool call could not be read: {detail}. Nothing was done. Send it \
@@ -888,22 +905,22 @@ impl ReplyFault {
             ),
             Self::RanAway(detail) if detail.contains("unfinished tool call") => format!(
                 "Your last tool call was cut off before it ended, so nothing in it was done: \
-                 {detail}. The file is too long to write in one call. Write a first part that \
+                 {told_detail}. The file is too long to write in one call. Write a first part that \
                  works -- the structure and the parts that matter most -- with write_file, then \
                  add the rest in further calls with replace_text or apply_patch. Keep each \
                  call to a few hundred lines."
             ),
-            Self::RanAway(detail) => format!(
+            Self::RanAway(_) => format!(
                 "Your last reply ran on until it was cut off, so nothing in it was done: \
-                 {detail}. Do less in one turn: make one or two tool calls, wait for their \
+                 {told_detail}. Do less in one turn: make one or two tool calls, wait for their \
                  results, and continue from there."
             ),
             // Measured 2026-09-26 (a PostgreSQL ledger): the loops were "I
             // can't know at INSERT time whether more entries are coming" --
             // a model that did not know deferred constraint triggers exist,
             // reasoning in circles with the documentation a fetch away.
-            Self::Looped(detail) => format!(
-                "Your last reply was going round in circles and was stopped -- {detail} -- \
+            Self::Looped(_) => format!(
+                "Your last reply was going round in circles and was stopped -- {told_detail} -- \
                  so nothing in it was done. Do not work the problem out again in prose: act \
                  on what you concluded with one tool call (make the change, or run the \
                  failing test and read its output), and let the result tell you what next. \
@@ -8851,5 +8868,33 @@ mod tests {
         .unwrap_err();
         assert_eq!(invented.kind, "schema_mismatch");
         assert!(invented.problem.contains("inputs"));
+    }
+
+    /// GLM-4.7-Flash, 2026-09-30: after "stopped the reply (repetition) after
+    /// 736 tokens; repeated-window ratios: reasoning=5732bp", its next reply was
+    /// "736 token." repeated. The numbers are for the log, not for the model.
+    #[test]
+    fn a_repetition_is_told_to_the_model_without_the_engines_numbers() {
+        let detail = "the MLX engine stopped the reply (repetition) after 736 tokens; \
+                      repeated-window ratios: reasoning=5732bp, answer=0bp";
+        for fault in [
+            ReplyFault::RanAway(detail.into()),
+            ReplyFault::Looped(detail.into()),
+        ] {
+            let told = fault.told();
+            assert!(told.contains("repeating itself"), "{told}");
+            for number in ["736", "5732", "bp", "ratios"] {
+                assert!(!told.contains(number), "{number} reached the model: {told}");
+            }
+            // The log and the person keep the full account.
+            assert!(fault.detail().contains("736 tokens"));
+        }
+        // What names a passage, or a cut-off call, is still said.
+        let passage = ReplyFault::Looped("the passage \"Let me fix it.\" came back 4 times".into());
+        assert!(passage.told().contains("Let me fix it."));
+        let cut = ReplyFault::RanAway(
+            "the model stopped inside an unfinished tool call; no call was executed".into(),
+        );
+        assert!(cut.told().contains("too long to write in one call"));
     }
 }
