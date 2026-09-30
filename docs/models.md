@@ -129,7 +129,9 @@ the end of it, until compaction folds it (`kept_reasoning`,
 event log: a test asserts no event payload contains it.
 
 `pwr eval run --reasoning-effort` bounds a campaign's reasoning the way the
-app does; without it, a campaign measures as before.
+app does, at Medium unless told otherwise; `--reasoning-effort off` lets the
+model reason as its template does, which is what every campaign before
+2026-09-30 measured.
 
 ## The Model Manager
 

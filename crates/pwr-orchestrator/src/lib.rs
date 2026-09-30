@@ -4628,6 +4628,23 @@ pub async fn plan_task<P: ModelProvider>(
     Ok(plan)
 }
 
+/// What a scripted run is offered: the action catalogue, without
+/// `record_progress` unless the run has a plan to record progress against.
+///
+/// `record_progress` claims a finished step of a plan, and a run with no plan
+/// has none to claim: offering it anyway cost every run a tool and a claim
+/// nothing read, and the conversation never had it (plan W2.4, row 8; decision
+/// D-2026-09-30-6). A call to it is still decoded and answered, so a model that
+/// writes one anyway is told rather than refused as unknown.
+pub fn scripted_tool_catalog(plan_first: bool) -> pwr_domain::ToolCatalog {
+    let tools: Vec<pwr_domain::ToolDefinition> = action_tool_catalog()
+        .tools
+        .into_iter()
+        .filter(|tool| plan_first || tool.name != "record_progress")
+        .collect();
+    pwr_domain::ToolCatalog::new(tools).expect("a filtered catalogue is valid")
+}
+
 /// The typed actions offered to a deployment as native tools.
 ///
 /// Canonical actions available to an agent turn.

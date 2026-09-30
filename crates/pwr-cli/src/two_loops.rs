@@ -503,14 +503,21 @@ fn the_conversation_is_offered_a_smaller_catalogue_than_a_run() {
         .iter()
         .map(|tool| tool.name.clone())
         .collect();
-    let run: Vec<String> = pwr_orchestrator::action_tool_catalog()
+    let run: Vec<String> = pwr_orchestrator::scripted_tool_catalog(false)
         .tools
         .iter()
         .map(|tool| tool.name.clone())
         .collect();
 
     let only_in_run: Vec<&String> = run.iter().filter(|name| !chat.contains(name)).collect();
-    assert_eq!(only_in_run, ["record_progress", "propose_verifier"]);
+    assert_eq!(only_in_run, ["propose_verifier"]);
+    // A run with a plan has something to record progress against.
+    assert!(
+        pwr_orchestrator::scripted_tool_catalog(true)
+            .tools
+            .iter()
+            .any(|tool| tool.name == "record_progress")
+    );
     // Beyond the run's, only what needs a person or reads what PWR keeps
     // about them -- and nothing that acts on the workspace.
     let only_in_chat: Vec<&String> = chat.iter().filter(|name| !run.contains(name)).collect();

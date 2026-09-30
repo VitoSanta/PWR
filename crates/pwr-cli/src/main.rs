@@ -476,15 +476,17 @@ enum EvalCommand {
         #[arg(long, value_name = "MANIFEST")]
         resume: Option<PathBuf>,
         /// Bound each turn's reasoning as the desktop does at this Reasoning
-        /// Effort (`low`, `medium` or `high`), from the same assessment and
-        /// the same plan. Absent, the model reasons as its template lets it,
-        /// which is what every earlier report measured.
+        /// Effort (`low`, `medium` -- the default -- or `high`), from the same
+        /// assessment and the same plan. `off` lets the model reason as its
+        /// template does, which is what every report before 2026-09-30
+        /// measured: such a campaign pairs with a later one only when the
+        /// sampling difference is declared as the treatment.
         ///
         /// Measured 2026-09-29: Ornith-1.5-9B lost three small tasks to one
         /// reply each that reasoned for 16,384 tokens, where the desktop at
         /// its default Medium would have closed the reasoning at a few
         /// thousand.
-        #[arg(long, value_name = "EFFORT")]
+        #[arg(long, value_name = "EFFORT", default_value = "medium")]
         reasoning_effort: Option<String>,
     },
     /// Pair two campaigns' reports by deployment, task and seed, and report
@@ -6866,10 +6868,15 @@ async fn evaluate(
             context,
         })?;
     }
-    if let Some(name) = reasoning_effort.as_deref() {
+    // `off` is the old behaviour -- the model reasons as its template lets it --
+    // named so a campaign that wants it says so (decision D-2026-09-30-6).
+    if let Some(name) = reasoning_effort
+        .as_deref()
+        .filter(|name| !name.eq_ignore_ascii_case("off"))
+    {
         let effort = pwr_domain::ReasoningEffort::parse(name).ok_or_else(|| SafeError {
             category: "invalid_input",
-            context: format!("reasoning effort `{name}` is not low, medium or high"),
+            context: format!("reasoning effort `{name}` is not off, low, medium or high"),
         })?;
         let assessment =
             compatibility::assess(compatibility::subject(&provider, &inspection, profile).await);
@@ -7864,7 +7871,11 @@ async fn evaluate_task(
         // Capacity comes only from compatible empirical calibration and fresh
         // runtime admission. A model tag may tune sampling, never override it.
         context_tokens: execution.context_tokens,
-        tools: Some(provider.render_tools(&pwr_orchestrator::action_tool_catalog())),
+        tools: Some(
+            provider.render_tools(&pwr_orchestrator::scripted_tool_catalog(
+                task_profile.plan_first,
+            )),
+        ),
         seed: Some(seed),
         sampling: sampling.clone(),
         // Shares the production context compiler. This remains verifier-supplied
@@ -9483,7 +9494,11 @@ async fn prepare_profiled_run(
     let request = pwr_domain::ModelRequest {
         deployment: deployment.clone(),
         context_tokens: execution.context_tokens,
-        tools: Some(provider.render_tools(&pwr_orchestrator::action_tool_catalog())),
+        tools: Some(
+            provider.render_tools(&pwr_orchestrator::scripted_tool_catalog(
+                plan || task_profile.plan_first,
+            )),
+        ),
         seed: None,
         sampling: task_profile.sampling.clone(),
         messages: compiled_messages,

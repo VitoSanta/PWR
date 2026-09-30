@@ -180,7 +180,7 @@ measures and the app does not ship:
 - the same three completion holds as the conversation: unseen results, nothing
   done (asked once) and *never ran* — a program that was only syntax-checked
   must be run once (`completion_held`);
-- `record_progress` (a ledger the loop carries) and `propose_verifier` (a
+- `record_progress` (offered only with `--plan`) and `propose_verifier` (a
   check the person adopts) in its catalogue;
 - ledger compaction, and optional context policies (`--context-policy
   current | recency-fill | evidence-state`);

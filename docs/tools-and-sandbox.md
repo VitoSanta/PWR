@@ -42,7 +42,7 @@ The scripted loop offers all of it; a conversation removes two and adds four
 | `vcs_status`, `vcs_diff` | What Git says changed | ✓ | ✓ |
 | `complete` | Declare the task done | ✓ | ✓ |
 | `decline` | Refuse the task, saying why | ✓ | ✓ |
-| `record_progress` | Record a finished plan step | — | ✓ |
+| `record_progress` | Record a finished plan step | — | ✓ only with `--plan` (`scripted_tool_catalog`) |
 | `propose_verifier` | Offer a check for a workspace that declares none | — | ✓ |
 | `remember` | Propose a memory; the person saves it | ✓ | — |
 | `recall_project` | Another project's wiki overview and log | ✓ | — |

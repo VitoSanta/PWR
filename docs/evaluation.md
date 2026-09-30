@@ -33,7 +33,8 @@ app's path.
   report) hands the agent the corpus's visible check; `product-path` lets
   check discovery run as for a user. Scoring always uses the hidden verifier.
 - **Other conditions**: `--context-policy current|recency-fill|evidence-state`,
-  `--oracle-context` (a localization diagnostic), `--reasoning-effort`,
+  `--oracle-context` (a localization diagnostic), `--reasoning-effort`
+  (Medium by default, `off` for the pre-2026-09-30 behaviour),
   repeated `--seed`s under one lease, `--resume` from an immutable manifest.
 - **Comparison**: `pwr eval compare` pairs by deployment, task and seed;
   **permissively by default**, which lets campaigns that also changed corpus,
