@@ -4892,7 +4892,7 @@ fn written_file_warning(
 fn broken_file_url_warning(policy: &ToolPolicy, relative: &Path, text: &str) -> Option<String> {
     static URL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let url =
-        URL.get_or_init(|| regex::Regex::new(r#"file://(/[^\s'"`)<>]+)"#).expect("static regex"));
+        URL.get_or_init(|| regex::Regex::new(r#"file://([^\s'"`)<>]+)"#).expect("static regex"));
     let root = policy
         .root
         .canonicalize()
@@ -4907,6 +4907,17 @@ fn broken_file_url_warning(policy: &ToolPolicy, relative: &Path, text: &str) -> 
         let Some(name) = target_path.file_name() else {
             continue;
         };
+        // A shell variable is not expanded inside a program's string, and a
+        // placeholder is a path nobody filled in. Measured 2026-09-30:
+        // Qwen3-14B wrote `file:///path/to/your/project/index.html`, then
+        // `file://$PWD/index.html`.
+        let unexpanded = target.contains('$');
+        let placeholder = ["/path/to/", "/your/", "your-", "/yourname/", "/user/"]
+            .iter()
+            .any(|marker| target.to_ascii_lowercase().contains(marker));
+        if !target.starts_with('/') && !unexpanded {
+            continue;
+        }
         let found = walk_workspace(&root)
             .unwrap_or_default()
             .into_iter()
@@ -4919,13 +4930,20 @@ fn broken_file_url_warning(policy: &ToolPolicy, relative: &Path, text: &str) -> 
                 }
             })
             .find(|candidate| candidate.file_name() == Some(name));
+        let what = if unexpanded {
+            "is not a file: a shell variable is not expanded inside a program's string"
+        } else if placeholder {
+            "is a placeholder, not a file"
+        } else {
+            "is not a file"
+        };
         notes.push(match found {
             Some(real) => format!(
-                "`file://{target}` is not a file; the workspace's `{}` is at `file://{}`.",
+                "`file://{target}` {what}; the workspace's `{}` is at `file://{}`.",
                 name.to_string_lossy(),
                 real.display()
             ),
-            None => format!("`file://{target}` is not a file on this machine."),
+            None => format!("`file://{target}` {what} on this machine."),
         });
     }
     (!notes.is_empty()).then(|| {
@@ -6800,6 +6818,9 @@ async fn run_command_once(
     if sandboxed && status.code() != Some(0) && refused_by_sandbox(&stdout, &stderr) {
         stderr.push_str(SANDBOX_REFUSAL_HINT);
     }
+    if let Some(note) = npx_fetched_package(&stderr) {
+        stderr.push_str(&note);
+    }
     let failing_files = (status.code() != Some(0))
         .then(|| diagnostics_summary(&stdout, &stderr))
         .flatten();
@@ -6815,6 +6836,30 @@ async fn run_command_once(
         sandboxed,
         failing_files,
     })
+}
+
+/// Said when `npx` fetched a package the project does not have and ran it:
+/// whatever it printed is that package's, not the project's.
+///
+/// Measured 2026-09-30 (Qwen3-14B in the desktop): meaning to run its
+/// Playwright tests, it ran `npx test test.js`; npx installed an unrelated
+/// package named `test`, which exited 0 without running a test, and the turn
+/// ended on it as a pass.
+fn npx_fetched_package(stderr: &str) -> Option<String> {
+    const MARKERS: [&str; 2] = [
+        "The following package was not found and will be installed: ",
+        "Need to install the following packages:",
+    ];
+    let package = MARKERS.iter().find_map(|marker| {
+        let at = stderr.find(marker)? + marker.len();
+        stderr[at..].split_whitespace().next().map(str::to_owned)
+    })?;
+    Some(format!(
+        "\n[PWR] npx downloaded `{package}` from the registry and ran it; it is not a dependency \
+         of this project, so this output is that package's and says nothing about the project. \
+         If that is not the program you meant, the one you want is probably a script in \
+         package.json or the command of a package you installed."
+    ))
 }
 
 /// Said when a sandboxed command hangs. Measured 2026-09-29: MSBuild's build
@@ -7798,6 +7843,45 @@ mod tests {
         let good = format!("page.goto('file://{}/web/index.html')", real.display());
         let written = write_file(&policy, Path::new("web/ok.js"), &good).unwrap();
         assert_eq!(written.warning, None);
+    }
+
+    #[test]
+    fn a_placeholder_or_a_shell_variable_in_a_file_url_is_named() {
+        let root = tempfile::tempdir().unwrap();
+        let policy = PolicyProfile::Development.build(root.path().to_path_buf());
+        let real = root.path().canonicalize().unwrap();
+        write_file(&policy, Path::new("index.html"), "<p>bank</p>").unwrap();
+        for (file, url, said) in [
+            (
+                "a.js",
+                "file:///path/to/your/project/index.html",
+                "is a placeholder",
+            ),
+            (
+                "b.js",
+                "file://$PWD/index.html",
+                "shell variable is not expanded",
+            ),
+        ] {
+            let text = format!("const URL = '{url}';\n");
+            let warning = write_file(&policy, Path::new(file), &text)
+                .unwrap()
+                .warning
+                .expect("no warning");
+            assert!(warning.contains(said), "{warning}");
+            assert!(
+                warning.contains(&format!("file://{}/index.html", real.display())),
+                "{warning}"
+            );
+        }
+    }
+
+    #[test]
+    fn npx_running_a_package_the_project_does_not_have_is_named() {
+        let stderr = "npm warn exec The following package was not found and will be installed: test@3.3.0\nnpm notice run npx\n";
+        let note = npx_fetched_package(stderr).unwrap();
+        assert!(note.contains("`test@3.3.0`"), "{note}");
+        assert_eq!(npx_fetched_package("npm notice run npx\n"), None);
     }
 
     #[test]
