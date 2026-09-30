@@ -7570,6 +7570,9 @@ fn resolved_mlx_sampling_for(
                     pwr_domain::ParameterSource::PwrOverride
                 } else if sampling["_pwr_sampling_sources"][name]["kind"] == "model_card" {
                     pwr_domain::ParameterSource::ModelCard
+                } else if origin == Some(pwr_mlx::SAMPLING_FLOOR_SOURCE) {
+                    // Chosen by PWR against a stated reason: nothing else said.
+                    pwr_domain::ParameterSource::PwrOverride
                 } else if matches!(
                     origin,
                     Some("artifact_generation_config" | "artifact_do_sample_false")

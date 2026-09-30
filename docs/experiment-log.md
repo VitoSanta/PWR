@@ -178,3 +178,25 @@ build passed; installed-engine Python sidecar 38 tests passed; workspace Clippy
 with warnings denied, formatting, diff and release-shell syntax checks passed.
 GitHub CLI is not authenticated here, so remote CI was not dispatched and G1
 remains unpassed. Changes are in the working tree, without an integration commit.
+
+## 2026-09-30 — Sampling floor and multi-mode cards (measurement-changing)
+
+**What changed.** (1) A card that lists one sampling set per mode (Qwen3.5's
+"Thinking mode for general tasks / precise coding tasks / Instruct mode…")
+now gives its *thinking, coding* set; before, nothing was found and the model
+ran greedy (`crates/pwr-models/src/sampling.rs`). The "none found" cache is
+schema 3 and expires after a day. (2) When nothing anywhere declares a
+temperature (no profile, card, generation config or person), the engine
+request uses temperature 0.6, top_p 0.95, top_k 20 instead of greedy
+(`pwr_mlx::resolve_generation_sampling`, source `pwr_sampling_floor`); an
+explicit temperature 0 stays greedy and a vendor's lone temperature is not
+topped up.
+
+**Why.** Qwen3.5-9B, several lmstudio-community conversions and Qwen2.5-Coder-14B
+ran greedy (manual pass, 2026-09-29/30), which Qwen's cards warn leads to
+endless repetition, the commonest failure of a small model in the loop.
+
+**Effect on comparisons.** Campaigns run before this revision (harness
+`414d3ae1`) used greedy for these models; they are not paired with later ones
+unless the sampling is declared as the treatment. The A/B is run on the dev
+split (`base-q35-9b-a` before, the `fix-*` runs after).

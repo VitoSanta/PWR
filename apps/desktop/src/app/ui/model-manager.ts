@@ -707,6 +707,7 @@ export class ModelManager {
       artifact_do_sample_false: 'generation_config.json',
       declared_profile: 'PWR profile',
       mlx_sidecar_default: 'engine default',
+      pwr_sampling_floor: 'PWR default (nothing declared)',
       unset: 'not applied',
     } as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
   }
