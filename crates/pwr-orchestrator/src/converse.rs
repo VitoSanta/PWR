@@ -90,13 +90,15 @@ const COMPACTIONS_PER_TURN: usize = 2;
 /// next message continues the work, because the history is still there and
 /// nothing was discarded.
 ///
-/// The number is anchored to the scripted loop's `DEFAULT_MAX_ACTIONS`, which
-/// is twice the observed maximum of the three real defects in `external-v1`
-/// -- 7, 11 and 13 actions. A turn past that is probably not doing work of the
-/// shape that was measured. It is an anchored choice, not a measurement of
-/// conversations: nobody has measured how many actions a turn of chat takes,
-/// and when somebody has, this number should move.
-const ACTIONS_BEFORE_CHECKING_IN: usize = 26;
+/// The default is 100 and the person can change it per workspace
+/// (`actions_per_turn` in `.pwr/chat-config.json`): it was 26, anchored to the
+/// scripted loop's budget, which is twice the maximum of the three real defects
+/// in `external-v1` (7, 11 and 13 actions). A real build from scratch takes
+/// more -- a manual pass on 2026-09-30 stopped a working model mid-task at 26 --
+/// so the default moved to a number a stuck loop still cannot spend unnoticed
+/// (the stall detectors stop it far earlier). It is a choice, not a measurement
+/// of conversations.
+pub const DEFAULT_ACTIONS_PER_TURN: usize = 100;
 
 /// Consecutive backend faults a turn absorbs before it stops and says so.
 ///
@@ -281,9 +283,11 @@ impl StopReason {
                     .to_owned()
             }
             Self::BudgetSpent => format!(
-                "this turn took the {ACTIONS_BEFORE_CHECKING_IN} actions a turn is given before \
-                 checking in, and stopped here rather than carrying on unasked; say what to do \
-                 next -- \"carry on\" is enough, and nothing it has done or read was discarded"
+                "this turn used the actions a turn is given before checking in (the default is \
+                 {DEFAULT_ACTIONS_PER_TURN}; `actions_per_turn` in the workspace's chat \
+                 configuration changes it), and stopped here rather than carrying on unasked; \
+                 say what to do next -- \"carry on\" is enough, and nothing it has done or read \
+                 was discarded"
             ),
         }
     }
@@ -1119,8 +1123,7 @@ async fn take_turn_inner<P: ModelProvider>(
         if actions
             >= continuity
                 .action_limit
-                .unwrap_or(ACTIONS_BEFORE_CHECKING_IN)
-                .min(ACTIONS_BEFORE_CHECKING_IN)
+                .unwrap_or(DEFAULT_ACTIONS_PER_TURN)
         {
             return stopped(actions, edited, StopReason::BudgetSpent);
         }
@@ -1827,7 +1830,7 @@ async fn take_turn_inner<P: ModelProvider>(
             // left. Bound each call, not only the next generation.
             if continuity
                 .action_limit
-                .is_some_and(|limit| actions >= limit.min(ACTIONS_BEFORE_CHECKING_IN))
+                .is_some_and(|limit| actions >= limit)
             {
                 return stopped(actions, edited, StopReason::BudgetSpent);
             }

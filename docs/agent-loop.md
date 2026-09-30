@@ -61,7 +61,7 @@ the verdict is appended to the answer and to the history (see
 
 | Limit | Value | Where | What happens |
 |---|---|---|---|
-| Actions before checking in | 26 | `ACTIONS_BEFORE_CHECKING_IN`, `converse.rs:99` | The turn stops and says so; the next message continues |
+| Actions before checking in | 100 (was 26 until 2026-09-30); `actions_per_turn` in `.pwr/chat-config.json` | `DEFAULT_ACTIONS_PER_TURN`, `converse.rs:99` | The turn stops and says so; the next message continues. A goal's own limit (`goal_budget`) is used instead and is no longer capped at 26 |
 | Compactions per turn | 2 | `COMPACTIONS_PER_TURN`, `converse.rs:76` | Stop as looping |
 | Consecutive empty replies | 3 | `EMPTY_TURNS_BEFORE_GIVING_UP`, `converse.rs:60` | Stop as silent |
 | Consecutive unreadable calls | 3 | `UNPARSEABLE_CALLS_BEFORE_GIVING_UP`, `converse.rs:66` | Stop as unparseable |
