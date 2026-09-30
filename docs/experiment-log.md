@@ -226,3 +226,14 @@ greedy vs the card's 0.6/0.95/20, `bash-rotate`) both failed at the hour, the
 second with five looped or cut-off generations: the card's sampling did not stop
 the reasoning from repeating one passage. Qwen's card names the remedy. Effect
 to be measured on the dev split (run `fix2-*`).
+
+## 2026-09-30 — The review round also runs without a declared acceptance check (measurement-changing)
+
+`fix2-q36-35b` (Qwen3.6-35B-A3B) on the dev tasks `bash-rotate` and
+`go-logstat` ended "technical checks passed, goal not verified" with a rule the
+README states outright unmet (blank lines ignored; `--keep 1` deleting older
+copies); no review had run, because the review round required a passed
+acceptance check, which a workspace with none never has. The round now runs
+once when technical checks pass and no acceptance is declared; the goal still
+ends *not verified*. Harness revision after this entry is the pairing boundary:
+`fix2-q36-35b` is the before, `fix3-q36-35b` the after.
