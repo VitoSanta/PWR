@@ -432,6 +432,24 @@ fn drive_chat_as<P: Recording>(
     context_tiers: &[u32],
     stop: &std::sync::atomic::AtomicBool,
 ) -> ChatOutcome {
+    drive_chat_full(
+        model_ref,
+        policy,
+        provider,
+        context_tiers,
+        stop,
+        Default::default(),
+    )
+}
+
+fn drive_chat_full<P: Recording>(
+    model_ref: &str,
+    policy: ToolPolicy,
+    provider: P,
+    context_tiers: &[u32],
+    stop: &std::sync::atomic::AtomicBool,
+    sampling: std::collections::BTreeMap<String, serde_json::Value>,
+) -> ChatOutcome {
     let adapter = pwr_compat::adapter_for(None, model_ref);
     let store = pwr_store::Store::open(":memory:").unwrap();
     let catalog = converse::chat_tool_catalog();
@@ -450,7 +468,7 @@ fn drive_chat_as<P: Recording>(
             &mut messages,
             8192,
             context_tiers,
-            Default::default(),
+            sampling,
             tools,
             stop,
             &converse::Continuity::default(),
@@ -3686,6 +3704,95 @@ impl ModelProvider for CutOffs {
         }
         self.inner.chat(request).await
     }
+}
+
+/// A provider shared with the test that reads what it was asked.
+struct Shared<P>(std::sync::Arc<P>);
+
+#[async_trait]
+impl<P: ModelProvider> ModelProvider for Shared<P> {
+    async fn inspect(&self, d: &DeploymentDescriptor) -> Result<ModelInspection, ProviderError> {
+        self.0.inspect(d).await
+    }
+    async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+        self.0.runtime_state().await
+    }
+    async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
+        self.0.chat(request).await
+    }
+}
+
+impl<P: Recording> Recording for Shared<P> {
+    fn requests(&self) -> Vec<ModelRequest> {
+        self.0.requests()
+    }
+}
+
+/// A backend whose first generation loops in its reasoning.
+struct LoopsOnce {
+    looped: Mutex<bool>,
+    seen: Mutex<Vec<ModelRequest>>,
+    inner: Scripted,
+}
+
+impl Recording for LoopsOnce {
+    fn requests(&self) -> Vec<ModelRequest> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ModelProvider for LoopsOnce {
+    async fn inspect(&self, _: &DeploymentDescriptor) -> Result<ModelInspection, ProviderError> {
+        unreachable!("a fixture does not inspect")
+    }
+    async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+        unreachable!("a fixture has no backend to describe")
+    }
+    async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
+        self.seen.lock().unwrap().push(request.clone());
+        let first = !std::mem::replace(&mut *self.looped.lock().unwrap(), true);
+        if first {
+            return Err(ProviderError::Looping {
+                safe_context: "the passage \"the same thought\" came back 4 times".into(),
+            });
+        }
+        self.inner.chat(request).await
+    }
+}
+
+/// Measured 2026-09-30: Qwen3.5-9B on its card's sampling still looped in its
+/// reasoning; the vendor's remedy is a presence penalty, so the tries after a
+/// loop ask for one -- and a value somebody set is never lowered.
+#[test]
+fn a_generation_that_looped_is_retried_with_a_presence_penalty() {
+    let run = |declared: Option<f64>| {
+        let dir = workspace();
+        let provider = std::sync::Arc::new(LoopsOnce {
+            looped: Mutex::new(false),
+            seen: Mutex::new(Vec::new()),
+            inner: Scripted::new(vec![says("done")]),
+        });
+        let mut sampling = std::collections::BTreeMap::new();
+        if let Some(value) = declared {
+            sampling.insert("presence_penalty".to_owned(), serde_json::json!(value));
+        }
+        drive_chat_full(
+            "fake",
+            policy_for(dir.path()),
+            Shared(provider.clone()),
+            &[],
+            &std::sync::atomic::AtomicBool::new(false),
+            sampling,
+        );
+        provider.requests()
+    };
+    let seen = run(None);
+    assert_eq!(seen.len(), 2);
+    assert!(seen[0].sampling.get("presence_penalty").is_none());
+    assert_eq!(seen[1].sampling["presence_penalty"], 1.0);
+    // A value somebody set is never lowered.
+    assert_eq!(run(Some(1.5))[1].sampling["presence_penalty"], 1.5);
 }
 
 /// Measured 2026-09-30: the retry after a cut-off tool call was neither bounded

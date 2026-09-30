@@ -216,3 +216,13 @@ when the person chose no window or threshold
 (`Continuity::compaction_room`). Campaign tasks stay far below the ceiling, so
 this changes no campaign result made so far; it changes long app sessions. Not
 yet measured for quality (plan W4): it is justified by prefill time alone.
+
+## 2026-09-30 — Presence penalty after a looped generation (measurement-changing)
+
+Once a generation of a turn ends as `looping_reply`, the turn's later
+generations ask for `presence_penalty` 1.0 (source `pwr_loop_recovery`) unless
+a higher value is set. Cause: `base-q35-9b-a` and `fix1-q35-9b` (Qwen3.5-9B,
+greedy vs the card's 0.6/0.95/20, `bash-rotate`) both failed at the hour, the
+second with five looped or cut-off generations: the card's sampling did not stop
+the reasoning from repeating one passage. Qwen's card names the remedy. Effect
+to be measured on the dev split (run `fix2-*`).
