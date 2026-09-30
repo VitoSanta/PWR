@@ -1,0 +1,84 @@
+# The command line
+
+**Checked against `develop` at `0776ff4f`, 2026-09-30**, from the binary's own
+`--help`, which remains the authority on flags. The command line is the
+development and research surface; the product is the [desktop app](desktop.md),
+which drives the same core through `pwr serve`.
+
+## Set up from a checkout
+
+```bash
+sh scripts/setup-mlx.sh
+```
+
+```bash
+cargo build --release -p pwr-cli
+```
+
+`setup-mlx.sh` creates `.venv-mlx` with the pinned engine packages. The
+launcher `scripts/pwr` rebuilds the core when sources are newer and uses
+`.venv-mlx` when `PWR_MLX_PYTHON` is unset; `sh scripts/install-pwr.sh` links
+it into `~/.local/bin` (`PWR_BIN_DIR` moves it).
+
+## Global options
+
+`--json` (machine-readable output) and `--backend mlx|llama` (llama.cpp for
+GGUF, experimental). Without a command, `pwr` opens the chat console.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `pwr chat [--model M] [--attach PATH]… [--continue]` | Conversation and agent in the current workspace (terminal UI). `--model` also becomes the workspace's model; `--continue` resumes the latest conversation and reports what changed on disk since |
+| `pwr serve --stdio` | The protocol server the app launches ([pwr-serve.md](pwr-serve.md)) |
+| `pwr run "<task>"` | An unattended scripted run (the research loop; see [agent-loop.md](agent-loop.md#the-scripted-run)). Flags: `--model`, `--profile`, `--dry-run`, `--approve <grants>` (`dependency-change`, `history-rewrite`, `publish`, `network-access`, `local-service`, `toolchain-install`, `container-engine`, `verifier-proposal`, `outside-sandbox`, `outside-workspace`), `--turn-timeout-secs` (900), `--session <name>`, `--plan`, `--provision` (toolchain installs: grants any program **and** the network), `--max-actions` |
+| `pwr verify [RUN_ID] [--scope targeted\|full]` | Run the repository's checks |
+| `pwr doctor` | Host and backend facts |
+| `pwr report <ID> [--format json\|md\|jsonl]` | A run's report from its log; `jsonl` also verifies the hash chain |
+| `pwr diagnose <ID>` | Known failure patterns found in a run's log |
+| `pwr session list \| show <name>` | Named sessions of the scripted loop, reconstructed from the log |
+| `pwr models inspect <M> [--probe]` | Inspect a model's metadata; `--probe` runs capability trials (`--probe-trials`, default 3) |
+| `pwr models select` | Explain which deployment automatic selection would choose and why (loads nothing) |
+| `pwr models download-plan <artifact>` / `download <artifact>` | Plan or perform a verified download of an artifact listed in `strategies/artifacts.json` |
+| `pwr models certification <M>` / `certify <M> --level … --rationale …` | Read or record a certification level (`unsupported`, `experimental`, `compatible`, `certified`); under audit in plan W10.1 |
+| `pwr calibrate <M> [--ladder 2048,4096,8192]` | The old context-ladder calibration (research; the app computes the window instead) |
+| `pwr repo index [PATH]` | Build or update the repository index |
+| `pwr repo rank "<request>" [PATH] [--content] [--semantic]` | The passages a turn would be given, with scores |
+| `pwr eval run <suite> --model M` | Run a frozen corpus; see [evaluation.md](evaluation.md) |
+| `pwr eval compare <control> <treatment> [--strict] [--declare FIELD]…` | Pair two campaigns (permissive by default today; plan W8.1) |
+| `pwr eval suite <file> [--reports DIR] [--strict]` | Run a regression suite (areas A1–A4) |
+| `pwr check-corpus <suite>` | Check a corpus is fair before measuring on it |
+
+Slash commands inside `pwr chat` and the app: `/changes`, `/verify`,
+`/report`, `/diagnose`, `/doctor`.
+
+## Environment variables
+
+| Variable | Effect |
+|---|---|
+| `PWR_BACKEND` | `mlx` or `llama` (ignored by a release app on macOS, which runs MLX) |
+| `PWR_MLX_PYTHON`, `PWR_MLX_SIDECAR` | The engine's interpreter and sidecar script |
+| `PWR_MLX_MODELS`, `PWR_LLAMA_MODELS` | Model folders (default `~/.pwr/models`) |
+| `PWR_LLAMA_SERVER`, `PWR_LLAMA_PORT` | The `llama-server` binary and port |
+| `PWR_HOME` | Replaces `~/.pwr` |
+| `PWR_CHAT_HOME` | Chat mode's folder (default `~/.pwr/chat`) |
+| `PWR_EVIDENCE_DIR` | Local calibration records (default `~/.pwr/model-evidence`) |
+| `PWR_MODEL_ARTIFACTS` | Destination root of `pwr models download` |
+| `PWR_HF_BASE_URL`, `HF_TOKEN` | Hugging Face endpoint and token |
+| `PWR_ALLOW_UNCONFINED=1` | Run commands unconfined where no sandbox can be built (recorded `sandboxed: false`) |
+| `PWR_SEMANTIC_RETRIEVAL=1` | Experimental semantic ranking (`PWR_EMBED_PYTHON`, `PWR_EMBED_SIDECAR` for its encoder) |
+| `PWR_BROWSER` | The browser `look_at` drives |
+| `PWR_MLX_TRACE` | Engine request tracing |
+| `PWR_CORE`, `PWR_WORKSPACE` | The core binary and workspace the app uses in development |
+| `PWR_DOWNLOAD_FREE_BYTES` | Override of free disk space (tests) |
+| `PWR_LIVE_MODEL`, `PWR_LLAMA_SMOKE_MODEL`, `PWR_UPDATE_GOLDEN` | Test-only switches ([testing.md](testing.md)) |
+
+## A small-model campaign, as run on 2026-09-29/30
+
+```bash
+PWR_MLX_PYTHON="$HOME/Library/Application Support/ai.pwr.desktop/engine/venv/bin/python" PWR_MLX_SIDECAR="$PWD/crates/pwr-mlx/sidecar/pwr_mlx.py" target/release/pwr --json --backend mlx eval run corpus/small-apps-v1.json --model <ref> --arm b1 --seed 1 --out-dir .pwr/small-runs/<stamp>/<slug>
+```
+
+This measures the scripted loop, not the app's path (plan W2.4). The app's
+path is exercised by driving `pwr serve` over ACP, as the stack-matrix runner
+does ([evaluation.md](evaluation.md#the-stack-matrix)).

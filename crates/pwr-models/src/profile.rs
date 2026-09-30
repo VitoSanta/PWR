@@ -182,7 +182,7 @@ pub struct ReuseDecision {
     pub reasons: Vec<String>,
 }
 
-/// The reuse rules. Deterministic; documented in `docs/model-compatibility.md`.
+/// The reuse rules. Deterministic; documented in `docs/models.md`.
 ///
 /// | Change | Outcome |
 /// |---|---|

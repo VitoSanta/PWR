@@ -1,6 +1,6 @@
 //! What compaction keeps, as a treatment rather than a constant.
 //!
-//! R3's H2 design (`docs/r3-h2-evidence-state.md`): at a 16,384-token window,
+//! R3's H2 design (`docs/archive/r3-h2-evidence-state.md`): at a 16,384-token window,
 //! compaction took the history from about 8,500 estimated tokens to about 1,500
 //! of an 8,192-token budget, keeping which files were read and none of what they
 //! said, and the next turns read the same file again -- 41% of the actions in the

@@ -3,6 +3,53 @@
 PWR is an open-source coding agent for local models, in continuous evolution.
 Statuses such as *experimental* mean what they say: usable, still changing.
 
+## Unreleased (`develop`)
+
+Recorded in detail, with what was checked, in
+[docs/release/v0.2.x-mac-verification.md](docs/release/v0.2.x-mac-verification.md).
+
+### Direction and documentation
+
+- A technical review of 2026-09-30 was checked claim by claim against the
+  code and adopted: PWR is positioned as a dependable local coding agent for
+  bounded repository changes, and the claim that its harness makes small
+  models better is to be tested once, on the app's own path, before more is
+  built on it ([MASTER_SPEC](MASTER_SPEC.md), [plan](docs/plan/implementation-plan.md)).
+- The documentation was rewritten from the code. Earlier documents are kept
+  whole in `docs/archive/`. Windows moves after the decisive comparison.
+
+### Agent
+
+- Gemma 4 and gpt-oss calibrate and run in agent mode (tool-call adapters,
+  engine diagnostics kept off the protocol, a stop at the model's closing
+  marker; Quick Calibration suite 5).
+- For every model: unresolved imports answered with the install to run; edit
+  results show the changed lines; `complete` over unread results, or before
+  anything was done, is held once; a command that failed the same way twice is
+  not run again; five failed runs after edits → hand over what is ready;
+  more one-reading repairs of malformed calls.
+- Ornith-1.5-9B uses its vendor's temperature.
+
+### Sandbox and permissions
+
+- Three permission modes: Protected, Standard and **Full access** (no
+  sandbox). A sandboxed command can ask to run once outside the sandbox.
+- .NET installed per user, MSBuild's node sockets, and `look_at` on GitHub's
+  runners work in the sandbox.
+
+### Desktop
+
+- Focus tools laid out as a grid; the Terminal holds several shells as tabs.
+- Scrolling holds its place while an answer streams and across trace views;
+  top-bar panels close when the window loses focus.
+- A reopened conversation shows a reconstructed summary of its actions and
+  each turn's own model.
+
+### Evaluation
+
+- `pwr eval run --reasoning-effort` bounds reasoning as the app does.
+- New corpus `corpus/small-apps-v1.json`.
+
 ## v0.2.0-alpha — 2026-09-28
 
 The agent has improvements to speed, completion handling and toolchain coverage;

@@ -460,7 +460,7 @@ enum EvalCommand {
         oracle_context: bool,
         /// What B1's compaction keeps: `current`, `recency-fill` or
         /// `evidence-state`, the arms of R3's H2 comparison
-        /// (`docs/r3-h2-evidence-state.md`). A campaign that changes it pairs
+        /// (`docs/archive/r3-h2-evidence-state.md`). A campaign that changes it pairs
         /// only when `context_policy` is declared as the treatment.
         #[arg(long, default_value = "current")]
         context_policy: String,
