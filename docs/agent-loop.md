@@ -102,7 +102,8 @@ verification, no second turn.
    - a turn with no actions and no completion counts as idle; three idle
      rounds in a row pause the goal as *stalled*;
    - on `complete`, the full verification runs:
-     - checks pass, the goal edited something, and no review has run yet →
+     - checks pass (technical checks alone count, from 2026-09-30), the goal
+       edited something, and no review has run yet →
        a **review round**: a second reading of the request against the code
        by the same model (about a minute, reasoning bounded to 4,000 tokens),
        whose findings are sent back as guidance;

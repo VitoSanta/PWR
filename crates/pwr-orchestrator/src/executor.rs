@@ -740,6 +740,9 @@ async fn drive<H: SessionHost + ?Sized>(
         }
         if report.completed {
             if let Some(verification) = reviewed.take() {
+                if let Some(note) = not_verified_note(&verification) {
+                    host.say(&note);
+                }
                 return SessionEnd::Reply {
                     report,
                     total_actions,
@@ -764,7 +767,19 @@ async fn drive<H: SessionHost + ?Sized>(
                 }
             };
             // Every branch below either ends the goal or sends the model back.
-            if verification.passed && goal_edited && !review_done {
+            // The review reads the specification against the code, rule by
+            // rule, and it is what catches a rule no check covers. It used to
+            // run only when an acceptance check had passed -- which a person
+            // who has declared none never gets, nearly everyone. Measured
+            // 2026-09-30: Qwen3.6-35B ended two dev tasks "technical checks
+            // passed, not verified" with an explicit README rule unmet
+            // (blank lines ignored; `--keep 1` deleting older copies), no
+            // review having run.
+            let reviewable = verification.passed
+                || (verification.technical_passed
+                    && !verification.acceptance_available
+                    && verification.contract_changed.is_empty());
+            if reviewable && goal_edited && !review_done {
                 if budget.reviews >= budget.limits.review_rounds {
                     return SessionEnd::OutOfBudget {
                         total_actions,
@@ -821,11 +836,8 @@ async fn drive<H: SessionHost + ?Sized>(
                     goal: true,
                     verification: Some(verification),
                 };
-            } else if verification.technical_passed && !verification.acceptance_available {
-                host.say(&format!(
-                    "Technical checks passed, but the goal is not verified because this workspace has no declared acceptance check.\n{}",
-                    verification.summary
-                ));
+            } else if let Some(note) = not_verified_note(&verification) {
+                host.say(&note);
                 return SessionEnd::Reply {
                     report,
                     total_actions,
@@ -888,6 +900,17 @@ async fn drive<H: SessionHost + ?Sized>(
             ));
         }
     }
+}
+
+/// What a goal says when the technical checks pass and there is nothing to
+/// verify the goal against.
+fn not_verified_note(verification: &GoalVerification) -> Option<String> {
+    (verification.technical_passed && !verification.acceptance_available).then(|| {
+        format!(
+            "Technical checks passed, but the goal is not verified because this workspace has no declared acceptance check.\n{}",
+            verification.summary
+        )
+    })
 }
 
 /// What the checks establish after an edit, as three different things.
@@ -1422,6 +1445,44 @@ mod tests {
             outcome.acceptance,
             pwr_domain::AcceptanceOutcome::NotDeclared
         ));
+    }
+
+    /// With no acceptance check declared the goal is never "verified", but the
+    /// work is still read against the request once before it is handed over.
+    #[test]
+    fn a_goal_with_technical_checks_only_is_still_reviewed_once_and_ends_not_verified() {
+        let technical = GoalVerification {
+            technical_passed: true,
+            acceptance_available: false,
+            summary: "1 of 1 checks passing".into(),
+            ..Default::default()
+        };
+        let mut edited = report(2, true);
+        edited.edited = true;
+        let host = Fake::new(
+            vec![edited, report(1, true)],
+            vec![Ok(GoalVerification::default()), Ok(technical)],
+        );
+        let SessionEnd::Reply { verification, .. } =
+            run(&host, Policy::Goal, GoalLimits::default()).end
+        else {
+            panic!("the goal did not reply");
+        };
+        assert!(!verification.expect("carries it").passed);
+        let said = host.said.lock().unwrap().join("\n");
+        assert!(
+            said.contains("Reviewing the work against the request"),
+            "{said}"
+        );
+        assert!(
+            said.contains("not verified because this workspace has no declared"),
+            "{said}"
+        );
+        assert_eq!(
+            host.ran.load(Ordering::Relaxed),
+            2,
+            "one turn after the review"
+        );
     }
 
     #[test]

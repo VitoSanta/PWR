@@ -141,7 +141,9 @@ verification (`verify_goal` in `main.rs`) and decides:
 - otherwise → back to the model with the evidence; the same failing set of
   check **names** three times → *blocked*.
 
-Before ending verified, one **review round** reads the request against the
+Before ending, one **review round** (also when the technical checks pass and no
+acceptance check is declared, from 2026-09-30; the goal then still ends *not
+verified*) reads the request against the
 changed files (same model, reasoning bounded to 4,000 tokens). Its findings
 are guidance, not verification.
 
