@@ -98,8 +98,9 @@ with exit 1 look the same (plan W3.3).
 
 ## After a conversation turn
 
-In `run_chat_turn` (`crates/pwr-cli/src/main.rs:4851-4927`), if the turn
-edited files and the workspace has checks:
+`executor::close_turn` (`crates/pwr-orchestrator/src/executor.rs`), called from
+`run_chat_turn` in `main.rs` with the policy the front end prepared, if the turn
+edited files:
 
 - with a baseline from before the turn → the verdict compares before and
   after (green, regressions, still failing);
@@ -110,14 +111,18 @@ edited files and the workspace has checks:
 - no checks → *"Independent verification unavailable: this workspace declares
   no automated checks"*.
 
-The verdict is appended to the answer and to the history, and shown as a note
-**prefixed `✓` whatever it says** (plan W2.2). The turn has already ended; a
-failing verdict does not send the model back.
+The verdict is appended to the answer, shown as a note whose mark follows the
+verdict (`✓` green, `–` unavailable, already failing or zero tests, `✗` new
+failures, `!` could not run), recorded in the turn's typed outcome, and handed
+to the model as a message with the purpose `VerificationFeedback` — the
+harness's, not an orphan tool result. Tested with a real check that flips
+outcome (`executor::tests`). The turn has already ended; a failing verdict does
+not send the model back (plan W7.1 decides whether it should).
 
 ## Goal acceptance
 
-On each `complete` in Goal mode, `verify_goal` (`main.rs:3706`) runs the full
-verification and decides:
+On each `complete` in Goal mode, the executor asks its host for the full
+verification (`verify_goal` in `main.rs`) and decides:
 
 - **passed** only if the technical checks pass, no `cargo test` ran zero
   tests, a declared acceptance check exists, and **`.pwr/checks.json` has the

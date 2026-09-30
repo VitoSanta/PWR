@@ -466,7 +466,7 @@ the same thing by "complete".
 
 ### W2.3 One session executor
 
-**Status:** NEXT · L
+**Status:** IN PROGRESS · L — executor extracted and tested locally (2026-09-30); not DONE until CI is green and the console is moved (see *Implemented*)
 
 - **Problem.** The conversation turn, its post-turn verification, and Goal
   mode live in `pwr-cli` (`main.rs`, `serve.rs`); a new interface or benchmark
@@ -482,6 +482,27 @@ the same thing by "complete".
   verification; the protocol tests in `serve.rs` pass unchanged.
 - **Tests.** Existing `two_loops.rs` and `serve.rs` protocol tests; new
   executor tests with a fake provider for each policy.
+- **Implemented** in `crates/pwr-orchestrator/src/executor.rs`:
+  - `execute(host, SessionRequest, GoalLimits) -> SessionResult { end, budget }`
+    with policy `Conversation` (one turn) or `Goal` (the loop); `SessionEnd` is
+    `Reply | Stopped | OutOfBudget | Error`, not a JSON reply.
+  - The goal loop, budget and limits, review and guidance text, `TurnInput` and
+    `GoalVerification` moved out of `serve.rs` verbatim; `serve.rs` implements
+    `SessionHost` for a session (`ServerHost`) and maps each ending to the ACP
+    reply it always produced. Its unit tests pass unchanged.
+  - `close_turn` and `CheckVerdict`: the checks that close a turn (baseline vs
+    after, zero tests, newly discovered checks, unconfined runs) moved out of
+    `main.rs`, which now prepares the policy and calls it.
+  - 13 tests without any front end: a conversation is one turn and verifies
+    nothing; completions refused with alternating failing sets stop at the
+    limit with no further turn; the same refusal three times is blocked; a goal
+    is verified only when acceptance passed; a gone session; and `close_turn`
+    against a real check that flips outcome (never a tick on a failure).
+  - **Still open:** the terminal console (`pwr chat`, `run_tui` in `main.rs`)
+    calls `run_chat_turn` directly rather than `execute`; the executor returns
+    a `SessionEnd` that the host translates rather than a `TurnOutcome`
+    (W2.1's scripted/CLI-JSON migration); `serve.rs` and `main.rs` are still
+    large (W10.4).
 
 ### W2.4 Converge the scripted runner onto the executor
 

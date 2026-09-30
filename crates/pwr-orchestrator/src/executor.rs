@@ -890,6 +890,220 @@ async fn drive<H: SessionHost + ?Sized>(
     }
 }
 
+/// What the checks establish after an edit, as three different things.
+///
+/// They were one thing, and the one thing was wrong. The conversation ran
+/// `pwr_verify::compare` and said "the repository's own checks passed after
+/// the change" whenever `new_failures` was empty. `new_failures` is the set of
+/// checks that fail now and did not fail before: a check that was already red
+/// at the baseline and is still red is, correctly, not in it. So a repository
+/// with a failing suite got told its checks passed, by the harness whose stated
+/// purpose is to refuse exactly that claim.
+///
+/// The distinction is the one [MASTER_SPEC](../../../MASTER_SPEC.md) draws
+/// between `checks_passed` and `baseline_preserved`, and it is not pedantry:
+/// the first says the work is verified and the second says only that the work
+/// broke nothing that was working. An engineer acts differently on each.
+pub enum CheckVerdict {
+    /// Every check the workspace declares passes now.
+    Green,
+    /// Nothing that passed before fails now, and something is still red.
+    ///
+    /// Named with the commands, because "some were already failing" invites the
+    /// reader to assume they are the ones they already knew about.
+    BaselinePreserved { still_failing: Vec<String> },
+    /// Something that passed before fails now.
+    NewFailures(Vec<String>),
+}
+
+impl CheckVerdict {
+    pub fn mark(&self) -> &'static str {
+        match self {
+            Self::Green => "✓",
+            Self::BaselinePreserved { .. } => "–",
+            Self::NewFailures(_) => "✗",
+        }
+    }
+    pub fn said(&self) -> String {
+        match self {
+            Self::Green => "the repository's own checks passed after the change".to_owned(),
+            Self::BaselinePreserved { still_failing } => format!(
+                "no check that passed before the change fails now, and {} still \
+                 {} as {} before the change: {}. The change is not verified by \
+                 {}; it is only not the cause of {} failing",
+                still_failing.len(),
+                if still_failing.len() == 1 {
+                    "does"
+                } else {
+                    "do"
+                },
+                if still_failing.len() == 1 {
+                    "it did"
+                } else {
+                    "they did"
+                },
+                still_failing.join(", "),
+                if still_failing.len() == 1 {
+                    "it"
+                } else {
+                    "them"
+                },
+                if still_failing.len() == 1 {
+                    "it"
+                } else {
+                    "them"
+                },
+            ),
+            Self::NewFailures(commands) => format!(
+                "the repository's own checks did not pass: {}",
+                commands.join(", ")
+            ),
+        }
+    }
+}
+
+/// Reads the two baselines for what they actually establish.
+///
+/// A check with no exit code at all counts as failing: the command did not run
+/// to a verdict, and an absent verdict is not a passing one.
+pub fn check_verdict(
+    before: &pwr_verify::VerificationBaseline,
+    after: &pwr_verify::VerificationBaseline,
+) -> CheckVerdict {
+    let comparison = pwr_verify::compare(before, after);
+    if !comparison.new_failures.is_empty() {
+        return CheckVerdict::NewFailures(comparison.new_failures);
+    }
+    let still_failing: Vec<String> = after
+        .checks
+        .iter()
+        .filter(|check| check.result.exit_code != Some(0))
+        .map(|check| check.command.clone())
+        .collect();
+    if still_failing.is_empty() {
+        CheckVerdict::Green
+    } else {
+        CheckVerdict::BaselinePreserved { still_failing }
+    }
+}
+
+/// What the front end prepares for the checks that close a turn: the policy
+/// they run under -- with the allowlist of the checks' own programs and what
+/// the person allowed for the session, so a restore has the network they
+/// allowed a moment ago -- the checks as discovered before and after the turn,
+/// and the baseline taken before the turn acted.
+pub struct ClosingChecks {
+    pub policy: pwr_tools::ToolPolicy,
+    pub checks_before: Vec<(String, Vec<String>)>,
+    pub checks_after: Vec<(String, Vec<String>)>,
+    pub before: Option<pwr_verify::VerificationBaseline>,
+}
+
+/// Faces a turn that changed the workspace with the repository's own checks,
+/// and puts what they said into the answer, the model's next prompt and the
+/// turn's typed outcome.
+///
+/// Saying "done" without that is the claim this project exists to refuse. The
+/// mark, the wording and the evidence all come from the same reading of the
+/// baselines, so a failure is never shown with a tick (plan W2.2).
+pub async fn close_turn(
+    checks: ClosingChecks,
+    report: &mut TurnReport,
+    messages: &mut Vec<ChatMessage>,
+    steps: &mut dyn FnMut(TurnStep),
+) {
+    let ClosingChecks {
+        policy: verification_policy,
+        checks_before: checks,
+        checks_after: after_checks,
+        before,
+    } = checks;
+    let mut evidence = pwr_domain::ChecksOutcome::Unavailable {
+        why: "this workspace declares no automated checks".into(),
+    };
+    let mut baseline_evidence = pwr_domain::BaselineOutcome::NoBaseline;
+    let (mark, verdict) = match (&before, after_checks.is_empty(), checks == after_checks) {
+        (_, true, _) => (
+            "–",
+            "Independent verification unavailable: this workspace declares no automated checks"
+                .to_owned(),
+        ),
+        (Some(before), false, true) => {
+            match pwr_verify::baseline(&verification_policy, &after_checks).await {
+                Ok(after) => {
+                    if after.checks.iter().any(|check| !check.result.sandboxed) {
+                        report.outcome.confinement = pwr_domain::Confinement::Unconfined;
+                    }
+                    evidence = pwr_verify::evidence::checks(&after);
+                    baseline_evidence = pwr_verify::evidence::baseline(Some(before), &after);
+                    let verdict = check_verdict(before, &after);
+                    if matches!(verdict, CheckVerdict::Green)
+                        && matches!(evidence, pwr_domain::ChecksOutcome::RanZeroTests)
+                    {
+                        ("–", "the checks exited successfully but ran zero tests; behavior remains unverified".to_owned())
+                    } else {
+                        (verdict.mark(), verdict.said())
+                    }
+                }
+                Err(error) => {
+                    evidence = pwr_domain::ChecksOutcome::CouldNotRun {
+                        why: error.to_string(),
+                    };
+                    ("!", format!("the checks could not be run: {error}"))
+                }
+            }
+        }
+        _ => match pwr_verify::baseline(&verification_policy, &after_checks).await {
+            Ok(after) => {
+                if after.checks.iter().any(|check| !check.result.sandboxed) {
+                    report.outcome.confinement = pwr_domain::Confinement::Unconfined;
+                }
+                evidence = pwr_verify::evidence::checks(&after);
+                let failing: Vec<_> = after
+                    .checks
+                    .iter()
+                    .filter(|check| check.result.exit_code != Some(0))
+                    .map(|check| check.command.as_str())
+                    .collect();
+                if failing.is_empty() {
+                    if matches!(evidence, pwr_domain::ChecksOutcome::RanZeroTests) {
+                        ("–", "the new project checks exited successfully but ran zero tests; its behavior has not been verified".to_owned())
+                    } else {
+                        ("✓", "the newly discovered project checks passed after the edit; no prior baseline exists for them".to_owned())
+                    }
+                } else {
+                    (
+                        "✗",
+                        format!(
+                            "the newly discovered project checks failed: {}; no prior baseline exists for them",
+                            failing.join(", ")
+                        ),
+                    )
+                }
+            }
+            Err(error) => {
+                evidence = pwr_domain::ChecksOutcome::CouldNotRun {
+                    why: error.to_string(),
+                };
+                (
+                    "!",
+                    format!("the newly discovered checks could not be run: {error}"),
+                )
+            }
+        },
+    };
+    report.outcome.checks = evidence;
+    report.outcome.baseline = baseline_evidence;
+    steps(converse::TurnStep::Note(format!("{mark} {verdict}")));
+    report.answer = format!("{}\n\n{verdict}", report.answer.trim());
+    messages.push(ChatMessage {
+        role: "user".into(),
+        content: format!("Harness verification feedback after your edits: {verdict}"),
+        purpose: Some(pwr_domain::MessagePurpose::VerificationFeedback),
+        ..Default::default()
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1217,5 +1431,138 @@ mod tests {
         // The baseline could not run, which a goal survives; the completion's
         // verification could not either, which it does not.
         assert!(matches!(result.end, SessionEnd::Error { code: -32602, .. }));
+    }
+
+    // ------------------------------------------ the checks that close a turn
+
+    fn closing_policy(root: &Path) -> pwr_tools::ToolPolicy {
+        pwr_tools::ToolPolicy {
+            root: root.to_path_buf(),
+            extra_readable: Vec::new(),
+            protected: Vec::new(),
+            allow_commands: vec!["sh".into()],
+            output_limit: 4096,
+            timeout: std::time::Duration::from_secs(10),
+            sandbox: pwr_tools::SandboxPolicy::Disabled,
+            approvals: Vec::new(),
+        }
+    }
+
+    /// The one check the fixtures declare: green until a `broken` file exists.
+    fn the_check() -> (String, Vec<String>) {
+        ("sh".into(), vec!["-c".into(), "test ! -e broken".into()])
+    }
+
+    /// Closes a turn that edited a file, the way the front end does: the check
+    /// run before the turn (`was_red` says whether the repository was already
+    /// failing it), the same check run after (`now_red`).
+    fn close(
+        has_check: bool,
+        was_red: bool,
+        now_red: bool,
+    ) -> (TurnReport, Vec<ChatMessage>, Vec<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let policy = closing_policy(dir.path());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let checks: Vec<_> = has_check.then(the_check).into_iter().collect();
+        if was_red {
+            std::fs::write(dir.path().join("broken"), "").unwrap();
+        }
+        let before = if checks.is_empty() {
+            None
+        } else {
+            runtime
+                .block_on(pwr_verify::baseline(&policy, &checks))
+                .ok()
+        };
+        // The turn's edit, as far as the check can tell.
+        match (was_red, now_red) {
+            (false, true) => std::fs::write(dir.path().join("broken"), "").unwrap(),
+            (true, false) => std::fs::remove_file(dir.path().join("broken")).unwrap(),
+            _ => {}
+        }
+        let mut report = report(2, false);
+        report.edited = true;
+        let mut messages = vec![ChatMessage::text("user", "change it")];
+        let mut noted = Vec::new();
+        runtime.block_on(close_turn(
+            ClosingChecks {
+                policy,
+                checks_before: checks.clone(),
+                checks_after: checks,
+                before,
+            },
+            &mut report,
+            &mut messages,
+            &mut |step| {
+                if let TurnStep::Note(text) = step {
+                    noted.push(text);
+                }
+            },
+        ));
+        (report, messages, noted)
+    }
+
+    #[test]
+    fn a_turn_that_edited_in_a_workspace_with_no_checks_says_so_and_claims_nothing() {
+        let (report, messages, noted) = close(false, false, false);
+        assert!(matches!(
+            report.outcome.checks,
+            pwr_domain::ChecksOutcome::Unavailable { .. }
+        ));
+        assert!(!report.outcome.verified());
+        assert!(noted[0].starts_with('–'), "{noted:?}");
+        assert!(
+            report
+                .answer
+                .contains("Independent verification unavailable")
+        );
+        // The model is told, in a message that is the harness's, not a tool's.
+        let feedback = messages.last().unwrap();
+        assert_eq!(feedback.role, "user");
+        assert_eq!(
+            feedback.purpose,
+            Some(pwr_domain::MessagePurpose::VerificationFeedback)
+        );
+    }
+
+    #[test]
+    fn passing_checks_are_ticked_and_recorded_as_passed() {
+        let (report, _, noted) = close(true, false, false);
+        assert!(matches!(
+            report.outcome.checks,
+            pwr_domain::ChecksOutcome::Passed
+        ));
+        assert!(noted[0].starts_with('✓'), "{noted:?}");
+        // Checks passing is not acceptance.
+        assert!(!report.outcome.verified());
+    }
+
+    /// The defect of 2026-09-30: the note was prefixed with a tick whatever the
+    /// verdict said. A check that fails is never shown with one.
+    #[test]
+    fn a_failing_check_is_never_shown_with_a_tick() {
+        let (report, _, noted) = close(true, false, true);
+        assert!(matches!(
+            report.outcome.checks,
+            pwr_domain::ChecksOutcome::Failed { .. }
+        ));
+        assert!(!noted[0].starts_with('✓'), "{noted:?}");
+        assert!(noted[0].starts_with('✗'), "{noted:?}");
+        assert!(report.answer.contains("did not pass"), "{}", report.answer);
+    }
+
+    #[test]
+    fn a_check_that_was_already_failing_is_not_called_a_pass() {
+        let (report, _, noted) = close(true, true, true);
+        assert!(noted[0].starts_with('–'), "{noted:?}");
+        assert!(
+            report.answer.contains("is not verified"),
+            "{}",
+            report.answer
+        );
     }
 }
