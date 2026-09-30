@@ -25,6 +25,16 @@ unchanged. Any new product-path campaign must record these effective limits;
 results from the previous unbounded refusal path are not silently equivalent.
 No model campaign was run for this change.
 
+## 2026-09-30 — A working site reported as failing its checks (found by hand)
+
+Bonsai 27B in the desktop built a site whose script held a card template with
+`<img src="${car.image}">`. The web asset check took the placeholder for a file
+and the turn ended "the newly discovered project checks failed: pwr:web-assets"
+with the banner "the work is not verified". The site worked; the check was
+wrong. Placeholders filled in at run time are now not references (`web.rs`); a
+fixture uses the same shape and the real workspace passes. The mark and the
+banner were right about what the check said -- the fault was the check's.
+
 ## 2026-09-30 — A file too long for one tool call (found by hand, in the app)
 
 **What happened.** Bonsai 27B 1-bit in the desktop, asked for a whole site in one

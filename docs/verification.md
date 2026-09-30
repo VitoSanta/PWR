@@ -77,7 +77,12 @@ yields anything wins:
    Python (`pyproject`, `setup.py`, `requirements.txt`), Ruby, PHP, Make, CMake.
    For Cargo, *targeted* runs `--lib` or `--bins`, *full* the workspace.
 5. C# projects at the root, then nested Cargo manifests and C# projects.
-6. Last, for a page with no toolchain: the **web asset check** (`web.rs`).
+6. Last, for a page with no toolchain: the **web asset check** (`web.rs`). It
+   reads the markup as text and follows every `src` and `href` that names a
+   local file; another origin, a fragment, a `data:` URL and a **run-time
+   placeholder** (`${…}`, `{{…}}`, `{%…%}`, `<%…%>`, `<?…?>`) are left alone.
+   Placeholders were flagged until 2026-09-30, when a working site was reported
+   as failing because a script's card template carried `<img src="${car.image}">`.
 
 ## Running them
 

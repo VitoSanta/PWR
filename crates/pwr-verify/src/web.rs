@@ -265,6 +265,17 @@ fn local_target(value: &str) -> Option<String> {
     if value.is_empty() || value.starts_with('#') || value.starts_with("//") {
         return None;
     }
+    // A placeholder filled in when the page runs -- a JavaScript template
+    // literal (`${car.image}`), a Handlebars or Jinja tag, an ERB or PHP tag --
+    // names no file yet. Measured 2026-09-30 (Bonsai 27B in the desktop): a
+    // working site was reported as failing its checks because a card template in
+    // its script carried `<img src="${car.image}">`.
+    if ["${", "{{", "{%", "<%", "<?"]
+        .iter()
+        .any(|marker| value.contains(marker))
+    {
+        return None;
+    }
     let lowered = value.to_lowercase();
     if lowered.contains("://")
         || ["data:", "mailto:", "tel:", "javascript:", "blob:", "sms:"]
@@ -374,6 +385,29 @@ mod tests {
         .unwrap();
         std::fs::write(root.path().join("cv.pdf"), "%PDF-1.4").unwrap();
         assert!(missing_assets(root.path()).is_empty());
+    }
+
+    /// A working page was reported as failing because a script's card template
+    /// carried a placeholder in `src`: nothing to load until the script runs.
+    #[test]
+    fn a_placeholder_filled_in_at_run_time_is_not_a_missing_file() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("index.html"),
+            concat!(
+                "<script>\n",
+                "const card = (car) => `<img src=\"${car.image}\" alt=\"${car.name}\">`;\n",
+                "</script>\n",
+                "<img src=\"{{ item.image }}\">\n",
+                "<img src=\"<%= item.image %>\">\n",
+                "<img src=\"real.png\">\n",
+            ),
+        )
+        .unwrap();
+        let findings = missing_assets(root.path());
+        // Only the reference that names a file, and is missing, is reported.
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].reference.contains("real.png"));
     }
 
     #[test]
