@@ -2,99 +2,102 @@
 
 ## Building and testing
 
-```bash
-cargo test --workspace
-```
-
-Two tests are ignored by default because they need the network. Everything else
-is hermetic: no test requires a model, an inference engine, or a particular
-machine -- including its memory size or the name of its Xcode.
-
-Before sending anything, run what CI runs, and judge each step by its exit
-code rather than by reading its output:
+What CI runs (`.github/workflows/ci.yml`), in three jobs on macOS:
 
 ```bash
 cargo fmt --all -- --check
+```
+
+```bash
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+```
+
+```bash
+cargo test --workspace --no-fail-fast
+```
+
+```bash
 python3 scripts/milestones.py && git diff --exit-code docs/roadmap.md
 ```
 
-CI runs exactly these on macOS and nothing else; when a test fails there, CI
-names it in an annotation that needs no account to read. The desktop app is
-not in CI yet (backlog R.8): in `apps/desktop`, run `npx ng build` and
-`npx ng test --watch=false` at least. The
-MLX sidecar's own tests run with the engine's interpreter:
-`$PWR_MLX_PYTHON -m unittest discover -s crates/pwr-mlx/sidecar`.
-Anything needing a model or specific hardware is run by hand and its results
-recorded in `docs/`.
+```bash
+cd apps/desktop && npm ci && npm test -- --watch=false && npm run build
+```
 
-## What a change should carry
+```bash
+PYTHONPATH=crates/pwr-mlx/sidecar "$PWR_MLX_PYTHON" -m unittest discover -s crates/pwr-mlx/sidecar
+```
 
-**A test that fails without it.** Preferably one that fails for the reason the
-change exists — several fixtures in this project passed for reasons unrelated
-to what they were testing, and each is documented where it happened.
+Judge each by its exit code, not by reading its output.
+
+**The Rust suite is not hermetic.** Several tests exercise the macOS sandbox
+with real toolchains and skip when the host lacks one (Docker, .NET, a
+browser, a route to the network); on a Mac where Docker Desktop is stopped but
+its socket file remains, the Docker test fails for that reason alone. Until
+skips are reported explicitly (plan W0.2), read a local pass as "passed what
+this machine could exercise". Six tests are `#[ignore]`d because they need the
+network or a live model; [docs/testing.md](docs/testing.md) says how to run
+them. Nothing in CI runs a model.
+
+## What a change carries
+
+**A test that fails without it** — preferably one that fails for the reason
+the change exists. Several fixtures here once passed for reasons unrelated to
+what they tested.
 
 **Behaviour, not source.** A test that greps the source proves the code is
-written, not that it runs. Two fixtures here did that, passed, and were
-replaced by behavioural ones that failed immediately.
+written, not that it runs.
 
-**A comment saying why, where the why is not obvious.** This codebase explains
-decisions rather than restating code: what was measured, what was tried, what a
-number is for. If a reviewer would ask "why this way?", answer it in the file.
+**A comment saying why**, where the why is not obvious: what was measured,
+what was tried, what a number is for.
 
-## What the commit message is for
+**The document that describes the behaviour, updated in the same commit.**
+Current documents describe the code at a named revision
+([docs/README.md](docs/README.md)); a change that makes one wrong fixes it.
 
-The subject says what changed. The body says what was wrong before and what
-evidence supports the change. Where a measurement drove it, give the
-measurement. Where a previous version was wrong, say so — the log is the record
-of how the design was reasoned about, and a change with no stated reason is one
-nobody can revisit.
+**A plan item.** Work is ordered by the
+[implementation plan](docs/plan/implementation-plan.md). A change names the
+item it advances; a new problem gets an item there, not a new backlog. When an
+item is done, mark it DONE with the commit, and for a gate update
+`docs/milestones.json` and regenerate the roadmap table.
 
-## What the documentation must carry
+## Commit messages
 
-The direction was redefined on 2026-09-12. [MASTER_SPEC.md](MASTER_SPEC.md) is the
-contract; the [glossary](docs/glossary.md) fixes what the words mean; the
-architecture, research, evaluation, audit, migration and roadmap documents own
-the rest. Everything else in `docs/` is evidence about the revision that wrote
-it, and carries a notice saying so.
+The subject says what changed. The body says what was wrong and what evidence
+supports the change; where a measurement drove it, give the measurement;
+where an earlier version was wrong, say so.
 
-**A claim carries a status word.** IMPLEMENTED, PROTOTYPED, PLANNED, RESEARCHING
-and HYPOTHESIS are defined in the contract and mean different things. A change
-that moves a claim up a level cites the source that justifies it in the same
-edit. Where no evidence exists, the honest word is `unknown`, and it is allowed.
+## Evidence and claims
 
-**Durable decisions amend the document that owns them.** The ADR series is
-closed at ADR-012; do not add ADR-013. An experimental decision also needs a
-dated entry in [experiment-log.md](docs/experiment-log.md) naming the hypothesis,
-the conditions compared, the outcome — including an inconclusive one — and
-whether the intervention is kept, revised or removed.
-
-**Superseded text keeps its body.** Add a notice naming what replaced it. The
-record of how the design was reasoned about is worth more than a tidy tree, and
-a deleted wrong answer is a wrong answer somebody will reach again.
-
-**Python is not banned.** The old prohibition on any external Python tool was a
-revision-scoped rule, superseded by principle 9 of the contract: a mature
-external parser or tool is allowed behind policy when it is better than a
-bespoke one. What is still refused is a new required runtime dependency added
-without a reason, and a tool whose effects escape the access policy.
+- **A claim carries a status word** — IMPLEMENTED, EXPERIMENTAL, PLANNED,
+  HYPOTHESIS, MEASURED — or says `unknown` ([MASTER_SPEC](MASTER_SPEC.md#evidence-vocabulary)).
+- **Numbers come with their conditions**: counts, deployment, commit, corpus
+  revision. A rate without its denominator is not a measurement.
+- **A change that alters what a campaign measures** (prompt, catalogue, loop,
+  budgets, adapters) gets an entry in the [experiment log](docs/experiment-log.md).
+- **Removing an environment defect is not raising capability**; report which
+  one a change is.
+- **Durable decisions** are entries in [docs/decisions.md](docs/decisions.md).
+  The ADR series stays closed at ADR-012.
+- **Nothing is deleted from the record.** A superseded document moves to
+  `docs/archive/` with a line in its index.
 
 ## Things this project is deliberate about
 
-- **A declared value that nothing reads is a defect.** Several existed and were
-  removed; a fixture now fails when a declared value stops reaching the request,
-  the policy or the decision it names.
+- **One execution path.** An improvement measured in one loop and shipped in
+  another has not been measured. Do not add a loop; the plan (W2) removes the
+  divergence that exists.
 - **The harness does mechanical work; the model decides semantics.** Finding a
-  file and line in a compiler's output is the harness's job. Choosing which fix
-  to make is not.
-- **A refusal carries what it already knows.** A stale-hash refusal names the
-  current hash; an ambiguous argument list names the list that should have been
-  sent. A refusal that withholds what it has costs a turn to rediscover.
-- **No shell interpretation.** An executable and its arguments stay separate,
-  and a command line where a program name belongs is refused rather than split.
-- **Numbers come with their provenance.** A rate without the counts and the
-  interval is not a measurement.
-- **A measured path and a product path that differ are two products.** An
-  improvement measured in one loop and shipped in another has not been measured.
-  This is the defect R0 and R1 exist to remove; do not add a third loop.
+  file and line in a compiler's output is the harness's job; choosing the fix
+  is not.
+- **The harness never invents a fact for the model.** In particular it never
+  substitutes the current version of a file for the one the model read.
+- **A protection holds on every path or is reported as not held.**
+- **A refusal carries what it knows**, so the model does not spend a turn
+  rediscovering it — but never a value that lets it bypass the check it failed.
+- **No shell interpretation.** An executable and its arguments stay separate.
+- **A declared value nothing reads is a defect.**
+- **Fixes help every model.** Per-model workarounds only through profiles and
+  adapters.
+- **Python is allowed** behind policy when a mature tool is better than a
+  bespoke one; a new required runtime dependency needs a stated reason.

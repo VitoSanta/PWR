@@ -19,7 +19,7 @@ dist/
 /.pwr/*
 
 # Research evidence stays off the public repository for now (decided
-# 2026-09-23 by the maintainer, docs/roadmap.md): the model inspections and
+# 2026-09-23 by the maintainer, docs/archive/roadmap.md): the model inspections and
 # calibrations under .pwr/ are one machine's observations, and which of them
 # are worth publishing -- anonymised, as fixtures -- is still to be decided.
 # They stay on the maintainer's machine, where the roadmap's numbers can still
@@ -85,7 +85,7 @@ __pycache__/
 
 # Experiments, test workspaces and campaign notes stay on the maintainer's
 # machine: the public repository carries the product only (decided
-# 2026-09-22, docs/roadmap.md). Local tooling state likewise.
+# 2026-09-22, docs/archive/roadmap.md). Local tooling state likewise.
 /experiments/
 /.pwr-scratch/
 /.venv-mlx/

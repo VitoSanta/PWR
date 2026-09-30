@@ -1,79 +1,126 @@
-# PWR: project and research contract
+# PWR: product and research contract
 
-**Authoritative direction, 2026-09-12.** This specification replaces the previous product thesis. It describes the destination and constraints on future work; it does not assert that the destination is implemented. Current behavior is recorded in the [audit](docs/adaptive-runtime/CURRENT_ARCHITECTURE_AUDIT.md). Historical text is available at Git commit `f7ad8ca6135bc88517f0a43bc333898c935534bc`; dated experiment artifacts remain in place.
+**Adopted 2026-09-30**, replacing the contract of 2026-09-12
+([archived](docs/archive/MASTER_SPEC-2026-09-12.md)). It follows the
+[technical review of 2026-09-30](docs/reviews/2026-09-30-technical-review.md),
+whose claims were checked against the code before it was adopted
+([verification](docs/reviews/2026-09-30-verification.md)). This contract
+states what PWR is for, what it promises, and how a claim about it is allowed
+to be made. It does not describe the code; the [documentation index](docs/README.md)
+does, and says against which revision.
 
-## Definition and initial user
+## What PWR is
 
-PWR is a local agent harness research platform whose first product is an autonomous software-engineering session. It combines model inference with tools, repository evidence, external task state, verification and recovery, and tests which representations and policies let resource-constrained local models complete more real work. A developer supplies a repository, objective and authorized access; the agent investigates, acts, preserves relevant evidence, and returns changes and an account of what was actually checked. Vision and other machine interaction enter through capability contracts when supported.
+> **PWR is a dependable local coding agent for Apple-silicon developers,
+> optimised for bounded repository changes with inspectable effects and
+> independent checks. Its harness removes mechanical work and execution errors
+> from small and medium models, and keeps adaptive mechanisms only where
+> controlled evaluations show a practical benefit.**
 
-**The destination is an unrestricted coding agent, driven from a conversation.** It should be able to reach anything on the machine it runs on and anything on the network its user authorizes — files anywhere the user allows, processes, shells, toolchains, Git, local applications, services, a browser, the open internet — and it should be usable by saying what is wanted, in the way established coding agents are usable. Nothing in this contract restricts the capability itself. What it restricts is what may be *claimed* as measured, and the order in which capability is admitted. A capability that is held back here is held back for want of evidence or of a policy that can express its scope, never because reaching the machine or the internet is thought to be out of bounds. The authorization model exists to make that reach explicit and observable, not to keep the agent small.
+| | |
+|---|---|
+| **Core promise** | Local changes a person can control, with the outcome and the limits of their verification stated plainly. |
+| **Target user** | A developer on an Apple-silicon Mac who values privacy and working offline, and accepts a bounded capability. |
+| **Primary use** | Diagnosing and repairing bugs, small features and limited refactors in existing repositories. |
+| **Technical differentiator** | An interactive local runtime (PWR's own MLX engine) plus a harness whose value is measured: fewer execution errors and lower cost for the same model. |
+| **Success metric** | Tasks accepted by an independent check, per hour of use, reported with the human interventions they needed and the false acceptances they produced. |
 
-**Ease of use is an acceptance requirement, not a finishing touch.** The conversation is the product surface: a capability that can only be driven by remembering a flag, editing a configuration file or reading a raw event log is not finished, whatever its internals can do. Simple to ask for and fully able to act are the same requirement stated twice.
+**Non-goals.** General autonomy; replacing frontier agents; distributed or
+multi-agent execution; a universal personal assistant; a chat skin over
+someone else's runtime; a model trainer; a benchmark leaderboard.
 
-The initial user is a developer or agent researcher on a single-user local workstation, initially the existing Apple-silicon/macOS laboratory, running one model on PWR's own engine (MLX; llama.cpp for GGUF and Windows in progress -- Ollama and LM Studio were used until 2026-09-19). The research runs on that laboratory; the product the research serves is a desktop app for macOS and Windows. The initial workload is unfamiliar-repository diagnosis, bug repair, features, refactors and migrations spanning multiple files. Dependency changes, frontend/backend development, local services, Git and implementation research belong to this vertical. Parameter count is an experimental dimension; fitting a particular model or loading an entire repository into context is not the goal.
+## The thesis, and what has to be proven
 
-## Problem and thesis
+PWR's bet is that **taking mechanical work off the model compensates for a
+measurable part of its limits**. That is a hypothesis, not a result. The
+evidence on record (R2, 2026-09-15) shows no uplift on one deployment and an
+unconfirmed one on another ([evaluation.md](docs/evaluation.md)).
 
-A valid OpenAI-compatible response does not establish reliable tool selection, edit semantics, working-state retention or autonomous completion. Transport, model, context construction, environment and completion-contract failures can produce the same visible symptom. PWR must isolate these causes before compensating for them.
+The one thing that must be proven:
 
-**Primary HYPOTHESIS:** within a fixed local deployment and resource budget, a small policy selected from measured behavior can improve verified engineering completion or reduce its total cost over the best fixed policy selected on separate development tasks. The policy adapts action representation and evidence delivery; deterministic state and verification remove avoidable bookkeeping and repeated mistakes. Promotion requires held-out benefit after paying for probes, retries, cache misses and additional inference. If the policy cannot outperform a fixed baseline, PWR should keep the simpler baseline.
+> **On the runtime the app actually uses, a 9B/14B model with PWR beats a
+> simple loop on new tasks, at equal budget, without more false acceptance or
+> more human intervention.**
 
-Repo maps, adaptive edit formats, memory, compaction, structured tools, checkpoints and modular loops are prior art. The possible contribution is a reproducible account of **which intervention helps which local deployment and task regime**, and a compact implementation that transfers across unseen repositories. There is no novelty, state-of-the-art, or cloud-parity claim yet. The [research synthesis](docs/local-agent-research.md) records sources and competing explanations.
+The protocol and the decision rule are in the
+[implementation plan, W8.4](docs/plan/implementation-plan.md#w84-the-confirmatory-campaign).
+If the answer is no, the adaptive complexity is removed and PWR stays a
+dependable local agent without the compensation claim.
 
-## Minimum research core
+Two things are kept apart in every claim: **removing a defect of the
+environment** (a template bug, a malformed call, a lost file hash) and
+**raising what the model can do**. Both have value; only the second supports
+the thesis.
 
-| Class | Systems | Why they belong |
-|---|---|---|
-| **CORE RESEARCH** | Behavior-conditioned action/context policy; evidence-linked task state; effect-based recovery | Test reduced invalid actions, lost/stale evidence and repeat failures with same-model ablations. |
-| **NECESSARY INFRASTRUCTURE** | Shared session runtime, provider adapters, policy executor, hash-guarded edits, process ownership, repository checks, local artifact/event store, paired evaluator | Make experiments fair and engineering actions usable, bounded and observable. These are not novelty claims. |
-| **PRODUCT UX** | The PWR desktop app for macOS and Windows -- conversation, steering/stop, plan/status, diffs/checks, permission prompts, model/resource indicators, session/workspace navigation -- as a client of `pwr serve` | Let a person authorize and inspect sustained work without reading raw telemetry. Not a research contribution, and still a release condition: the app is PWR's only front end -- a standalone application, not an editor or IDE plugin -- and the bar is that it alone drives every capability the agent has. The terminal console is the development and research tool, not a product surface. |
-| **EXPERIMENTAL** | AST/LSP retrieval, predictive probes, model-generated summaries, adaptive planning, procedural memory, serial worker roles | Keep replaceable; require benefit over simple lexical retrieval and single-agent policies. |
-| **LATER** | Browser/desktop adapters, vision workflows, MCP/plugin ecosystem, concurrency and heterogeneous model scheduling | Preserve interfaces; implement only after coding experiments justify the next capability. No marketplace, and no integration into third-party editors. Execution isolation on Windows is not here: it is a prerequisite of the Windows app, because the harness does not ship a platform where it cannot confine what the agent runs. |
+## The minimum core
 
-## Design principles
+What stays even if every adaptive mechanism is falsified:
 
-1. **Model proposes semantics; harness preserves facts.** File hashes, tool outcomes, plan dependencies and check state are externally represented. A model claim is never automatically a verified fact.
-2. **Measure behavior at the deployment boundary.** Identity includes weights/artifact, quantization, backend/version, tokenizer/template, adapter and settings. Unknown is distinct from unsupported and from observed success. A short successful probe is not certification.
-3. **Separate declared, allocated, delivered and useful context.** Needle recall and occupancy authorize only their tested operating condition. Useful coding context needs task-like tests; largest context is a candidate policy, not a requirement.
-4. **Expose one execution semantics to every client.** Chat, batch and evaluation should share runtime, policy and result contracts; deliberate mode differences are named and tested.
-5. **Preserve evidence before compressing it.** Source text and logs are artifacts with provenance and bounded retention. The prompt receives selected views with a way to rehydrate them. A hash without retained bytes is not retrievable memory.
-6. **Verify effects cheaply and honestly.** Exit status, patch application and checks support specific claims. Passing a suite is not proof that every natural-language requirement was met. No available verifier does not mean a prose answer must be impossible.
-7. **Authorize effects, not model brands.** Workspace scope and user-configurable host access are policy. Tool data never grants permission. Deterministic normalization cannot widen scope or invent a missing semantic argument.
-8. **Bound resources and recoveries.** Count all model calls and underlying actions, including calibration, failures, workers and retries. Serial inference is the initial default; concurrency must earn its cost.
-9. **Migrate behind tested interfaces.** Retain Rust and working adapters/tools; use modules within the current workspace, not microservices or a new framework. Mature external parsers/tools are allowed behind policy; the historical ban on any Python tool is not a research principle.
-10. **Negative results are deliverables.** Freeze thresholds and holdouts, retain failed campaigns, remove an intervention when evidence does not justify its complexity.
+1. **One bounded agent session**, with a persistent objective, Stop and steering.
+2. **A managed MLX engine**: correct templates, prompt cache, cancellation,
+   the metrics a person needs.
+3. **A few robust tools**: search, windowed read, precise edit, command, local service.
+4. **Diffs and a verification contract**, with a baseline and protection of
+   the person's own work.
+5. **Evaluation of that same path**, with hidden acceptance and full costs.
 
-## Completion is an evidence contract
+Everything else is either infrastructure for these five or an experiment that
+has to earn its place (see [feature-status.md](docs/feature-status.md)).
 
-PLANNED common result semantics separate terminal state (`completed`, `blocked`, `interrupted`, `budget_exhausted`, `failed`) from evidence (`checks_passed`, `baseline_preserved`, `answer_delivered`, `not_checked`). A coding task can claim checked acceptance only when its non-exempt acceptance checks pass and the baseline contract holds. A diagnosis must cite repository evidence and preserve requested read-only scope; a documentation task can report structural/link checks and deliver prose without pretending semantic correctness was mechanically proven. Missing checks remain explicit. A model cannot waive checks or change acceptance criteria to rescue its score.
+## Principles
 
-Current scripted execution is stricter for no-check tasks; current chat uses a different post-check contract. Neither automatically implements these planned semantics.
+1. **The model proposes; the harness keeps the facts.** File versions, tool
+   outcomes and check results are recorded outside the model. A model's claim
+   is never a verified fact.
+2. **An effect is bounded the same way whichever path causes it.** A
+   protection enforced for file tools and not for commands is not a
+   protection; one that cannot be enforced is reported as not enforced.
+3. **A write is based on what the model saw.** The harness never substitutes
+   the current version of a file for the one the model read.
+4. **One execution semantics.** The app, the command line and the evaluator
+   run the same executor and mean the same thing by *complete*. Experimental
+   controls are declared as such.
+5. **The objective is not compressed.** A person's request and its revisions
+   reach the model whole, or the turn stops and says why.
+6. **Verification claims only what it checked.** Passing checks are evidence
+   about what they check, under a contract whose artifacts are frozen. Missing
+   checks, zero tests, unconfined runs and changed acceptance files are stated,
+   never rounded up to "verified".
+7. **Every path is bounded.** Actions, time, recoveries and model calls have
+   limits that hold on every branch.
+8. **Measure the product path.** An improvement measured in one loop and
+   shipped in another has not been measured.
+9. **Keep what earns its cost.** A mechanism that does not beat the simpler
+   alternative under a controlled comparison is removed.
+10. **Negative results are results.** Campaigns, including failed ones, are
+    kept and cited with their conditions.
 
-## Boundaries and non-goals
+## Evidence vocabulary
 
-Two different lists follow, and running them together is how a sequencing decision hardens into a scope boundary nobody meant.
+Every claim in a current document carries one of these words, or `unknown`:
 
-**Not what PWR is:** a chat skin over someone else's model runtime, autocomplete, a model trainer, a claim that small weights equal frontier models, a benchmark leaderboard optimized for one toy corpus, or a general SaaS platform. These do not become goals later.
+- **IMPLEMENTED** — a reachable path exists, cited by source; says nothing
+  about model quality.
+- **EXPERIMENTAL** — implemented, off by default or explicitly labelled,
+  benefit not established.
+- **PLANNED** — an item of the [implementation plan](docs/plan/implementation-plan.md).
+- **HYPOTHESIS** — a falsifiable claim with its control, metric, threshold and
+  rejection rule.
+- **MEASURED** — a result with its conditions, counts and provenance (commit,
+  deployment, corpus revision).
 
-**Not yet, and deliberately:** a mandatory vector database, a multi-agent swarm, a cloud dependency, a plugin market, a distributed scheduler. Browser and computer control, network research tools and MCP adapters are on the intended path and are sequenced behind the first research milestone, because a capability admitted before the coding loop can be measured cannot be told from one that helped. The order is an evidence gate; it is not a statement about what the agent is allowed to touch. Local data and traces stay local by default; any external inference or network tool is an explicit disclosure and access decision, which is a matter of the user knowing and consenting rather than of the capability being withheld.
+A document that cannot cite evidence says `unknown`. Changing a status cites
+the evidence in the same edit.
 
-Full legitimate machine access is the destination stated above, not a concession. It requires explicit scopes for paths, commands, network, applications and credentials, with observable policy decisions and practical recovery. Existing macOS confinement remains until replacement is validated. No promise of universal rollback: network effects, package scripts and external application actions may be irreversible.
+## Authority
 
-
-> **Amended 2026-09-24.** Model downloading left the "not yet" list: the app's Model Manager and `pwr models download` fetch checksum-verified models from the Hugging Face Hub at the person's request (see [models-and-context.md](docs/models-and-context.md)). The first public alpha is being prepared as v0.1.0-alpha for macOS on Apple silicon only; Windows remains the product's second platform and is not built yet (backlog E.1, E.2). On a Mac the app runs the MLX engine alone; llama.cpp is kept for Windows.
-
-## Evidence vocabulary and authority
-
-- **IMPLEMENTED:** a reachable path exists, named with source evidence; does not imply production maturity or measured model quality.
-- **PROTOTYPED:** partial or experimental implementation/artifacts; required integration or validation is missing.
-- **PLANNED:** selected engineering direction, not available behavior.
-- **RESEARCHING:** unresolved design choice with a defined experiment.
-- **HYPOTHESIS:** falsifiable claim with control, metric, threshold and rejection decision.
-
-Authority order: this contract for scope and principles; [glossary](docs/glossary.md) for the meaning of the terms all of them use; [architecture](docs/architecture.md) for the candidate design; [research](docs/local-agent-research.md) and [evaluation](docs/evaluation.md) for experimental claims; [roadmap](docs/roadmap.md) for new sequencing; [audit](docs/adaptive-runtime/CURRENT_ARCHITECTURE_AUDIT.md) for inspected implementation. [SECURITY.md](SECURITY.md) remains current operational guidance. All older ADRs, strategy prose, milestone tables and detailed implementation documents are subordinate revision-specific evidence, including where their original text says “accepted,” “binding,” or “current.” Runtime configuration has not been changed to match this new direction yet.
-
-## Recording new decisions
-
-The ADR series is closed at ADR-012. Its bodies are retained as evidence about the revisions that produced them; no ADR-013 will be written. A durable decision is now recorded by amending the document that owns it — scope and principles here, mechanism in [architecture](docs/architecture.md), an experimental commitment in [research](docs/local-agent-research.md), a measurement rule in [evaluation](docs/evaluation.md), sequencing in [roadmap](docs/roadmap.md), inspected behavior in the [audit](docs/adaptive-runtime/CURRENT_ARCHITECTURE_AUDIT.md) — and dating the amendment. Superseded text is never deleted; it keeps its body and gains a notice naming what replaced it.
-
-An experimental decision additionally requires a dated entry in the [experiment log](docs/experiment-log.md) naming the hypothesis ID, the conditions compared, the outcome including inconclusive ones, and the resulting keep, revise or remove statement. Every claim in the canonical set carries a status word from the vocabulary above; changing a status requires named source evidence in the same edit, and a document that cannot cite one says `unknown` rather than rounding up.
+1. This contract — purpose, promise, principles.
+2. [decisions.md](docs/decisions.md) — dated decisions, including what is not built.
+3. [The implementation plan](docs/plan/implementation-plan.md) and
+   [roadmap](docs/roadmap.md) — order of work.
+4. The current technical documents indexed in [docs/README.md](docs/README.md)
+   — what the code does, at a named revision.
+5. [SECURITY.md](SECURITY.md) — the operational boundary.
+6. Everything in [docs/archive/](docs/archive/README.md) and
+   [docs/reviews/](docs/reviews/README.md) — evidence about earlier revisions,
+   never a description of the current one.

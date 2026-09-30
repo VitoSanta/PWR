@@ -1,103 +1,162 @@
-> **Historical record, written 2026-09-12 or earlier.** The body describes the revision it was written against and is kept as evidence of it; its present tense is that revision's. It is **not** a description of the current system. Since then, among other changes: Ollama and LM Studio were removed (2026-09-19) and PWR runs models on its own MLX engine, with llama.cpp in progress; the conversation became the product loop; the desktop app is Tauri 2 + Angular; conversations run in an Ask or Auto permission mode. **For the current state read** the [README](../README.md) (status), the roadmap's latest update ([`roadmap.md`](roadmap.md)), the backlog's *At a glance* ([`backlog.md`](backlog.md)), [`current-cli.md`](current-cli.md), [`pwr-serve.md`](pwr-serve.md) and [SECURITY.md](../SECURITY.md). Dated sections added after 2026-09-12 describe their own date.
+# The agent loop
 
-# Agent Loop
+**Checked against `develop` at `0776ff4f`, 2026-09-30.** How a turn, a goal
+and a scripted run proceed, every limit that bounds them, and the defects the
+plan fixes. Three loops exist; see [architecture.md](architecture.md#three-execution-semantics)
+for why that matters.
 
-States: `Discover → Profile → Index → Plan → Act → Verify → {Complete | Recover | Failed}`. Every transition has a typed event and durable checkpoint.
+## The conversation turn
 
-Planning produces a bounded plan: files/symbols to inspect, intended tools, expected checks, and stop conditions. Acting executes one tool call at a time in MVP. The model never receives unrestricted shell authority; it requests a typed action. Before edits, capture a baseline diff and relevant verification baseline. Verification selects declared project checks, interprets results structurally, and recovery applies a bounded diagnosis/edit/verify cycle.
+`converse::take_turn` (`crates/pwr-orchestrator/src/converse.rs:829`), called by
+`run_chat_turn` in `crates/pwr-cli/src/main.rs` for the app (`pwr serve`) and
+the console (`pwr chat`).
 
-Stop on verified success, policy denial, irreversible ambiguity, budget exhaustion, or repeated non-progress. Do not silently keep trying.
+Each step of the loop:
 
-## Action channel
+1. **Steering.** Messages the person sent with *Send now* (`_pwr/steer`) are
+   appended as user messages and recorded as a new objective revision
+   (`conversation::record_steering`). Only the revision number is kept in the
+   checkpoint, not its text (plan W4.1).
+2. **Room.** If the prompt estimate reaches the compaction threshold (75 % of
+   the window by default, 50–90 % per workspace), the history is compacted
+   (see [context.md](context.md#compaction)). At most two compactions per
+   turn; a third need stops the turn as looping. If there is nothing left to
+   fold, the turn stops with *context full*.
+3. **Envelope.** The generation's budget is planned: prompt tokens (the
+   engine's last count plus an estimate for what was appended), the answer
+   allowance (16,384 tokens unless sampling names one), and the reasoning
+   budget for the chosen Reasoning Effort (see [models.md](models.md#reasoning-effort)).
+4. **Generation** through the provider, streamed to the app: reasoning and
+   answer on separate channels.
+5. **Parsing.** Tool calls in the family's convention are normalised to
+   canonical actions (`pwr-compat`). An unreadable call is answered with what
+   was wrong; three in a row end the turn.
+6. **Completion holds.** A `complete` is not carried out, and the model is told
+   why, when it arrived in the same reply as other calls whose results it has
+   not read (`COMPLETION_OVER_UNSEEN_RESULTS`, `converse.rs:2482`), or when the
+   turn has written, run and read nothing in a workspace (asked once;
+   `COMPLETION_WITH_NOTHING_DONE`, `converse.rs:2476`).
+7. **Execution.** Each call is checked against policy and run
+   ([tools-and-sandbox.md](tools-and-sandbox.md)). A `write_file` onto an
+   existing file becomes a whole-file replacement (`own_overwrite`,
+   `converse.rs:2498` — a defect, below). Every call and result is recorded in
+   the event log; results go back to the model with their call id.
+8. **Detectors** (below) may end the turn with a stop reason.
 
-Actions are offered to the deployment as native tools, one per turn: a name and typed arguments, with no prose to fence and no schema to invent. Deployments that emit no native call fall back to a bare JSON action object; fenced or decorated output is refused rather than unwrapped.
+The turn ends when the model answers in prose, `complete` is carried out, the
+person presses Stop, or a detector or budget stops it. It returns a
+`TurnReport` (actions, whether it edited, whether it completed or declined,
+the stop reason) and the new message list.
 
-A model reply is the whole stream, never its first chunk — a reasoning deployment opens with empty-content `thinking` chunks and its answer arrives later. Every consumer goes through one collector so that mistake has one place to not be made.
+**After the turn** — not inside it — `run_chat_turn` runs the repository's
+checks if the turn edited anything and appends the verdict to the answer and
+to the history (`main.rs:4851-4927`; see [verification.md](verification.md#after-a-conversation-turn)).
 
-A policy denial is returned to the deployment as a tool result rather than ending the run: a refusal such as a stale edit hash is actionable, and discarding work already done because of one is a loss, not a safeguard. The action budget bounds the loop.
+### Limits of a turn
 
-Every event of a run shares the run's identifier, from opening provenance through to outcome.
+| Limit | Value | Where | What happens |
+|---|---|---|---|
+| Actions before checking in | 26 | `ACTIONS_BEFORE_CHECKING_IN`, `converse.rs:99` | The turn stops and says so; the next message continues |
+| Compactions per turn | 2 | `COMPACTIONS_PER_TURN`, `converse.rs:76` | Stop as looping |
+| Consecutive empty replies | 3 | `EMPTY_TURNS_BEFORE_GIVING_UP`, `converse.rs:60` | Stop as silent |
+| Consecutive unreadable calls | 3 | `UNPARSEABLE_CALLS_BEFORE_GIVING_UP`, `converse.rs:66` | Stop as unparseable |
+| Consecutive backend faults | 3 | `BACKEND_FAULTS_BEFORE_GIVING_UP`, `converse.rs:112` | Stop as backend failing; edits so far are kept in the history |
+| Reasoning finalization retries | 1 | `REASONING_FINALIZATION_RETRIES`, `converse.rs:118` | Stop as reasoning unfinished |
+| Unstructured reply guard | 3,000 / 12,000 chars | `AGENT_UNSTRUCTURED_REPLY_GUARD`, `converse.rs:130` | A long prose reply after long thinking is retried once at 8,192 max tokens |
+| Same refused action | 3 | `REPEATED_REFUSAL_LIMIT`, `repetition.rs:21` | The model is told to stop proposing it |
+| Echoed results | 3 in 10 | `ECHO_LIMIT`, `ECHO_WINDOW`, `repetition.rs:106-107` | Flagged to the model |
+| Same failed command | 2 | `REPEATED_FAILURE_LIMIT`, `repetition.rs:162` | Not run a third time |
+| Failed runs in a row after edits | 5 | `FAILED_RUN_LIMIT`, `repetition.rs:193` | The model is told to hand over what is ready |
+| No-progress windows | 3 of 6 actions | `NO_PROGRESS_LIMIT`, `NO_PROGRESS_WINDOW`, `stall.rs:26-30` | Stop as no progress |
+| Reasoning kept per step | 16,000 chars | `REASONING_KEPT_CHARS`, `converse.rs:2515` | Older reasoning is cut from the start |
 
-## The conversation
+Each limit has its own counter; there is no shared recovery budget (plan W2.6).
 
-Each turn appends the deployment's own reply to the history before the result of it. This is not a formality. For most of this project's life the loop appended only tool messages, so every request was the system prompt, the task, and a run of results answering nothing — a deployment could not see what it had already proposed, and re-derived the same action from the same unchanged prompt. That single omission produced the dominant measured failure mode, a repository correctly fixed with the completion never declared, in 11 of 48 runs of one campaign and in every deployment tested. Two fixtures now assert that the assistant's turn reaches the history it is sent next, and that no tool result outnumbers the turns it answers; both fail when the append is removed.
+### Stop reasons
 
-A reply that carries structured tool calls and no prose is recorded as its calls rather than as an empty turn, so what was proposed survives in the history either way.
+`StopReason` (`converse.rs:154`): `Interrupted`, `ContextFull`, `Looping`,
+`Silent`, `ToolCallInReasoning`, `Unparseable`, `BudgetSpent`,
+`BackendFailing`, `NoProgress`, `ReasoningUnfinished`. How they reach the app
+is in [pwr-serve.md](pwr-serve.md#stop-reasons).
 
-## What the harness knows, the deployment is told
+## Goal mode
 
-A refusal that withholds what it already knows costs a turn to rediscover. So a stale-hash refusal names the current hash; an edit whose replacement is already in place is reported as already applied rather than as a missing match; and every result carrying a content hash names it `expected_hash`, the name of the parameter that consumes it, as well as under its own. Each of these was measured costing actions in a run that had none to spare.
+A loop around the turn in `serve.rs` (`crates/pwr-cli/src/serve.rs:1966-2236`),
+used when the app sends a prompt with Goal on.
 
-Every tool result also carries the budget: how many actions remain, and — once deterministic checks are passing — how long they have been passing and how many actions have gone by without a file changing. The loop does not act on these itself; declaring completion stays the deployment's to do.
+1. Before the first turn, the full verification runs once; checks already
+   failing are named in the request so the goal neither repairs them nor is
+   held open by them.
+2. After each turn:
+   - a declined or stopped turn (other than *budget spent*) ends the goal;
+   - a turn with no actions and no completion counts as idle; three idle
+     rounds in a row pause the goal as *stalled*;
+   - on `complete`, the full verification runs:
+     - checks pass, the goal edited something, and no review has run yet →
+       a **review round**: a second reading of the request against the code
+       by the same model (about a minute, reasoning bounded to 4,000 tokens),
+       whose findings are sent back as guidance;
+     - checks pass (after the review, or with nothing edited) → the goal ends,
+       *verified* only if a declared acceptance check exists and
+       `.pwr/checks.json` is unchanged since the session began
+       ([verification.md](verification.md#goal-acceptance));
+     - only checks that were already failing fail, and none of them is an
+       acceptance check → ends, naming them;
+     - technical checks pass but no acceptance check is declared → ends,
+       *not verified*;
+     - otherwise the model is sent back with the evidence; the same failing
+       set three times → *blocked*.
+   - without `complete`, the goal continues with a nudge, unless the action
+     total reached `GOAL_MAX_ACTIONS` (208) → paused as *budget*.
+3. A checkpoint note is shown every 10 actions.
 
-## Repetition
+| Limit | Value | Where |
+|---|---|---|
+| Actions | 208 | `GOAL_MAX_ACTIONS`, `serve.rs:450` |
+| Idle rounds | 3 | `GOAL_IDLE_LIMIT`, `serve.rs:455` |
+| Same failing set on completion | 3 | `GOAL_SAME_FAILURE_LIMIT`, `serve.rs:459` |
+| Review rounds | 1 | `review_done` |
+| Checkpoint note | every 10 actions | `GOAL_NOTICE_EVERY`, `serve.rs:462` |
+| Wall-clock | none | — |
 
-A deployment proposing the same refused action three times is not short of budget; it is not reading the refusal, and more actions buy more repeats. The loop names it: the repetition is recorded as `loop.detected` and the deployment is told plainly that the action will not succeed and what to do instead.
+## The scripted run
 
-Two attempts are a retry, which can be reasonable — a hash may genuinely have changed. Three is a loop. Repetition is judged on the capability and its target rather than the whole proposal, so a second attempt with a corrected hash is not counted while the same wrong edit twice is, and any successful action clears the streak because a refusal followed by progress is recovery.
+`pwr run "<task>"` and every `pwr eval run` trial use
+`run_action_loop_with_prompt_budget_and_context_tiers`
+(`crates/pwr-orchestrator/src/lib.rs:2936`). Unattended: grants only what
+`--approve` names. It differs from the conversation in ways a campaign
+measures and the app does not ship:
 
-This is the measured failure shape of every budget-exhausted run recorded here: the repository already fixed, the deployment still editing.
+- a hard action budget (`DEFAULT_MAX_ACTIONS` 26, `lib.rs:2088`, or
+  `--max-actions`), with two provider turns per action (`TURNS_PER_ACTION`);
+- a baseline of the checks before editing, checks on completion, and a
+  recovery cycle (reproduce, classify, diagnose, retry within budget; stop on
+  environment, policy or non-determinism);
+- completion holds of its own: unseen results, and *never ran* — a program
+  that was only syntax-checked must be run once (`completion_held`,
+  `lib.rs:5857`), a hold the conversation does not have;
+- `record_progress` (a ledger the loop carries) and `propose_verifier` (a
+  check the person adopts) in its catalogue;
+- ledger compaction, and optional context policies (`--context-policy
+  current | recency-fill | evidence-state`);
+- context-tier retry: a prompt the backend refuses is retried at a calibrated
+  smaller window;
+- `--plan` decomposition, `--provision` toolchain installs, `--session`
+  continuation;
+- completion with no usable verifier ends `verified: false,
+  verifiable: false` (`lib.rs:3783-3815`).
 
-## Planning
+The B0 (conventional loop) and B2 (fixed staged workflow) controls live in
+`crates/pwr-orchestrator/src/baseline.rs` and share the tools, policy and log.
 
-A plan is loop state, not a message. Pushed once into the history it is context and nothing consults it again; worse, compaction drops it, which on a long task removes the decomposition exactly when it starts to matter. Held as state it survives compaction, its outstanding steps appear in the status of every turn, and it is reconciled against `plan.reconciled` when completion is declared.
+## Known defects
 
-Progress is claimed by the deployment through `record_progress`, which records a claim and changes nothing in the workspace. The harness never infers that a step is finished: inferring would be the harness deciding the task had progressed. A claim naming a step the plan does not have is a mistake and is not counted.
-
-The reconciliation is recorded rather than enforced. A plan is not binding and can turn out to be wrong, so completing with steps outstanding is preserved as a fact and never refused on the plan's account.
-
-A run may begin with one turn spent asking for a plan, opt-in per deployment strategy. The plan is **context, not authority**: nothing in the loop enforces it, no step grants permission, and verification is unchanged. If it turns out wrong the deployment is told to depart from it.
-
-It is bounded to eight steps, because a longer list is a script rather than a plan, and it costs a turn — which is why it is opt-in and has to be measured against the default rather than assumed to help. A deployment asked for a plan that answers in prose produced none, and that is recorded as a fact about the deployment rather than treated as an error.
-
-## Malformed tool calls
-
-A call naming a real tool with arguments that do not match its schema is a mistake the deployment can correct, and it can only correct one it is told about. The loop returns the problem as a tool result and continues, rather than ending the run and reporting the harness's silence as the deployment's failure.
-
-Measured before the change: five of thirteen evaluation runs ended this way, three of them the entire generation suite, in each case with actions still unspent.
-
-Three consecutive malformed calls do end the run. A deployment that cannot form a valid call after being told three times what was wrong is not going to, and the budget is better spent failing.
-
-## The state machine is the loop's, not the dry run's
-
-`Discover → Profile → Index → Plan → Act → Verify → {Complete | Recover | Failed}` was, until 2026-09-03, traversed by `prepare_dry_run` and by nothing else: the production loop emitted its own events and never entered the typed machine. Every production transition now persists a `TaskCheckpoint` as `task.transition` — including the ones that are easy to forget, a planning failure, a baseline failure, a provider failure, and an interrupted run, each of which used to end with no terminal recorded at all.
-
-"Every transition has a typed event and durable checkpoint" is therefore true now. The second half of that sentence's promise is not: nothing reads those checkpoints back to resume a run. See `memory-state.md`.
-
-## Where the loop still cannot see
-
-### Recovery state and bounded reads — 2026-09-07
-
-`verification.diagnostics` records the latest bounded diagnostic snapshot, including
-commands, exit statuses and located errors. It accompanies subsequent tool results
-and survives history compaction through the task ledger. A later green snapshot
-replaces old errors. The snapshot is capped at 4,096 serialized bytes and explicitly
-marks any truncation; it is evidence about checks, not task completion.
-
-The no-progress limit counts windows since the last previously unseen workspace/check
-effect. Earlier windows remain observable but do not count against new progress.
-Unchanged reads and revisiting old states (including edit/revert) do not reset it.
-Verification duration and artifact bookkeeping are excluded from the effect signature.
-Every performed read in a batch contributes to the window and to the action budget.
-
-Read-result delivery is capped in serialized JSON bytes, including the first result,
-all additional results and the batch envelope. Individual reads share the available
-space; truncated file reads retain hashes and window metadata where those fit.
-`context.read_batch` records requested/performed counts, returned bytes and the byte
-limit. This is not an exact tokenizer: the configured context share still uses the
-existing characters-per-token estimate, and full audit results remain on disk.
-
-Production-loop regression fixtures exercise failed verification across compaction
-and its replacement after repair, oversized first/later reads, six/seven reads and
-near-exhausted action budgets. These offline results do not establish task completion
-by a local model; the subsequent CV/Angular pilot is separate evidence.
-
-**Non-progress is a window over what changed, not over what was proposed.** Progress is the workspace or the verification standing somewhere new — a read succeeds and changes nothing — so the signature covers the files the run has written and the failing checks' own diagnostics, and the loop says so when six actions end where they began. A window containing anything the run had not tried before is never flagged: reading six unfamiliar files is investigation, and interrupting that would be worse than the problem it solves. As with a named loop, the fact is stated and nothing is decided on the deployment's behalf.
-
-**A plan is a graph, and a claim on a checked step is checked.** A subgoal carries its dependencies, so the status of every turn says which steps are ready and which are blocked — a list hid that, since every step looked available. And a subgoal can carry its own command: `record_progress` on such a step runs it, and the step stays outstanding if it does not pass, however loudly it was claimed.
-
-The boundary is unchanged. The harness still never infers that a step is done — that would be the harness deciding the task had progressed. It tests a claim against a command, which is what it already does for completion, and under the run's own policy, so a step cannot authorise something the run could not otherwise execute. A step with no check is done when it is claimed: absent is not failed, and a plan without checks must not look like one that failed them.
-
-**A completion is refused where nothing can verify it.** A repository with no discoverable checks used to complete successfully; it now fails, naming the absent verifier. See `verification-recovery.md`.
-
-**A reply carrying more than one native call is refused** rather than having its first call executed, so "one tool call at a time" is enforced rather than assumed.
+| Defect | Evidence | Plan |
+|---|---|---|
+| The goal's action budget is checked only when the model did not complete; refused completions with alternating failures run without limit; no time limit | `serve.rs:2028`, `2182` | W1.4 |
+| Goal failures are compared by check name: progress inside one suite looks stuck; alternating suites look like progress | `serve.rs:2139`; `main.rs:3756-3773` | W1.5 |
+| `write_file` onto any existing file uses the hash at execution time, so a stale rewrite overwrites a newer edit | `converse.rs:2498` | W1.1 |
+| Post-turn verification happens after the turn ended; the post-turn note is `✓` whatever it says | `main.rs:4851-4927` | W2.2, W2.3 |
+| Three loops with different holds, compaction, recovery and catalogues; fixes land in one | this page | W2.4 |
+| A dozen independent limits and no shared recovery budget | table above | W2.6 |
+| The objective's text is not kept outside the compressible history | `conversation.rs:52`, `compaction.rs:48-54` | W4.1 |

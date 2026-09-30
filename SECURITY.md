@@ -1,156 +1,124 @@
 # Security
 
 PWR runs a language model's output as commands against a repository on your
-machine. That is the whole point of it, and it is also the risk, so this
-document says plainly what the boundary is and where it ends.
+machine. That is its purpose and its risk, so this document says plainly where
+the boundary is and where it ends. **Checked against `develop` at `0776ff4f`,
+2026-09-30.** The engineering detail is in
+[docs/tools-and-sandbox.md](docs/tools-and-sandbox.md).
 
-**It is a public alpha. Do not point it at anything you cannot afford to lose,
-and do not run it unattended on a repository you did not write.**
+**It is an alpha. Use it on repositories you can recover (committed, or
+backed up), watch what it does, and do not run it unattended on code you did
+not write.**
 
-## Current policy — 2026-09-24
+## Permission modes
 
-**Two permission modes, per workspace.** A conversation runs in **Ask**, the
-default, or **Auto**, chosen in the app (`permission_mode` in the workspace's
-`.pwr/chat-config.json`, or `_pwr/approvals` over the protocol):
+Per workspace, in the app's Run controls (`permission_mode` in
+`.pwr/chat-config.json`):
 
-- **Ask** asks before changing dependencies (manifests, lockfiles and the
-  installed packages themselves), reaching the network, installing
-  toolchains, rewriting Git history and publishing. Running local services and
-  adopting a proposed check inside the workspace are granted. A configuration
-  saved before the modes existed is read as Ask.
-- **Auto** grants every approval category without asking. It lifts the
-  question, not the boundary: writes stay confined to the workspace and the
-  policy's own refusals still hold.
+| Mode | Sandbox | Asks before |
+|---|---|---|
+| **Protected** (default) | yes; network closed unless you allow it | changing dependencies, reaching the network, running a program the workspace does not list, rewriting Git history, publishing; and always before using the container engine, running a command outside the sandbox, or reaching a folder outside the workspace |
+| **Standard** | yes | publishing, rewriting history, the container engine, running outside the sandbox, reaching outside the workspace |
+| **Full access** | **none** | nothing |
 
-Scripted runs (`pwr run`) grant only what `--approve` names.
+Each question shows the exact command and is answered *once*, *for the
+session* or *no*. What you allow for the session also applies to the checks
+that close a turn or a goal. Scripted runs (`pwr run`) grant only what
+`--approve` names.
 
-**Confinement.** Commands run under macOS's Seatbelt profile, which confines
-writes to the workspace and denies reading the rest of the home. **macOS is
-the only platform with a sandbox adapter.** Elsewhere -- or wherever the
-profile cannot be expressed -- a command is **refused** unless
-`PWR_ALLOW_UNCONFINED=1` is set, and then it runs with your full rights and
-is recorded as `sandboxed: false`; the app shows "commands not sandboxed" when
-that is the case. Until 2026-09-23 such commands ran unconfined silently.
+**Full access removes every protection below**: commands run as they would in
+your terminal, with your home folder, credentials, caches and network, and the
+checks run the same way. Choose it only for work you are watching.
 
-## When confinement is dropped — history
+## What the sandbox enforces (Protected and Standard)
 
-For a short time on 2026-09-13, a command whose Seatbelt profile could not be
-applied was re-run without the sandbox when it printed the sandbox's own
-error. The fallback was **removed the same day** (`b5bd5628`): a sandboxed
-command controls its own stderr, so stderr could not be the evidence that won
-it an unconfined retry. The adversarial test
-`a_command_cannot_print_the_sandbox_error_to_escape_confinement` holds it.
+On macOS, every command runs under a Seatbelt profile:
 
-## What the boundary actually is
+- **Writes** are confined to the workspace, except PWR's own state (`.pwr/`)
+  and Git hooks, which are denied, and a few host paths toolchains need
+  (`/private/tmp/.dotnet`, `/private/tmp/pwr-look` for `look_at`'s browser,
+  MSBuild's node sockets, and for Swift/Xcode projects the per-user temporary
+  folder).
+- **Reads** are denied outside the workspace except the system paths a
+  process needs and the toolchain folders the project names.
+- **Never readable**, whatever you allow: `~/.ssh`, `~/.aws`, `~/.gnupg`,
+  `~/.config/gh`, `~/.config/gcloud`, `~/.kube`, `~/.docker/config.json`,
+  `~/.netrc`, `~/Library/Keychains`.
+- **Network** denied unless you allow it.
+- **`HOME` and `TMPDIR`** point inside the workspace; toolchains a task needs
+  are installed under `.toolchains/` in it; the host is not modified.
+- **Git configuration** stays writable, and anything a command adds that Git
+  would execute is removed afterwards.
 
-On macOS a tool runs under a seatbelt profile:
+A command that cannot be confined (no sandbox on the platform, or a workspace
+path the profile cannot express) is **refused**, unless you set
+`PWR_ALLOW_UNCONFINED=1`; then it runs with your rights and is recorded
+`sandboxed: false`.
 
-- **Writes** are confined to the workspace root. A write outside it is refused,
-  and so is a move whose destination is outside it.
-- **Reads** are denied outside the workspace, with an allowlist for the system
-  paths a process needs to start and the toolchain directories the repository's
-  own build systems name. Documents, mail, browser profiles and other
-  repositories are neither readable nor listable.
-- **The network** is denied unless a grant names it.
-- **Credentials** — `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.kube`,
-  `Library/Keychains` and others — are denied to every run, grant or no grant.
-- **`HOME` and `TMPDIR`** point inside the workspace, so a package manager's
-  caches stay inside the boundary rather than widening it. A JVM, which reads
-  neither, is told the same through `JAVA_TOOL_OPTIONS` (`user.home`,
-  `java.io.tmpdir`), and Gradle through `GRADLE_USER_HOME`. The one path
-  outside it a command may write is `/private/tmp/.dotnet`, where .NET keeps
-  the lock files of its named mutexes whatever `TMPDIR` says; without it no
-  `dotnet` command could start in the sandbox. The other is
-  `/private/tmp/pwr-look`, where `look_at`'s headless browser keeps its
-  temporary files; it is also the only place a sandboxed command may bind or
-  connect to a Unix socket (with the local-service grant), because a socket
-  path under a workspace is too long for macOS. And in a workspace whose
-  checks run Apple's toolchain (`swift`, `xcodebuild`, `xcrun`) -- and only
-  there -- macOS's per-user temporary directory (`/private/var/folders/.../T`)
-  is readable and writable: Swift, xcrun and Foundation make their temporary
-  files there whatever `TMPDIR` says, and without it no Swift package could
-  build. Clang's module cache is always redirected into the workspace, so the
-  machine's shared cache is never written, and SwiftPM is run with
-  `--disable-sandbox` because its own sandbox cannot be nested inside PWR's,
-  which confines the same process more tightly.
-- **Toolchains a task needs** are installed into the workspace, under
-  `.toolchains/<name>/`, whose `bin` goes first on `PATH` for the agent's
-  commands and for the checks alike. The host is not modified.
+The file tools additionally refuse: writes into installed dependencies
+(`node_modules`, `site-packages`, `vendor`) unless you allow a dependency
+change; paths listed in `.pwr/protected.json`; `.pwr/`, `.git/hooks`,
+`.git/config`; and any edit whose expected file hash does not match.
 
-What a command may do beyond that is a question for you, asked when the
-command is about to run and answered *once*, *for the session* or *no*
-(since 2026-09-26; before, most of it was refused with nobody asked):
-
-- **A program the workspace does not list** -- `docker`, `curl`, `javac` --
-  is asked about (`toolchain_install`) instead of refused. The workspace's
-  own programs, derived from what it declares, run without a question.
-- **The network**: a command that names a URL is asked about before it runs;
-  one that fails in a way that reads like the sandbox refusing it a
-  connection (`ENOTFOUND`, NuGet's `NU1301`, `Could not resolve host`...) is
-  asked about afterwards and run once more if you allow it. Refused, its
-  result says so, and the same command is not run again.
-- **The container engine** (`container_engine`): opens exactly the engine's
-  socket (Docker Desktop, OrbStack, Colima, Rancher Desktop or `DOCKER_HOST`)
-  and nothing else. This is the grant that leaves the sandbox: the command
-  stays confined, but a container reaches the network and can mount any
-  folder the engine shares -- on Docker Desktop, the whole home directory.
-  In **Ask** mode it is asked about whatever Settings hold. `docker push`
-  also needs the `publish` answer.
-- **The checks** that close a turn or a goal run with what the conversation
-  may do -- your Settings plus what you allowed for the session -- so a
-  check that restores packages has the network you already allowed.
-
-In the app:
-
-- **The app's webview has a Content Security Policy.** Scripts load only
-  from the app itself, network requests only reach the core's IPC, and
-  remote images in a model's reply are not loaded. Web links open in your
-  browser, and only `http(s)` links.
-- **Revert goes through the core.** The app never writes to a workspace
-  itself. "Revert" asks the core to put a file back, the core refuses if the
-  file no longer holds what the model wrote, and every revert is logged.
-
-Every tool attempt is recorded in a hash-chained log, denied as well as
-allowed, and `pwr report --format jsonl <run>` will tell you whether that
-chain still holds.
+In the app: a Content Security Policy (scripts only from the app, no remote
+images, network only to the core's IPC); links open in your browser, http(s)
+only; the app never writes to a workspace itself — Revert goes through the
+core, which refuses a file you changed since. Every tool attempt, allowed or
+denied, is recorded in `.pwr/state.sqlite`; `pwr report --format jsonl <run>`
+verifies its hash chain.
 
 ## Where the boundary ends
 
-These are not oversights; they are the known limits of the current design.
+These are known limits of the current design. Each has a plan item; until it
+lands, **do not rely on the protection it names**.
 
-- **`--provision` grants an arbitrary executable and the network together**,
-  because neither alone can install a toolchain. Under that grant a command can
-  still read the system and toolchain paths. The flag's own help says to use it
-  only for work you are willing to watch. Running provisioning in a separate
-  process or VM is unbuilt.
-- **The container engine is outside the sandbox.** Granting it lets the
-  agent run containers with the network and with bind mounts of what the
-  engine shares; the socket is the only thing the sandbox opens, and what the
-  daemon does with a request is not confined by PWR. Grant it for work you
-  are willing to watch.
-- **Linux and Windows have no sandbox adapter.** On those platforms a command
-  is refused, unless `PWR_ALLOW_UNCONFINED=1` is set; then it runs with your
-  full rights and is recorded as `sandboxed: false`. Check `sandboxed` on any
-  result before trusting it. The app is built for macOS only.
-- **A repository is untrusted input.** A file that instructs the agent to fetch
-  and run something is prose; the command still has to pass policy. The frozen
+- **Protected paths and installed dependencies are protected from the edit
+  tools, not from commands.** A script, an interpreter or a build the agent
+  runs — and the checks — can change a file the edit tools would refuse
+  ([plan W1.3](docs/plan/implementation-plan.md#w13-the-same-protections-for-commands-as-for-file-tools)).
+- **A rewrite can overwrite your newer edit.** In a conversation, `write_file`
+  onto an existing file uses the file's hash at the moment of writing, not the
+  version the model read ([W1.1](docs/plan/implementation-plan.md#w11-bind-an-overwrite-to-the-version-the-model-read)).
+  Diffs and Revert let you recover within the session.
+- **Writes are not atomic**: a crash mid-write can leave a partial file
+  ([W1.2](docs/plan/implementation-plan.md#w12-atomic-checked-writes)).
+- **"Verified" can follow a weakened test.** Goal mode freezes
+  `.pwr/checks.json`, not the tests it runs
+  ([W3.1](docs/plan/implementation-plan.md#w31-freeze-what-decides-acceptance)).
+- **The container engine is outside the sandbox.** Allowing it opens only the
+  engine's socket, but the daemon then runs containers with the network and
+  with the folders it shares — on Docker Desktop, your whole home folder.
+- **"Local services" means every local address.** macOS's sandbox can name
+  only `localhost`, which covers your LAN interfaces too.
+- **Network access is not per destination.** Once allowed, a command can
+  reach any host.
+- **Code runs.** No shell is used, but Python, Node, build scripts and package
+  install scripts run arbitrary code inside the sandbox.
+- **`--provision`** (command line) grants any program and the network
+  together, to install toolchains.
+- **A repository is untrusted input.** A file that tells the agent to fetch
+  and run something is text; the command still has to pass policy. The test
   corpus contains such a file deliberately.
-- **Local services are host-wide, not loopback-only.** On macOS the sandbox
-  can only name `localhost`, which covers every address the machine holds, so
-  a `LocalService` grant reaches services on LAN interfaces too.
-- **The model runs on this machine, and nowhere else.** A prompt carries
-  repository excerpts, so PWR has no remote-inference option. The MLX engine
-  is a child process of the core, spoken to over its standard input and
-  output, with no network endpoint at all. The llama.cpp engine (command line
-  only, not used by the app) is a `llama-server` the core starts on
-  `127.0.0.1` and nowhere else. Until 2026-09-24 `PWR_LLAMA_HOST` could bind
-  it to another address with nothing refusing it; that setting is gone. (The
-  `--allow-remote-endpoint` flag this document used to describe was removed
-  with the Ollama and LM Studio backends on 2026-09-19.)
+- **PDF extraction** decompresses without a size bound
+  ([W1.6](docs/plan/implementation-plan.md#w16-bound-pdf-decompression)).
+- **macOS only.** There is no sandbox adapter elsewhere; commands are refused
+  there unless `PWR_ALLOW_UNCONFINED=1`.
+- **The log is verifiable, not tamper-proof**: it detects an altered event,
+  not a rewritten chain or a removed ending.
+
+## Models and privacy
+
+The model runs on this machine. The MLX engine is a child process of the core
+with no network endpoint; the llama.cpp engine (command line only) listens on
+`127.0.0.1` only. Model folders are data: templates render in a sandboxed Jinja
+environment, `trust_remote_code` is off, the Hub is offline for the engine, and
+PWR never runs `.py` files from a model repository. Downloads require a size
+and a checksum for every file and never overwrite an existing different file.
+The network is used when you browse or download models, once to install the
+engine, and by the agent only when you allow it.
 
 ## Reporting something
 
-Open an issue describing what you observed and how to reproduce it. If you
-believe you have found a way for a tool to write, read or reach outside the
-boundary described above, please say so in the issue title so it can be looked
-at first. There is no embargo process on an alpha.
+Open an issue with what you observed and how to reproduce it. If a tool can
+write, read or reach outside the boundary described above, say so in the
+title so it is looked at first. There is no embargo process on an alpha.
