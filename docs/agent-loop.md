@@ -38,8 +38,10 @@ Each step of the loop:
    `COMPLETION_WITH_NOTHING_DONE`, `converse.rs:2476`).
 7. **Execution.** Each call is checked against policy and run
    ([tools-and-sandbox.md](tools-and-sandbox.md)). A `write_file` onto an
-   existing file becomes a whole-file replacement (`own_overwrite`,
-   `converse.rs:2498` — a defect, below). Every call and result is recorded in
+   existing file becomes a whole-file replacement of the version the conversation
+   last saw (`own_overwrite`); a file it has not read, or that changed since,
+   is refused with an instruction to read it (see
+   [tools-and-sandbox.md](tools-and-sandbox.md#edits)). Every call and result is recorded in
    the event log; results go back to the model with their call id.
 8. **Detectors** (below) may end the turn with a stop reason.
 
@@ -155,7 +157,6 @@ The B0 (conventional loop) and B2 (fixed staged workflow) controls live in
 |---|---|---|
 | The goal's action budget is checked only when the model did not complete; refused completions with alternating failures run without limit; no time limit | `serve.rs:2028`, `2182` | W1.4 |
 | Goal failures are compared by check name: progress inside one suite looks stuck; alternating suites look like progress | `serve.rs:2139`; `main.rs:3756-3773` | W1.5 |
-| `write_file` onto any existing file uses the hash at execution time, so a stale rewrite overwrites a newer edit | `converse.rs:2498` | W1.1 |
 | Post-turn verification happens after the turn ended; the post-turn note is `✓` whatever it says | `main.rs:4851-4927` | W2.2, W2.3 |
 | Three loops with different holds, compaction, recovery and catalogues; fixes land in one | this page | W2.4 |
 | A dozen independent limits and no shared recovery budget | table above | W2.6 |

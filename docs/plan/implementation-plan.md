@@ -126,7 +126,7 @@ the person's work or report a boundary it does not have.
 
 ### W1.1 Bind an overwrite to the version the model read
 
-**Status:** NOW · M
+**Status:** DONE (2026-09-30) except the measurement below
 
 - **Problem.** `write_file` onto an existing file becomes `ApplyReplace` with
   the hash the file has *at execution time*, so a rewrite made from stale
@@ -161,6 +161,17 @@ the person's work or report a boundary it does not have.
   the change and record refusals per task in the experiment log. If refusal
   churn returns, the answer is a better refusal (show the current content's
   window), not a hash the core invents.
+- **Implemented** as `Continuity::known` (across turns, seeded after a restart
+  from the checkpoint's changed files) beside `written`, which stays what
+  rewind compares against because a read must not update it. Tests: four unit
+  tests on `own_overwrite` and five fixtures in `two_loops.rs` (never-read file
+  refused; refused rewrite leaves the file; an edit made between read and
+  rewrite survives; a read in one turn is known in the next and a change
+  between turns is caught; a file the model created is rewritten without a
+  read). With the old behaviour restored, the four refusal tests fail.
+  `apply_replace` called directly is unchanged: it refuses a stale hash and
+  names the current one. **Still to do:** the measurement above, which needs
+  model runs and waits for the maintainer's go-ahead.
 - **Docs.** [tools-and-sandbox.md](../tools-and-sandbox.md), [agent-loop.md](../agent-loop.md).
 
 ### W1.2 Atomic, checked writes

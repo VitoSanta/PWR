@@ -492,6 +492,12 @@ pub struct Continuity {
     /// Files this conversation wrote, by workspace path, with the hash each
     /// had when it last wrote it. See [`own_overwrite`].
     pub written: std::sync::Arc<std::sync::Mutex<BTreeMap<String, String>>>,
+    /// Each file as this conversation last saw it -- read, created or edited
+    /// -- by workspace path and content hash, across turns. A whole-file
+    /// rewrite is checked against this, never against what the file holds
+    /// when the write is made: see [`own_overwrite`]. Unlike `written`, which
+    /// is what a rewind compares against, a read updates it.
+    pub known: std::sync::Arc<std::sync::Mutex<BTreeMap<String, String>>>,
     /// The person's message the work in progress answers, numbered from 1 in
     /// this session; set by the front end when the person sends one.
     pub person_turn: std::sync::Arc<std::sync::atomic::AtomicU32>,
@@ -922,6 +928,24 @@ async fn take_turn_inner<P: ModelProvider>(
     // What this turn has already been shown, so a re-read of an unchanged file
     // says so. The run carried this and the turn did not.
     let mut reads = crate::ReadHistory::default();
+    // What the conversation already knows of its files: what earlier turns
+    // read or wrote, and, after a restart, what the checkpoint says it left.
+    if let Ok(known) = continuity.known.lock() {
+        reads.seed_known(&known);
+    }
+    if let Ok(checkpoint) = continuity.checkpoint.lock() {
+        let unseen: BTreeMap<String, String> = checkpoint
+            .changed_files
+            .iter()
+            .filter(|(path, hash)| {
+                reads.known_hash(path).is_none()
+                    && hash.len() == 64
+                    && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+            .map(|(path, hash)| (path.clone(), hash.clone()))
+            .collect();
+        reads.seed_known(&unseen);
+    }
     if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
         checkpoint.turn += 1;
         checkpoint.actions = 0;
@@ -1894,7 +1918,40 @@ async fn take_turn_inner<P: ModelProvider>(
                 }
                 continue;
             }
-            let action = own_overwrite(action, &policy.root);
+            let action = match own_overwrite(action, &policy.root, &reads) {
+                Ok(action) => action,
+                Err(refusal) => {
+                    call_sequence += 1;
+                    let capability = call.name.clone();
+                    let detail = tool_call_detail(call);
+                    let path = Some(refusal.path.clone());
+                    crate::record_refused_action(
+                        store,
+                        conversation_id,
+                        &refusal.action,
+                        &refusal.why,
+                    )?;
+                    on_step(TurnStep::Refused(format!(
+                        "{capability}: {} was not read first",
+                        refusal.path
+                    )));
+                    on_step(TurnStep::ToolCall(ToolCallStep {
+                        id: call_sequence,
+                        capability,
+                        detail,
+                        path,
+                        phase: ToolPhase::Refused(refusal.summary.into()),
+                        diff: None,
+                    }));
+                    messages.push(tool_message(
+                        call,
+                        crate::action_outcome(Err(crate::ActionExecutionError::Denied(
+                            refusal.why,
+                        ))),
+                    ));
+                    continue;
+                }
+            };
             // Whether it mutates is decided here, while the typed action is
             // still in hand; whether it *did* is decided below, by whether it
             // ran. A denied edit marked the turn as having changed the
@@ -2142,6 +2199,12 @@ async fn take_turn_inner<P: ModelProvider>(
                         && let Ok(mut written) = continuity.written.lock()
                     {
                         written.insert(path.clone(), pwr_domain::hash_bytes(&bytes));
+                    }
+                    if let Some(path) = &path
+                        && let Some(hash) = reads.known_hash(path)
+                        && let Ok(mut known) = continuity.known.lock()
+                    {
+                        known.insert(crate::known_key(path), hash.to_owned());
                     }
                     refused_streak.observe(&fingerprint, &value);
                     // The checks half of the signature is constant within a
@@ -2484,29 +2547,88 @@ const COMPLETION_OVER_UNSEEN_RESULTS: &str = "complete was not carried out: it c
      show the work is done, call complete again; otherwise act on what they say.";
 
 /// A `write_file` onto a file that exists, as the whole-file replacement it
-/// means.
+/// means -- of the version the conversation last saw.
 ///
 /// `write_file` alone refuses an existing file, so that a blind overwrite is
 /// never one missing argument away, and names `apply_replace` and the hash.
 /// Measured 2026-09-25 on Ornith 1.5 35B: six refusals in one conversation,
 /// every one on a file it had itself created minutes earlier, each costing a
-/// whole regenerated file -- a limit that bought nothing a person needed.
-/// A conversation keeps every file's earlier content for rewinding
-/// ([`FileEdit`]) and shows each change as a diff that can be reverted, so an
-/// overwrite is no longer the unrecoverable act the refusal guarded against.
+/// whole regenerated file. A conversation keeps every file's earlier content
+/// for rewinding ([`FileEdit`]) and shows each change as a diff that can be
+/// reverted, so replacing a file the conversation knows is no longer the
+/// unrecoverable act that refusal guarded against.
+///
+/// What that change removed by mistake was the hash's meaning. It read the
+/// file's hash *when the write was made* and used it as the expected one, so
+/// the check compared the file with itself: a rewrite made from content the
+/// model read an hour ago, over an edit the person made since, passed, and so
+/// did a rewrite of a file the model had never opened (technical review of
+/// 2026-09-30, verified the same day). The expected hash is now the one the
+/// conversation last saw -- from a read, or from the edit or creation that
+/// left the file as it is -- and a file it has not seen, or that is no longer
+/// as it was seen, is refused with what to do. The refusal does not name the
+/// file's current hash: a caller handed it would send it back without reading
+/// anything, which is the mistake again.
+///
 /// Protected paths and the workspace boundary are still enforced by the tool.
-fn own_overwrite(action: ActionProposal, root: &std::path::Path) -> ActionProposal {
+fn own_overwrite(
+    action: ActionProposal,
+    root: &std::path::Path,
+    reads: &crate::ReadHistory,
+) -> Result<ActionProposal, Box<OverwriteRefusal>> {
     let ActionProposal::WriteFile { path, content } = action else {
-        return action;
+        return Ok(action);
     };
-    match std::fs::read(root.join(&path)) {
-        Ok(bytes) => ActionProposal::ApplyReplace {
+    let Ok(bytes) = std::fs::read(root.join(&path)) else {
+        return Ok(ActionProposal::WriteFile { path, content });
+    };
+    let current = pwr_domain::hash_bytes(&bytes);
+    match reads.known_hash(&path) {
+        Some(known) if known == current => Ok(ActionProposal::ApplyReplace {
             path,
-            expected_hash: pwr_domain::hash_bytes(&bytes),
+            expected_hash: current,
             replacement: content,
-        },
-        Err(_) => ActionProposal::WriteFile { path, content },
+        }),
+        Some(_) => Err(Box::new(OverwriteRefusal {
+            summary: "changed since it was last read",
+            why: format!(
+                "not written: {path} has changed since you last read or wrote it -- by a \
+                 command, or outside this conversation -- so replacing it whole would discard \
+                 those changes. Read it again with read_file, then send the file you mean it to \
+                 be; or change only part of it with replace_text or apply_patch."
+            ),
+            action: ActionProposal::WriteFile {
+                path: path.clone(),
+                content,
+            },
+            path,
+        })),
+        None => Err(Box::new(OverwriteRefusal {
+            summary: "exists and was not read",
+            why: format!(
+                "not written: {path} already exists and this conversation has not read it, so \
+                 replacing it whole could discard content you have not seen. Read it with \
+                 read_file first, then send the file you mean it to be; or change only part of \
+                 it with replace_text or apply_patch."
+            ),
+            action: ActionProposal::WriteFile {
+                path: path.clone(),
+                content,
+            },
+            path,
+        })),
     }
+}
+
+/// A whole-file rewrite the harness did not make, and what it told the model.
+struct OverwriteRefusal {
+    path: String,
+    /// The refused call as proposed, for the audit.
+    action: ActionProposal,
+    /// The line a front end shows.
+    summary: &'static str,
+    /// What the model is told.
+    why: String,
 }
 
 /// The most reasoning one assistant step hands to the next, in characters:
@@ -2792,23 +2914,90 @@ mod tests {
         assert!(conflicts.is_empty());
     }
 
-    #[test]
-    fn writing_an_existing_file_replaces_it_and_a_new_one_is_created() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("_check.py"), "print(1)\n").unwrap();
-        let write = |path: &str| ActionProposal::WriteFile {
+    fn write_of(path: &str) -> ActionProposal {
+        ActionProposal::WriteFile {
             path: path.into(),
             content: "print(2)\n".into(),
-        };
+        }
+    }
+
+    fn seen(path: &str, bytes: &[u8]) -> crate::ReadHistory {
+        let mut reads = crate::ReadHistory::default();
+        reads.seed_known(&BTreeMap::from([(
+            path.to_owned(),
+            pwr_domain::hash_bytes(bytes),
+        )]));
+        reads
+    }
+
+    #[test]
+    fn a_file_the_conversation_knows_is_replaced_and_a_new_one_is_created() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("_check.py"), "print(1)\n").unwrap();
+        let reads = seen("_check.py", b"print(1)\n");
         assert!(matches!(
-            own_overwrite(write("_check.py"), dir.path()),
-            ActionProposal::ApplyReplace { ref expected_hash, .. }
+            own_overwrite(write_of("_check.py"), dir.path(), &reads),
+            Ok(ActionProposal::ApplyReplace { ref expected_hash, .. })
                 if *expected_hash == pwr_domain::hash_bytes(b"print(1)\n")
         ));
+        // The same file under another spelling of its path is the same file.
         assert!(matches!(
-            own_overwrite(write("new.py"), dir.path()),
-            ActionProposal::WriteFile { .. }
+            own_overwrite(write_of("./_check.py"), dir.path(), &reads),
+            Ok(ActionProposal::ApplyReplace { .. })
         ));
+        assert!(matches!(
+            own_overwrite(write_of("new.py"), dir.path(), &reads),
+            Ok(ActionProposal::WriteFile { .. })
+        ));
+    }
+
+    /// The defect of 2026-09-30: the expected hash was read from the file at
+    /// write time, so a rewrite over an edit made after the model read passed
+    /// its own hash check and discarded the edit.
+    #[test]
+    fn a_rewrite_over_an_edit_made_after_the_read_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.py"), "print(1)\n").unwrap();
+        let reads = seen("a.py", b"print(1)\n");
+        // The person edits the file; the model, still holding the old read,
+        // sends the whole file again.
+        std::fs::write(dir.path().join("a.py"), "print(1)\nprint('mine')\n").unwrap();
+        let Err(refusal) = own_overwrite(write_of("a.py"), dir.path(), &reads) else {
+            panic!("the rewrite discarded an edit it had not seen");
+        };
+        assert!(refusal.why.contains("changed since you last read"));
+        assert!(refusal.why.contains("Read it again"));
+        // The refusal does not hand over the hash that would get the same
+        // write through without a read.
+        let current = pwr_domain::hash_bytes(b"print(1)\nprint('mine')\n");
+        assert!(!refusal.why.contains(&current));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.py")).unwrap(),
+            "print(1)\nprint('mine')\n"
+        );
+    }
+
+    #[test]
+    fn a_file_that_exists_and_was_never_read_is_not_rewritten() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.py"), "print(1)\n").unwrap();
+        let reads = crate::ReadHistory::default();
+        let Err(refusal) = own_overwrite(write_of("a.py"), dir.path(), &reads) else {
+            panic!("a file nobody read was rewritten");
+        };
+        assert!(refusal.why.contains("has not read it"));
+        assert!(refusal.why.contains("read_file"));
+        assert_eq!(refusal.path, "a.py");
+    }
+
+    #[test]
+    fn a_file_a_command_changed_after_the_read_is_refused_too() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("out.txt"), "one\n").unwrap();
+        let reads = seen("out.txt", b"one\n");
+        // A build, a formatter, a generator: anything that is not the model.
+        std::fs::write(dir.path().join("out.txt"), "two\n").unwrap();
+        assert!(own_overwrite(write_of("out.txt"), dir.path(), &reads).is_err());
     }
 
     #[test]
