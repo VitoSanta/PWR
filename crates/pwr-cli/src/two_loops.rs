@@ -1150,10 +1150,18 @@ fn an_unreadable_reply_is_told_the_same_way_by_both_loops() {
         dir.path(),
         Unreadable {
             faults: Mutex::new(1),
-            inner: Scripted::new(vec![calls(
-                "complete",
-                serde_json::json!({"rationale": "nothing to do"}),
-            )]),
+            // Twice: a completion before anything was done is asked about once
+            // by both loops (plan W2.4, row 5).
+            inner: Scripted::new(vec![
+                calls(
+                    "complete",
+                    serde_json::json!({"rationale": "nothing to do"}),
+                ),
+                calls(
+                    "complete",
+                    serde_json::json!({"rationale": "nothing to do"}),
+                ),
+            ]),
         },
         &[],
     );
@@ -1896,10 +1904,10 @@ fn only_one_of_the_two_sends_a_tool_schema() {
     let dir = workspace();
     let script = || vec![calls("complete", serde_json::json!({"rationale": "done"}))];
 
-    // Twice for the conversation, which asks about a completion that comes
-    // before anything was done.
+    // Twice for each: both loops ask about a completion that comes before
+    // anything was done.
     let chat = drive_chat(dir.path(), [script(), script()].concat());
-    let (_, run_requests) = drive_run(dir.path(), script(), &[]);
+    let (_, run_requests) = drive_run(dir.path(), [script(), script()].concat(), &[]);
 
     assert!(chat.requests[0].tools.is_some());
     assert!(run_requests[0].tools.is_none());
@@ -3386,4 +3394,85 @@ fn goal_budget_with_no_actions_left_never_calls_the_model() {
     };
     drive_continuing(dir.path(), &provider, &continuity);
     assert!(provider.requests().is_empty());
+}
+
+// ------------------------------------------- the never-ran hold, on both paths
+
+/// The scripted loop held a completion over a program that was written and
+/// never run; the conversation did not, so a model that wrote code and
+/// declared it done was stopped in campaigns and not in the app (plan W2.4,
+/// row 6). Measured 2026-09-29/30 on several small models.
+#[test]
+fn a_program_built_and_never_run_is_asked_about_once_in_a_conversation() {
+    let dir = workspace();
+    let claim = || calls("complete", serde_json::json!({"rationale": "built"}));
+    let outcome = drive_chat(
+        dir.path(),
+        vec![
+            calls(
+                "write_file",
+                serde_json::json!({"path": "tool.py", "content": "print(1)\n"}),
+            ),
+            claim(),
+            claim(),
+        ],
+    );
+    assert!(outcome.report.completed);
+    // The write, the held completion, and the completion carried out.
+    assert_eq!(outcome.requests.len(), 3);
+    let told = outcome.requests[2]
+        .messages
+        .iter()
+        .any(|message| message.content.contains("has not been run"));
+    assert!(told, "the model was never asked to run what it built");
+}
+
+#[test]
+fn a_program_that_was_run_completes_without_being_asked() {
+    let dir = workspace();
+    let outcome = drive_chat(
+        dir.path(),
+        vec![
+            calls(
+                "write_file",
+                serde_json::json!({"path": "tool.py", "content": "print(1)\n"}),
+            ),
+            calls(
+                "run_command",
+                serde_json::json!({"executable": "echo", "args": ["ran"]}),
+            ),
+            calls(
+                "complete",
+                serde_json::json!({"rationale": "built and run"}),
+            ),
+        ],
+    );
+    assert!(outcome.report.completed);
+    assert_eq!(outcome.requests.len(), 3);
+    assert!(
+        !outcome
+            .requests
+            .iter()
+            .flat_map(|request| &request.messages)
+            .any(|message| message.content.contains("has not been run"))
+    );
+}
+
+/// A page has nothing to run, and an edit to a program the workspace already
+/// had is judged by its own checks: neither is asked.
+#[test]
+fn a_page_or_an_existing_program_is_not_held_for_not_running() {
+    let dir = workspace();
+    let outcome = drive_chat(
+        dir.path(),
+        vec![
+            calls(
+                "write_file",
+                serde_json::json!({"path": "page.html", "content": "<p>hi</p>\n"}),
+            ),
+            calls("complete", serde_json::json!({"rationale": "page written"})),
+        ],
+    );
+    assert!(outcome.report.completed);
+    assert_eq!(outcome.requests.len(), 2);
 }
