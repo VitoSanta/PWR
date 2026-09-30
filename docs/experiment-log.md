@@ -25,6 +25,33 @@ unchanged. Any new product-path campaign must record these effective limits;
 results from the previous unbounded refusal path are not silently equivalent.
 No model campaign was run for this change.
 
+## 2026-09-30 — A file too long for one tool call (found by hand, in the app)
+
+**What happened.** Bonsai 27B 1-bit in the desktop, asked for a whole site in one
+HTML file: the model tried to write it in a single `write_file`, generated for
+about eleven minutes (~16k tokens at 23.8 tok/s), and was cut off inside the
+call (`turn.failed`, outcome `runaway_reply`, "stopped inside an unfinished tool
+call", 703 s and 682 s). It then made two small calls, which reset every
+consecutive counter, and tried the whole file again -- four times in forty
+minutes. Not the sandbox: the failing generations never reached a tool. The
+engine was busy the whole time (CPU time advancing, stack in `async_eval`).
+
+**Cause in the code.** The engine reports the cut-off as `Truncated`, which the
+turn classifies as a runaway; the retry's 8,192-token bound applied only to two
+other messages of that class, the model was told only to "do less in one turn",
+and the counter that ends a turn was consecutive.
+
+**Change.** A cut-off tool call now (a) bounds the retry at 8,192 tokens, (b)
+tells the model the file is too long for one call and to write a first part
+then add the rest with `replace_text`/`apply_patch`, and (c) counts toward
+three cut-off replies *in all* per turn, after which the turn stops.
+
+**Outcome.** Two fixtures: the retry's cap is 8,192 in a 262k window (16,384
+without the change) and the message carries the instruction; a turn cut off
+between small calls stops at the third instead of repeating. Not yet seen to
+help the model in the app: the model may still need several attempts to
+split, and a 1-bit 27B at 24 tok/s spends minutes on each.
+
 ## 2026-09-30 — Two completion holds now apply on every path (a measurement-changing change)
 
 **Question.** Does anything change for a campaign when the scripted loop and

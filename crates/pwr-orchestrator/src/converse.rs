@@ -129,6 +129,14 @@ const ANSWER_ALLOWANCE: u32 = 16_384;
 /// prose.
 const AGENT_UNSTRUCTURED_REPLY_GUARD: (usize, usize) = (3_000, 12_000);
 const RUNAWAY_RETRY_MAX_TOKENS: u32 = 8_192;
+/// Replies a turn may lose to being cut off inside a tool call, in all.
+///
+/// Not consecutive, unlike the counters beside it. Measured 2026-09-30 (Bonsai
+/// 27B 1-bit in the desktop, asked for a whole site): the model tried to write
+/// the file in one call, was cut off after eleven minutes, made two small calls
+/// -- which reset every consecutive counter -- and tried again, four times over
+/// forty minutes. What repeats is the size of the file, not a stumble.
+const CUT_OFF_REPLIES_PER_TURN: usize = 3;
 
 /// What one exchange produced.
 #[derive(Debug, Clone, PartialEq)]
@@ -1082,6 +1090,8 @@ async fn take_turn_inner<P: ModelProvider>(
     // Consecutive, like `silent`: a deployment that recovers is not held to
     // account for one bad generation.
     let mut unparseable = 0usize;
+    // Replies cut off inside a tool call, never reset within the turn.
+    let mut cut_offs = 0usize;
     // Its own count: a reply carrying an unreadable call arrives as a reply,
     // and every reply that arrives resets `unparseable`.
     let mut broken_calls = 0usize;
@@ -1441,6 +1451,18 @@ async fn take_turn_inner<P: ModelProvider>(
                 {
                     answer_without_thinking = true;
                     runaway_retry = true;
+                }
+                // Cut off inside a tool call: the file being written is too long
+                // for one. The next try is bounded as a cut-off call's is, and
+                // the model is told to split it (`ReplyFault::told`); a turn
+                // that keeps losing replies this way stops rather than repeat.
+                if matches!(fault, crate::ReplyFault::RanAway(_)) && fault.is_cut_off_call() {
+                    runaway_retry = true;
+                    cut_offs += 1;
+                    if cut_offs >= CUT_OFF_REPLIES_PER_TURN {
+                        failed(&mut turn, fault.kind(), fault.detail().to_owned())?;
+                        return stopped(actions, edited, StopReason::Unparseable);
+                    }
                 }
                 // A model that looped once is bounded more tightly on the next
                 // try, so a second loop costs minutes rather than a turn.

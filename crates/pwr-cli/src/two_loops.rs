@@ -3483,3 +3483,126 @@ fn a_page_or_an_existing_program_is_not_held_for_not_running() {
     assert!(outcome.report.completed);
     assert_eq!(outcome.requests.len(), 2);
 }
+
+// ------------------------------------ a file too long for one tool call
+
+const CUT_OFF: &str = "the model stopped inside an unfinished tool call; no call was executed";
+
+/// Serves the script, but every other request is a reply cut off inside a tool
+/// call -- what a model too slow or too verbose to finish a whole file in one
+/// call produces, and what small calls in between hide from a consecutive count.
+struct CutOffs {
+    every_other: Mutex<usize>,
+    inner: Scripted,
+}
+
+impl Recording for CutOffs {
+    fn requests(&self) -> Vec<ModelRequest> {
+        self.inner.requests()
+    }
+}
+
+#[async_trait]
+impl ModelProvider for CutOffs {
+    async fn inspect(&self, _: &DeploymentDescriptor) -> Result<ModelInspection, ProviderError> {
+        unreachable!("a fixture does not inspect")
+    }
+    async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+        unreachable!("a fixture has no backend to describe")
+    }
+    async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
+        let cut = {
+            let mut calls = self.every_other.lock().unwrap();
+            *calls += 1;
+            *calls % 2 == 1
+        };
+        if cut {
+            return Err(ProviderError::Truncated {
+                safe_context: CUT_OFF.into(),
+            });
+        }
+        self.inner.chat(request).await
+    }
+}
+
+/// Measured 2026-09-30: the retry after a cut-off tool call was neither bounded
+/// nor told how to proceed, so the model tried the same whole file again, for
+/// eleven minutes a time.
+#[test]
+fn a_tool_call_cut_off_by_its_length_is_retried_smaller_and_the_model_told_to_split_the_file() {
+    let dir = workspace();
+    let provider = CutOffs {
+        every_other: Mutex::new(0),
+        inner: Scripted::new(vec![says("I will write it in parts.")]),
+    };
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let mut messages = vec![ChatMessage::text("user", "build the whole site")];
+    // A large window, so that the retry's bound is the only thing keeping the
+    // cap low: in an 8k window every cap is low.
+    let report = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(converse::take_turn(
+            &provider,
+            pwr_compat::adapter_for(None, "fake").as_ref(),
+            &deployment(),
+            &store,
+            pwr_domain::new_id(),
+            &policy_for(dir.path()),
+            &mut messages,
+            262_144,
+            &[],
+            Default::default(),
+            pwr_compat::render_tools(&converse::chat_tool_catalog()),
+            &std::sync::atomic::AtomicBool::new(false),
+            &converse::Continuity::default(),
+            &pwr_orchestrator::DenyWithoutAsking,
+            |_| {},
+        ))
+        .expect("the turn returned an error rather than a report");
+    assert_eq!(report.stopped, None);
+    // The request that followed the cut-off is the only one the fixture served.
+    let retry = &provider.requests()[0];
+    let cap = retry
+        .sampling
+        .get("max_tokens")
+        .and_then(serde_json::Value::as_u64)
+        .expect("the retry names its cap");
+    assert!(cap <= 8_192, "the retry was not bounded: {cap}");
+    let told = retry
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == "tool")
+        .map(|message| message.content.clone())
+        .unwrap_or_default();
+    assert!(told.contains("replace_text"), "{told}");
+    assert!(told.contains("too long to write in one call"), "{told}");
+}
+
+/// The case seen: cut off, two small calls, cut off, two small calls, ... Each
+/// small call reset the consecutive counters, so nothing ever stopped it.
+#[test]
+fn a_turn_that_keeps_being_cut_off_between_small_calls_stops_instead_of_repeating() {
+    let dir = workspace();
+    let small = || calls("list_tree", serde_json::json!({}));
+    let provider = CutOffs {
+        every_other: Mutex::new(0),
+        inner: Scripted::new(vec![
+            small(),
+            small(),
+            small(),
+            small(),
+            says("never reached"),
+        ]),
+    };
+    let outcome = drive_chat_with(dir.path(), provider, &[]);
+    assert_eq!(
+        outcome.report.stopped,
+        Some(converse::StopReason::Unparseable),
+        "{:?}",
+        outcome.report
+    );
+    // Three replies were lost to it; the two calls between them were made.
+    assert_eq!(outcome.requests.len(), 2);
+    assert_eq!(outcome.report.actions, 2);
+}
