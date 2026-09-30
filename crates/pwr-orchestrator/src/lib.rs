@@ -849,6 +849,12 @@ impl ReplyFault {
         }
     }
 
+    /// Whether the reply was cut off inside a tool call, as opposed to running
+    /// on in prose: the engine's own words for it.
+    pub fn is_cut_off_call(&self) -> bool {
+        matches!(self, Self::RanAway(detail) if detail.contains("unfinished tool call"))
+    }
+
     /// The message that carries it, in the one shape both loops send.
     ///
     /// The words were shared and the envelope was not: the run sent
@@ -879,6 +885,13 @@ impl ReplyFault {
                 "Your last tool call could not be read: {detail}. Nothing was done. Send it \
                  again as exactly one native tool call. Inside a JSON string, a double quote is \
                  written \\\" and a backslash is written \\\\; an apostrophe needs no escape at all."
+            ),
+            Self::RanAway(detail) if detail.contains("unfinished tool call") => format!(
+                "Your last tool call was cut off before it ended, so nothing in it was done: \
+                 {detail}. The file is too long to write in one call. Write a first part that \
+                 works -- the structure and the parts that matter most -- with write_file, then \
+                 add the rest in further calls with replace_text or apply_patch. Keep each \
+                 call to a few hundred lines."
             ),
             Self::RanAway(detail) => format!(
                 "Your last reply ran on until it was cut off, so nothing in it was done: \

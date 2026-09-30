@@ -65,6 +65,7 @@ the verdict is appended to the answer and to the history (see
 | Compactions per turn | 2 | `COMPACTIONS_PER_TURN`, `converse.rs:76` | Stop as looping |
 | Consecutive empty replies | 3 | `EMPTY_TURNS_BEFORE_GIVING_UP`, `converse.rs:60` | Stop as silent |
 | Consecutive unreadable calls | 3 | `UNPARSEABLE_CALLS_BEFORE_GIVING_UP`, `converse.rs:66` | Stop as unparseable |
+| Replies cut off inside a tool call, **in all** (not consecutive) | 3 | `CUT_OFF_REPLIES_PER_TURN` | The retry is capped at 8,192 tokens and the model is told to split the file (`replace_text`/`apply_patch` for the rest); the third stops the turn as unparseable |
 | Consecutive backend faults | 3 | `BACKEND_FAULTS_BEFORE_GIVING_UP`, `converse.rs:112` | Stop as backend failing; edits so far are kept in the history |
 | Reasoning finalization retries | 1 | `REASONING_FINALIZATION_RETRIES`, `converse.rs:118` | Stop as reasoning unfinished |
 | Unstructured reply guard | 3,000 / 12,000 chars | `AGENT_UNSTRUCTURED_REPLY_GUARD`, `converse.rs:130` | A long prose reply after long thinking is retried once at 8,192 max tokens |
