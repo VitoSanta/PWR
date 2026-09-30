@@ -442,6 +442,7 @@ impl LlamaStreamDecoder {
                 thinking,
                 tool_calls: self.finish_tool_calls()?,
                 metrics: metrics(event),
+                prefill: None,
                 done: true,
             }));
         }
@@ -453,6 +454,7 @@ impl LlamaStreamDecoder {
             thinking,
             tool_calls: Vec::new(),
             metrics: None,
+            prefill: None,
             done: false,
         }))
     }

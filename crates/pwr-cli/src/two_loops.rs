@@ -183,6 +183,65 @@ impl ModelProvider for Faulty {
     }
 }
 
+/// A backend that reads a long prompt for a while, saying how far along it is,
+/// before it answers.
+struct Reading {
+    inner: Scripted,
+}
+
+#[async_trait]
+impl ModelProvider for Reading {
+    async fn inspect(&self, _: &DeploymentDescriptor) -> Result<ModelInspection, ProviderError> {
+        unreachable!("a fixture does not inspect")
+    }
+    async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+        unreachable!("a fixture has no backend to describe")
+    }
+    async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
+        let answer = self.inner.chat(request).await?;
+        let reading: Vec<Result<ModelChunk, ProviderError>> = [(2048, 8192), (8192, 8192)]
+            .into_iter()
+            .map(|(processed, total)| {
+                Ok(ModelChunk {
+                    prefill: Some(pwr_domain::PrefillProgress { processed, total }),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        Ok(Box::pin(futures_util::StreamExt::chain(
+            futures_util::stream::iter(reading),
+            answer,
+        )))
+    }
+}
+
+impl Recording for Reading {
+    fn requests(&self) -> Vec<ModelRequest> {
+        self.inner.requests()
+    }
+}
+
+/// A long wait for a first word is reported as progress, and is not mistaken
+/// for the first chunk of the answer.
+#[test]
+fn a_prompt_being_read_is_reported_as_progress() {
+    let dir = workspace();
+    let outcome = drive_chat_with(
+        dir.path(),
+        Reading {
+            inner: Scripted::new(vec![says("done")]),
+        },
+        &[],
+    );
+    let reading: Vec<_> = outcome
+        .steps
+        .iter()
+        .filter(|step| step.starts_with("prefill"))
+        .collect();
+    assert_eq!(reading, ["prefill 2048/8192", "prefill 8192/8192"]);
+    assert_eq!(outcome.report.answer, "done");
+}
+
 /// A backend that rejects the first `faults` generations as unparseable and then
 /// serves the script: the deployment wrote a tool call the backend could not
 /// read.
@@ -407,6 +466,9 @@ fn drive_chat_as<P: Recording>(
                     converse::TurnStep::Steered(text) => format!("steered {text}"),
                     converse::TurnStep::Note(text) => format!("note {text}"),
                     converse::TurnStep::MemoryProposed { text, .. } => format!("remember {text}"),
+                    converse::TurnStep::Prefill { processed, total } => {
+                        format!("prefill {processed}/{total}")
+                    }
                     converse::TurnStep::ToolCall(_)
                     | converse::TurnStep::Streaming { .. }
                     | converse::TurnStep::Usage { .. }

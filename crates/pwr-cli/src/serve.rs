@@ -2564,6 +2564,16 @@ impl<R: TurnRunner + 'static> Server<R> {
                         ));
                         return;
                     }
+                    if let TurnStep::Prefill { processed, total } = &step {
+                        server.send(notification(
+                            "_pwr/model_progress",
+                            json!({
+                                "sessionId": session_id,
+                                "prefill": {"processed": processed, "total": total},
+                            }),
+                        ));
+                        return;
+                    }
                     if let TurnStep::Streaming { thinking, content } = &step {
                         if thinking.is_empty() && content.is_empty() {
                             server.send(notification(

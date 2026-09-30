@@ -64,7 +64,10 @@ Notifications to the client: `_pwr/turn_started`, `_pwr/turn_event`,
 `_pwr/usage` (used tokens and window after each generation),
 `_pwr/compacted`, `_pwr/memory_proposed`, `_pwr/wiki_summarising`,
 `_pwr/wiki_updated`, `_pwr/download_progress`, `_pwr/model_progress`,
-`_pwr/calibration_progress`.
+`_pwr/calibration_progress`. `_pwr/model_progress` is a sign of life while
+the engine reads the prompt; from 2026-09-30 it carries
+`prefill: {processed, total}` tokens when the engine reports them, and the app
+shows "Reading the conversation · 37%".
 
 ## Stop reasons
 

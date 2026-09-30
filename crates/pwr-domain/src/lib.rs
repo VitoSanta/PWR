@@ -1706,7 +1706,19 @@ pub struct ModelChunk {
     /// Present only on the terminal chunk, and only where the backend reports it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<GenerationMetrics>,
+    /// Reading the prompt, not yet answering: tokens processed of the total to
+    /// process. Only a backend that reports it sets it; a chunk with only this
+    /// is a sign of life that says how far along the wait is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefill: Option<PrefillProgress>,
     pub done: bool,
+}
+
+/// How far a backend has read a prompt it must process before it can answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrefillProgress {
+    pub processed: u64,
+    pub total: u64,
 }
 
 impl ModelChunk {
