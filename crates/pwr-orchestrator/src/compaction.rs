@@ -67,6 +67,7 @@ pub enum Trigger {
 /// What compaction carries that is not in the messages themselves.
 #[derive(Debug, Clone, Default)]
 pub struct Carry {
+    pub objectives: Vec<String>,
     /// Every file the conversation changed, with the content hash it left --
     /// the checkpoint's account, which survives compaction because it lives
     /// outside the messages.
@@ -76,6 +77,7 @@ pub struct Carry {
 impl Carry {
     pub fn from_checkpoint(checkpoint: &crate::conversation::Checkpoint) -> Self {
         Carry {
+            objectives: checkpoint.objectives.clone(),
             changed_files: checkpoint.changed_files.clone(),
         }
     }
@@ -194,7 +196,11 @@ pub fn compact(
     }
     let folded = &messages[1..keep_from];
     let (preserved, requests) = preserve(folded, carry);
-    let record = render(&preserved);
+    let mut record = render(&preserved);
+    if !carry.objectives.is_empty() {
+        record.push_str("\nObjective and revisions (verbatim):\n");
+        record.push_str(&carry.objectives.join("\n\n"));
+    }
     let tokens_before = estimated_tokens(messages);
     let folded_messages = folded.len();
     // In the user role: a chat template requires a user turn to render at

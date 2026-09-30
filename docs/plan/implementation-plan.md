@@ -71,6 +71,55 @@ A gate is recorded as passed in [roadmap.md](../roadmap.md) and
 
 ---
 
+## Working-tree implementation ledger — 2026-09-30
+
+This ledger describes local code, not completed gates. No item below is marked
+DONE without its integration commit and complete acceptance evidence. G1, G2
+and G3 remain unpassed; no confirmatory model campaign or release was run.
+
+| Items | Implemented locally | Remaining evidence or implementation |
+|---|---|---|
+| W1.3 | Frozen files/folders and installed dependencies denied to commands; ancestor renames, aliases and parent deletion guarded; checks share protection | CI/macOS coverage; unsupported paths are surfaced as partially enforced, Full access as unconfined |
+| W1.4 | Goal-wide actions/refusals/checks/reviews/deadline with batch guards | Integration commit and CI |
+| W1.5, W3.3 | Failure identities for Rust, pytest, Go, .NET, Jest/Vitest; fingerprints drive repetition and reproduction | Integration commit; broader real-output fixtures remain useful |
+| W1.6 | 8 MiB decoded stream and 64 MiB cumulative document limits | Integration commit and CI |
+| W1.7 | Pre-read size bound, bounded read, HashSet retention in one transaction; 20,000-row fixture | Integration commit and CI |
+| W1.8, W4.6 | Embedding startup/replies have deadlines; kill on timeout; lexical fallback is recorded and visible | W4.6 remains partial for other context refresh/retrieval paths |
+| W1.9, W7.4 | Permission text states actual scope; turn outcome exposes confinement, including observed unconfined commands | Integration commit; native UI walk |
+| W2.1, W7.1 | Typed domain outcome produced by conversation core, carried in ACP, consumed by app | PARTIAL: scripted runner/CLI JSON and shared executor not yet migrated |
+| W2.2 | Marks follow typed verdicts; verification feedback is a typed user note, not an orphan tool result | Integration commit; remaining backend template fixtures |
+| W2.5 | Window arithmetic moved to runtime; task profile construction stays in orchestrator | Integration commit and CI |
+| W3.1 | Artifact paths/globs, inferred test/config/script evidence, hashes in persisted checkpoint; changed evidence stops goal; per-file human authorization | Integration commit; native permission-flow walk; declare artifacts explicitly when conventions cannot establish dependencies |
+| W3.2 | Both check readers reject malformed declarations | PARTIAL: CI proposal provenance, skipped-step reasons and adoption UI remain |
+| W3.5 | Zero-test signatures for cargo/pytest/Jest/Vitest/Go/.NET share one evidence helper | PARTIAL: extend fixtures to every supported runner |
+| W4.1 | Full objectives/revisions survive repeated compaction; ContextFull if they cannot fit | Integration commit and CI |
+| W4.3 | Compiler reports required-section overflow; callers reject oversized required input | PARTIAL: exact backend preflight is W4.2, still pending |
+| W5.1 | MLX prefill observes cancel between chunks and clears failed resume cache | Integration commit; live model cancellation smoke test |
+| W5.2 | Workspace summaries default off; cancellation handle passes to backend; Settings toggle; incoming-prompt preemption regression passes | Live-model smoke test, native Settings walk and integration commit |
+| W6.1 | WAL/busy timeout, immediate atomic append, propagated journal errors and indexes | Integration commit and CI |
+| W7.2 | Searchable repository outline is default; 3D is explicitly experimental and lazy | Native UI walk; integration commit |
+| W8.1 | Strict comparison default, explicit --legacy-pairing marked noncausal | Integration commit and CI; no campaign inference from this change |
+| W9.1 | Tagged release reuses all CI jobs, requires them before building, derives version from tag | Actual workflow run; no release created |
+
+Local consolidation evidence (2026-09-30): CLI 216 unit tests pass, desktop
+106 tests and production build pass, MLX sidecar 38 tests pass using the installed
+engine Python, workspace Clippy passes with warnings denied, formatting and diff
+checks pass. A regression executes a verifier that rewrites its own acceptance
+artifact under Full access and confirms that it cannot certify the goal.
+The full workspace suite completed: 1,327 passed, zero failures, five explicitly
+ignored live/environment-dependent tests. A subsequently added lexical-fallback
+regression passed separately, and its target passes Clippy. This is test evidence,
+not evidence of model uplift. No live-model campaign was run. Remote CI cannot currently be dispatched from this environment:
+`gh auth status` reports no authenticated GitHub host. This does not satisfy G1.
+The gate-dependent executor migration and product-path benchmark remain pending.
+
+Additional W1.3 regression found during implementation: protecting a leaf alone
+was insufficient when an agent deleted/renamed its parent or addressed it through
+an alias. File guards now compare the physical target and ancestors; Seatbelt
+blocks unlink/rename of protected ancestors while allowing sibling writes.
+
+---
+
 ## W0 — A truthful baseline
 
 ### W0.1 Rewrite the documentation to match the code
@@ -256,7 +305,7 @@ the person's work or report a boundary it does not have.
 
 ### W1.4 A goal budget that bounds every path
 
-**Status:** NOW · S
+**Status:** NOW · implemented in working tree; integration commit pending
 
 - **Problem.** `GOAL_MAX_ACTIONS` is checked only when the model did *not*
   complete, so refused completions with alternating failures loop without
@@ -273,9 +322,21 @@ the person's work or report a boundary it does not have.
   limit.
 - **Tests.** Fake `TurnRunner` (as in `serve.rs` tests): completes every turn
   and fails verification with alternating check sets → stops at the refused
-  completion cap; an injected clock → stops at the time limit; the existing
+  completion cap; Tokio’s paused clock → stops during baseline, generation,
+  completion verification and review at the time limit; the existing
   `blocked` and `stalled` tests still pass.
 - **Docs.** [agent-loop.md](../agent-loop.md).
+
+- **Implemented.** Defaults: 208 actions, 6 refusals, 9 verification runs,
+  1 review round, 3,600 seconds; workspace `goal_budget` overrides. Counters and
+  limits are recorded on all goal outcomes. Tests also cover batched calls and
+  a zero remaining action allowance and ordinary-chat isolation.
+- **Validation (2026-09-30).** Workspace Rust suite passed (host-dependent
+  tests retain their skip semantics; live-model tests remain ignored); CLI
+  suite passed; 9 W1.4 regression tests passed; workspace Clippy and final CLI
+  Clippy passed with warnings denied; desktop 95 tests and production build
+  passed; formatting, diff checks and roadmap generation passed. No model
+  campaign was run. W1.3 is still open; G1 is not passed.
 
 ### W1.5 Tell progress from repetition in goal verification
 

@@ -113,8 +113,13 @@ pub struct CompiledSection {
 /// A prompt, with the accounting that produced it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledPrompt {
+    #[serde(default)]
+    pub retrieval_fallback: Option<String>,
     pub sections: Vec<CompiledSection>,
     pub estimated_tokens: usize,
+    /// Required content exceeding the available input room: never silently truncated.
+    #[serde(default)]
+    pub over_budget_by: usize,
     /// Held back for the reply. A prompt that fills the context leaves the
     /// deployment nowhere to answer, which is a failure that looks like a
     /// refusal.
@@ -641,8 +646,10 @@ pub fn compile(sections: Vec<Section>, context_tokens: u32) -> (Vec<ChatMessage>
     (
         messages,
         CompiledPrompt {
+            retrieval_fallback: None,
             sections: compiled,
             estimated_tokens,
+            over_budget_by: estimated_tokens.saturating_sub(budget),
             reserve_tokens,
             context_tokens,
             reduced,
@@ -730,5 +737,21 @@ mod prompt_overhead_tests {
             u64::try_from(compiled.reserve_tokens).unwrap(),
             reply_headroom(16_384)
         );
+    }
+}
+
+#[cfg(test)]
+mod required_budget_tests {
+    use super::*;
+    #[test]
+    fn required_content_cannot_silently_overflow_the_window() {
+        let (_, prompt) = compile(
+            vec![
+                Section::new(SectionKind::System, "x".repeat(10000)),
+                Section::new(SectionKind::Task, "keep the specification"),
+            ],
+            1024,
+        );
+        assert!(prompt.over_budget_by > 0);
     }
 }

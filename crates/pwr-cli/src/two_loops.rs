@@ -655,6 +655,7 @@ fn the_conversation_composes_its_turn_the_way_a_run_composes_its_opening() {
     ];
     let delivered = crate::compose_chat_turn(root, 8192, &profile, None, &mut messages)
         .expect("indexing a temporary workspace")
+        .0
         .expect("no passages were delivered");
     assert!(delivered > 0);
 
@@ -679,7 +680,7 @@ fn the_conversation_composes_its_turn_the_way_a_run_composes_its_opening() {
 
     // Composing twice would rank passages against passages.
     let again = crate::compose_chat_turn(root, 8192, &profile, None, &mut messages).unwrap();
-    assert_eq!(again, None, "a composed turn was composed again");
+    assert_eq!(again, (None, None), "a composed turn was composed again");
 }
 
 /// The last two sections a run gets and the conversation did not: the
@@ -754,7 +755,7 @@ fn a_full_conversation_keeps_the_request_and_drops_the_passages() {
     let delivered = crate::compose_chat_turn(root, 8192, &profile, None, &mut messages)
         .expect("indexing a temporary workspace");
     assert_eq!(
-        delivered, None,
+        delivered.0, None,
         "passages were delivered into a full window"
     );
     assert_eq!(messages.last().unwrap().content, request);
@@ -2217,7 +2218,11 @@ fn both_loops_announce_receipt_and_checkpoint_an_edit_the_same_way() {
         let at = |kind: &str| types.iter().position(|t| *t == kind).expect(kind);
         assert!(at("action.intent") < at("action.receipt"), "{types:?}");
         assert!(
-            at("action.receipt") < at("conversation.checkpoint"),
+            at("action.receipt")
+                < types
+                    .iter()
+                    .rposition(|kind| *kind == "conversation.checkpoint")
+                    .unwrap(),
             "{types:?}"
         );
         (
@@ -2297,7 +2302,10 @@ fn an_edit_leaves_an_intent_a_receipt_and_a_checkpoint() {
     let at = |kind: &str| types.iter().position(|t| t == kind);
     let intent = at("action.intent").expect("no intent recorded");
     let receipt = at("action.receipt").expect("no receipt recorded");
-    let checkpoint = at("conversation.checkpoint").expect("no checkpoint recorded");
+    let checkpoint = types
+        .iter()
+        .rposition(|kind| kind == "conversation.checkpoint")
+        .expect("no checkpoint recorded");
     assert!(intent < receipt && receipt < checkpoint, "{types:?}");
     let recorded = continuity.checkpoint.lock().unwrap().clone();
     assert_eq!(recorded.turn, 1);
@@ -3339,4 +3347,43 @@ fn a_file_the_model_created_is_rewritten_without_a_read() {
         "<p>two</p>\n"
     );
     assert_eq!(denied_writes(&store, conversation), 0);
+}
+
+/// W1.4: the remaining goal allowance bounds calls inside one reply, too.
+#[test]
+fn goal_budget_bounds_a_batch_of_tool_calls_before_the_next_generation() {
+    let dir = workspace();
+    let provider = Scripted::new(vec![ModelChunk {
+        tool_calls: ["first.txt", "second.txt", "third.txt"]
+            .into_iter()
+            .map(|path| ToolCall {
+                name: "write_file".into(),
+                arguments: serde_json::json!({"path": path, "content": "written\n"}),
+                id: Some(path.into()),
+            })
+            .collect(),
+        done: true,
+        ..Default::default()
+    }]);
+    let continuity = converse::Continuity {
+        action_limit: Some(2),
+        ..Default::default()
+    };
+    drive_continuing(dir.path(), &provider, &continuity);
+    assert!(dir.path().join("first.txt").exists());
+    assert!(dir.path().join("second.txt").exists());
+    assert!(!dir.path().join("third.txt").exists());
+    assert_eq!(provider.requests().len(), 1);
+}
+
+#[test]
+fn goal_budget_with_no_actions_left_never_calls_the_model() {
+    let dir = workspace();
+    let provider = Scripted::new(vec![]);
+    let continuity = converse::Continuity {
+        action_limit: Some(0),
+        ..Default::default()
+    };
+    drive_continuing(dir.path(), &provider, &continuity);
+    assert!(provider.requests().is_empty());
 }

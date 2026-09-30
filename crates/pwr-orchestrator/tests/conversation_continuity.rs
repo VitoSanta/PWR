@@ -101,6 +101,11 @@ fn what_changed_while_the_conversation_was_away_is_found() {
         &store,
         id,
         &Checkpoint {
+            commands_sandboxed: None,
+            authorized_acceptance_changes: Default::default(),
+            acceptance_initialized: false,
+            acceptance: None,
+            objectives: Vec::new(),
             turn: 2,
             actions: 4,
             changed_files: changed,

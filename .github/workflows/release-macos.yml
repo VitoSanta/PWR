@@ -3,13 +3,18 @@ name: Draft macOS alpha release
 on:
   push:
     tags:
-      - v0.2.0-alpha
+      - 'v*'
 
 permissions:
   contents: write
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
   build-and-draft:
+    needs: checks
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
@@ -28,16 +33,18 @@ jobs:
         run: brew install uv
 
       - name: Build and verify release artifacts
-        run: sh scripts/release-macos.sh
+        run: EXPECTED_VERSION="${GITHUB_REF_NAME#v}" sh scripts/release-macos.sh
 
       - name: Create draft prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v0.2.0-alpha \
-            --repo VitoSanta/PWR \
-            --title "PWR v0.2.0-alpha" \
-            --notes-file docs/release/v0.2.0-alpha-release-notes.md \
+          notes="docs/release/${GITHUB_REF_NAME}-release-notes.md"
+          test -f "$notes"
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "PWR $GITHUB_REF_NAME" \
+            --notes-file "$notes" \
             --draft \
             --prerelease \
             --verify-tag \

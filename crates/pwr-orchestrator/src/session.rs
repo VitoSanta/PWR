@@ -347,6 +347,10 @@ pub async fn perform(
         conversation::record_receipt(store, id, intent.sequence)?;
     }
     if let Ok(value) = &outcome {
+        if let Some(sandboxed) = value.get("sandboxed").and_then(serde_json::Value::as_bool) {
+            checkpoint.commands_sandboxed =
+                Some(checkpoint.commands_sandboxed.unwrap_or(true) && sandboxed);
+        }
         crate::stall::record_effect(&mut checkpoint.changed_files, value);
     }
     checkpoint.actions = actions_taken;

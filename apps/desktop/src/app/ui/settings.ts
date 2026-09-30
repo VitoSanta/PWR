@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { EngineStatus } from '../core/model';
 import { LAYOUT_PALETTE, Theme, ThemeMode, ThemeService } from '../core/theme';
@@ -8,7 +8,7 @@ import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
 import { MemorySettings, ProfileSettings, ProjectsSettings } from './personal';
 
-type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
+type Page = 'workspace' | 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
 
 /** Preferences, one page at a time: kept out of the main screen. */
 @Component({
@@ -45,6 +45,19 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
               <pa-icon name="x" />
             </button>
             @switch (page()) {
+              @case ('workspace') {
+                <div class="settings-page">
+                  <header class="settings-page-head"><h3 class="settings-page-title">Workspace</h3><p class="fine">Preferences for the current project.</p></header>
+                  @if (store.chatMode()) { <p class="fine">Open a workspace to change its preferences.</p> }
+                  @else {
+                    <label class="settings-row">
+                      <input type="checkbox" [checked]="store.backgroundSummaries()" [disabled]="store.wikiSettingsBusy()" (change)="store.refreshWikiSettings($any($event.target).checked)" />
+                      <span>Background module summaries</span>
+                    </label>
+                    <p class="fine">Off by default. Uses the local model while idle; a new prompt interrupts it. Generated summaries are unverified.</p>
+                  }
+                </div>
+              }
               @case ('profile') {
                 <pa-profile-settings animate.enter="anim-fade-in" />
               }
@@ -187,9 +200,16 @@ export class Settings {
     { id: 'profile', label: 'Profile', icon: 'heart' },
     { id: 'memory', label: 'Memory', icon: 'history' },
     { id: 'projects', label: 'Projects', icon: 'folder' },
+    { id: 'workspace', label: 'Workspace', icon: 'folder' },
     { id: 'appearance', label: 'Appearance', icon: 'sun' },
     { id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
   ];
+  constructor() {
+    effect(() => {
+      const cwd = this.store.workspace();
+      if (cwd && this.ui.settingsOpen() && this.page() === 'workspace' && !this.store.chatMode()) void this.store.refreshWikiSettings();
+    });
+  }
   protected readonly themes: { value: ThemeMode; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
     { value: 'light', label: 'Light', icon: 'sun' },

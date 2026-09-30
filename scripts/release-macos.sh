@@ -7,7 +7,7 @@ OUTPUT_DIR=${OUTPUT_DIR:-"$ROOT/dist/release"}
 APP_DIR="$ROOT/apps/desktop"
 TAURI_DIR="$APP_DIR/src-tauri"
 DMG_DIR="$TAURI_DIR/target/release/bundle/dmg"
-EXPECTED_VERSION=0.2.0-alpha
+EXPECTED_VERSION=${EXPECTED_VERSION:-$(node -p "require(process.argv[1]).version" "$APP_DIR/package.json")}
 
 fail() { printf 'release-macos: %s\n' "$*" >&2; exit 1; }
 

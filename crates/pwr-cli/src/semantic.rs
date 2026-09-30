@@ -22,6 +22,7 @@ pub(crate) struct EmbeddingRanker {
     cache: HashMap<String, Vec<f32>>,
     path: PathBuf,
     dirty: bool,
+    pub(crate) fallback_reason: Option<String>,
     /// Sections embedded by this ranker, as opposed to read from the cache:
     /// what a caller reports when it says what semantic ranking cost.
     pub(crate) embedded: usize,
@@ -53,6 +54,7 @@ impl EmbeddingRanker {
             cache,
             path,
             dirty: false,
+            fallback_reason: None,
             embedded: 0,
         })
     }
@@ -78,6 +80,9 @@ impl EmbeddingRanker {
 
 impl SectionRanker for EmbeddingRanker {
     fn similarities(&mut self, query: &str, sections: &[SectionText<'_>]) -> Option<Vec<f32>> {
+        if self.fallback_reason.is_some() {
+            return None;
+        }
         let keys: Vec<String> = sections
             .iter()
             .map(|section| pwr_domain::hash_bytes(section.text))
@@ -90,7 +95,13 @@ impl SectionRanker for EmbeddingRanker {
         }
         if !missing.is_empty() {
             let texts: Vec<String> = missing.iter().map(|(_, text)| text.clone()).collect();
-            let vectors = self.embedder.embed(EmbedKind::Passage, &texts).ok()?;
+            let vectors = match self.embedder.embed(EmbedKind::Passage, &texts) {
+                Ok(vectors) => vectors,
+                Err(error) => {
+                    self.fallback_reason = Some(error);
+                    return None;
+                }
+            };
             for ((key, _), vector) in missing.into_iter().zip(vectors) {
                 self.cache.insert(key, vector);
             }
@@ -98,11 +109,20 @@ impl SectionRanker for EmbeddingRanker {
             self.dirty = true;
             self.save();
         }
-        let query = self
-            .embedder
-            .embed(EmbedKind::Query, &[query.to_owned()])
-            .ok()?
-            .pop()?;
+        let query = match self.embedder.embed(EmbedKind::Query, &[query.to_owned()]) {
+            Ok(mut vectors) => match vectors.pop() {
+                Some(vector) => vector,
+                None => {
+                    self.fallback_reason =
+                        Some("embedding sidecar returned no query vector".into());
+                    return None;
+                }
+            },
+            Err(error) => {
+                self.fallback_reason = Some(error);
+                return None;
+            }
+        };
         Some(
             keys.iter()
                 .map(|key| {

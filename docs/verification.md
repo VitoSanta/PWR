@@ -4,6 +4,41 @@
 repository's checks, when it runs them, what a result is allowed to claim, and
 where the contract is incomplete. Crate: `crates/pwr-verify`.
 
+## Working-tree update (2026-09-30)
+
+A goal freezes `.pwr/checks.json` and the selected verifier artifacts before
+baseline verification. Declare them explicitly when possible:
+
+```json
+{"checks":[{"executable":"npm","args":["run","e2e"],"kind":"acceptance"}],
+ "acceptance":{"artifacts":["tests/**","scripts/check.mjs","playwright.config.ts"]}}
+```
+
+Artifacts accept workspace-relative paths, directories, and `*`, `**`, `?`
+globs (no bracket expressions). With no declaration, PWR infers conventional
+test/fixture/script files, manifests and direct executable-script arguments;
+Cargo acceptance tests also include Rust source containing inline test modules.
+Inference is recorded as inference and cannot discover arbitrary dependency
+chains: owners should declare fixtures and configuration explicitly.
+
+Hashes are persisted separately from compressible messages. A changed, added
+or removed selected artifact produces `contract_changed`, even in Full access.
+The app offers human review and a permission question naming one file; a grant
+covers that file for this session and is journaled before it takes effect.
+Authorization is absent from the model tool catalogue. PWR's own `.pwr` state
+remains immutable to model tools; changes to the check declaration are made by
+the person and can subsequently be reviewed/authorized. Legacy resumed sessions
+without an original snapshot cannot acquire fresh evidence for prior edits.
+
+`TurnOutcome` distinguishes delivery, checks, baseline, acceptance, confinement
+and budgets. Conversation/ACP/app use it; the scripted runner migration remains
+open (W2.1/G2). Green compilation alone never grants `acceptance: accepted`.
+Post-edit failure marks follow typed results, and model feedback uses a user
+message with `VerificationFeedback`, never a tool result without a call id.
+Failure fingerprints also compare reproductions and goal repetition. Known
+zero-test signatures are handled for Rust, Python, JS, Go and .NET; this is
+signature detection, not proof of coverage.
+
 ## What each mechanism can prove
 
 | Mechanism | What it shows | What it does not |
@@ -28,9 +63,8 @@ yields anything wins:
    ]}
    ```
    A check with `"kind": "acceptance"` is an **acceptance check**: the owner's
-   executable evidence that the requested behaviour works. A file that does
-   not parse is silently ignored here and discovery falls through to the next
-   source, while the acceptance reader reports it as an error (plan W3.2).
+   executable evidence that the requested behaviour works. Malformed or unreadable declarations now fail closed in both discovery
+   and acceptance reading; they cannot silently fall through to another source.
 2. **CI configuration** — commands read as text from the CI files: `run:`
    lines and `script:`/`commands:` lists; steps that chain, pipe, redirect or
    use `$`/`{}` are skipped; deploy/publish/push steps excluded; steps whose
@@ -145,7 +179,12 @@ under an unchanged contract.
 | Goal failures compared by check name | W1.5 |
 | Flakiness judged by exit code | W3.3 |
 | CI discovery reconstructs commands without `working-directory`, `env`, multi-line scripts, and is used as acceptance-grade evidence | W3.2 |
-| A malformed `.pwr/checks.json` is silently skipped by discovery | W3.2 |
+| CI proposals lack execution-context provenance and explicit adoption | W3.2 |
 | Zero-test detection only for Cargo | W3.5 |
 | `complete` promises verification the path may not do | W3.4 |
 | Three result shapes | W2.1 |
+
+Acceptance artifacts are checked again after verification commands finish. A
+check that rewrites its own evidence cannot certify a goal. Explicit artifact
+paths into excluded dependency/build/state directories are refused rather than
+silently omitted.

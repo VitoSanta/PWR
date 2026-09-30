@@ -4,6 +4,19 @@
 what bounds it, and where the bounds end. The operational summary for users is
 [SECURITY.md](../SECURITY.md); this page is the engineering account.
 
+## Working-tree protection update — 2026-09-30
+
+Commands and file tools share frozen acceptance paths and installed-dependency
+protection. Parent deletion/renaming and workspace symlink aliases are guarded;
+on macOS, ancestor unlink restrictions prevent moving a protected subtree while
+allowing unrelated sibling writes. Verifiers use the same protection policy.
+Unsupported command confinement is reported as partially enforced; Full access
+is explicitly unconfined. Acceptance hashes detect changed evidence even there,
+both before and after checks. This is not a claim of cross-platform sandbox parity.
+
+PDF decoding is limited to 8 MiB per stream and 64 MiB per document. Exceeding
+those limits fails extraction instead of retrying another decoder unboundedly.
+
 ## The tool catalogue
 
 Defined once, in `action_tool_catalog` (`crates/pwr-orchestrator/src/lib.rs:4560`).

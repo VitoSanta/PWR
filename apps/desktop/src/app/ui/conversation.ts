@@ -189,6 +189,8 @@ type Item =
           <div [class]="'outcome tone-' + outcome.tone" role="status">
             <pa-icon [name]="outcomeIcon(outcome.tone)" [size]="14" />
             <span>{{ outcome.text }}</span>
+            @if (outcome.confinement) { <span class="t-meta">{{ outcome.confinement }}</span> }
+            @if (outcome.acceptanceChanges?.length) { <button class="btn btn-sm" (click)="store.reviewAcceptanceChanges()">Review acceptance changes</button> }
             @if (outcome.action) {
               <button class="btn btn-sm" (click)="store.continueRun()">
                 <pa-icon [name]="outcome.action === 'retry' ? 'refresh' : 'arrow-right'" [size]="14" />

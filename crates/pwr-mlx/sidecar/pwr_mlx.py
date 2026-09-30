@@ -614,6 +614,10 @@ def image_parts(messages, accept: bool = True):
     return images, shaped
 
 
+class PrefillCancelled(Exception):
+    """An interrupted prefill has no reusable cache state."""
+
+
 class Engine:
     def __init__(self) -> None:
         self.model = None
@@ -731,9 +735,11 @@ class Engine:
         step = self.score_budget // (self.heads * SCORE_BYTES * keys)
         return max(PREFILL_MIN_STEP, min(PREFILL_STEP, step // 256 * 256))
 
-    def prefill(self, tokens: list[int], offset: int, progress=lambda done, total: None) -> None:
+    def prefill(self, tokens: list[int], offset: int, progress=lambda done, total: None, cancelled=lambda: False) -> None:
         start = 0
         while start < len(tokens):
+            if cancelled():
+                raise PrefillCancelled()
             progress(start, len(tokens))
             step = self.prefill_step(offset + start)
             self.model(mx.array(tokens[start:start + step])[None], cache=self.cache)
@@ -759,7 +765,7 @@ class Engine:
             self.cache = None
             self.checkpoint_tokens = []
 
-    def resume(self, base: list[int], progress) -> int:
+    def resume(self, base: list[int], progress, cancelled=lambda: False) -> int:
         """Brings the cache to the end of `base`, reusing what it can of the
         last prompt, and returns how many tokens were reused."""
         reused = 0
@@ -796,13 +802,13 @@ class Engine:
         keeps_copy = isinstance(self.model, VisionText) or not stays_trimmable(self.cache)
         cut = max(reused, self.checkpoint_point(base)) if keeps_copy else len(base)
         try:
-            self.prefill(base[reused:cut], reused, progress)
+            self.prefill(base[reused:cut], reused, progress, cancelled)
             if keeps_copy:
                 self.checkpoint = snapshot(self.cache)
             else:
                 self.checkpoint = None
             if cut < len(base):
-                self.prefill(base[cut:], cut, progress)
+                self.prefill(base[cut:], cut, progress, cancelled)
         except BaseException:
             # Half a prefill matches no prompt: the next one starts clean.
             self.cache = None
@@ -890,9 +896,13 @@ class Engine:
             # without a generation prompt, or adds no generation token after
             # a tool result (Gemma 4). Generation still needs one prompt token.
             base = full[:-1]
-        reused = self.resume(base, lambda done, total: reply(
-            {"event": "prefill", "processed": int(done), "total": int(total)}
-        ))
+        try:
+            reused = self.resume(base, lambda done, total: reply(
+                {"event": "prefill", "processed": int(done), "total": int(total)}
+            ), cancelled)
+        except PrefillCancelled:
+            return {"event": "done", "finish_reason": "cancelled",
+                    "usage": {"prompt_tokens": len(full), "completion_tokens": 0}}
         prefilled = time.perf_counter()
 
         # Where generation starts: inside a think block if the template opened

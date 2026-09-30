@@ -3,6 +3,7 @@ name: CI
 # No inference engine or live model runs here. Those checks remain recorded
 # separately with their deployment provenance. CI gates Rust and desktop code.
 on:
+  workflow_call:
   push:
     branches: [develop, stage, main]
   pull_request:

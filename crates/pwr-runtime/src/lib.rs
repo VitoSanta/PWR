@@ -6,6 +6,7 @@
 
 pub mod hardware;
 pub mod host;
+pub mod window;
 
 use async_trait::async_trait;
 use pwr_domain::{BackendState, DeploymentDescriptor, ModelInspection, ModelRequest, new_id};

@@ -129,6 +129,8 @@ export class AgentStore {
   /** Ask before what leaves the workspace, or run with every permission. */
   /** Protected (`ask`), Standard (`auto`) or Full access (`full`): the core's names. */
   readonly permissionMode = signal<PermissionMode>('ask');
+  readonly backgroundSummaries = signal(false);
+  readonly wikiSettingsBusy = signal(false);
   /** What the core actually asks about in the current mode. */
   readonly asking = signal<string[]>([]);
   /** False where the platform gives no sandbox: commands then run unconfined. */
@@ -420,6 +422,18 @@ export class AgentStore {
 
   // ----------------------------------------------------------- permissions
 
+  async refreshWikiSettings(enabled?: boolean): Promise<void> {
+    const cwd = this.workspace();
+    if (!cwd || this.chatMode()) return;
+    this.wikiSettingsBusy.set(true);
+    try {
+      const reply = await this.request('_pwr/wiki_settings', { cwd, ...(enabled === undefined ? {} : { enabled }) });
+      if (cwd === this.workspace()) this.backgroundSummaries.set(reply.enabled === true);
+    } catch (error) {
+      this.notice('Workspace settings unavailable', String(error), 'error');
+    } finally { this.wikiSettingsBusy.set(false); }
+  }
+
   async refreshPermissions(params: Record<string, unknown> = {}): Promise<void> {
     const reply = await this.request('_pwr/approvals', { cwd: this.workspace(), ...params });
     this.permissionMode.set(reply.mode === 'auto' || reply.mode === 'full' ? reply.mode : 'ask');
@@ -695,6 +709,19 @@ export class AgentStore {
    * Picks the work up where the core stopped it: offered only once the core's
    * own automatic retries are spent, or a turn paused at its action budget.
    */
+  async reviewAcceptanceChanges(): Promise<void> {
+    const sessionId = this.sessionId();
+    const outcome = this.runOutcome();
+    if (!sessionId || this.turnActive() || !outcome?.acceptanceChanges?.length) return;
+    try {
+      for (const path of outcome.acceptanceChanges) {
+        const reply = await this.request('_pwr/acceptance_authorize', { sessionId, path });
+        if (!reply.allowed) return;
+      }
+      this.runOutcome.set({ ...outcome, acceptanceChanges: [], text: 'Acceptance changes authorized. Continue to run verification again.', action: 'continue', tone: 'paused' });
+    } catch (error) { this.notice('Acceptance authorization failed', String(error), 'error'); }
+  }
+
   continueRun(): Promise<void> {
     const outcome = this.runOutcome();
     if (!outcome?.action || this.turnActive()) return Promise.resolve();

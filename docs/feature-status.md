@@ -14,7 +14,7 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | Streaming, Stop, steering | KEEP | IMPLEMENTED | `converse.rs`; `_pwr/steer`, `session/cancel` | W5.1 (Stop during prefill) |
 | Search, windowed read, dependency source read | KEEP | IMPLEMENTED | `search` with `in_dependencies`, `read_file` windows | — |
 | Sandbox and approvals (three permission modes) | IMPROVE | IMPLEMENTED, asymmetric | `sandbox_profile`, `refuse_if_protected`; `PermissionMode` | W1.3, W1.9, W7.4 |
-| Goal mode acceptance contract | IMPROVE | IMPLEMENTED, incomplete | `acceptance_contract_hash`, `verify_goal` | W3.1, W1.4, W1.5 |
+| Goal mode acceptance contract | IMPROVE | IMPLEMENTED, incomplete | `acceptance_contract_hash`, `verify_goal` | W3.1, W1.5 |
 | Persistence and resume (`--continue`, app sessions, rewind) | IMPROVE | IMPLEMENTED | `conversation.rs`, `serve.rs` | W6.4 |
 | Model Manager, downloads, fit rating | IMPROVE | IMPLEMENTED | `crates/pwr-models`, `model-manager.ts` | W7.7, W2.5 |
 | Budgets and recovery detectors | SIMPLIFY | IMPLEMENTED, many independent limits | `converse.rs:60-131`, `repetition.rs`, `stall.rs` | W2.6 |
@@ -22,9 +22,9 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | Project wiki (overview, work log, graph, summaries) | SIMPLIFY | IMPLEMENTED | `crates/pwr-orchestrator/src/wiki.rs`, `graph.rs` | W10.2, W5.2 |
 | Scripted runner vs conversation turn | MERGE | Two loops | `lib.rs:2936` vs `converse.rs:829` | W2.3, W2.4 |
 | Ledger, checkpoint, task state, snapshots | MERGE | IMPLEMENTED, overlapping | `run_state.rs`, `conversation.rs`, `session.rs` | W6.2, W6.3 |
-| 3D knowledge graph view | REMOVE (from default) | IMPLEMENTED | `apps/desktop/src/app/ui/workbench/knowledge.ts` | W7.2 |
-| Automatic module summaries after each turn | REMOVE (as default) | IMPLEMENTED, on | `summarise_while_idle`, `serve.rs:2781` | W5.2 |
-| Permissive campaign comparison as default | REMOVE (as default) | IMPLEMENTED | `pwr_eval::compare` | W8.1, W10.3 |
+| 3D knowledge graph view | REMOVE (from default) | IMPLEMENTED (working tree): outline default, experimental 3D opt-in | `apps/desktop/src/app/ui/workbench/knowledge.ts` | W7.2 |
+| Automatic module summaries after each turn | REMOVE (as default) | IMPLEMENTED (working tree): off by default, opt-in and pre-emptible | `summarise_while_idle`, `serve.rs:2781` | W5.2 |
+| Permissive campaign comparison as default | REMOVE (as default) | IMPLEMENTED (working tree): strict default, legacy explicitly noncausal | `pwr_eval::compare` | W8.1, W10.3 |
 | Semantic retrieval (embedding fusion) | EXPERIMENTAL | Opt-in (`PWR_SEMANTIC_RETRIEVAL=1`) | `crates/pwr-cli/src/semantic.rs` | Later (W4.7) |
 | `look_at` and image input | EXPERIMENTAL | Offered to vision models only | `look_at_tool`, `converse.rs:649` | Later |
 | Evidence-state compaction | EXPERIMENTAL | Scripted loop only (`--context-policy`) | `crates/pwr-orchestrator/src/evidence.rs` | W4.7 |
@@ -32,8 +32,9 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | llama.cpp / GGUF | EXPERIMENTAL | CLI only; server started per generation | `crates/pwr-llama` | Later |
 | Quick Calibration | KEEP (as a compatibility smoke test) | IMPLEMENTED, nine requests | `crates/pwr-models/src/calibration.rs` | Not a capability predictor |
 | Exact token preflight | MISSING | — | — | W4.2 |
-| Global budget (time, recoveries) | MISSING | — | — | W1.4, W2.6 |
-| Frozen verifier artifacts | MISSING | — | — | W3.1 |
-| One structured outcome | MISSING | Planned in the 2026-09-12 contract, not built | — | W2.1 |
+| Goal-wide budget | KEEP | IMPLEMENTED (W1.4, working tree): actions, refusals, verification/review caps, wall-clock | `GoalBudget`, `GoalLimits`, `serve.rs`; workspace `goal_budget` | — |
+| Shared recovery budget | MISSING | Independent recovery limits remain | — | W2.6 |
+| Frozen verifier artifacts | KEEP | IMPLEMENTED (working tree): persisted hashes, per-file authorization, before/after check validation | `pwr-verify::acceptance`, `Checkpoint`, `verify_goal` | W3.1 |
+| One structured outcome | IMPROVE | PARTIAL: conversation/ACP/UI migrated; scripted runner and CLI JSON pending | `pwr-domain::TurnOutcome` | W2.1 |
 | Comparative benchmark on the product path | MISSING | — | — | W8 |
 | Retrievable large tool output | MISSING | Output is bounded and hashed; bytes past the bound are dropped | — | W4.4 |

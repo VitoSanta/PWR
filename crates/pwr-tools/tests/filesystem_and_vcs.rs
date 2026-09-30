@@ -1060,3 +1060,53 @@ fn a_write_in_flight_is_not_listed_or_searched() {
 fn hash_of(root: &Path, name: &str) -> String {
     pwr_domain::hash_bytes(fs::read(root.join(name)).unwrap())
 }
+
+#[test]
+fn frozen_artifacts_cannot_be_removed_by_deleting_or_moving_their_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("tests/nested")).unwrap();
+    fs::write(dir.path().join("tests/nested/acceptance.rs"), "original").unwrap();
+    let mut policy = policy(dir.path());
+    policy.protected = vec!["tests/nested/acceptance.rs".into()];
+    assert!(delete_path(&policy, Path::new("tests"), None, true).is_err());
+    assert!(move_path(&policy, Path::new("tests"), Path::new("elsewhere")).is_err());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("tests/nested/acceptance.rs")).unwrap(),
+        "original"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn frozen_artifacts_and_harness_state_are_protected_through_aliases() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("tests")).unwrap();
+    fs::create_dir_all(dir.path().join(".pwr")).unwrap();
+    fs::write(dir.path().join("tests/acceptance.rs"), "original").unwrap();
+    fs::write(dir.path().join(".pwr/state.json"), "state").unwrap();
+    std::os::unix::fs::symlink(dir.path().join("tests"), dir.path().join("alias")).unwrap();
+    std::os::unix::fs::symlink(dir.path().join(".pwr"), dir.path().join("state_alias")).unwrap();
+    let mut policy = policy(dir.path());
+    policy.protected = vec!["tests/acceptance.rs".into()];
+    assert!(
+        move_path(
+            &policy,
+            Path::new("alias/acceptance.rs"),
+            Path::new("moved.rs")
+        )
+        .is_err()
+    );
+    assert!(
+        move_path(
+            &policy,
+            Path::new("state_alias/state.json"),
+            Path::new("moved_state.json")
+        )
+        .is_err()
+    );
+    let reentered = format!(
+        "../{}/tests/acceptance.rs",
+        dir.path().file_name().unwrap().to_string_lossy()
+    );
+    assert!(policy.refuse_if_protected(Path::new(&reentered)).is_err());
+}

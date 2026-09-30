@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { AgentStore } from './agent.store';
 
@@ -8,6 +9,25 @@ describe('AgentStore context', () => {
     TestBed.configureTestingModule({});
     store = TestBed.inject(AgentStore);
     store.sessionId.set('s1');
+  });
+
+  it('requires authorization for each named acceptance artifact before offering continuation', async () => {
+    store.runOutcome.set({ terminal: 'contract_changed', text: 'Review required', detail: null, action: null, tone: 'failed', acceptanceChanges: ['tests/a.rs', 'tests/b.rs'] });
+    const request = vi.spyOn(store as any, 'request').mockResolvedValue({ allowed: true });
+    await store.reviewAcceptanceChanges();
+    expect(request.mock.calls).toEqual([
+      ['_pwr/acceptance_authorize', { sessionId: 's1', path: 'tests/a.rs' }],
+      ['_pwr/acceptance_authorize', { sessionId: 's1', path: 'tests/b.rs' }],
+    ]);
+    expect(store.runOutcome()?.action).toBe('continue');
+  });
+
+  it('keeps changed acceptance evidence blocked after a refusal', async () => {
+    store.runOutcome.set({ terminal: 'contract_changed', text: 'Review required', detail: null, action: null, tone: 'failed', acceptanceChanges: ['tests/a.rs'] });
+    vi.spyOn(store as any, 'request').mockResolvedValue({ allowed: false });
+    await store.reviewAcceptanceChanges();
+    expect(store.runOutcome()?.tone).toBe('failed');
+    expect(store.runOutcome()?.action).toBeNull();
   });
 
   it('shows an automatic compaction in the conversation', () => {

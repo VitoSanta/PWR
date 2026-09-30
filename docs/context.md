@@ -4,6 +4,20 @@
 model, how it is counted, how it is compacted, and where repository knowledge
 comes from.
 
+## Working-tree update (2026-09-30)
+
+Full human objectives and steering revisions live in the persisted checkpoint,
+independently of compacted history. Every compaction carries them verbatim; if
+these objectives cannot fit the input allowance, generation ends as ContextFull.
+The compiler reports `over_budget_by` for required content. Token costs remain
+estimates: exact template/tool-aware backend preflight (W4.2) is not implemented.
+
+Embedding startup and each reply have a 30-second deadline; timeout kills the
+sidecar. An error disables further semantic requests for that ranker, retrieval
+rebuilds the lexical candidate set, and conversation context events/operator
+notes record the fallback. Scripted `ContextCompiled` carries
+`retrieval_fallback`. These diagnostics do not enter the task prompt.
+
 ## What a conversation turn sends
 
 The first message is the **system prompt**, rebuilt each turn

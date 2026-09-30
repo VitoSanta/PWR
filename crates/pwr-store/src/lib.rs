@@ -57,6 +57,8 @@ pub struct Store {
 impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         let connection = Connection::open(path)?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.pragma_update(None, "journal_mode", "WAL")?;
         let store = Self { connection };
         store.migrate()?;
         Ok(store)
@@ -87,6 +89,7 @@ impl Store {
         }
         self.connection
             .execute_batch("INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);")?;
+        self.connection.execute_batch("CREATE INDEX IF NOT EXISTS events_run_type ON events(run_id,event_type); CREATE INDEX IF NOT EXISTS events_run ON events(run_id);")?;
         Ok(())
     }
 
@@ -191,31 +194,36 @@ impl Store {
         event_type: &str,
         payload: serde_json::Value,
     ) -> Result<EventRecord, StoreError> {
-        let previous_hash: Option<String> = self
-            .connection
+        // Serialize read-and-append across connections, not only threads using
+        // this Store. An empty chain is distinct from a failed SQLite query.
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let previous_hash: Option<String> = transaction
             .query_row(
                 "SELECT event_hash FROM events ORDER BY rowid DESC LIMIT 1",
                 [],
                 |row| row.get(0),
             )
-            .ok();
-        // The previous event *of this run*, so a run's evidence stands on its
-        // own rather than depending on whatever else the database held.
-        let run_previous_hash: Option<String> = run_id.and_then(|run_id| {
-            self.connection
+            .optional()?;
+        let run_previous_hash: Option<String> = match run_id {
+            Some(run) => transaction
                 .query_row(
                     "SELECT event_hash FROM events WHERE run_id=?1 ORDER BY rowid DESC LIMIT 1",
-                    params![run_id.to_string()],
+                    params![run.to_string()],
                     |row| row.get(0),
                 )
-                .ok()
-        });
+                .optional()?,
+            None => None,
+        };
         let at = now();
         let id = pwr_domain::new_id();
         let canonical =
             serde_json::to_vec(&(id, run_id, event_type, &payload, at, &previous_hash))?;
         let event_hash = hash_bytes(canonical);
-        self.connection.execute("INSERT INTO events(id,run_id,event_type,payload,at,previous_hash,run_previous_hash,event_hash) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", params![id.to_string(), run_id.map(|id| id.to_string()), event_type, serde_json::to_string(&payload)?, at.to_rfc3339(), previous_hash, run_previous_hash, event_hash])?;
+        transaction.execute("INSERT INTO events(id,run_id,event_type,payload,at,previous_hash,run_previous_hash,event_hash) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", params![id.to_string(), run_id.map(|id| id.to_string()), event_type, serde_json::to_string(&payload)?, at.to_rfc3339(), previous_hash, run_previous_hash, event_hash])?;
+        transaction.commit()?;
         Ok(EventRecord {
             id,
             run_id,

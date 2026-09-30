@@ -23,6 +23,27 @@ use std::io::Read as _;
 /// How much of a PDF is examined. A document larger than this is refused rather
 /// than partly extracted: a truncated CV is a wrong CV.
 const MAX_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_STREAM_BYTES: usize = 8 * 1024 * 1024;
+const MAX_DECODED_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Default)]
+struct DecodeBudget {
+    used: usize,
+    exceeded: bool,
+}
+impl DecodeBudget {
+    fn allowance(&self) -> usize {
+        MAX_STREAM_BYTES.min(MAX_DECODED_DOCUMENT_BYTES.saturating_sub(self.used))
+    }
+    fn charge(&mut self, bytes: usize) -> bool {
+        if bytes > self.allowance() {
+            self.exceeded = true;
+            return false;
+        }
+        self.used += bytes;
+        true
+    }
+}
 
 /// Fraction of recovered characters that must be plausible text before the
 /// result is offered as text at all.
@@ -54,6 +75,7 @@ pub struct Extraction {
 pub enum ExtractionFailure {
     NotADocument,
     TooLarge,
+    ExpansionTooLarge,
     NoTextContent,
     Undecodable,
     Malformed(String),
@@ -70,6 +92,12 @@ impl std::fmt::Display for ExtractionFailure {
                 f,
                 "larger than {} MiB, which this extractor refuses rather than partly reads",
                 MAX_DOCUMENT_BYTES / (1024 * 1024)
+            ),
+            Self::ExpansionTooLarge => write!(
+                f,
+                "decoded PDF exceeds the {} MiB per-stream or {} MiB document limit",
+                MAX_STREAM_BYTES / (1024 * 1024),
+                MAX_DECODED_DOCUMENT_BYTES / (1024 * 1024)
             ),
             Self::NoTextContent => write!(
                 f,
@@ -110,8 +138,13 @@ pub fn extract(bytes: &[u8]) -> Result<Extraction, ExtractionFailure> {
     let pages = count_pages(bytes);
     collect_uris(bytes, &mut links);
 
+    let mut budget = DecodeBudget::default();
     for (dictionary, stream) in streams(bytes) {
-        let Some(data) = decode_stream(&dictionary, &stream) else {
+        let data = decode_stream(&dictionary, &stream, &mut budget);
+        if budget.exceeded {
+            return Err(ExtractionFailure::ExpansionTooLarge);
+        }
+        let Some(data) = data else {
             continue;
         };
         collect_uris(&data, &mut links);
@@ -193,12 +226,15 @@ fn streams(bytes: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
 /// see is not text: an image's bytes are not the document's words, and the one
 /// in the campaign's CV is ASCII85 -- printable, and therefore indistinguishable
 /// from text by any test that does not read the declaration.
-fn decode_stream(dictionary: &[u8], data: &[u8]) -> Option<Vec<u8>> {
+fn decode_stream(dictionary: &[u8], data: &[u8], budget: &mut DecodeBudget) -> Option<Vec<u8>> {
     if data.is_empty() {
         return None;
     }
     let declared = String::from_utf8_lossy(dictionary);
     if declared.contains("/Subtype") && declared.contains("/Image") {
+        return None;
+    }
+    if !budget.charge(data.len()) {
         return None;
     }
     let mut decoded = data.to_vec();
@@ -209,7 +245,7 @@ fn decode_stream(dictionary: &[u8], data: &[u8]) -> Option<Vec<u8>> {
             .take_while(|character| character.is_ascii_alphanumeric())
             .collect();
         decoded = match name.as_str() {
-            "FlateDecode" => inflate(&decoded)?,
+            "FlateDecode" => inflate(&decoded, budget)?,
             "ASCII85Decode" => ascii85(&decoded)?,
             "ASCIIHexDecode" => ascii_hex(&decoded)?,
             // An image codec, an unsupported compression, or a key that is not
@@ -219,6 +255,9 @@ fn decode_stream(dictionary: &[u8], data: &[u8]) -> Option<Vec<u8>> {
             | "RunLengthDecode" | "Crypt" => return None,
             _ => continue,
         };
+        if name != "FlateDecode" && !budget.charge(decoded.len()) {
+            return None;
+        }
         applied += 1;
     }
     // An undeclared stream is usable only if it is text to begin with.
@@ -229,22 +268,24 @@ fn decode_stream(dictionary: &[u8], data: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Zlib, then raw deflate. Streams are written both ways in the wild.
-fn inflate(data: &[u8]) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
-    if flate2::read::ZlibDecoder::new(data)
-        .read_to_end(&mut out)
-        .is_ok()
-        && !out.is_empty()
-    {
-        return Some(out);
-    }
-    out.clear();
-    if flate2::read::DeflateDecoder::new(data)
-        .read_to_end(&mut out)
-        .is_ok()
-        && !out.is_empty()
-    {
-        return Some(out);
+fn inflate(data: &[u8], budget: &mut DecodeBudget) -> Option<Vec<u8>> {
+    let limit = budget.allowance();
+    for raw in [false, true] {
+        let mut out = Vec::new();
+        let decoder: Box<dyn std::io::Read + '_> = if raw {
+            Box::new(flate2::read::DeflateDecoder::new(data))
+        } else {
+            Box::new(flate2::read::ZlibDecoder::new(data))
+        };
+        let result = decoder.take(limit as u64 + 1).read_to_end(&mut out);
+        if out.len() > limit {
+            budget.exceeded = true;
+            return None;
+        }
+        if result.is_ok() && !out.is_empty() {
+            budget.charge(out.len());
+            return Some(out);
+        }
     }
     None
 }
@@ -723,5 +764,38 @@ mod tests {
         pdf.extend_from_slice(&compressed);
         pdf.extend_from_slice(b"\nendstream\nendobj\n");
         assert_eq!(extract(&pdf).unwrap().text, "compressed");
+    }
+}
+
+#[cfg(test)]
+mod expansion_tests {
+    use super::*;
+    use std::io::Write;
+    #[test]
+    fn small_compressed_pdf_is_refused_when_its_stream_expands_past_the_limit() {
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder
+            .write_all(&vec![b'a'; MAX_STREAM_BYTES + 1])
+            .unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut pdf = b"%PDF-1.4\n1 0 obj << /Filter /FlateDecode >>\nstream\n".to_vec();
+        pdf.extend(compressed);
+        pdf.extend(b"\nendstream\nendobj");
+        assert!(pdf.len() < 100_000);
+        assert_eq!(
+            extract(&pdf).unwrap_err(),
+            ExtractionFailure::ExpansionTooLarge
+        );
+    }
+    #[test]
+    fn many_small_streams_share_one_document_budget() {
+        let mut budget = DecodeBudget {
+            used: MAX_DECODED_DOCUMENT_BYTES - 10,
+            exceeded: false,
+        };
+        assert!(decode_stream(b"", b"12345678", &mut budget).is_some());
+        assert!(decode_stream(b"", b"123", &mut budget).is_none());
+        assert!(budget.exceeded);
     }
 }
