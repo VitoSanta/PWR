@@ -70,20 +70,26 @@ workspace-wide.
 
 1. The app sends `session/prompt` (with `goalMode` true or false) to `pwr serve`.
 2. `serve.rs` resolves the session, its workspace configuration and permission
-   mode, and calls the turn runner.
-3. The runner (`run_chat_turn` in `main.rs`) builds the catalogue (the
+   mode, and hands the prompt to the **session executor**
+   (`pwr_orchestrator::executor::execute`, policy *conversation* or *goal*),
+   with itself as the executor's host (`SessionHost`): the model turn, the
+   verification, the review, what to say and the messages to keep.
+3. The host's turn (`run_chat_turn` in `main.rs`) builds the catalogue (the
    conversation catalogue, the chat-only one without a workspace, or with
    `look_at` for a vision model), then calls `converse::take_turn`.
 4. `take_turn` loops: compact if the prompt nears the threshold, generate
    through the provider, parse and normalise tool calls (`pwr-compat`), check
    each against policy, execute it (`pwr-tools`), append its result, until the
    model answers in prose, calls `complete`, or a detector stops the turn.
-5. Back in `run_chat_turn`, **after the turn has ended**: if it edited files,
-   the repository's checks run and their verdict is appended to the answer
-   and to the history (`main.rs:4851-4927`).
-6. In Goal mode, `serve.rs` loops around steps 3–5: on a `complete` it runs the
-   full verification, once runs a review round, and either ends verified or
-   sends the model back with the evidence (`serve.rs:1966-2236`).
+5. Back in `run_chat_turn`, if the turn edited files, the front end prepares
+   the checks' policy and hands them to `executor::close_turn`, which runs
+   them and puts the verdict in the answer, the model's next prompt and the
+   turn's typed outcome.
+6. In Goal mode the executor loops around steps 3–5: on a `complete` it runs
+   the full verification, once runs a review round, and either ends verified
+   or sends the model back with the evidence, inside one goal budget. It
+   returns a `SessionEnd` (reply, stopped, out of budget, error); `serve.rs`
+   turns that into the ACP response.
 
 ## Three execution semantics
 
@@ -92,8 +98,8 @@ architecture's main problem (review §2, §3.2; plan W2).
 
 | | Conversation turn | Goal mode | Scripted run (`pwr run`, `eval run`) |
 |---|---|---|---|
-| Code | `converse::take_turn` + `run_chat_turn` | `serve.rs` goal loop around the turn | `run_action_loop_with_prompt_budget_and_context_tiers`, `orchestrator/src/lib.rs:2936` |
-| Verification | after the turn, by the caller; the turn is already over | full verification on each `complete`, acceptance contract, one review round | inside the loop: baseline, checks on completion, recovery cycle |
+| Code | `converse::take_turn` + `run_chat_turn`, sequenced by `executor::execute` | `executor::execute` (goal policy) around the turn | `run_action_loop_with_prompt_budget_and_context_tiers`, `orchestrator/src/lib.rs:2936` |
+| Verification | `executor::close_turn` after the turn; the turn is already over | full verification on each `complete`, acceptance contract, one review round | inside the loop: baseline, checks on completion, recovery cycle |
 | Completion | `complete` held once if unseen results or nothing done | verified only with a declared, unchanged acceptance check | `verified: false` allowed when no verifier exists |
 | Compaction | mechanical record (`compaction.rs`) | same | ledger compaction; optional `recency-fill` / `evidence-state` policies |
 | Catalogue | no `record_progress`, `propose_verifier`; adds `remember`, `recall_project`, `wiki_query`, `look_at` | same | the full action catalogue |
@@ -105,8 +111,10 @@ Every campaign so far measured the third column; the app ships the first two.
 
 - `pwr-models` depends on `pwr-orchestrator` for the window arithmetic
   (`crates/pwr-models/src/fit.rs:30`). Plan W2.5 moves the arithmetic.
-- Post-turn verification and Goal mode, which decide what "complete" means,
-  live in the command-line crate. Plan W2.3 moves them into one executor.
+- The scripted loop still sequences its own verification and completion
+  (`orchestrator/src/lib.rs`); plan W2.4 converges it onto the executor. The
+  executor itself (`crates/pwr-orchestrator/src/executor.rs`) now owns the
+  conversation policy, the goal loop and the checks that close a turn.
 
 ## State
 

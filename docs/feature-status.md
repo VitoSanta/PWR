@@ -32,7 +32,7 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | llama.cpp / GGUF | EXPERIMENTAL | CLI only; server started per generation | `crates/pwr-llama` | Later |
 | Quick Calibration | KEEP (as a compatibility smoke test) | IMPLEMENTED, nine requests | `crates/pwr-models/src/calibration.rs` | Not a capability predictor |
 | Exact token preflight | MISSING | — | — | W4.2 |
-| Goal-wide budget | KEEP | IMPLEMENTED (W1.4, working tree): actions, refusals, verification/review caps, wall-clock | `GoalBudget`, `GoalLimits`, `serve.rs`; workspace `goal_budget` | — |
+| Goal-wide budget | KEEP | IMPLEMENTED (W1.4, working tree): actions, refusals, verification/review caps, wall-clock | `GoalBudget`, `GoalLimits` in `executor.rs`; workspace `goal_budget` | — |
 | Shared recovery budget | MISSING | Independent recovery limits remain | — | W2.6 |
 | Frozen verifier artifacts | KEEP | IMPLEMENTED (working tree): persisted hashes, per-file authorization, before/after check validation | `pwr-verify::acceptance`, `Checkpoint`, `verify_goal` | W3.1 |
 | One structured outcome | IMPROVE | PARTIAL: conversation/ACP/UI migrated; scripted runner and CLI JSON pending | `pwr-domain::TurnOutcome` | W2.1 |

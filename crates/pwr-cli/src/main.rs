@@ -21,6 +21,8 @@ use pwr_domain::{
     ChatMessage, DeploymentDescriptor, HardwareProfile, ModelRequest, Observation, ToolCall,
     Validate, hash_bytes, new_id, now,
 };
+#[cfg(test)]
+use pwr_orchestrator::executor::{CheckVerdict, check_verdict};
 use pwr_provider::{InferenceBackend, ModelProvider};
 use pwr_runtime::{BackendKind, RuntimeBackend, RuntimeFactory};
 use ratatui::{
@@ -4196,103 +4198,6 @@ fn deployment_reasoning_effort(inspection: &pwr_domain::ModelInspection) -> Opti
     pwr_domain::lowest_reasoning_effort(&allowed)
 }
 
-/// What the checks establish after an edit, as three different things.
-///
-/// They were one thing, and the one thing was wrong. The conversation ran
-/// `pwr_verify::compare` and said "the repository's own checks passed after
-/// the change" whenever `new_failures` was empty. `new_failures` is the set of
-/// checks that fail now and did not fail before: a check that was already red
-/// at the baseline and is still red is, correctly, not in it. So a repository
-/// with a failing suite got told its checks passed, by the harness whose stated
-/// purpose is to refuse exactly that claim.
-///
-/// The distinction is the one [MASTER_SPEC](../../../MASTER_SPEC.md) draws
-/// between `checks_passed` and `baseline_preserved`, and it is not pedantry:
-/// the first says the work is verified and the second says only that the work
-/// broke nothing that was working. An engineer acts differently on each.
-enum CheckVerdict {
-    /// Every check the workspace declares passes now.
-    Green,
-    /// Nothing that passed before fails now, and something is still red.
-    ///
-    /// Named with the commands, because "some were already failing" invites the
-    /// reader to assume they are the ones they already knew about.
-    BaselinePreserved { still_failing: Vec<String> },
-    /// Something that passed before fails now.
-    NewFailures(Vec<String>),
-}
-
-impl CheckVerdict {
-    fn mark(&self) -> &'static str {
-        match self {
-            Self::Green => "✓",
-            Self::BaselinePreserved { .. } => "–",
-            Self::NewFailures(_) => "✗",
-        }
-    }
-    fn said(&self) -> String {
-        match self {
-            Self::Green => "the repository's own checks passed after the change".to_owned(),
-            Self::BaselinePreserved { still_failing } => format!(
-                "no check that passed before the change fails now, and {} still \
-                 {} as {} before the change: {}. The change is not verified by \
-                 {}; it is only not the cause of {} failing",
-                still_failing.len(),
-                if still_failing.len() == 1 {
-                    "does"
-                } else {
-                    "do"
-                },
-                if still_failing.len() == 1 {
-                    "it did"
-                } else {
-                    "they did"
-                },
-                still_failing.join(", "),
-                if still_failing.len() == 1 {
-                    "it"
-                } else {
-                    "them"
-                },
-                if still_failing.len() == 1 {
-                    "it"
-                } else {
-                    "them"
-                },
-            ),
-            Self::NewFailures(commands) => format!(
-                "the repository's own checks did not pass: {}",
-                commands.join(", ")
-            ),
-        }
-    }
-}
-
-/// Reads the two baselines for what they actually establish.
-///
-/// A check with no exit code at all counts as failing: the command did not run
-/// to a verdict, and an absent verdict is not a passing one.
-fn check_verdict(
-    before: &pwr_verify::VerificationBaseline,
-    after: &pwr_verify::VerificationBaseline,
-) -> CheckVerdict {
-    let comparison = pwr_verify::compare(before, after);
-    if !comparison.new_failures.is_empty() {
-        return CheckVerdict::NewFailures(comparison.new_failures);
-    }
-    let still_failing: Vec<String> = after
-        .checks
-        .iter()
-        .filter(|check| check.result.exit_code != Some(0))
-        .map(|check| check.command.clone())
-        .collect();
-    if still_failing.is_empty() {
-        CheckVerdict::Green
-    } else {
-        CheckVerdict::BaselinePreserved { still_failing }
-    }
-}
-
 /// Cargo can exit successfully after running zero tests. That establishes a
 /// successful build, not that an application was exercised.
 #[cfg(test)]
@@ -5076,90 +4981,18 @@ async fn chat_turn(
                 verification_policy.allow_commands.push(executable.clone());
             }
         }
-        let mut evidence = pwr_domain::ChecksOutcome::Unavailable {
-            why: "this workspace declares no automated checks".into(),
-        };
-        let mut baseline_evidence = pwr_domain::BaselineOutcome::NoBaseline;
-        let (mark, verdict) = match (&before, after_checks.is_empty(), checks == after_checks) {
-            (_, true, _) => (
-                "–",
-                "Independent verification unavailable: this workspace declares no automated checks"
-                    .to_owned(),
-            ),
-            (Some(before), false, true) => {
-                match pwr_verify::baseline(&verification_policy, &after_checks).await {
-                    Ok(after) => {
-                        if after.checks.iter().any(|check| !check.result.sandboxed) {
-                            report.outcome.confinement = pwr_domain::Confinement::Unconfined;
-                        }
-                        evidence = pwr_verify::evidence::checks(&after);
-                        baseline_evidence = pwr_verify::evidence::baseline(Some(before), &after);
-                        let verdict = check_verdict(before, &after);
-                        if matches!(verdict, CheckVerdict::Green)
-                            && matches!(evidence, pwr_domain::ChecksOutcome::RanZeroTests)
-                        {
-                            ("–", "the checks exited successfully but ran zero tests; behavior remains unverified".to_owned())
-                        } else {
-                            (verdict.mark(), verdict.said())
-                        }
-                    }
-                    Err(error) => {
-                        evidence = pwr_domain::ChecksOutcome::CouldNotRun {
-                            why: error.to_string(),
-                        };
-                        ("!", format!("the checks could not be run: {error}"))
-                    }
-                }
-            }
-            _ => match pwr_verify::baseline(&verification_policy, &after_checks).await {
-                Ok(after) => {
-                    if after.checks.iter().any(|check| !check.result.sandboxed) {
-                        report.outcome.confinement = pwr_domain::Confinement::Unconfined;
-                    }
-                    evidence = pwr_verify::evidence::checks(&after);
-                    let failing: Vec<_> = after
-                        .checks
-                        .iter()
-                        .filter(|check| check.result.exit_code != Some(0))
-                        .map(|check| check.command.as_str())
-                        .collect();
-                    if failing.is_empty() {
-                        if matches!(evidence, pwr_domain::ChecksOutcome::RanZeroTests) {
-                            ("–", "the new project checks exited successfully but ran zero tests; its behavior has not been verified".to_owned())
-                        } else {
-                            ("✓", "the newly discovered project checks passed after the edit; no prior baseline exists for them".to_owned())
-                        }
-                    } else {
-                        (
-                            "✗",
-                            format!(
-                                "the newly discovered project checks failed: {}; no prior baseline exists for them",
-                                failing.join(", ")
-                            ),
-                        )
-                    }
-                }
-                Err(error) => {
-                    evidence = pwr_domain::ChecksOutcome::CouldNotRun {
-                        why: error.to_string(),
-                    };
-                    (
-                        "!",
-                        format!("the newly discovered checks could not be run: {error}"),
-                    )
-                }
+        pwr_orchestrator::executor::close_turn(
+            pwr_orchestrator::executor::ClosingChecks {
+                policy: verification_policy,
+                checks_before: checks,
+                checks_after: after_checks,
+                before,
             },
-        };
-        report.outcome.checks = evidence;
-        report.outcome.baseline = baseline_evidence;
-        steps(converse::TurnStep::Note(format!("{mark} {verdict}")));
-        report.answer = format!("{}\n\n{verdict}", report.answer.trim());
-        messages.push(ChatMessage {
-            role: "user".into(),
-            content: format!("Harness verification feedback after your edits: {verdict}"),
-            purpose: Some(pwr_domain::MessagePurpose::VerificationFeedback),
-            ..Default::default()
-        });
+            &mut report,
+            &mut messages,
+            &mut |step| steps(step),
+        )
+        .await;
     }
     // The conversation as it now stands, so `pwr chat --continue` can pick
     // it up from here. Not being able to record it is said, not fatal: the

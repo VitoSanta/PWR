@@ -8,7 +8,7 @@ for why that matters.
 ## The conversation turn
 
 `converse::take_turn` (`crates/pwr-orchestrator/src/converse.rs:829`), called by
-`run_chat_turn` in `crates/pwr-cli/src/main.rs` for the app (`pwr serve`) and
+`run_chat_turn` in `crates/pwr-cli/src/main.rs` (the host's turn) for the app (`pwr serve`) and
 the console (`pwr chat`).
 
 Each step of the loop:
@@ -50,9 +50,10 @@ person presses Stop, or a detector or budget stops it. It returns a
 `TurnReport` (actions, whether it edited, whether it completed or declined,
 the stop reason) and the new message list.
 
-**After the turn** — not inside it — `run_chat_turn` runs the repository's
-checks if the turn edited anything and appends the verdict to the answer and
-to the history (`main.rs:4851-4927`; see [verification.md](verification.md#after-a-conversation-turn)).
+**After the turn** — not inside it — the host's `run_chat_turn` hands the
+repository's checks to `executor::close_turn` if the turn edited anything, and
+the verdict is appended to the answer and to the history (see
+[verification.md](verification.md#after-a-conversation-turn)).
 
 ### Limits of a turn
 
@@ -83,8 +84,12 @@ is in [pwr-serve.md](pwr-serve.md#stop-reasons).
 
 ## Goal mode
 
-A loop around the turn in `serve.rs` (`crates/pwr-cli/src/serve.rs:1966-2236`),
-used when the app sends a prompt with Goal on.
+A loop around the turn in the session executor
+(`pwr_orchestrator::executor`, policy `Goal`), used when the app sends a prompt
+with Goal on. The executor is driven through a `SessionHost` and returns a
+`SessionEnd`; `serve.rs` is one host, and turns the ending into the ACP reply.
+The same executor runs a conversation (policy `Conversation`): one turn, no
+verification, no second turn.
 
 1. Before the first turn, the full verification runs once; checks already
    failing are named in the request so the goal neither repairs them nor is
@@ -191,8 +196,7 @@ The B0 (conventional loop) and B2 (fixed staged workflow) controls live in
 
 | Defect | Evidence | Plan |
 |---|---|---|
-| Goal failures are compared by check name: progress inside one suite looks stuck; alternating suites look like progress | `serve.rs:2139`; `main.rs:3756-3773` | W1.5 |
-| Post-turn verification happens after the turn ended; the post-turn note is `✓` whatever it says | `main.rs:4851-4927` | W2.2, W2.3 |
+| Post-turn verification happens after the turn ended, so a failing verdict does not send the model back | `executor::close_turn` | W2.3 (decision), W7.1 |
 | Three loops with different holds, compaction, recovery and catalogues; fixes land in one | this page | W2.4 |
 | A dozen independent limits and no shared recovery budget | table above | W2.6 |
 | The objective's text is not kept outside the compressible history | `conversation.rs:52`, `compaction.rs:48-54` | W4.1 |
