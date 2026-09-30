@@ -31,13 +31,15 @@ PYTHONPATH=crates/pwr-mlx/sidecar "$PWR_MLX_PYTHON" -m unittest discover -s crat
 Judge each by its exit code, not by reading its output.
 
 **The Rust suite is not hermetic.** Several tests exercise the macOS sandbox
-with real toolchains and skip when the host lacks one (Docker, .NET, a
-browser, a route to the network); on a Mac where Docker Desktop is stopped but
-its socket file remains, the Docker test fails for that reason alone. Until
-skips are reported explicitly (plan W0.2), read a local pass as "passed what
-this machine could exercise". Six tests are `#[ignore]`d because they need the
-network or a live model; [docs/testing.md](docs/testing.md) says how to run
-them. Nothing in CI runs a model.
+with real toolchains and skip when the host lacks one (Docker with a running
+daemon, .NET, a browser, a route to the network). A skip prints
+`PWR-SKIP <test> <reason>` and, with `PWR_SKIP_LOG=<file>`, is appended to that
+file; CI turns the lines into annotations. Read a local pass as "passed what
+this machine could exercise", and check the log. Six tests are `#[ignore]`d
+because they need the network or a live model;
+[docs/testing.md](docs/testing.md) says how to run them. Nothing in CI runs a
+model. A new host-dependent test skips through `common::skip`, never with a
+bare `return`.
 
 ## What a change carries
 

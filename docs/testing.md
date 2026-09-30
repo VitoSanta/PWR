@@ -45,25 +45,30 @@ No inference engine or live model runs in CI.
 The release workflow (`.github/workflows/release-macos.yml`) builds the DMG
 from a tag and **runs none of these** (plan W9.1).
 
-## What "passed" means today
+## What "passed" means
 
-A passing run can include tests that did not exercise anything:
+A host-dependent test that finds its resource missing **skips through
+`common::skip`** (`crates/pwr-tools/tests/common/mod.rs`): it prints
+`PWR-SKIP <test> <reason>` and, when `PWR_SKIP_LOG` names a file, appends the
+line to it (cargo hides the output of a passing test, so the file is the
+record). CI sets the log and turns each line into a `test not exercised`
+warning annotation, or says that every host-dependent test ran.
 
-- **Early returns count as passes.** Tests that need something on the host
-  return when it is missing: Docker (`sandbox_and_approvals.rs:1518`), .NET
-  (`1321`, `1357`), a browser (`1570`), an unconfined opt-out (`1265`), a route
-  to a remote host or a non-loopback address (`local_service.rs:114`, `131`),
-  a home or denied paths (`provisioning.rs:157`, `166`), a live model
-  (`pwr-models/tests/live_model.rs:31`).
-- **Environment failures look like test failures.** On a Mac where Docker
-  Desktop is stopped but its socket file remains, the Docker test runs and
-  fails (the only failure on 2026-09-30,
-  [verification](reviews/2026-09-30-verification.md#test-suite-reproduced)).
+The tests that skip: Docker (no engine socket, or a socket with no daemon
+behind it), .NET (two), a browser, an unconfined opt-out, a route to a remote
+host, a non-loopback address, a home with none of the denied paths. To see
+what a local run skipped:
+
+```bash
+PWR_SKIP_LOG=$TMPDIR/skips.log cargo test --workspace --no-fail-fast; cat $TMPDIR/skips.log
+```
+
+- **Environment is not failure.** The Docker test probes the daemon with
+  Docker's `/_ping` before asserting. Docker Desktop leaves its socket file
+  behind when it quits, and the test used to fail for that reason alone
+  ([verification](reviews/2026-09-30-verification.md#test-suite-reproduced)).
 - **Ignored tests** (`#[ignore]`, 6 in the workspace) need the network or a
-  model and are run by hand.
-
-Plan W0.2 makes skips explicit (`PWR-SKIP <test> <reason>`), probes the
-Docker daemon before asserting, and has CI list what it did not exercise.
+  live model (`PWR_LIVE_MODEL`) and are run by hand.
 
 ## Test-only switches
 

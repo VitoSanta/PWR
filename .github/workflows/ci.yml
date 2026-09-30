@@ -81,9 +81,22 @@ jobs:
         # as an annotation naming the test and its panic: job logs need a
         # signed-in account to read, annotations do not, so anyone can see
         # what broke. The exit status is still cargo's own.
+        env:
+          # Tests that need something the host lacks (Docker, .NET, a browser,
+          # a route out) append a line here instead of passing in silence.
+          PWR_SKIP_LOG: ${{ runner.temp }}/pwr-skips.log
         run: |
           set -o pipefail
           cargo test --workspace --no-fail-fast 2>&1 | tee test-output.log
+      - name: Say what the tests did not exercise
+        if: always()
+        run: |
+          log="${{ runner.temp }}/pwr-skips.log"
+          if [ -s "$log" ]; then
+            sed 's/^PWR-SKIP //' "$log" | sed 's/^/::warning title=test not exercised::/'
+          else
+            echo "every host-dependent test ran"
+          fi
       - name: Name the failing tests
         if: failure()
         run: |

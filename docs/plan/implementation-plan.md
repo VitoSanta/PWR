@@ -89,7 +89,7 @@ A gate is recorded as passed in [roadmap.md](../roadmap.md) and
 
 ### W0.2 Say what a test run exercised
 
-**Status:** NOW · S
+**Status:** DONE (2026-09-30)
 
 - **Problem.** Host-dependent tests `return` early and count as passes; the
   one failing test fails for an environment reason (verification 16.1, N6).

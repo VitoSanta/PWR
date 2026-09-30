@@ -1,5 +1,7 @@
 //! Process isolation and the approval gates for effects that leave the workspace.
 
+mod common;
+
 use pwr_tools::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1262,7 +1264,8 @@ fn an_installed_dependency_cannot_be_edited_without_the_approval() {
 #[test]
 fn a_command_that_cannot_be_confined_is_refused_by_default() {
     if std::env::var("PWR_ALLOW_UNCONFINED").ok().as_deref() == Some("1") {
-        return; // the person opted out on this machine; nothing to assert
+        common::skip("PWR_ALLOW_UNCONFINED=1: the person opted out on this machine");
+        return;
     }
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().join("has\"quote");
@@ -1318,7 +1321,8 @@ fn dotnet_runs_in_the_sandbox_on_its_first_run() {
         .find(|path| path.is_file())
     });
     let Some(dotnet) = dotnet else {
-        return; // No .NET on this machine: nothing to show.
+        common::skip("no .NET on this machine");
+        return;
     };
     let root = tempfile::tempdir().unwrap();
     let mut policy = policy(root.path());
@@ -1354,7 +1358,8 @@ fn dotnet_build_runs_its_build_nodes_in_the_sandbox() {
     .flatten()
     .find(|path| path.is_file());
     let Some(dotnet) = dotnet else {
-        return; // No .NET on this machine: nothing to show.
+        common::skip("no .NET on this machine");
+        return;
     };
     // Three projects, as a solution: one alone builds in MSBuild's own
     // process and never starts a node.
@@ -1509,13 +1514,42 @@ fn the_sandbox_refusing_the_network_is_recognisable() {
     }
 }
 
+/// Whether a daemon answers on `socket`: Docker's own liveness endpoint.
+#[cfg(target_os = "macos")]
+fn container_engine_answers(socket: &std::path::Path) -> bool {
+    use std::io::{Read as _, Write as _};
+    let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket) else {
+        return false;
+    };
+    let timeout = Some(std::time::Duration::from_secs(5));
+    let _ = stream.set_read_timeout(timeout);
+    let _ = stream.set_write_timeout(timeout);
+    if stream
+        .write_all(b"GET /_ping HTTP/1.0\r\nHost: docker\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut reply = String::new();
+    let _ = stream.read_to_string(&mut reply);
+    reply.starts_with("HTTP/1.") && reply.trim_end().ends_with("OK")
+}
+
 /// The daemon is reachable through its socket only once the engine is
 /// granted, and the client finds the plugins `build` and `compose` are.
 #[cfg(target_os = "macos")]
 #[test]
 fn docker_reaches_its_daemon_only_when_the_engine_is_granted() {
-    if pwr_tools::container_socket().is_none() {
-        return; // No engine running on this machine: nothing to show.
+    let Some(socket) = pwr_tools::container_socket() else {
+        common::skip("no container engine socket on this machine");
+        return;
+    };
+    // The socket file outlives the engine: Docker Desktop leaves it behind
+    // when it quits, and a command then reaches nothing whatever it is
+    // granted. Asked outside the sandbox, so the answer is the engine's.
+    if !container_engine_answers(&socket) {
+        common::skip("a container engine socket is present but no daemon answers on it");
+        return;
     }
     let root = tempfile::tempdir().unwrap();
     let mut policy = policy(root.path());
@@ -1567,7 +1601,8 @@ fn listing_a_missing_folder_says_what_the_root_holds() {
 #[test]
 fn look_at_photographs_a_workspace_page_from_inside_the_sandbox() {
     if pwr_tools::browser_executable().is_none() {
-        return; // No browser on this machine: nothing to show.
+        common::skip("no browser on this machine");
+        return;
     }
     let root = tempfile::tempdir().unwrap();
     fs::write(

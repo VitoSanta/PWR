@@ -4,6 +4,8 @@
 //! reaches whatever else listens on this host. It is therefore its own
 //! approval, and the tests below are as much about what it does *not* grant.
 
+mod common;
+
 use pwr_tools::{Approval, SandboxPolicy, ToolPolicy, run_command};
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -111,7 +113,7 @@ async fn a_remote_host_is_refused_by_the_sandbox_itself() {
     if result.stdout.contains("timeout") || result.stdout.contains("TimeoutError") {
         // Without a route the attempt cannot distinguish a denial from a dead
         // network, and asserting either way would be dishonest.
-        eprintln!("skipped: no route to a remote host, so the denial is not observable");
+        common::skip("no route to a remote host, so the denial is not observable");
         return;
     }
     assert!(
@@ -128,7 +130,7 @@ async fn a_remote_host_is_refused_by_the_sandbox_itself() {
 #[tokio::test]
 async fn the_grant_reaches_this_hosts_other_addresses_too() {
     let Some(address) = non_loopback_address() else {
-        eprintln!("skipped: this host has no non-loopback address");
+        common::skip("this host has no non-loopback address");
         return;
     };
     let listener = TcpListener::bind((address, 0)).unwrap();
