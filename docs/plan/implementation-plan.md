@@ -509,7 +509,17 @@ the same thing by "complete".
 
 ### W2.4 Converge the scripted runner onto the executor
 
-**Status:** NEXT · L — step 1 (the inventory) is done: [executor-parity.md](executor-parity.md), every disposition proposed and awaiting a decision
+**Status:** IN PROGRESS · L — dispositions accepted (D-2026-09-30-6); rows 5, 6, 8 and 14 applied locally; the evaluator is not yet on the executor (see *Progress*)
+
+**Progress (2026-09-30).** Applied: both completion holds on every path (rows 5
+and 6), `record_progress` only with a plan (row 8), reasoning effort Medium by
+default in campaigns with `off` as the declared opt-out (row 14). Still open,
+in this order: (1) an `EvalHost` so `eval run --arm b1` calls
+`executor::execute`, with the earlier scripted B1 kept as arm `legacy` and the
+trial's outcome mapped from `SessionEnd`; (2) `pwr run` as a thin call of the
+same; (3) the parity test that fails on any undeclared difference. Step (1)
+changes what every campaign measures and cannot be validated without model
+runs, so it waits for the maintainer's go-ahead to run them.
 
 - **Problem.** `pwr run` and `eval run --arm b1` measure a loop the app does
   not ship; fixes land in one loop only (verification 3.2;
