@@ -466,7 +466,7 @@ the same thing by "complete".
 
 ### W2.3 One session executor
 
-**Status:** IN PROGRESS · L — executor extracted and tested locally (2026-09-30); not DONE until CI is green and the console is moved (see *Implemented*)
+**Status:** IMPLEMENTED locally (2026-09-30), not DONE until CI is green — the app's and the console's turns both run through the executor (see *Implemented*)
 
 - **Problem.** The conversation turn, its post-turn verification, and Goal
   mode live in `pwr-cli` (`main.rs`, `serve.rs`); a new interface or benchmark
@@ -498,11 +498,14 @@ the same thing by "complete".
     limit with no further turn; the same refusal three times is blocked; a goal
     is verified only when acceptance passed; a gone session; and `close_turn`
     against a real check that flips outcome (never a tick on a failure).
-  - **Still open:** the terminal console (`pwr chat`, `run_tui` in `main.rs`)
-    calls `run_chat_turn` directly rather than `execute`; the executor returns
-    a `SessionEnd` that the host translates rather than a `TurnOutcome`
-    (W2.1's scripted/CLI-JSON migration); `serve.rs` and `main.rs` are still
-    large (W10.4).
+  - The terminal console (`pwr chat`) now runs its turns through `execute`
+    too (`ConsoleHost` and `console_turn` in `main.rs`, policy `Conversation`),
+    so the app and the console are two hosts of one executor. Not covered by
+    an automated test of its own: `console_turn` needs a live provider, and the
+    executor's conversation policy is what the executor tests exercise.
+  - **Still open:** the executor returns a `SessionEnd` that the host
+    translates rather than a `TurnOutcome` (W2.1's scripted/CLI-JSON
+    migration); `serve.rs` and `main.rs` are still large (W10.4).
 
 ### W2.4 Converge the scripted runner onto the executor
 

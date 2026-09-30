@@ -4651,6 +4651,106 @@ fn summarise_named_session(report: &serde_json::Value) -> String {
     said
 }
 
+/// The terminal console as the session executor's host: a conversation, one
+/// turn at a time, with no goals to verify or review.
+///
+/// The console called the turn directly, so the app and the console ran the
+/// same turn under two different callers. Both now go through
+/// `executor::execute`, and the console differs only in what it cannot do.
+struct ConsoleHost {
+    runtime: RuntimeFactory,
+    config: ChatConfig,
+    /// The conversation as the last turn left it, for the console to keep.
+    kept: std::cell::RefCell<Option<Vec<ChatMessage>>>,
+}
+
+#[async_trait::async_trait(?Send)]
+impl pwr_orchestrator::executor::SessionHost for ConsoleHost {
+    async fn run_turn(&self, input: serve::TurnInput) -> ChatTurnResult {
+        chat_turn(
+            input.root,
+            self.runtime.clone(),
+            self.config.clone(),
+            input.conversation_id,
+            input.stop,
+            input.steps,
+            input.messages,
+            input.continuity,
+            input.approvals,
+            input.session_grants,
+            input.goal_mode,
+        )
+        .await
+    }
+
+    async fn verify(
+        &self,
+    ) -> Result<
+        (serve::GoalVerification, BTreeMap<String, String>),
+        pwr_orchestrator::executor::VerifyError,
+    > {
+        Err(pwr_orchestrator::executor::VerifyError::Failed(
+            "the console runs no goals".into(),
+        ))
+    }
+
+    async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+        Err("the console runs no goals".into())
+    }
+
+    fn say(&self, _: &str) {}
+
+    fn keep_messages(&self, messages: &[ChatMessage]) {
+        *self.kept.borrow_mut() = Some(messages.to_vec());
+    }
+}
+
+/// One console exchange, through the executor: the same path the app takes for
+/// a conversation.
+#[allow(clippy::too_many_arguments)]
+async fn console_turn(
+    root: PathBuf,
+    runtime: RuntimeFactory,
+    config: ChatConfig,
+    conversation_id: pwr_domain::Id,
+    stop: Arc<AtomicBool>,
+    steps: StepSink,
+    messages: Vec<ChatMessage>,
+    continuity: converse::Continuity,
+    approvals: Arc<dyn pwr_orchestrator::ApprovalPrompt>,
+    session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
+) -> ChatTurnResult {
+    use pwr_orchestrator::executor::{self, Policy, SessionEnd, SessionRequest, SessionResult};
+    let host = ConsoleHost {
+        runtime,
+        config,
+        kept: std::cell::RefCell::new(None),
+    };
+    let SessionResult { end, .. } = executor::execute(
+        &host,
+        SessionRequest {
+            root,
+            conversation_id,
+            messages,
+            stop,
+            steps: std::rc::Rc::new(std::cell::RefCell::new(steps)),
+            continuity,
+            approvals,
+            session_grants,
+            policy: Policy::Conversation,
+        },
+        serve::GoalLimits::default(),
+    )
+    .await;
+    match end {
+        SessionEnd::Reply { report, .. } => Ok((report, host.kept.take().unwrap_or_default())),
+        SessionEnd::Error { message, .. } => Err(message),
+        SessionEnd::Stopped { .. } | SessionEnd::OutOfBudget { .. } => {
+            Err("the console's turn ended in a way only a goal can".into())
+        }
+    }
+}
+
 /// One exchange, run off the console's thread.
 ///
 /// Returns the conversation it produced as well as the outcome, because the
@@ -5370,7 +5470,7 @@ async fn run_tui_inner(
                                 });
                                 let grants = Arc::clone(&session_grants);
                                 chat_task = Some(tokio::task::spawn_local(async move {
-                                    chat_turn(root, runtime, config, conversation_id, stop, steps, history, continuity, approvals, grants, false).await
+                                    console_turn(root, runtime, config, conversation_id, stop, steps, history, continuity, approvals, grants).await
                                 }));
                             }
                         }
