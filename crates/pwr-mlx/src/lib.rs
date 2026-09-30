@@ -124,12 +124,54 @@ pub fn resolve_generation_sampling(
             sources.insert(name.into(), serde_json::json!("mlx_sidecar_default"));
         }
     }
+    // Nothing anywhere says how this model should sample: a card, a profile,
+    // the artifact's generation config and the person all stayed silent.
+    // Greedy decoding -- the sidecar's own default -- is what Qwen's cards warn
+    // leads to endless repetition, and an agent loop that repeats a call is the
+    // commonest way a small model fails here (measured 2026-09-29/30: Qwen3-14B
+    // and Qwen2.5-Coder-14B from lmstudio-community, Qwen3.5-9B). The floor is
+    // the recommendation most coding models' cards share; it never replaces a
+    // value somebody gave, and a person's explicit temperature 0 stays greedy.
+    let defaulted =
+        |name: &str| sources.get(name) == Some(&serde_json::json!("mlx_sidecar_default"));
+    if defaulted("temperature") {
+        for (name, value, floor) in [
+            (
+                "temperature",
+                serde_json::json!(SAMPLING_FLOOR_TEMPERATURE),
+                true,
+            ),
+            (
+                "top_p",
+                serde_json::json!(SAMPLING_FLOOR_TOP_P),
+                defaulted("top_p"),
+            ),
+            (
+                "top_k",
+                serde_json::json!(SAMPLING_FLOOR_TOP_K),
+                defaulted("top_k"),
+            ),
+        ] {
+            if floor {
+                sampling.insert(name.into(), value);
+                sources.insert(name.into(), serde_json::json!(SAMPLING_FLOOR_SOURCE));
+            }
+        }
+    }
     sampling.insert(
         "_pwr_sampling_sources".into(),
         serde_json::Value::Object(sources),
     );
     Ok(())
 }
+
+/// What a model samples with when nothing says otherwise (see
+/// `resolve_generation_sampling`).
+pub const SAMPLING_FLOOR_TEMPERATURE: f64 = 0.6;
+pub const SAMPLING_FLOOR_TOP_P: f64 = 0.95;
+pub const SAMPLING_FLOOR_TOP_K: u64 = 20;
+/// The provenance string of a floor value.
+pub const SAMPLING_FLOOR_SOURCE: &str = "pwr_sampling_floor";
 
 pub fn validate_sampling(name: &str, value: &serde_json::Value) -> Result<(), ProviderError> {
     let valid = match name {
@@ -1917,16 +1959,38 @@ mod tests {
     fn missing_or_invalid_artifact_sampling_is_explicit() {
         let mut sampling = BTreeMap::new();
         resolve_generation_sampling(&mut sampling, None).unwrap();
-        assert_eq!(sampling["temperature"], 0.0);
-        assert_eq!(sampling["top_p"], 0.0);
-        assert_eq!(sampling["top_k"], 0);
+        // Nothing says how to sample: the floor, never greedy.
+        assert_eq!(sampling["temperature"], SAMPLING_FLOOR_TEMPERATURE);
+        assert_eq!(sampling["top_p"], SAMPLING_FLOOR_TOP_P);
+        assert_eq!(sampling["top_k"], SAMPLING_FLOOR_TOP_K);
         assert_eq!(sampling["min_p"], 0.0);
         assert!(!sampling.contains_key("presence_penalty"));
         assert!(!sampling.contains_key("repetition_penalty"));
         assert_eq!(
             sampling["_pwr_sampling_sources"]["top_k"],
+            SAMPLING_FLOOR_SOURCE
+        );
+        assert_eq!(
+            sampling["_pwr_sampling_sources"]["min_p"],
             "mlx_sidecar_default"
         );
+
+        // A person's explicit greedy request stays greedy, and a vendor's
+        // temperature alone is not topped up with truncation it did not ask for.
+        let mut explicit = BTreeMap::from([("temperature".into(), serde_json::json!(0.0))]);
+        resolve_generation_sampling(&mut explicit, None).unwrap();
+        assert_eq!(explicit["temperature"], 0.0);
+        assert_eq!(explicit["top_k"], 0);
+        let mut vendor = BTreeMap::new();
+        resolve_generation_sampling(&mut vendor, Some(&serde_json::json!({"temperature": 1.0})))
+            .unwrap();
+        assert_eq!(vendor["temperature"], 1.0);
+        assert_eq!(vendor["top_p"], 0.0);
+        // A floor temperature with one truncation given keeps what was given.
+        let mut partial = BTreeMap::from([("top_p".into(), serde_json::json!(0.8))]);
+        resolve_generation_sampling(&mut partial, None).unwrap();
+        assert_eq!(partial["temperature"], SAMPLING_FLOOR_TEMPERATURE);
+        assert_eq!(partial["top_p"], 0.8);
 
         let mut invalid = BTreeMap::new();
         assert!(

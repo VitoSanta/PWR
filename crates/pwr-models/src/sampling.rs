@@ -94,7 +94,7 @@ pub async fn for_installed(
     if let Ok(bytes) = std::fs::read(&cache_path)
         && bytes.len() <= 16 * 1024
         && let Ok(cache) = serde_json::from_slice::<Cached>(&bytes)
-        && cache.schema_version == 2
+        && cache.schema_version == 3
         && cache.artifact_revision == revision
         && cache
             .retry_after_unix
@@ -104,13 +104,17 @@ pub async fn for_installed(
     }
     let found = tokio::time::timeout(FETCH_BUDGET, fetch(hub, repository, revision)).await;
     let (recommendation, retry_after_unix) = match found {
+        // A card that says nothing today may say something after an edit:
+        // "none found" is looked for again after a day.
+        Ok(Some(None)) => (None, Some(chrono::Utc::now().timestamp() + 24 * 3600)),
         Ok(Some(recommendation)) => (recommendation, None),
         _ => (None, Some(chrono::Utc::now().timestamp() + 60)),
     };
     let cache = Cached {
         // 2: an original model's generation_config.json is read too, so a
-        // "none found" kept under 1 is looked for again.
-        schema_version: 2,
+        // "none found" kept under 1 is looked for again. 3: a card with a set
+        // per mode gives its coding set, so a "none found" kept under 2 is too.
+        schema_version: 3,
         artifact_revision: revision.into(),
         recommendation: recommendation.clone(),
         retry_after_unix,
@@ -264,45 +268,11 @@ pub fn parse_recommendations(card: &str) -> Option<BTreeMap<String, Value>> {
         } else {
             &mut ordinary
         };
-        for token in trimmed
-            .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '=')))
-        {
-            let Some((name, raw)) = token.split_once('=') else {
-                continue;
-            };
-            let name = name.replace('-', "_").to_ascii_lowercase();
-            let value = match name.as_str() {
-                "temperature" => raw
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|n| n.is_finite() && *n >= 0.0)
-                    .map(|n| serde_json::json!(n)),
-                "top_p" | "min_p" => raw
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|n| n.is_finite() && (0.0..=1.0).contains(n))
-                    .map(|n| serde_json::json!(n)),
-                "top_k" => raw.parse::<u32>().ok().map(|n| serde_json::json!(n)),
-                // Qwen 3.5-family cards (Ornith's among them) recommend a
-                // presence penalty against repetition; the engine takes both.
-                "presence_penalty" => raw
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|n| n.is_finite() && (-2.0..=2.0).contains(n))
-                    .map(|n| serde_json::json!(n)),
-                "repetition_penalty" => raw
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|n| n.is_finite() && *n > 0.0)
-                    .map(|n| serde_json::json!(n)),
-                _ => None,
-            };
-            if let Some(value) = value {
-                match target.get(&name) {
-                    Some(previous) if previous != &value => return None,
-                    _ => {
-                        target.insert(name, value);
-                    }
+        for (name, value) in line_pairs(trimmed) {
+            match target.get(&name) {
+                Some(previous) if previous != &value => return None,
+                _ => {
+                    target.insert(name, value);
                 }
             }
         }
@@ -312,8 +282,96 @@ pub fn parse_recommendations(card: &str) -> Option<BTreeMap<String, Value>> {
     } else if !ordinary.is_empty() {
         Some(ordinary)
     } else {
-        None
+        coding_mode_recommendations(card)
     }
+}
+
+/// The literal `name=value` pairs on one line, each checked against the range
+/// the engine accepts.
+fn line_pairs(line: &str) -> Vec<(String, Value)> {
+    let mut found = Vec::new();
+    for token in
+        line.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '=')))
+    {
+        let Some((name, raw)) = token.split_once('=') else {
+            continue;
+        };
+        let name = name.replace('-', "_").to_ascii_lowercase();
+        let value = match name.as_str() {
+            "temperature" => raw
+                .parse::<f64>()
+                .ok()
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .map(|n| serde_json::json!(n)),
+            "top_p" | "min_p" => raw
+                .parse::<f64>()
+                .ok()
+                .filter(|n| n.is_finite() && (0.0..=1.0).contains(n))
+                .map(|n| serde_json::json!(n)),
+            "top_k" => raw.parse::<u32>().ok().map(|n| serde_json::json!(n)),
+            // Qwen 3.5-family cards (Ornith's among them) recommend a
+            // presence penalty against repetition; the engine takes both.
+            "presence_penalty" => raw
+                .parse::<f64>()
+                .ok()
+                .filter(|n| n.is_finite() && (-2.0..=2.0).contains(n))
+                .map(|n| serde_json::json!(n)),
+            "repetition_penalty" => raw
+                .parse::<f64>()
+                .ok()
+                .filter(|n| n.is_finite() && *n > 0.0)
+                .map(|n| serde_json::json!(n)),
+            _ => None,
+        };
+        if let Some(value) = value {
+            found.push((name, value));
+        }
+    }
+    found
+}
+
+/// A card that lists one set per mode and task ("Thinking mode for general
+/// tasks", "Instruct mode", "precise coding tasks") has no single
+/// recommendation, but PWR is a coding agent that runs the model with its
+/// thinking phase on: the set a card gives for coding is the one that applies,
+/// the thinking one if there are several. Measured 2026-09-30: Qwen3.5's card
+/// is of this kind, nothing was found, and the model ran greedy.
+fn coding_mode_recommendations(card: &str) -> Option<BTreeMap<String, Value>> {
+    let lines: Vec<&str> = card.lines().map(str::trim).collect();
+    let mut in_fence = false;
+    let mut candidates: Vec<(bool, Vec<(String, Value)>)> = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        if line.starts_with("```") || line.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        let lower = line.to_ascii_lowercase();
+        if in_fence || !lower.contains("coding") {
+            continue;
+        }
+        let mut pairs = line_pairs(line);
+        if pairs.is_empty()
+            && let Some(next) = lines.get(at + 1)
+        {
+            pairs = line_pairs(next);
+        }
+        if pairs.iter().any(|(name, _)| name == "temperature") {
+            candidates.push((lower.contains("thinking"), pairs));
+        }
+    }
+    if candidates.iter().any(|(thinking, _)| *thinking) {
+        candidates.retain(|(thinking, _)| *thinking);
+    }
+    let mut values = BTreeMap::new();
+    for (name, value) in candidates.into_iter().flat_map(|(_, pairs)| pairs) {
+        match values.get(&name) {
+            Some(previous) if previous != &value => return None,
+            _ => {
+                values.insert(name, value);
+            }
+        }
+    }
+    (!values.is_empty()).then_some(values)
 }
 
 #[cfg(test)]
@@ -389,6 +447,35 @@ mod tests {
         assert_eq!(found["temperature"], serde_json::json!(1.0));
         assert_eq!(found["top_p"], serde_json::json!(0.95));
         assert_eq!(found["top_k"], serde_json::json!(64));
+    }
+
+    #[test]
+    fn a_card_with_a_set_per_mode_gives_its_thinking_coding_set() {
+        // Qwen3.5-9B's card, both layouts it uses.
+        let tip = "> - Thinking mode for general tasks: `temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5`\n\
+> - Thinking mode for precise coding tasks (e.g. WebDev): `temperature=0.6, top_p=0.95, top_k=20, min_p=0.0, presence_penalty=0.0, repetition_penalty=1.0`\n\
+> - Instruct (or non-thinking) mode for general tasks: `temperature=0.7, top_p=0.8, top_k=20`";
+        let found = parse_recommendations(tip).unwrap();
+        assert_eq!(found["temperature"], serde_json::json!(0.6));
+        assert_eq!(found["top_k"], serde_json::json!(20));
+        assert_eq!(found["presence_penalty"], serde_json::json!(0.0));
+        let list = "     - **Thinking mode for precise coding tasks (e.g., WebDev)**:  \n       `temperature=0.6`, `top_p=0.95`, `top_k=20`\n     - **Instruct mode for general tasks**:  \n       `temperature=0.7`, `top_p=0.8`";
+        assert_eq!(
+            parse_recommendations(list).unwrap()["temperature"],
+            serde_json::json!(0.6)
+        );
+    }
+
+    #[test]
+    fn conflicting_coding_sets_are_not_guessed() {
+        let card = "- coding, thinking: temperature=0.6\n- coding, thinking: temperature=0.8";
+        assert!(parse_recommendations(card).is_none());
+        assert!(
+            parse_recommendations(
+                "coding tasks are fun, temperature=0.6 in a fence:\n```\ntemperature=1\n```"
+            )
+            .is_some()
+        );
     }
 
     #[test]
