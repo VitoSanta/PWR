@@ -956,6 +956,7 @@ async fn take_turn_inner<P: ModelProvider>(
     let mut refused_streak = crate::repetition::RefusalStreak::new();
     let mut echoes = crate::repetition::Echoes::default();
     let mut failed_runs = crate::repetition::FailedRuns::default();
+    let mut held_empty_completion = false;
     // Acting and getting nowhere is the other half of being stuck, and the
     // conversation had neither half. A turn could spend its whole budget
     // reading the same three files in a circle, or editing a line and putting
@@ -1735,6 +1736,27 @@ async fn take_turn_inner<P: ModelProvider>(
             // `@playwright/test` was not installed and that the test opened
             // a placeholder path, and the turn had already ended on the
             // completion, so neither warning was ever read.
+            // A completion in a turn that has done nothing at all, once.
+            // Measured 2026-09-30 (Qwen3-14B in the desktop): asked to create
+            // a page and its test and run them, its first and only call was
+            // `complete` -- "the files were created and the tests validated"
+            // -- over an empty folder. A turn that only answers ends in prose
+            // and never reaches this; a second completion is carried out.
+            if actions == 0
+                && !held_empty_completion
+                && !continuity.chat_only
+                && matches!(action, ActionProposal::Complete { .. })
+            {
+                held_empty_completion = true;
+                on_step(TurnStep::Refused(
+                    "complete: nothing was done this turn".into(),
+                ));
+                messages.push(tool_message(
+                    call,
+                    serde_json::json!({"not_completed": COMPLETION_WITH_NOTHING_DONE}),
+                ));
+                continue;
+            }
             if position > 0 && matches!(action, ActionProposal::Complete { .. }) {
                 on_step(TurnStep::Refused(
                     "complete: waits for the results of the calls before it".into(),
@@ -2449,6 +2471,12 @@ fn conservative_prompt_tokens(
         .sum();
     base.saturating_add(since)
 }
+
+/// Said to a `complete` in a turn that has written, run and read nothing.
+const COMPLETION_WITH_NOTHING_DONE: &str = "complete was not carried out: nothing has been \
+     written, run or read in this turn, so any file or result it describes does not exist yet. \
+     If the request needs files or commands, do that now with the tools. If it needed only an \
+     answer, call complete again.";
 
 /// Said to a `complete` that arrived behind other calls of its reply.
 const COMPLETION_OVER_UNSEEN_RESULTS: &str = "complete was not carried out: it came in the same \

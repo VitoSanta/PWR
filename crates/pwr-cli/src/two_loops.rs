@@ -1895,7 +1895,9 @@ fn only_one_of_the_two_sends_a_tool_schema() {
     let dir = workspace();
     let script = || vec![calls("complete", serde_json::json!({"rationale": "done"}))];
 
-    let chat = drive_chat(dir.path(), script());
+    // Twice for the conversation, which asks about a completion that comes
+    // before anything was done.
+    let chat = drive_chat(dir.path(), [script(), script()].concat());
     let (_, run_requests) = drive_run(dir.path(), script(), &[]);
 
     assert!(chat.requests[0].tools.is_some());
@@ -3015,4 +3017,42 @@ fn a_completion_behind_other_calls_of_its_reply_waits_for_their_results() {
             .iter()
             .any(|message| message.content.contains("complete was not carried out")),
     );
+}
+
+/// A completion in a turn that did nothing is asked about once. Seen
+/// 2026-09-30 (Qwen3-14B in the desktop): "the files were created and the
+/// tests validated", as the first and only call, over an empty folder.
+#[test]
+fn a_completion_before_anything_was_done_is_asked_about_once() {
+    let dir = workspace();
+    let claim = || {
+        calls(
+            "complete",
+            serde_json::json!({"rationale": "files created"}),
+        )
+    };
+    let outcome = drive_chat(
+        dir.path(),
+        vec![
+            claim(),
+            calls(
+                "write_file",
+                serde_json::json!({"path": "page.html", "content": "<p>bank</p>\n"}),
+            ),
+            claim(),
+        ],
+    );
+    assert!(outcome.report.completed);
+    assert!(dir.path().join("page.html").exists());
+    assert!(
+        outcome.requests[1]
+            .messages
+            .iter()
+            .any(|message| message.content.contains("nothing has been written")),
+    );
+    // Asked once: a second empty completion is carried out.
+    let quiet = workspace();
+    let outcome = drive_chat(quiet.path(), vec![claim(), claim()]);
+    assert!(outcome.report.completed);
+    assert_eq!(outcome.requests.len(), 2);
 }
