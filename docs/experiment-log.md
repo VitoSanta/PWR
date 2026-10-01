@@ -13,6 +13,24 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — Goal deadline keeps the history of the turn it ends
+
+**IMPLEMENTED correctness repair, not a capability experiment.** When a goal's
+wall-clock limit passed during a turn, the executor dropped the turn and its
+messages: the edits it had made stayed on disk while the session's history
+went back to before the turn, so a later prompt (a person's, or a campaign
+nudge) continued without them. The turn is now asked to stop and given
+`GOAL_STOP_GRACE` (10 s) to return its history, which the session keeps; the
+goal still ends out of budget, and a turn that does not return in the grace is
+dropped as before. Changes what a run continued after a deadline sees; the
+deadline itself, the 3,600-second default and the action counts are unchanged.
+Regressions (paused clock): `the_goal_deadline_keeps_the_transcript_of_the_turn_it_ends`
+(failed before), `a_turn_that_ignores_the_deadline_is_abandoned_after_a_grace`.
+Fixture correction, not a weaker assertion: the `serve.rs` deadline test's fake
+turn slept 120 s ignoring Stop; it now ends when asked, as a real turn does, and
+still reports the time limit at 2 s. Local: fmt, Clippy, Rust 1,429 passed /
+5 ignored / one Docker skip.
+
 ## 2026-10-02 — Review of the F1 commits: response bound on silence, unreachable compaction trigger
 
 **IMPLEMENTED corrections of two behaviour changes made at `c24028f5` and
