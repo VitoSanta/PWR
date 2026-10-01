@@ -438,3 +438,16 @@ a changed chat template lowered it only from ~44 % to ~35 %. So it is not fixed
 by anything PWR sends, and the note is now shown beside every Gemma 4 model.
 Banning `<|channel>` was considered and not done: the same model writes
 `<channel|>` before a tool call even with thinking off.
+
+## 2026-10-01 — The prompt says a new project goes in the root (measurement-changing)
+
+Reported from the app: every model built its project in a new subfolder
+(`ng new web`, `website/`) of a workspace that was already the project. Cause: a
+generator names its folder after the project, and the conversation prompt said
+only that paths are relative to the repository root. It now says the repository
+is the project and a new one goes directly in the root (point the generator at
+`.`), unless a subfolder is asked for or the root already holds a different
+project, and to say so, not to clear the person's files, when a generator
+refuses a non-empty folder. Whether models obey is **unmeasured**; the Angular
+topology guidance also assumes a root `angular.json`, which a subfolder
+project hid.
