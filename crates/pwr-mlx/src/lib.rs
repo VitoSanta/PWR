@@ -968,33 +968,46 @@ fn template_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Mistral's chat template refuses a conversation in which two user messages,
-/// or two assistant messages without calls, follow one another ("conversation
-/// roles must alternate user and assistant roles except for tool calls and
-/// results"); PWR sends several (the repository passages, the task, a note of
-/// its own). Runs of them become one message, in order, joined by a blank line.
-/// Measured 2026-10-01: Devstral failed every turn before its first word.
+/// Mistral's chat template counts only user messages and assistant messages
+/// *without* calls, and insists those alternate: user, assistant, user... Calls
+/// and their results do not count. PWR sends runs of user messages (the
+/// repository passages, the task, a note of its own) and puts a note right
+/// after a tool result, which the template reads as two users in a row.
+/// Runs of them become one message, in order, joined by a blank line; a user
+/// note that follows a tool result is added to that result, marked as PWR's.
+/// Measured 2026-10-01: Devstral failed every turn before its first word, then
+/// every turn after its first runaway reply.
 fn alternating_roles(messages: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    let plain = |value: &serde_json::Value| {
+        value["content"].is_string() && value.get("tool_calls").is_none()
+    };
+    let counted = |value: &serde_json::Value| {
+        matches!(value["role"].as_str(), Some("user" | "assistant")) && plain(value)
+    };
+    let text = |value: &serde_json::Value| value["content"].as_str().unwrap_or_default().to_owned();
     let mut out: Vec<serde_json::Value> = Vec::new();
     for message in messages {
         let role = message["role"].as_str().unwrap_or_default().to_owned();
-        let mergeable = |value: &serde_json::Value| {
-            value["content"].is_string()
-                && value.get("tool_calls").is_none()
-                && matches!(value["role"].as_str(), Some("user" | "assistant"))
-        };
-        if mergeable(&message)
-            && let Some(last) = out.last_mut()
-            && last["role"] == role.as_str()
-            && mergeable(last)
-        {
-            let joined = format!(
-                "{}\n\n{}",
-                last["content"].as_str().unwrap_or_default(),
-                message["content"].as_str().unwrap_or_default()
-            );
-            last["content"] = serde_json::json!(joined);
-            continue;
+        if counted(&message) {
+            let last_counted = out
+                .iter()
+                .rev()
+                .find(|earlier| counted(earlier))
+                .map(|earlier| earlier["role"].as_str().unwrap_or_default().to_owned());
+            if last_counted.as_deref() == Some(role.as_str())
+                && let Some(last) = out.last_mut()
+            {
+                if counted(last) {
+                    let joined = format!("{}\n\n{}", text(last), text(&message));
+                    last["content"] = serde_json::json!(joined);
+                    continue;
+                }
+                if role == "user" && last["role"] == "tool" && last["content"].is_string() {
+                    let joined = format!("{}\n\n[PWR] {}", text(last), text(&message));
+                    last["content"] = serde_json::json!(joined);
+                    continue;
+                }
+            }
         }
         out.push(message);
     }
@@ -1969,13 +1982,20 @@ mod tests {
             serde_json::json!({"role": "tool", "content": "result"}),
             serde_json::json!({"role": "user", "content": "note"}),
             serde_json::json!({"role": "user", "content": "more"}),
+            serde_json::json!({"role": "assistant", "content": "an answer"}),
+            serde_json::json!({"role": "user", "content": "next"}),
         ];
         let merged = alternating_roles(messages);
         let roles: Vec<_> = merged.iter().map(|m| m["role"].as_str().unwrap()).collect();
-        assert_eq!(roles, ["system", "user", "assistant", "tool", "user"]);
+        // Counting only users and call-free assistants, as the template does,
+        // they alternate.
+        assert_eq!(
+            roles,
+            ["system", "user", "assistant", "tool", "assistant", "user"]
+        );
         assert_eq!(merged[1]["content"], "passages\n\nthe task");
-        assert_eq!(merged[4]["content"], "note\n\nmore");
-        // The call and its result are untouched.
+        // A note after a result rides on the result.
+        assert_eq!(merged[3]["content"], "result\n\n[PWR] note\n\n[PWR] more");
         assert_eq!(merged[2]["tool_calls"][0]["id"], "pwrc00001");
     }
 
