@@ -1,6 +1,6 @@
 # Mission status
 
-Updated 2026-10-02, F1 executor correctness cycle. Resume from the owner's
+Updated 2026-10-02, review of the F1 commits (second reviewer). Resume from the owner's
 mission mandate, this file, MASTER_SPEC, decisions and implementation plan.
 Evidence vocabulary is defined in MASTER_SPEC; no gate/model-capability claim
 follows from this status.
@@ -19,12 +19,19 @@ follows from this status.
   cancellation, Stop during permissions/checks/Goal review, EOF teardown,
   honest empty/zero-test evidence and policy-specific completion catalogues.
   W3.4 implemented; aggregate ordinary bounds W1.10 remain PARTIAL/PLANNED.
+- **Review of F1 commits, 2026-10-02:** checks reproduced (Rust 1,424 / 5
+  ignored / Docker skip, fmt, Clippy). Two behaviour changes corrected with
+  failing-before regressions: the response timeout bounds silence, not length
+  (absolute deadline retried a healthy long reply into *backend failing*; a
+  measured reply took 799 s); an unreachable compaction trigger stops counting
+  (a five-read turn stopped after three on its compaction budget). See the
+  audit's review section and the experiment log.
 - **IMPLEMENTED F2 research artifact, partial:** competitors.md now includes
   opened Lost in the Middle/RULER, pinned Qwen3.6 mode and mlx-lm renderer
   sources. PWR effects remain unknown; full survey/audit remain PLANNED.
-- Cycle parent: `312070c6` on `develop`; this executor cycle commit is resolved
-  by `git log -1 -- docs/plan/mission-status.md`. Context `84b4654c` and
-  sampling `312070c6` follow F0 `b9db2eab`. No fetch or push.
+- Cycle parent: `c24028f5` on `develop` (executor cycle); this review
+  commit is resolved by `git log -1 -- docs/plan/mission-status.md`. Context
+  `84b4654c` and sampling `312070c6` follow F0 `b9db2eab`. No fetch or push.
 - Initial code baseline: `ae1e36c1e5dbe80f7fa3ee781072948b106a0208`.
   G1/G2/G3 are not newly satisfied; no release or model download.
 
@@ -68,11 +75,11 @@ F0 saved patch. Suites include these hunks; commit only this cycle's work.
 | Item | State / next evidence |
 |---|---|
 | A01 context grant after error | IMPLEMENTED correction; MEASURED fake-provider and real Settings regressions |
-| A02 trigger vs capacity | IMPLEMENTED correction; MEASURED behavioral regressions; effective model capacity unknown |
+| A02 trigger vs capacity | IMPLEMENTED correction + review fix (unreachable trigger stops counting); MEASURED regressions; effective model capacity unknown |
 | A03 productive compaction labelled Looping | IMPLEMENTED budget classification; MEASURED distinct-read regression; cap remains 2 |
 | A04 ignored tool arguments | IMPLEMENTED estimate correction; MEASURED 40 KiB write; exact preflight PLANNED W4.2 |
 | A05 sampling boundaries/mode | IMPLEMENTED correction + MEASURED regressions; dynamic per-generation selection PLANNED W5.6 |
-| A06 conversation-wide bound | response timeout/managed cancel and Stop repairs IMPLEMENTED; ordinary total bound PLANNED W1.10; worker latency unknown |
+| A06 conversation-wide bound | response silence bound/managed cancel and Stop repairs IMPLEMENTED; ordinary total bound PLANNED W1.10; worker latency unknown |
 | A07 eval parity | PLANNED W2.4/W2.1; scripted eval still separate |
 | A08 completion promise | IMPLEMENTED correction W3.4; empty/zero-test evidence cannot claim verified; catalogue/evidence regressions |
 | Ceiling/actions/sampling floor | HYPOTHESIS of benefit; no product-path baseline/default tuning |
@@ -86,8 +93,9 @@ No campaign queued or launched. External queue.sh serializes its own model
 list, but is not verified to exclude another queue/engine. F3 needs a lease
 and recorded provenance before timing; machine is not certified idle.
 
-1. Continue remaining F1 audit; document cancellation/overall-budget limits
-   and coverage, tests first for demonstrated defects; no default tuning.
+1. Preserve the turn transcript when the forced Goal deadline abandons a turn
+   (Stop cooperatively, bounded grace); then continue the remaining F1 audit,
+   tests first for demonstrated defects; no default tuning.
 2. Complete W2.4 eval on the app executor and then W5.6 selection after the final
    per-generation reasoning directive; continue full F2 survey and F3 simple
    control/provenance, power analysis and pinned dev split.

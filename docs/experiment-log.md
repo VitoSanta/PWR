@@ -1,5 +1,60 @@
 # Experiment log
 
+Dated entries, newest first, for every experiment and every change that
+alters what a campaign measures (prompt, catalogue, loop, budgets, adapters).
+Each entry names: the hypothesis or question, the conditions compared (commit,
+deployment, corpus revision, arm, seeds), the outcome with counts —
+including an inconclusive or negative one — and what was kept, revised or
+removed. Raw artifacts are cited by path even when they are not public.
+
+Entries through 2026-09-17 are in the [archived log](archive/experiment-log.md);
+the archived [roadmap](archive/roadmap.md) and [backlog](archive/backlog.md)
+hold the campaign notes of 2026-09-18 to 2026-09-28.
+
+---
+
+## 2026-10-02 — Review of the F1 commits: response bound on silence, unreachable compaction trigger
+
+**IMPLEMENTED corrections of two behaviour changes made at `c24028f5` and
+`84b4654c`; MEASURED deterministic regressions, no model experiment.** A
+review of the four F1 commits reproduced their checks (Rust 1,424 passed /
+5 ignored / one Docker skip, fmt, Clippy) and found two changes to what a
+campaign measures that no measurement supported.
+
+- **Response timeout.** `c24028f5` made the 900-second response timeout an
+  absolute deadline over opening and streaming. A timeout is a backend fault,
+  retried three times: a fixture streaming for longer than its bound ended as
+  *backend failing* after three full deadlines, "this is the server, not the
+  model". On 2026-10-01 one Qwen3.6-35B-A3B response on `rust-semver`
+  (`~/Desktop/pwr-evidence/runs/fix2-q36-35b/rust-semver/mlx-trace.jsonl`)
+  took 799 s: 369 s prefilling 43,406 tokens, then about 415 s writing one
+  tool call's arguments (a whole file), during which only content-free
+  progress chunks reached the client. A dense or XL model would cross 900 s on
+  healthy replies, and a bound counting only text would have cut this one. The bound is now on silence: opening,
+  then each wait for a chunk, at most `timeout_secs`. Hung engines stay bounded
+  (MLX's own 300-second engine-silence watchdog, this bound on other
+  backends); reply length stays bounded by `max_tokens`, the loop detector and
+  Stop. Control: the absolute deadline on the same fixtures. Regressions:
+  `configured_response_bound_covers_opening_and_silence`,
+  `a_response_that_keeps_making_progress_outlives_the_bound` (failed before).
+- **Compaction trigger.** `84b4654c` stopped refusing an objective above the
+  compaction trigger, but a turn of several steps then compacted on every step:
+  objective 6,000 characters, trigger 1,024, window 16,384, five 3.2 KB reads
+  -- two compactions (the first grew the prompt 2,390 → 2,704 estimated
+  tokens), stopped on the compaction budget after three reads. A trigger the
+  turn cannot get under is now said once and then ignored; only a window with
+  no answer room compacts. Regressions:
+  `an_objective_above_the_trigger_does_not_spend_compactions_it_cannot_use`,
+  `a_compaction_that_cannot_get_under_the_trigger_is_not_repeated` (both
+  failed before; the second also with only its post-compaction branch removed).
+
+Not changed: `COMPACTIONS_PER_TURN` (2), the 900-second default, the retry
+count, sampling. The review also found that `312070c6` withdrew the per-mode
+card reading of `b14982f0` without a measurement; on the installed models the
+resolved values do not change (Qwen3.6 has a declared profile; Qwen3.5 cards
+fall to the 0.6/0.95/20 floor, the same values), so nothing was reverted.
+Capability effects: unknown.
+
 ## 2026-10-02 — F1 executor cancellation and verification correctness
 
 **IMPLEMENTED correctness repair, not a capability experiment.** Parent
@@ -14,19 +69,6 @@ aggregate conversation bounds, real cancellation latency and model capability
 remain unknown/PLANNED; full F1 audit is incomplete. Regression/check evidence:
 [executor follow-up](reviews/2026-10-01-audit.md) and
 `~/Desktop/pwr-evidence/logs/mission-20261001-f1-executor/`.
-
-Dated entries, newest first, for every experiment and every change that
-alters what a campaign measures (prompt, catalogue, loop, budgets, adapters).
-Each entry names: the hypothesis or question, the conditions compared (commit,
-deployment, corpus revision, arm, seeds), the outcome with counts —
-including an inconclusive or negative one — and what was kept, revised or
-removed. Raw artifacts are cited by path even when they are not public.
-
-Entries through 2026-09-17 are in the [archived log](archive/experiment-log.md);
-the archived [roadmap](archive/roadmap.md) and [backlog](archive/backlog.md)
-hold the campaign notes of 2026-09-18 to 2026-09-28.
-
----
 
 ## 2026-10-01 — F1 sampling source correctness (measurement-changing)
 

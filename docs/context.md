@@ -24,6 +24,12 @@ comes from.
 - **The policy trigger differs from physical fit.** An objective above the
   compaction trigger may still fit. If nothing can be folded, the generation
   envelope decides whether prompt plus safety margin leaves answer room.
+  When the turn cannot get under the trigger -- the verbatim objective alone
+  is above it, or a compaction left the prompt above it -- it says so and from
+  then on compacts only when the window leaves no answer room. Before this,
+  such a turn spent its two compactions (the first grew the prompt, the
+  objective being kept whole) and stopped after three of five reads with the
+  16,384-token window mostly empty (`two_loops.rs` regressions, 2026-10-02).
 - **Token costs are still estimates**; an exact, template- and tool-aware
   preflight (W4.2) is not implemented.
 

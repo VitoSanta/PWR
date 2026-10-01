@@ -51,6 +51,10 @@ window, policy/physical distinction, honest `CompactionBudget`, count invalidati
 with fixed overhead preserved, and no-op compaction preservation. MEASURED fake
 provider regressions exercise these decisions. Eval migration/parity remains
 PLANNED W2.4; no real-model capability or effective-window claim.
+**Review correction 2026-10-02:** a trigger the turn cannot get under (verbatim
+objective above it, or a compaction that left the prompt above it) is said once
+and stops counting; only a window without answer room compacts. Two fake-provider
+regressions failed before (CompactionBudget after three of five reads).
 
 - **Problem/evidence.** A01–A03 in the audit: `prepare_context` errors become
   granted windows (`main.rs:941`, `converse.rs:1708`); objective fit uses policy
@@ -90,7 +94,10 @@ PLANNED W2.4; no real-model capability or effective-window claim.
 ### W1.10 Bound ordinary conversations across turns
 
 - **PARTIAL correctness repair 2026-10-02.** The existing selected response
-  timeout now bounds runtime opening + streaming, with explicit worker cancel;
+  timeout now bounds runtime opening and each wait for a chunk -- silence, not
+  length (review correction: the first version, an absolute deadline, ended a
+  healthy long reply as a backend failure after three retries; a measured
+  Qwen3.6-35B-A3B reply took 799 s) -- with explicit worker cancel;
   Stop reaches preparation, permissions and repository verification. Goal
   baseline/verification/review are interruptible. No new ordinary aggregate
   policy or default was introduced; overall bounds remain PLANNED.

@@ -2249,7 +2249,7 @@ fn select_timeout(config: &mut ChatConfig) -> Result<(), SafeError> {
         .position(|seconds| *seconds == config.timeout_secs)
         .unwrap_or(4);
     let index = Select::new()
-        .with_prompt("Choose one-response timeout")
+        .with_prompt("Choose how long a response may wait with nothing from the backend")
         .items(&labels)
         .default(default)
         .interact()
