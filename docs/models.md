@@ -14,7 +14,7 @@ that it could yet (review §6).
 
 ## Families and adapters
 
-`pwr-compat` normalises each family's way of writing tool calls and reasoning
+`pwr-compat` (Qwen, GLM, Seed, Harmony, Gemma 4, Granite, Mistral) normalises each family's way of writing tool calls and reasoning
 (Qwen's `<tool_call>` blocks, Harmony channels for gpt-oss, Gemma 4's
 `<|tool_call>` and thought channel, fenced calls, unterminated calls, invented
 tool names or argument spellings with one reading) into canonical actions.

@@ -256,3 +256,11 @@ verdict (`~/.pwr/model-evidence`) did not say which adapter had read the replies
 and Limited outranks everything. Provenance now records the adapter revision; a
 Limited/Incompatible verdict recorded under none, or under another revision, is
 stale and the model is calibrated again. A pass is kept.
+
+## 2026-10-01 — Mistral family adapter (`mistral-v1`; measurement-changing)
+
+Devstral-Small-2-24B was Limited ("no tool call was made") in a calibration
+sweep of all installed models: it writes `[TOOL_CALLS]read_file[ARGS]{…}` and no
+adapter read that form. `MistralFamilyAdapter` reads it (and the older JSON
+array form), for `mistral`, `devstral`, `magistral`, `ministral`; the engine's
+live text holds `[TOOL_CALLS]` back like the other call markers.
