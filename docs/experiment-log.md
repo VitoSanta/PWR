@@ -398,3 +398,14 @@ cost it its reads and a cold prefill. The mechanism now acts only above 20,000
 tokens, where the collapse it was made for was seen (27,000, Qwen3-Coder). Why
 Gemma 4 26B repeats while writing a large component is **not known**; the next
 step is its raw output (`PWR_MLX_TRACE`).
+
+## 2026-10-01 — The engine's repetition stop now counts for the presence penalty
+
+Raw output captured from the app (`PWR_MLX_TRACE`, Gemma 4 31B and 26B, prompts of
+22,000 tokens): a reply that begins "Now I'll implement `app.ts`." and then
+writes "I'll use `web/src/app/app.ts`." until the engine stops it after
+600–1,200 tokens (`finish: repetition`); the next reply loops the same way.
+These are real loops, not a false alarm on repetitive code. The state log showed
+the retries asked for **no** presence penalty: only PWR's own `Looped` fault
+set it, and the engine's stop arrives as a cut-off reply. Both now count. Whether
+a penalty over 1,024 tokens ends such loops is **unmeasured**.
