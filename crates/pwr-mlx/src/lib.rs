@@ -1007,6 +1007,29 @@ fn alternating_roles(messages: Vec<serde_json::Value>) -> Vec<serde_json::Value>
                     last["content"] = serde_json::json!(joined);
                     continue;
                 }
+                // Calls that were never answered (the turn ended first), then a
+                // user message: it stands as their result, the first carrying
+                // the text and any others saying there was none.
+                if role == "user"
+                    && last["role"] == "assistant"
+                    && let Some(calls) = last["tool_calls"].as_array().cloned()
+                    && !calls.is_empty()
+                {
+                    for (at, call) in calls.iter().enumerate() {
+                        let content = if at == 0 {
+                            format!("[PWR] {}", text(&message))
+                        } else {
+                            "[PWR] no result".to_owned()
+                        };
+                        out.push(serde_json::json!({
+                            "role": "tool",
+                            "content": content,
+                            "tool_call_id": call["id"],
+                            "name": call["function"]["name"],
+                        }));
+                    }
+                    continue;
+                }
             }
         }
         out.push(message);
@@ -1997,6 +2020,21 @@ mod tests {
         // A note after a result rides on the result.
         assert_eq!(merged[3]["content"], "result\n\n[PWR] note\n\n[PWR] more");
         assert_eq!(merged[2]["tool_calls"][0]["id"], "pwrc00001");
+    }
+
+    #[test]
+    fn mistral_gets_a_result_for_calls_the_turn_ended_before_answering() {
+        let merged = alternating_roles(vec![
+            serde_json::json!({"role": "user", "content": "task"}),
+            serde_json::json!({"role": "assistant", "content": "", "tool_calls": [{"id": "pwrc00001", "function": {"name": "read_file"}}]}),
+            serde_json::json!({"role": "user", "content": "feedback"}),
+            serde_json::json!({"role": "user", "content": "again"}),
+        ]);
+        let roles: Vec<_> = merged.iter().map(|m| m["role"].as_str().unwrap()).collect();
+        assert_eq!(roles, ["user", "assistant", "tool"]);
+        assert_eq!(merged[2]["tool_call_id"], "pwrc00001");
+        assert_eq!(merged[2]["name"], "read_file");
+        assert_eq!(merged[2]["content"], "[PWR] feedback\n\n[PWR] again");
     }
 
     #[test]
