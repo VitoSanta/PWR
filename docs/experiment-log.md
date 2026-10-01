@@ -293,3 +293,9 @@ one call to an offered tool with arguments that fit its schema; reaching for
 with `run_command ls`, a sound first step, and was refused agent tasks. Every
 earlier local calibration is stale (the suite version is compared) and is
 retaken on use.
+
+## 2026-10-01 — Granite 4.1 reads its `<tool_call>` block (`granite-v2`; measurement-changing)
+
+Granite 4.1 8B was Limited ("no tool call was made"): its template writes
+`<tool_call>{"name": …, "arguments": …}</tool_call>`, and the adapter read only
+a bare JSON array. It reads both now.
