@@ -40,6 +40,10 @@ pub const NO_PROGRESS_LIMIT: usize = 3;
 #[derive(Debug, Default)]
 pub struct Stall {
     pub progress: ProgressTracker,
+    /// How many times each file was written by this conversation. A file
+    /// rewritten again and again is a different failure from a window that
+    /// leaves the workspace where it was: the workspace moves every time.
+    pub rewrites: BTreeMap<String, usize>,
     /// Files the conversation changed, by the hash it left them with.
     pub changed_files: BTreeMap<String, String>,
 }
@@ -69,6 +73,25 @@ pub fn record_effect(changed: &mut BTreeMap<String, String>, outcome: &serde_jso
             ),
         );
     }
+}
+
+/// Writes to one file before the deployment is told to step back, and again
+/// at every multiple. Measured 2026-10-01: Qwen3-Coder wrote `bin/rotate` more
+/// than seventy times in an hour on one task, running the same failing tests
+/// after each, and nothing said so -- each write changed the file, so no
+/// window "left the workspace where it was".
+pub const REWRITES_BEFORE_NOTE: usize = 12;
+
+/// What the deployment is told about a file it keeps rewriting. States the fact
+/// and offers the ways out; it does not decide.
+pub fn rewrite_notice(path: &str, count: usize) -> String {
+    format!(
+        "{path} has now been written {count} times in this conversation. Rewriting it again \
+         has not made the checks pass, so more of the same is unlikely to. Stop and step back: \
+         read the failing check's own output line by line, compare it with what the file does \
+         for that exact case, and change the approach rather than the wording -- or say \
+         plainly what is blocking you."
+    )
 }
 
 /// What the deployment is told when a window made no progress.
