@@ -129,7 +129,9 @@ impl ModelBehaviorAdapter for QwenFamilyAdapter {
 
     fn version(&self) -> &'static str {
         // v2: also reads the XML parameter form Qwen 3.5/3.6 write.
-        "qwen-v2"
+        // v3: and that form without its `<tool_call>` opening, as Qwen3-Coder
+        // arrives from the MLX engine.
+        "qwen-v3"
     }
 
     fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
@@ -158,13 +160,68 @@ impl ModelBehaviorAdapter for QwenFamilyAdapter {
                 canonical.diagnostics.push(diagnostic);
                 return canonical;
             }
-            let (narrative, calls, diagnostics) = extract_tool_calls(&canonical.narrative);
+            let (wrapped, added) = wrap_bare_xml_calls(&canonical.narrative);
+            let (narrative, calls, mut diagnostics) = extract_tool_calls(&wrapped);
             canonical.narrative = narrative;
+            if added && !calls.is_empty() {
+                diagnostics.push(Diagnostic {
+                    kind: "qwen_bare_function_call",
+                    detail: "read a <function=...> call written without its <tool_call> opening"
+                        .into(),
+                });
+            }
             canonical.tool_calls = calls;
             canonical.diagnostics.extend(diagnostics);
         }
         canonical
     }
+}
+
+/// Qwen3-Coder, as the MLX engine returns it, writes
+/// `<function=read_file>…</function></tool_call>`: the opening `<tool_call>` is
+/// a token the engine does not hand back. A `<function=` that no `<tool_call>`
+/// opens gets the opening (and the closing, when it is missing too) so the one
+/// reader of the form reads it; a reply that wrote both is left alone.
+/// Measured 2026-10-01: Quick Calibration called the model "no tool call was
+/// made" and refused it agent tasks. Returns the text and whether it changed.
+fn wrap_bare_xml_calls(content: &str) -> (String, bool) {
+    if !content.contains(OPEN_FUNCTION) {
+        return (content.to_owned(), false);
+    }
+    let mut out = String::new();
+    let mut changed = false;
+    let mut rest = content;
+    while let Some(at) = rest.find(OPEN_FUNCTION) {
+        let before = &rest[..at];
+        if before.trim_end().ends_with(OPEN_TOOL) {
+            // Opened properly: copy through the block's end and go on after it.
+            let end = rest[at..]
+                .find(CLOSE_TOOL)
+                .map_or(rest.len(), |close| at + close + CLOSE_TOOL.len());
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+            continue;
+        }
+        out.push_str(before);
+        out.push_str(OPEN_TOOL);
+        out.push('\n');
+        changed = true;
+        let Some(close) = rest[at..].find(CLOSE_FUNCTION) else {
+            // Cut off inside the call: the unterminated-call path names it.
+            out.push_str(&rest[at..]);
+            rest = "";
+            break;
+        };
+        let end = at + close + CLOSE_FUNCTION.len();
+        out.push_str(&rest[at..end]);
+        if !rest[end..].trim_start().starts_with(CLOSE_TOOL) {
+            out.push('\n');
+            out.push_str(CLOSE_TOOL);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    (out, changed)
 }
 
 /// Moves `<think>` spans out of the answer text.
@@ -1254,6 +1311,43 @@ mod tests {
                 .contains("</content>")
         );
 
+        // Qwen3-Coder from the MLX engine: no opening tag, a closing one.
+        let bare = QwenFamilyAdapter.normalize(&reply(
+            "<function=read_file>\n<parameter=path>\nsrc/parser.rs\n</parameter>\n</function>\n</tool_call>",
+        ));
+        assert_eq!(bare.tool_calls.len(), 1);
+        assert_eq!(bare.tool_calls[0].name, "read_file");
+        assert_eq!(bare.tool_calls[0].arguments["path"], "src/parser.rs");
+        assert!(
+            bare.diagnostics
+                .iter()
+                .any(|d| d.kind == "qwen_bare_function_call")
+        );
+        // Neither tag, prose before it, and two calls.
+        let two = QwenFamilyAdapter.normalize(&reply(
+            "Reading both.\n<function=read_file>\n<parameter=path>\na.rs\n</parameter>\n</function>\n<function=read_file>\n<parameter=path>\nb.rs\n</parameter>\n</function>",
+        ));
+        assert_eq!(two.tool_calls.len(), 2, "{:?}", two.diagnostics);
+        assert_eq!(two.narrative, "Reading both.");
+        // A well-formed call is read once, and says nothing about a missing tag.
+        let whole = QwenFamilyAdapter.normalize(&reply(
+            "<tool_call>\n<function=read_file>\n<parameter=path>\na.rs\n</parameter>\n</function>\n</tool_call>",
+        ));
+        assert_eq!(whole.tool_calls.len(), 1);
+        assert!(
+            !whole
+                .diagnostics
+                .iter()
+                .any(|d| d.kind == "qwen_bare_function_call")
+        );
+        // Cut off inside a bare call: unfinished, not guessed at.
+        let cut = QwenFamilyAdapter.normalize(&reply("<function=write_file>\n<parameter=path>\na.rs\n</parameter>\n<parameter=content>\nfn main() {"));
+        assert!(cut.tool_calls.is_empty());
+        assert!(
+            cut.diagnostics
+                .iter()
+                .any(|d| d.kind == "qwen_unterminated_tool_call")
+        );
         let unclosed = "<tool_call>\n<function=read_file>\n<parameter=path>\nsrc/lib.rs\n</function>\n</tool_call>";
         let canonical = adapter.normalize(&reply(unclosed));
         assert_eq!(canonical.tool_calls[0].arguments["path"], "src/lib.rs");

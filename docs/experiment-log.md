@@ -237,3 +237,14 @@ acceptance check, which a workspace with none never has. The round now runs
 once when technical checks pass and no acceptance is declared; the goal still
 ends *not verified*. Harness revision after this entry is the pairing boundary:
 `fix2-q36-35b` is the before, `fix3-q36-35b` the after.
+
+## 2026-10-01 — Qwen3-Coder read as "no tool call" (adapter `qwen-v3`; measurement-changing)
+
+Quick Calibration of `Qwen3-Coder-30B-A3B-Instruct-4bit` ended **Limited**
+("tool_selection: no tool call was made"), which refuses agent tasks; every
+`dev1` task on it failed in 0 actions. The engine trace showed the reply
+`<function=read_file>…</function></tool_call>`: the opening `<tool_call>` never
+arrives. The Qwen adapter now reads a `<function=` call with no opening tag
+(revision `qwen-v3`, so earlier calibrations of Qwen-family models become
+stale and are retaken). A model's own tool format being refused is a product
+defect, not a model result: any Qwen3-Coder user had no agent mode.
