@@ -965,6 +965,39 @@ fn template_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// Mistral's chat template refuses a conversation in which two user messages,
+/// or two assistant messages without calls, follow one another ("conversation
+/// roles must alternate user and assistant roles except for tool calls and
+/// results"); PWR sends several (the repository passages, the task, a note of
+/// its own). Runs of them become one message, in order, joined by a blank line.
+/// Measured 2026-10-01: Devstral failed every turn before its first word.
+fn alternating_roles(messages: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    for message in messages {
+        let role = message["role"].as_str().unwrap_or_default().to_owned();
+        let mergeable = |value: &serde_json::Value| {
+            value["content"].is_string()
+                && value.get("tool_calls").is_none()
+                && matches!(value["role"].as_str(), Some("user" | "assistant"))
+        };
+        if mergeable(&message)
+            && let Some(last) = out.last_mut()
+            && last["role"] == role.as_str()
+            && mergeable(last)
+        {
+            let joined = format!(
+                "{}\n\n{}",
+                last["content"].as_str().unwrap_or_default(),
+                message["content"].as_str().unwrap_or_default()
+            );
+            last["content"] = serde_json::json!(joined);
+            continue;
+        }
+        out.push(message);
+    }
+    out
+}
+
 /// The chat template an MLX model ships, as text, never rendered here:
 /// `chat_template.jinja` (newer exports, and what the tokenizer prefers when
 /// present), `chat_template.json`, or `tokenizer_config.json`'s
@@ -1045,9 +1078,17 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
             .cloned()
             .unwrap_or(serde_json::Value::Null)
     };
+    let messages = {
+        let rendered = template_messages(&request.messages);
+        if pwr_compat::adapter_for(None, &request.deployment.model_ref).id() == "mistral" {
+            alternating_roles(rendered)
+        } else {
+            rendered
+        }
+    };
     serde_json::json!({
         "op": "chat",
-        "messages": template_messages(&request.messages),
+        "messages": messages,
         "tools": request.tools,
         "thinking": sampling.get("think").cloned().unwrap_or(serde_json::Value::Null),
         "reasoning_budget": number("reasoning_budget"),
@@ -1883,6 +1924,26 @@ mod tests {
         assert_eq!(rendered[2]["tool_calls"][0]["id"], "c1");
         assert_eq!(rendered[3]["tool_call_id"], "c1");
         assert_eq!(rendered[3]["name"], "read_file");
+    }
+
+    #[test]
+    fn mistral_gets_runs_of_user_messages_as_one() {
+        let messages = vec![
+            serde_json::json!({"role": "system", "content": "rules"}),
+            serde_json::json!({"role": "user", "content": "passages"}),
+            serde_json::json!({"role": "user", "content": "the task"}),
+            serde_json::json!({"role": "assistant", "content": "", "tool_calls": [{"id": "pwrc00001"}]}),
+            serde_json::json!({"role": "tool", "content": "result"}),
+            serde_json::json!({"role": "user", "content": "note"}),
+            serde_json::json!({"role": "user", "content": "more"}),
+        ];
+        let merged = alternating_roles(messages);
+        let roles: Vec<_> = merged.iter().map(|m| m["role"].as_str().unwrap()).collect();
+        assert_eq!(roles, ["system", "user", "assistant", "tool", "user"]);
+        assert_eq!(merged[1]["content"], "passages\n\nthe task");
+        assert_eq!(merged[4]["content"], "note\n\nmore");
+        // The call and its result are untouched.
+        assert_eq!(merged[2]["tool_calls"][0]["id"], "pwrc00001");
     }
 
     #[test]

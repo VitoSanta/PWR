@@ -299,3 +299,13 @@ retaken on use.
 Granite 4.1 8B was Limited ("no tool call was made"): its template writes
 `<tool_call>{"name": …, "arguments": …}</tool_call>`, and the adapter read only
 a bare JSON array. It reads both now.
+
+## 2026-10-01 — Mistral gets alternating roles (measurement-changing)
+
+Devstral's first campaign turn failed before a word: "TemplateError: After the
+optional system message, conversation roles must alternate user and assistant
+roles except for tool calls and results". PWR sends several user messages in a
+row (repository passages, the task, notes). For the Mistral family, runs of
+user (or call-free assistant) messages are joined into one, in order, in the
+request to the engine (`alternating_roles`); other families' prompts are
+unchanged.
