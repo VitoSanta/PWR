@@ -1,6 +1,6 @@
 # State and persistence
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** Every place PWR keeps
+**Checked against `develop` at `bff93062`, 2026-10-01.** Every place PWR keeps
 state, what kind of state it is, and what may be deleted. The review found the
 stores overlapping without a clear hierarchy (§3.4); this map is the first
 step of plan W6.2, which then enforces it.
@@ -24,7 +24,7 @@ in Full access mode); the file tools refuse writes to it.
 | `state.sqlite` | Evidence (and authoritative for resume) | the core | The event log: every run, turn, tool attempt, generation, compaction, checkpoint and snapshot, hash-chained |
 | `checks.json` | Configuration, authoritative | the owner | Declared checks; `"kind": "acceptance"` marks acceptance checks ([verification.md](verification.md)) |
 | `protected.json` | Configuration, authoritative | the owner | Paths the agent may read but not change |
-| `chat-config.json` | Configuration, authoritative | the app / console | Model, window setting, reasoning effort, permission mode, asked-before list, compaction threshold, reference folders, acknowledged provisional models, goal budget |
+| `chat-config.json` | Configuration, authoritative | the app / console | Model, window setting, reasoning effort, permission mode, asked-before list, compaction threshold, `actions_per_turn` (default 100), reference folders, acknowledged provisional models, goal budget, background summaries (off by default) |
 | `instructions.md` | Configuration | the project | Project instructions (else `AGENTS.md`, else `PWR.md` at the root) |
 | `memory.json` | Configuration | the person (a model only proposes) | Workspace memories |
 | `indexes/` | Cache | the core | Repository index (SQLite, keyed on mtime and size) |
@@ -45,7 +45,9 @@ Next to `.pwr/`, `.pwr-scratch/` is the commands' `HOME` and `TMPDIR`, and
 | Path | Kind | What it is |
 |---|---|---|
 | `models/<owner>/<name>/` | Data | Downloaded models (`PWR_MLX_MODELS` moves it) |
-| `model-evidence/<hash>.json` | Evidence | Local Quick Calibrations (`PWR_EVIDENCE_DIR` moves it) |
+| `model-evidence/<hash>.json` | Evidence | Local Quick Calibrations, with the adapter revision that read the replies (`PWR_EVIDENCE_DIR` moves it) |
+| `models/<owner>/<name>/.pwr-card-sampling.json` | Cache | The sampling a model card recommends, pinned to the revision (schema 3; a "none found" is looked for again after a day) |
+| `models/<owner>/<name>/.pwr-user-sampling.json` | Configuration | Sampling values the person set in the Sampling dialog |
 | `profile.json` | Configuration | The person's profile |
 | `memory.json` | Configuration | Global memories |
 | `projects.json` | Projection | Registry of workspaces with a wiki |
@@ -60,7 +62,7 @@ The engine's Python environment lives in
 
 `crates/pwr-store`: one SQLite table, `events` (`id`, `run_id`, `event_type`,
 `payload`, `at`, `previous_hash`, `run_previous_hash`, `event_hash`), plus
-`schema_migrations` (two migrations). Each event's hash covers its id, run,
+`schema_migrations`. Each event's hash covers its id, run,
 type, payload, time and the previous event's hash; a second link chains each
 run's events on their own. `verify_run_chain` recomputes a run's chain;
 `pwr report --format jsonl <run>` says whether it holds.
@@ -78,13 +80,12 @@ anchor is planned.
 
 ### Known defects
 
-| Defect | Evidence | Plan |
+| Defect | Plan | State |
 |---|---|---|
-| `append` reads the last hash and inserts without a transaction; two writers can produce inconsistent links | `crates/pwr-store/src/lib.rs:188-230` | W6.1 |
-| A failure to read the previous hash silently starts a new chain (`.ok()`) | `lib.rs:193-212` | W6.1 |
-| A per-run link stored as `NULL` verifies as *unlinked*, not broken | `lib.rs:142-150` | W6.1 |
-| No WAL, busy timeout or indexes for per-run queries | no `PRAGMA` or `CREATE INDEX` in the crate | W6.1 |
-| A full snapshot of the conversation is appended every turn | `record_snapshot`, `crates/pwr-orchestrator/src/conversation.rs:107` | W6.3 (measure first) |
+| `append` read the last hash and inserted without a transaction | W6.1 | fixed: one immediate transaction, WAL and a busy timeout (`crates/pwr-store`) |
+| A failure to read the previous hash silently started a new chain | W6.1 | fixed: errors propagate |
+| A per-run link stored as `NULL` verifies as *unlinked*, not broken | W6.1 | by design: it marks events written before the run chain existed, and is said plainly rather than reported as tampering |
+| A full snapshot of the conversation is appended every turn | W6.3 | open (measure first) |
 
 ## Overlaps to resolve
 

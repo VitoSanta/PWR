@@ -1,7 +1,7 @@
 # The desktop app
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** The product surface:
-what it shows, how it talks to the core, and what the plan changes. The
+**Checked against `develop` at `bff93062`, 2026-10-01.** The product surface:
+what it shows, how it talks to the core, and what the plan changes (the layout is being reworked on a separate branch, `codex/agent-layout-lab`, not merged). The
 developer guide (build, layout of the source, design system) is
 [apps/desktop/README.md](../apps/desktop/README.md).
 
@@ -28,7 +28,7 @@ itself — a revert asks the core.
 
 - **Focus**, the only layout: the conversation in the centre, a floating tool
   bar, and a grid of workbench cards beside it.
-- **Conversation**: streamed answers and reasoning; one assistant turn with
+- **Conversation**: streamed answers and reasoning; while the engine reads a long prompt the working line says *Reading the conversation · 37 % (12,288 of 33,000 tokens)* (from `_pwr/model_progress`, 2026-10-01); one assistant turn with
   its actions grouped by phase; three trace views — *Compact* (what PWR is
   doing, by phase, and the result), *Detailed* (reasoning, each call, files,
   commands, checks, retries), *Raw Trace* (every event and the core log).
@@ -51,6 +51,7 @@ itself — a revert asks the core.
   the context indicator (`Context 42% · 54k / 128k`) and its panel
   (composition, threshold, last compaction, *Compact now*); runtime metrics;
   reasoning effort.
+- **Sampling** (in the Model Manager): each value shows where it comes from — your profile, the model card, `generation_config.json`, a PWR profile, or *PWR default (nothing declared)* — and a bare 0 reads *greedy* or *off*.
 - **Model Manager** ([models.md](models.md#the-model-manager)).
 - **Chat without a workspace**: talk to a model with only the attached files;
   nothing can be edited or run.
@@ -64,20 +65,22 @@ is left, which checks passed, why it stopped, which decision is needed**.
 Token accounting, calibration confidence, context composition, backend
 diagnostics and the graph are secondary (review §13).
 
-| Change | Why | Plan |
-|---|---|---|
-| The post-turn note's mark follows the verdict (today `✓` even for a failure) | The mark is the first thing read | W2.2 |
-| The end of a turn leads with its outcome | The list above | W7.1 |
-| The 3D graph moves behind an *Experimental* switch; the Knowledge card opens on a searchable outline; the 3D libraries (`3d-force-graph`, `three-spritetext`) load only when switched on | No evidence it saves time; it costs bundle size and maintenance | W7.2 |
-| Token accounting, composition, compaction parameters, calibration and backend diagnostics, the reasoning stream as the "working" signal → Advanced | Secondary information in the primary view | W7.3 |
-| Every turn that ran a command unconfined says so | Full access removes every protection | W7.4 |
-| Graphical defects from the manual walk, fixed with a screenshot before and after | Carried from the v0.3.0 plan | W7.5 |
-| "Engine busy: …" when a person waits behind a summary or a review | One generation at a time | W5.5 |
-| A gated model says it needs a token | Today a generic failure | W7.7 |
+| Change | Why | Plan | State |
+|---|---|---|---|
+| The post-turn note's mark follows the verdict | The mark is the first thing read | W2.2 | done on `develop` |
+| The end of a turn leads with its outcome | The list above | W7.1 | partial: the typed outcome reaches the app |
+| The 3D graph sits behind an *Experimental* switch; the Knowledge card opens on a searchable outline; the 3D libraries load only when switched on | No evidence it saves time; it costs bundle size and maintenance | W7.2 | done on `develop`; native walk pending |
+| Token accounting, composition, compaction parameters, calibration and backend diagnostics, the reasoning stream as the "working" signal → Advanced | Secondary information in the primary view | W7.3 | open |
+| Every turn that ran a command unconfined says so | Full access removes every protection | W7.4 | done on `develop` |
+| Graphical defects from the manual walk, fixed with a screenshot before and after | Carried from the v0.3.0 plan | W7.5 | ongoing |
+| "Engine busy: …" when a person waits behind a summary or a review | One generation at a time | W5.5 | open |
+| A gated model says it needs a token | Today a generic failure | W7.7 | open |
+| A warning before switching model in a long conversation (the new engine reads the whole prompt again: minutes) | Measured 2026-09-30, 32 minutes | — | open; only the progress line exists |
+| A setting for the per-turn action limit (`actions_per_turn`) | Today only in `.pwr/chat-config.json` | — | open |
 
 ## Tests
 
-94 unit tests in 12 spec files (the review's count, 2026-09-30), run with
+107 unit tests in 13 spec files (2026-10-01; the review counted 94 in 12), run with
 `npm test -- --watch=false` in `apps/desktop`, and the production build, both
 in CI (`desktop` job). No end-to-end test covers first launch, engine install,
 workspace change or shutdown (plan W7.6). Manual walks are recorded in

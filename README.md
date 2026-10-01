@@ -22,10 +22,12 @@ It is built for **bounded changes in existing repositories** — diagnosing and 
 
 ## What it does not do, yet
 
-- **Prove that it makes a small model better.** The one paired comparison on record found no gain on one model and an unconfirmed one on another. The decisive test is planned: [evaluation](docs/evaluation.md), [plan W8](docs/plan/implementation-plan.md#w8--the-decisive-benchmark).
-- **Protect every file equally from commands.** Protected paths and installed dependencies are refused to the edit tools but not yet to commands; an overwrite can replace an edit made after the model read the file; writes are not atomic. These are the first items of the [plan](docs/plan/implementation-plan.md#w1--safe-predictable-effects).
-- **Freeze your tests.** A goal can be reported verified after its tests were changed; only `.pwr/checks.json` itself is frozen today.
+- **Prove that it makes a small model better.** The one paired comparison on record found no gain on one model and an unconfirmed one on another; a development run on the app's own path (2026-10-01) moved one model from 3/8 to 6/8 tasks, one trial each. The decisive test is planned: [evaluation](docs/evaluation.md), [plan W8](docs/plan/implementation-plan.md#w8--the-decisive-benchmark).
+- **Solve hard tasks with a small model unattended.** Models of 9–30 billion parameters can loop on a difficult task, rewriting one file dozens of times, or lose the thread in a very long conversation; PWR notices and says so, and it is not yet measured whether its recoveries help.
+- **Use two models at once.** One engine at a time on a Mac: a second one overruns the GPU's memory and both write nonsense. Switching model in a long conversation re-reads it from the start, which takes minutes.
 - **Run anywhere but macOS on Apple silicon.** Windows is planned after the core is proven ([decision](docs/decisions.md)).
+
+**Fixed on `develop`, not yet in a release** (the latest release, v0.2.0-alpha, still has these limits; CI has not run on them): commands could change files the edit tools refuse; an overwrite could replace an edit made after the model read the file; writes were not atomic; a goal could be reported verified after its tests were changed. See the [changelog](CHANGELOG.md) and the [plan](docs/plan/implementation-plan.md#w1--safe-predictable-effects).
 
 Known limits are listed where the behaviour is described; start from the [documentation index](docs/README.md).
 

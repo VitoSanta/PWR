@@ -1,6 +1,6 @@
 # The command line
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30**, from the binary's own
+**Checked against `develop` at `bff93062`, 2026-10-01**, from the binary's own
 `--help`, which remains the authority on flags. The command line is the
 development and research surface; the product is the [desktop app](desktop.md),
 which drives the same core through `pwr serve`.
@@ -44,7 +44,7 @@ GGUF, experimental). Without a command, `pwr` opens the chat console.
 | `pwr calibrate <M> [--ladder 2048,4096,8192]` | The old context-ladder calibration (research; the app computes the window instead) |
 | `pwr repo index [PATH]` | Build or update the repository index |
 | `pwr repo rank "<request>" [PATH] [--content] [--semantic]` | The passages a turn would be given, with scores |
-| `pwr eval run <suite> --model M` | Run a frozen corpus; see [evaluation.md](evaluation.md) |
+| `pwr eval run <suite> --model M` | Run a frozen corpus; see [evaluation.md](evaluation.md). Flags include `--arm`, `--mode`, `--seed`, `--only <task>`, `--resume`, `--oracle-context`, `--context-policy`, and `--reasoning-effort low\|medium\|high\|off` (default **medium** since 2026-09-30; `off` is what every earlier campaign measured and must be declared as a treatment) |
 | `pwr eval compare <control> <treatment> [--strict] [--declare FIELD]…` | Pair two campaigns (permissive by default today; plan W8.1) |
 | `pwr eval suite <file> [--reports DIR] [--strict]` | Run a regression suite (areas A1–A4) |
 | `pwr check-corpus <suite>` | Check a corpus is fair before measuring on it |
@@ -68,7 +68,10 @@ Slash commands inside `pwr chat` and the app: `/changes`, `/verify`,
 | `PWR_ALLOW_UNCONFINED=1` | Run commands unconfined where no sandbox can be built (recorded `sandboxed: false`) |
 | `PWR_SEMANTIC_RETRIEVAL=1` | Experimental semantic ranking (`PWR_EMBED_PYTHON`, `PWR_EMBED_SIDECAR` for its encoder) |
 | `PWR_BROWSER` | The browser `look_at` drives |
-| `PWR_MLX_TRACE` | Engine request tracing |
+| `PWR_MLX_TRACE` | Engine request tracing: every request's last messages and the model's raw output, appended as JSON lines (holds model text; never published) |
+| `PWR_EMBED_MODEL`, `PWR_EMBED_POOLING` | The embedding model and pooling for semantic retrieval |
+| `PWR_HARNESS_REV` | The harness revision a campaign records (declared by the runner) |
+| `PWR_SKIP_LOG` | Where the test helpers write what a test run skipped ([testing.md](testing.md)) |
 | `PWR_CORE`, `PWR_WORKSPACE` | The core binary and workspace the app uses in development |
 | `PWR_DOWNLOAD_FREE_BYTES` | Override of free disk space (tests) |
 | `PWR_LIVE_MODEL`, `PWR_LLAMA_SMOKE_MODEL`, `PWR_UPDATE_GOLDEN` | Test-only switches ([testing.md](testing.md)) |
@@ -82,3 +85,20 @@ PWR_MLX_PYTHON="$HOME/Library/Application Support/ai.pwr.desktop/engine/venv/bin
 This measures the scripted loop, not the app's path (plan W2.4). The app's
 path is exercised by driving `pwr serve` over ACP, as the stack-matrix runner
 does ([evaluation.md](evaluation.md#the-stack-matrix)).
+
+## The stack-matrix runner (the app's path, with hidden tests)
+
+```bash
+python3 evidence/stack-matrix/runner/run.py list
+python3 evidence/stack-matrix/runner/run.py reference [TASK …]        # prove tasks sound
+sh evidence/stack-matrix/runner/pin.sh                                 # pin the release binary and its sidecar
+PWR_BIN=~/Desktop/pwr-evidence/bin/pwr-<rev> PWR_EVIDENCE_MODEL=<ref> \
+  python3 evidence/stack-matrix/runner/run.py run --run <name> [--split dev] [TASK …]
+python3 evidence/stack-matrix/runner/watch.py                          # follow the newest run token by token
+```
+
+`PWR_BIN`, `PWR_EVIDENCE_MODEL`, `PWR_EVIDENCE_TASKS`, `PWR_EVIDENCE_RESULTS`,
+`PWR_EVIDENCE_PROTOCOL` and `PWR_MLX_PYTHON`/`PWR_MLX_SIDECAR` configure the
+runner, not the core. **One model at a time on this machine**: a second engine
+beside the first overruns the GPU's working set (about 55 GB of 64 GB) and both
+emit text without meaning (2026-10-01; [experiment-log.md](experiment-log.md)).

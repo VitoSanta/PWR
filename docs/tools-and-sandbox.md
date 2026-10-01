@@ -1,10 +1,10 @@
 # Tools, policy and the sandbox
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** What the agent can do,
+**Checked against `develop` at `bff93062`, 2026-10-01.** What the agent can do,
 what bounds it, and where the bounds end. The operational summary for users is
 [SECURITY.md](../SECURITY.md); this page is the engineering account.
 
-## Working-tree protection update — 2026-09-30
+## What changed since the baseline (`0776ff4f`)
 
 Commands and file tools share frozen acceptance paths and installed-dependency
 protection. Parent deletion/renaming and workspace symlink aliases are guarded;
@@ -19,9 +19,9 @@ those limits fails extraction instead of retrying another decoder unboundedly.
 
 ## The tool catalogue
 
-Defined once, in `action_tool_catalog` (`crates/pwr-orchestrator/src/lib.rs:4560`).
+Defined once, in `action_tool_catalog` (`crates/pwr-orchestrator/src/lib.rs`).
 The scripted loop offers all of it; a conversation removes two and adds four
-(`chat_tool_catalog`, `crates/pwr-orchestrator/src/converse.rs:622`).
+(`chat_tool_catalog`, `crates/pwr-orchestrator/src/converse.rs`).
 
 | Tool | What it does | Conversation | Scripted |
 |---|---|---|---|
@@ -62,10 +62,10 @@ check and not of a conversation turn or a scripted run without a verifier
 - **No shell.** `run_command` takes an executable and an argument list; no
   shell ever interprets them. A whole command line sent as the executable with
   no arguments, in plain words, is split into program and arguments while the
-  call is decoded (`crates/pwr-orchestrator/src/lib.rs:5470-5500`); one that
+  call is decoded (`crates/pwr-orchestrator/src/lib.rs`); one that
   contains anything a shell would read differently (quotes, `$`, pipes,
   globs, redirections) is refused with the correct form
-  (`crates/pwr-tools/src/lib.rs:6524`).
+  (`crates/pwr-tools/src/lib.rs`).
 - **Environment.** Cleared; `HOME` and `TMPDIR` point inside the workspace
   (`.pwr-scratch`); JVMs get `JAVA_TOOL_OPTIONS` (`user.home`,
   `java.io.tmpdir`), Gradle `GRADLE_USER_HOME`.
@@ -86,7 +86,7 @@ Every edit is guarded by the file's content hash: `apply_replace`,
 not the expected one, and the refusal names the current hash. Writes into
 installed dependencies are refused without `dependency_change`; paths in
 `.pwr/protected.json` are refused always (`refuse_if_protected`,
-`crates/pwr-tools/src/lib.rs:1984`), as are `.pwr/` and `.git/hooks`,
+`crates/pwr-tools/src/lib.rs`), as are `.pwr/` and `.git/hooks`,
 `.git/config`.
 
 **A rewrite is of the version the model read.** In a conversation, `write_file`
@@ -131,7 +131,7 @@ promised.
 ## Permission modes
 
 Per workspace, chosen in the app's Run controls (`permission_mode` in
-`.pwr/chat-config.json`; `PermissionMode`, `crates/pwr-cli/src/main.rs:1096`):
+`.pwr/chat-config.json`; `PermissionMode`, `crates/pwr-cli/src/main.rs`):
 
 | Mode | Stored as | Sandbox | Asks before |
 |---|---|---|---|
@@ -150,7 +150,7 @@ Scripted runs (`pwr run`) grant only what `--approve` names:
 
 ## The sandbox (macOS Seatbelt)
 
-`sandbox_profile` (`crates/pwr-tools/src/lib.rs:2092-2375`) builds a profile per
+`sandbox_profile` (`crates/pwr-tools/src/lib.rs`) builds a profile per
 command:
 
 - **Writes** confined to the workspace, except `.pwr/` and `.git/hooks`
@@ -178,22 +178,25 @@ and is recorded `sandboxed: false`.
 
 | Limit | Why | Plan |
 |---|---|---|
-| **Protected paths and dependency trees are not in the profile.** A command (a script, an interpreter, a build) can change a file the edit tools refuse, and so can the checks | `refuse_if_protected` is a tool check; the profile knows only `.pwr` and hooks | W1.3 |
-| **Full access has no sandbox at all.** `.pwr/`, hooks, protected paths, dependencies and the host are writable by any command; checks run unconfined | `sandbox_for`, `main.rs:1119` | W1.3, W1.9, W7.4 |
+| **Protected paths and installed dependency trees** are denied to commands in the profile, with ancestor renames, aliases and parent deletion guarded (plan W1.3). Paths the profile cannot express are reported as *partially enforced* in the turn's outcome | Fixed on `develop`; macOS/CI coverage pending | W1.3 |
+| **Full access has no sandbox at all.** `.pwr/`, hooks, protected paths, dependencies and the host are writable by any command; checks run unconfined. The turn's outcome says *unconfined*; acceptance hashes detect a changed artifact even here | By design of the mode | W1.9, W7.4 |
 | **The container engine acts outside the sandbox.** The grant opens only the engine's socket, but the daemon then runs containers with the network and the folders it shares (all of `HOME` on Docker Desktop) | By design of the grant | W1.9 (disclosure) |
 | **`localhost` is every local address** | Seatbelt accepts only `*` or `localhost` | W1.9 |
 | **A network grant is not per destination** | No egress filtering exists | W1.9 |
 | **argv is not a code boundary** | Python, Node, build scripts and package lifecycle scripts run arbitrary code within the sandbox | W1.9 |
 | **`--provision` grants any program and the network together** | Installing a toolchain needs both; it can still read system and toolchain paths | Documented in the flag's help |
-| **Unbounded PDF decompression** | `inflate`, `document.rs:232` | W1.6 |
+| **PDF decompression is bounded** (8 MiB per stream, 64 MiB per document; beyond that extraction fails) | `inflate` | W1.6, fixed |
 | **macOS only** | No adapter elsewhere; commands are refused there | Later |
 
 ## Known defects
 
-| Defect | Plan |
-|---|---|
-| Overwrite bound to the current hash, not the read version | W1.1 |
-| Protections missing from the command sandbox; none in Full access | W1.3 |
-| `complete` promises verification the loop does not always perform | W3.4 |
-| Unbounded PDF inflation | W1.6 |
-| Grants do not say what they open, at the point of decision | W1.9 |
+| Defect | Plan | State |
+|---|---|---|
+| Overwrite bound to the current hash, not the read version | W1.1 | fixed |
+| Protections missing from the command sandbox; none in Full access | W1.3 | fixed outside Full access; CI/macOS coverage pending |
+| `complete` promises verification the loop does not always perform | W3.4 | open |
+| Unbounded PDF inflation | W1.6 | fixed |
+| Grants did not say what they open, at the point of decision | W1.9 | fixed: the text states the actual scope |
+| Output past the per-result bound is not kept | W4.4 | open |
+| A command can still run arbitrary code inside the sandbox (interpreters, build scripts); the network grant is not per destination; `localhost` is every local address | W1.9 (disclosed) | by design of Seatbelt |
+| macOS only | D-2026-09-30-4 | later |
