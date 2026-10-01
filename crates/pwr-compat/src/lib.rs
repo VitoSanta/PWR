@@ -705,6 +705,307 @@ impl ModelBehaviorAdapter for MistralFamilyAdapter {
     }
 }
 
+/// Liquid's LFM2 family: a call is a Python-style list between
+/// `<|tool_call_start|>` and `<|tool_call_end|>` --
+/// `[read_file(path="src/a.rs", max_lines=40)]` -- and reasoning is `<think>`.
+/// The larger LFM2 also writes `<function_call>{"name": …, "arguments": …}`
+/// blocks. Measured 2026-10-01: both were refused agent tasks (Limited, "no
+/// tool call was made") because no adapter read either.
+pub struct LiquidFamilyAdapter;
+
+const LFM_START: &str = "<|tool_call_start|>";
+const LFM_END: &str = "<|tool_call_end|>";
+const FUNCTION_CALL_OPEN: &str = "<function_call>";
+const FUNCTION_CALL_CLOSE: &str = "</function_call>";
+
+/// A reader of the Python literal subset a call's arguments use: strings
+/// (single, double, triple-quoted, with escapes), numbers, `True`/`False`/
+/// `None`, lists, tuples and dicts. Anything else is not a call.
+struct PyArgs<'a> {
+    text: &'a [u8],
+    at: usize,
+}
+
+impl<'a> PyArgs<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            text: text.as_bytes(),
+            at: 0,
+        }
+    }
+    fn skip(&mut self) {
+        while self.text.get(self.at).is_some_and(u8::is_ascii_whitespace) {
+            self.at += 1;
+        }
+    }
+    fn eat(&mut self, byte: u8) -> bool {
+        self.skip();
+        if self.text.get(self.at) == Some(&byte) {
+            self.at += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn ident(&mut self) -> Option<String> {
+        self.skip();
+        let start = self.at;
+        while self
+            .text
+            .get(self.at)
+            .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'.')
+        {
+            self.at += 1;
+        }
+        (self.at > start).then(|| String::from_utf8_lossy(&self.text[start..self.at]).into_owned())
+    }
+    fn string(&mut self) -> Option<String> {
+        self.skip();
+        let quote = *self.text.get(self.at)?;
+        if quote != b'"' && quote != b'\'' {
+            return None;
+        }
+        let triple = self.text.get(self.at..self.at + 3) == Some(&[quote, quote, quote]);
+        self.at += if triple { 3 } else { 1 };
+        let mut out: Vec<u8> = Vec::new();
+        loop {
+            let byte = *self.text.get(self.at)?;
+            if triple {
+                if self.text.get(self.at..self.at + 3) == Some(&[quote, quote, quote]) {
+                    self.at += 3;
+                    break;
+                }
+            } else if byte == quote {
+                self.at += 1;
+                break;
+            }
+            if byte == b'\\' {
+                self.at += 1;
+                let escaped = *self.text.get(self.at)?;
+                match escaped {
+                    b'n' => out.push(b'\n'),
+                    b't' => out.push(b'\t'),
+                    b'r' => out.push(b'\r'),
+                    b'0' => out.push(0),
+                    b'\\' | b'\'' | b'"' => out.push(escaped),
+                    b'\n' => {}
+                    other => {
+                        out.push(b'\\');
+                        out.push(other);
+                    }
+                }
+            } else {
+                out.push(byte);
+            }
+            self.at += 1;
+        }
+        String::from_utf8(out).ok()
+    }
+    fn value(&mut self) -> Option<serde_json::Value> {
+        self.skip();
+        match *self.text.get(self.at)? {
+            b'"' | b'\'' => self.string().map(serde_json::Value::String),
+            b'[' | b'(' => {
+                let close = if self.text[self.at] == b'[' {
+                    b']'
+                } else {
+                    b')'
+                };
+                self.at += 1;
+                let mut items = Vec::new();
+                while !self.eat(close) {
+                    items.push(self.value()?);
+                    if !self.eat(b',') && self.text.get(self.at) != Some(&close) {
+                        self.skip();
+                        if self.text.get(self.at) != Some(&close) {
+                            return None;
+                        }
+                    }
+                }
+                Some(serde_json::Value::Array(items))
+            }
+            b'{' => {
+                self.at += 1;
+                let mut map = serde_json::Map::new();
+                while !self.eat(b'}') {
+                    let key = match self.value()? {
+                        serde_json::Value::String(key) => key,
+                        other => other.to_string(),
+                    };
+                    if !self.eat(b':') {
+                        return None;
+                    }
+                    map.insert(key, self.value()?);
+                    if !self.eat(b',') {
+                        self.skip();
+                        if self.text.get(self.at) != Some(&b'}') {
+                            return None;
+                        }
+                    }
+                }
+                Some(serde_json::Value::Object(map))
+            }
+            b'-' | b'0'..=b'9' => {
+                let start = self.at;
+                self.at += 1;
+                while self.text.get(self.at).is_some_and(|b| {
+                    b.is_ascii_digit() || matches!(*b, b'.' | b'e' | b'E' | b'+' | b'-')
+                }) {
+                    self.at += 1;
+                }
+                let number = std::str::from_utf8(&self.text[start..self.at]).ok()?;
+                serde_json::from_str(number).ok()
+            }
+            _ => match self.ident()?.as_str() {
+                "True" | "true" => Some(serde_json::Value::Bool(true)),
+                "False" | "false" => Some(serde_json::Value::Bool(false)),
+                "None" | "null" => Some(serde_json::Value::Null),
+                _ => None,
+            },
+        }
+    }
+    /// `name(key=value, …)`
+    fn call(&mut self) -> Option<ToolCall> {
+        let name = self.ident()?;
+        if !self.eat(b'(') {
+            return None;
+        }
+        let mut arguments = serde_json::Map::new();
+        while !self.eat(b')') {
+            let key = self.ident()?;
+            if !self.eat(b'=') {
+                return None;
+            }
+            arguments.insert(key, self.value()?);
+            if !self.eat(b',') {
+                self.skip();
+                if self.text.get(self.at) != Some(&b')') {
+                    return None;
+                }
+            }
+        }
+        Some(ToolCall {
+            name,
+            arguments: serde_json::Value::Object(arguments),
+            id: None,
+        })
+    }
+    /// `[call, call]`, or one bare call.
+    fn calls(&mut self) -> Option<Vec<ToolCall>> {
+        let listed = self.eat(b'[');
+        let mut calls = Vec::new();
+        loop {
+            self.skip();
+            if listed && self.eat(b']') {
+                break;
+            }
+            calls.push(self.call()?);
+            if listed {
+                if self.eat(b',') {
+                    continue;
+                }
+                if self.eat(b']') {
+                    break;
+                }
+                return None;
+            }
+            break;
+        }
+        self.skip();
+        (self.at == self.text.len() && !calls.is_empty()).then_some(calls)
+    }
+}
+
+impl ModelBehaviorAdapter for LiquidFamilyAdapter {
+    fn id(&self) -> &'static str {
+        "liquid"
+    }
+
+    fn version(&self) -> &'static str {
+        "liquid-v1"
+    }
+
+    fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
+        let mut canonical = CanonicalReply::verbatim(reply);
+        let (narrative, thinking, diagnostic) = split_thinking(&canonical.narrative);
+        canonical.narrative = narrative;
+        if let Some(diagnostic) = diagnostic {
+            if !canonical.thinking.is_empty() && !thinking.is_empty() {
+                canonical.thinking.push('\n');
+            }
+            canonical.thinking.push_str(&thinking);
+            canonical.diagnostics.push(diagnostic);
+        }
+        if !canonical.tool_calls.is_empty() {
+            return canonical;
+        }
+        let text = canonical.narrative.clone();
+        let mut prose = String::new();
+        let mut calls = Vec::new();
+        let mut rest = text.as_str();
+        loop {
+            let python = rest.find(LFM_START);
+            let json = rest.find(FUNCTION_CALL_OPEN);
+            let (at, open, close) = match (python, json) {
+                (Some(p), Some(j)) if p < j => (p, LFM_START, LFM_END),
+                (Some(_), Some(j)) => (j, FUNCTION_CALL_OPEN, FUNCTION_CALL_CLOSE),
+                (Some(p), None) => (p, LFM_START, LFM_END),
+                (None, Some(j)) => (j, FUNCTION_CALL_OPEN, FUNCTION_CALL_CLOSE),
+                (None, None) => break,
+            };
+            prose.push_str(&rest[..at]);
+            let body_from = at + open.len();
+            let Some(end) = rest[body_from..].find(close) else {
+                canonical.diagnostics.push(Diagnostic {
+                    kind: "liquid_unterminated_tool_call",
+                    detail: "a tool call block was not closed before the reply ended".into(),
+                });
+                canonical.narrative = text.trim().to_owned();
+                return canonical;
+            };
+            let body = rest[body_from..body_from + end].trim();
+            let found = if open == LFM_START {
+                PyArgs::new(body).calls()
+            } else {
+                serde_json::from_str::<serde_json::Value>(body)
+                    .ok()
+                    .as_ref()
+                    .and_then(parse_call_value)
+                    .map(|call| vec![call])
+            };
+            match found {
+                Some(found) => calls.extend(found),
+                None => {
+                    // Not a call: kept, tag and all, for whoever reads the log.
+                    prose.push_str(&rest[at..body_from + end + close.len()]);
+                    canonical.diagnostics.push(Diagnostic {
+                        kind: "liquid_undecodable_tool_call",
+                        detail: "a tool call block did not hold a name and arguments".into(),
+                    });
+                }
+            }
+            rest = &rest[body_from + end + close.len()..];
+        }
+        prose.push_str(rest);
+        if !calls.is_empty() {
+            canonical.diagnostics.push(Diagnostic {
+                kind: "liquid_tool_call",
+                detail: format!(
+                    "read {} from the reply text",
+                    calls
+                        .iter()
+                        .map(|call| call.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            });
+        }
+        canonical.narrative = prose.trim().to_owned();
+        canonical.tool_calls = calls;
+        canonical
+    }
+}
+
 /// Granite's conventions, added as a proof that a second family costs a
 /// family adapter and nothing else.
 ///
@@ -1261,6 +1562,9 @@ pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehavi
     if evidence.contains("granite") {
         return Box::new(GraniteFamilyAdapter);
     }
+    if evidence.contains("lfm") || evidence.contains("liquid") {
+        return Box::new(LiquidFamilyAdapter);
+    }
     if evidence.contains("mistral")
         || evidence.contains("devstral")
         || evidence.contains("magistral")
@@ -1276,6 +1580,50 @@ mod tests {
     use super::*;
 
     /// Qwen2.5-Coder's edit, as it wrote it in the capability probe.
+    #[test]
+    fn liquid_calls_are_read_in_both_of_its_forms() {
+        let adapter = adapter_for(None, "mlx-community/LFM2.5-8B-A1B-MLX-4bit");
+        assert_eq!(adapter.id(), "liquid");
+        let python = adapter.normalize(&reply(
+            "<think>I should read it.</think><|tool_call_start|>[read_file(path=\"src/parser.rs\", max_lines=40, deep=True)]<|tool_call_end|>",
+        ));
+        assert_eq!(python.tool_calls.len(), 1);
+        assert_eq!(python.tool_calls[0].arguments["path"], "src/parser.rs");
+        assert_eq!(python.tool_calls[0].arguments["max_lines"], 40);
+        assert_eq!(python.tool_calls[0].arguments["deep"], true);
+        assert_eq!(python.thinking, "I should read it.");
+        // A file written through it: escapes, quotes of the other kind, a comma.
+        let write = adapter.normalize(&reply(
+            "<|tool_call_start|>[write_file(path='a.txt', content=\"line one\\nsay \\\"hi\\\", ok\\n\")]<|tool_call_end|>",
+        ));
+        assert_eq!(
+            write.tool_calls[0].arguments["content"],
+            "line one\nsay \"hi\", ok\n"
+        );
+        let two = adapter.normalize(&reply(
+            "Both.<|tool_call_start|>[read_file(path=\"a\"), read_file(path=\"b\")]<|tool_call_end|>",
+        ));
+        assert_eq!(two.tool_calls.len(), 2);
+        assert_eq!(two.narrative, "Both.");
+        let json = adapter.normalize(&reply(
+            "I will read it.\n\n<function_call>\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"src/parser.rs\"}}\n</function_call>",
+        ));
+        assert_eq!(json.tool_calls.len(), 1);
+        assert_eq!(json.narrative, "I will read it.");
+        let cut = adapter.normalize(&reply(
+            "<|tool_call_start|>[write_file(path=\"a\", content=\"x",
+        ));
+        assert!(cut.tool_calls.is_empty());
+        assert!(
+            cut.diagnostics
+                .iter()
+                .any(|d| d.kind == "liquid_unterminated_tool_call")
+        );
+        let bad = adapter.normalize(&reply("<|tool_call_start|>[not a call]<|tool_call_end|>"));
+        assert!(bad.tool_calls.is_empty());
+        assert!(bad.narrative.contains("not a call"));
+    }
+
     #[test]
     fn mistral_calls_are_read_in_both_of_its_forms() {
         let adapter = adapter_for(
