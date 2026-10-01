@@ -578,10 +578,10 @@ import { Tooltip } from './kit/tooltip';
                   <span class="model-sampling-label">{{ samplingLabel(field.name) }}</span>
                   <input
                     class="input input-sm"
-                    type="number"
-                    [min]="samplingMin(field.name)"
-                    [max]="samplingMax(field.name)"
-                    [step]="field.name === 'top_k' ? 1 : 'any'"
+                    type="text"
+                    [attr.inputmode]="field.name === 'top_k' ? 'numeric' : 'decimal'"
+                    autocomplete="off"
+                    spellcheck="false"
                     [value]="models.profileDraft()[field.name] ?? ''"
                     [placeholder]="field.automatic === null ? 'off' : field.automatic.toString()"
                     (input)="models.setProfileValue(field.name, $any($event.target).value)"
@@ -696,14 +696,6 @@ export class ModelManager {
 
   protected samplingLabel(name: string): string {
     return name.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase());
-  }
-
-  protected samplingMin(name: string): number {
-    return name === 'repetition_penalty' ? 0.01 : name === 'presence_penalty' ? -2 : 0;
-  }
-
-  protected samplingMax(name: string): number | null {
-    return name === 'top_p' || name === 'min_p' ? 1 : name === 'presence_penalty' ? 2 : null;
   }
 
   protected samplingSource(source: string | { kind: string; url?: string }): string {
