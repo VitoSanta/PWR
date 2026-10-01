@@ -3761,6 +3761,116 @@ impl ModelProvider for LoopsOnce {
     }
 }
 
+/// A backend whose first `loops` generations fall apart.
+struct LoopsFirst {
+    left: Mutex<usize>,
+    seen: Mutex<Vec<ModelRequest>>,
+    inner: Scripted,
+}
+
+#[async_trait]
+impl ModelProvider for LoopsFirst {
+    async fn inspect(&self, _: &DeploymentDescriptor) -> Result<ModelInspection, ProviderError> {
+        unreachable!("a fixture does not inspect")
+    }
+    async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+        unreachable!("a fixture has no backend to describe")
+    }
+    async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
+        self.seen.lock().unwrap().push(request.clone());
+        let fall_apart = {
+            let mut left = self.left.lock().unwrap();
+            let now = *left > 0;
+            *left = left.saturating_sub(1);
+            now
+        };
+        if fall_apart {
+            return Err(ProviderError::Looping {
+                safe_context: "the passage \"call call call\" came back 4 times".into(),
+            });
+        }
+        self.inner.chat(request).await
+    }
+}
+
+/// Measured 2026-10-01: Qwen3-Coder-30B's replies collapsed into "!!!!!" at
+/// 27k tokens of failing-and-retrying history, nine in a row, while the same
+/// model answered a fresh 30k-token prompt. Asking again with the same prompt
+/// repeats it; after two such replies the history is cut back.
+#[test]
+fn replies_that_fall_apart_twice_cut_the_conversation_back_to_start_clean() {
+    let dir = workspace();
+    let provider = LoopsFirst {
+        left: Mutex::new(2),
+        seen: Mutex::new(Vec::new()),
+        inner: Scripted::new(vec![says("carrying on")]),
+    };
+    let adapter = pwr_compat::adapter_for(None, "fake");
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let tools = pwr_compat::render_tools(&converse::chat_tool_catalog());
+    let mut messages = vec![
+        ChatMessage::text("system", "You are PWR."),
+        ChatMessage::text("user", "fix the rotation script"),
+    ];
+    // Twenty failed attempts: far more than a clean start keeps.
+    for n in 0..20 {
+        messages.push(ChatMessage {
+            role: "assistant".into(),
+            content: format!("attempt {n}"),
+            tool_calls: vec![ToolCall {
+                name: "read_file".into(),
+                arguments: serde_json::json!({"path": "bin/rotate"}),
+                id: Some(format!("c{n}")),
+            }],
+            ..Default::default()
+        });
+        messages.push(ChatMessage {
+            role: "tool".into(),
+            content: "no change ".repeat(600),
+            tool_call_id: Some(format!("c{n}")),
+            ..Default::default()
+        });
+    }
+    let before = messages.len();
+    let mut notes = Vec::new();
+    let report = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(converse::take_turn(
+            &provider,
+            adapter.as_ref(),
+            &deployment(),
+            &store,
+            pwr_domain::new_id(),
+            &policy_for(dir.path()),
+            &mut messages,
+            262_144,
+            &[],
+            Default::default(),
+            tools,
+            &std::sync::atomic::AtomicBool::new(false),
+            &converse::Continuity::default(),
+            &pwr_orchestrator::DenyWithoutAsking,
+            |step| {
+                if let converse::TurnStep::Compacted(note) = step {
+                    notes.push(note);
+                }
+            },
+        ))
+        .expect("the turn returned an error");
+    assert_eq!(report.answer, "carrying on", "{:?}", report.stopped);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].contains("fell apart"), "{}", notes[0]);
+    let seen = provider.seen.lock().unwrap();
+    assert_eq!(seen.len(), 3);
+    // The first two tries saw all of it; the third a fraction.
+    assert_eq!(seen[1].messages.len(), seen[0].messages.len() + 1);
+    assert!(
+        seen[2].messages.len() < before / 2,
+        "{}",
+        seen[2].messages.len()
+    );
+}
+
 /// Measured 2026-09-30: Qwen3.5-9B on its card's sampling still looped in its
 /// reasoning; the vendor's remedy is a presence penalty, so the tries after a
 /// loop ask for one -- and a value somebody set is never lowered.

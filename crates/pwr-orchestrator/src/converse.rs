@@ -142,6 +142,12 @@ const ANSWER_ALLOWANCE: u32 = 16_384;
 const AGENT_UNSTRUCTURED_REPLY_GUARD: (usize, usize) = (3_000, 12_000);
 const RUNAWAY_RETRY_MAX_TOKENS: u32 = 8_192;
 
+/// Replies that fell apart, in a row, before the conversation is cut back to
+/// start clean; how many such cuts a turn may make; and the room they keep.
+const DEGENERATE_REPLIES_BEFORE_RESET: usize = 2;
+const DEGENERATE_RESETS_PER_TURN: usize = 2;
+const DEGENERATE_RESET_ROOM: usize = 8_192;
+
 /// The presence penalty a turn asks for after one of its generations looped.
 /// Qwen's cards say to raise it, between 0 and 2, "to reduce endless
 /// repetitions"; 1.0 is half way. Measured 2026-09-30: Qwen3.5-9B with its
@@ -1124,6 +1130,10 @@ async fn take_turn_inner<P: ModelProvider>(
     // Set once a generation of this turn looped: every later one is sampled
     // with a presence penalty (see `ANTI_LOOP_PRESENCE_PENALTY`).
     let mut anti_loop = false;
+    // Replies of this turn that fell apart (a loop, or the engine's repetition
+    // stop) since the last good one, and the clean starts made for them.
+    let mut degenerate_replies = 0usize;
+    let mut degenerate_resets = 0usize;
     let mut turn = 0u32;
     // What the backend said the last prompt actually cost. `None` until the
     // first reply, which is the only turn with nothing to measure.
@@ -1233,6 +1243,37 @@ async fn take_turn_inner<P: ModelProvider>(
                 // already fill the window, so no amount of compacting will
                 // make room and saying so is the only honest answer.
                 None => return stopped(actions, edited, StopReason::ContextFull),
+            }
+        }
+        // Replies that fall apart in a long conversation are not fixed by
+        // asking again: the same prompt makes the same mess. Measured
+        // 2026-10-01 (Qwen3-Coder-30B on a Bash task): thirty-two sound
+        // generations, then at 26,900 tokens of failing-and-retrying history
+        // nine in a row that collapsed into "!!!!!" and "call call call";
+        // the same model answers a fresh 30,000-token prompt and a synthetic
+        // 40-turn chain correctly. After two such replies the history is cut
+        // back to what compaction keeps, and the work goes on from there.
+        if degenerate_replies >= DEGENERATE_REPLIES_BEFORE_RESET
+            && degenerate_resets < DEGENERATE_RESETS_PER_TURN
+            && prompt_tokens_now(messages, measured_prompt, measured_upto) > DEGENERATE_RESET_ROOM
+        {
+            if let Some(note) = compact_and_record(
+                store,
+                conversation_id,
+                deployment,
+                context_tokens,
+                messages,
+                DEGENERATE_RESET_ROOM,
+                continuity,
+            )? {
+                degenerate_resets += 1;
+                degenerate_replies = 0;
+                on_step(TurnStep::Compacted(format!(
+                    "{note} -- the last replies fell apart, so the conversation was cut back \
+                     to start clean"
+                )));
+            } else {
+                degenerate_replies = 0;
             }
         }
         let mut request_sampling = sampling.clone();
@@ -1468,6 +1509,7 @@ async fn take_turn_inner<P: ModelProvider>(
         let reply = match collected {
             Ok(reply) => {
                 unparseable = 0;
+                degenerate_replies = 0;
                 backend_faults = 0;
                 unfinished_reasoning = 0;
                 reply
@@ -1543,6 +1585,12 @@ async fn take_turn_inner<P: ModelProvider>(
                 if matches!(fault, crate::ReplyFault::Looped(_)) {
                     runaway_retry = true;
                     anti_loop = true;
+                }
+                if matches!(fault, crate::ReplyFault::Looped(_))
+                    || (matches!(fault, crate::ReplyFault::RanAway(_))
+                        && fault.detail().contains("(repetition)"))
+                {
+                    degenerate_replies += 1;
                 }
                 failed(&mut turn, fault.kind(), fault.detail().to_owned())?;
                 unparseable = unparseable.saturating_add(1);
