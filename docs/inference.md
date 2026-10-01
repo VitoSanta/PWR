@@ -30,7 +30,7 @@ and the app shows it ([pwr-serve.md](pwr-serve.md)).
 **The most distinctive part of PWR, and the only engine the app uses on a
 Mac.** A Python sidecar, `crates/pwr-mlx/sidecar/pwr_mlx.py` (about 1,080
 lines), driven by `crates/pwr-mlx` over JSON lines on stdin/stdout — no network
-endpoint at all. Libraries pinned: `mlx 0.32.0`, `mlx-lm 0.31.3`,
+endpoint at all. Libraries pinned: `mlx 0.32.3` (0.32.0 until 2026-10-01), `mlx-lm 0.31.3`,
 `mlx-embeddings 0.1.0`, `mlx-vlm 0.6.17`, in a private environment the app
 installs (`apps/desktop/src-tauri/src/engine.rs`; [distribution.md](distribution.md)).
 
@@ -98,12 +98,12 @@ Read, not tested; none is proven to be the cause of anything PWR saw.
 
 | Finding | Source | Consequence here |
 |---|---|---|
-| A **silent KV-cache corruption on natural-language prompts of about 60k tokens and more**: generation collapses into token id 0 (`!`), probabilistically, dense and MoE alike, on `mlx 0.32.0` / `mlx-lm 0.31.3` / `mlx-vlm 0.6.3` | [jundot/omlx#3777](https://github.com/jundot/omlx/issues/3777) | The compaction ceiling is 32,768 tokens by default. PWR saw a similar collapse at 27k tokens of failing-and-retrying history (Qwen3-Coder-30B), which a synthetic 40-turn chain to 32k and a fresh 30k prompt did not reproduce |
+| A **silent KV-cache corruption on natural-language prompts of about 60k tokens and more**: generation collapses into token id 0 (`!`), probabilistically, dense and MoE alike, on `mlx 0.32.0` / `mlx-lm 0.31.3` / `mlx-vlm 0.6.3` (the report predates the bump) | [jundot/omlx#3777](https://github.com/jundot/omlx/issues/3777) | The compaction ceiling is 32,768 tokens by default. PWR saw a similar collapse at 27k tokens of failing-and-retrying history (Qwen3-Coder-30B), which a synthetic 40-turn chain to 32k and a fresh 30k prompt did not reproduce |
 | mlx-lm's **presence and repetition penalties look at the last 20 tokens** (`*_context_size=20`) | `mlx_lm/sample_utils.py` | A vendor's presence penalty is not what the engine applies; the anti-loop path widens it |
 | mlx-lm sets the **wired limit only around `stream_generate`** (`wired_limit`), not around PWR's own chunked prefill; without wiring the first GPU command after an idle gap stalls about 0.9 s | `mlx_lm/generate.py`; [jundot/omlx#4040](https://github.com/jundot/omlx/issues/4040) | A fraction of a second per turn; not acted on |
 | **Quantizing the KV cache** (`kv_bits`) has reported silent corruption of the prefilled context in `mlx-vlm` 0.6.1, and `quantized_kv_start` defaults differ between `generate_step` (0) and the CLI (5000) | [Blaizzy/mlx-vlm#1310](https://github.com/Blaizzy/mlx-vlm/issues/1310), [ml-explore/mlx-lm#1651](https://github.com/ml-explore/mlx-lm/issues/1651) | PWR does not use it |
 | Prefix reuse is **disabled for hybrid models** (sliding window, SSM/linear attention) in several servers; mlx-lm 0.31.2 added caching for non-trimmable caches | [ml-explore/mlx-lm#980](https://github.com/ml-explore/mlx-lm/issues/980) | PWR keeps a checkpoint copy for them |
-| `mlx` **0.32.1–0.32.3** (to 2026-09-29) fix a GQA decode kernel's batch offset, state corruption when a primitive throws during eval, and a quantized-matmul corruption when the quantized dimension is not a multiple of 32; `mlx-lm` 0.32.0 is out (2026-10-01) | PyPI, the MLX release notes | **Not adopted**: a bump needs a calibration of the installed models and a long-conversation check first ([distribution.md](distribution.md)) |
+| `mlx` **0.32.1–0.32.3** (to 2026-09-29) fix a GQA decode kernel's batch offset, state corruption when a primitive throws during eval, and a quantized-matmul corruption when the quantized dimension is not a multiple of 32; `mlx-lm` 0.32.0 is out (2026-10-01) | PyPI, the MLX release notes | `mlx` **0.32.3 adopted on 2026-10-01** after the sidecar's tests, a Gemma 4 prefill comparison and a calibration of four architectures; `mlx-lm` 0.32.0 not adopted ([distribution.md](distribution.md)). Whether it removes the long-conversation collapse is not known |
 | mlx-lm's own `qwen3_coder` tool parser **falls back to `ast.literal_eval`** for malformed JSON, and fixes Mistral and Gemma 4 parsers | mlx-lm 0.31.2, 0.31.3 release notes | The same readings exist in `pwr-compat` |
 
 ### Where it is fragile

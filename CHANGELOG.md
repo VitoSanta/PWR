@@ -82,6 +82,9 @@ Recorded in detail, with what was checked, in
   presence penalty that can actually see a repeated passage after a reply
   looped; a note when one file has been rewritten twelve times; the action limit
   per turn is 100 (it was 26) and `actions_per_turn` changes it.
+- **MLX 0.32.3** (was 0.32.0): attention and quantized-matmul fixes; Gemma 4
+  prefill about 8–10 % faster. An app already installed keeps its engine until it
+  is reinstalled.
 - The app shows how far the engine has read the prompt ("Reading the
   conversation · 37 %") instead of looking stuck.
 
