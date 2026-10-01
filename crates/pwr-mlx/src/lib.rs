@@ -1141,6 +1141,9 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
         "top_k": number("top_k"),
         "min_p": number("min_p"),
         "presence_penalty": number("presence_penalty"),
+        // How many of the latest tokens the presence penalty looks at; the
+        // engine's own default is 20. Not a sampling field a person sets.
+        "presence_context_size": number("presence_context_size"),
         "repetition_penalty": number("repetition_penalty"),
         "seed": request.seed,
         // Work beside the conversation (a wiki summary) runs on a cache of its
@@ -2404,6 +2407,12 @@ mod tests {
             .sampling
             .insert("aside".into(), serde_json::json!(true));
         assert_eq!(chat_body(&request)["aside"], true);
+        // The presence window is the engine's own unless the caller widens it.
+        assert!(chat_body(&request)["presence_context_size"].is_null());
+        request
+            .sampling
+            .insert("presence_context_size".into(), serde_json::json!(1024));
+        assert_eq!(chat_body(&request)["presence_context_size"], 1024);
     }
 
     #[test]

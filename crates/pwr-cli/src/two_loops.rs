@@ -3941,6 +3941,8 @@ fn a_generation_that_looped_is_retried_with_a_presence_penalty() {
     assert_eq!(seen.len(), 2);
     assert!(seen[0].sampling.get("presence_penalty").is_none());
     assert_eq!(seen[1].sampling["presence_penalty"], 1.0);
+    // Wide enough to see a loop: the engine's own window is 20 tokens.
+    assert_eq!(seen[1].sampling["presence_context_size"], 1024);
     // A value somebody set is never lowered.
     assert_eq!(run(Some(1.5))[1].sampling["presence_penalty"], 1.5);
 }
