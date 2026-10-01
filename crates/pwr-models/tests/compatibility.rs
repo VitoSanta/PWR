@@ -86,6 +86,8 @@ fn assessed(
 /// would, and counts the requests.
 struct Model {
     calls_tools: bool,
+    /// Starts by listing the directory instead of reading the file.
+    lists_first: bool,
     uses_results: bool,
     fails: bool,
     finalizes: bool,
@@ -96,6 +98,7 @@ impl Model {
     fn good() -> Self {
         Self {
             calls_tools: true,
+            lists_first: false,
             uses_results: true,
             fails: false,
             finalizes: true,
@@ -153,10 +156,15 @@ impl ModelProvider for Model {
             answer("src/parser.rs")
         } else if prompt.contains("Show me") {
             if self.calls_tools {
+                let (name, arguments) = if self.lists_first {
+                    ("run_command", json!({"argv": ["ls", "src"]}))
+                } else {
+                    ("read_file", json!({"path": "src/parser.rs"}))
+                };
                 ModelChunk {
                     tool_calls: vec![ToolCall {
-                        name: "read_file".into(),
-                        arguments: json!({"path": "src/parser.rs"}),
+                        name: name.into(),
+                        arguments,
                         id: Some("c".into()),
                     }],
                     done: true,
@@ -325,6 +333,29 @@ async fn a_model_that_cannot_call_tools_is_limited_and_keeps_chat() {
         .find(|line| line.label == "Tool calling")
         .unwrap();
     assert_eq!(tools.result, "not_reliable");
+}
+
+/// Gemma 4 26B listed the directory before reading the file, and was refused
+/// agent tasks for it (2026-10-01).
+#[tokio::test]
+async fn a_model_that_lists_before_it_reads_can_use_tools() {
+    let model = thinking_model();
+    let provider = Model {
+        lists_first: true,
+        ..Model::good()
+    };
+    let evidence = calibrate(&provider, &model).await;
+    assert_eq!(
+        evidence.status,
+        ProfileStatus::LocallyCalibrated,
+        "{evidence:?}"
+    );
+    let check = |name: &str| evidence.checks.iter().find(|c| c.name == name).unwrap();
+    assert_eq!(check("tool_selection").passed, Some(true));
+    assert_eq!(check("tool_arguments").passed, Some(true));
+    // What it started with is still recorded, as a check that is not critical.
+    assert_eq!(check("tool_choice").passed, Some(false));
+    assert!(!check("tool_choice").critical);
 }
 
 #[tokio::test]

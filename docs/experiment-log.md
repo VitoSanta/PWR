@@ -284,3 +284,12 @@ every call an id (its own, else nine letters/digits -- Mistral's template
 insists on that) and every result the call's id and the tool's name, matched by
 id or, failing that, by position. Every MLX model's prompt gains these fields;
 Qwen-style templates ignore them.
+
+## 2026-10-01 — Quick Calibration `quick-calibration-6`: tools are used, not chosen (measurement-changing)
+
+`tool_selection` and `tool_arguments` (critical) now ask whether the model makes
+one call to an offered tool with arguments that fit its schema; reaching for
+`read_file` first moved to `tool_choice`, not critical. Gemma 4 26B started
+with `run_command ls`, a sound first step, and was refused agent tasks. Every
+earlier local calibration is stale (the suite version is compared) and is
+retaken on use.

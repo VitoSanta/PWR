@@ -450,8 +450,19 @@ pub async fn quick_calibrate<P: ModelProvider + ?Sized>(
     match &called {
         Ok(answer) => {
             let call = answer.tool_calls.first();
-            let selected =
-                answer.tool_calls.len() == 1 && call.is_some_and(|call| call.name == "read_file");
+            // The question is whether the model can *use* tools: one call, to
+            // a tool it was offered, whose arguments fit that tool's schema.
+            // Which of the two it reaches for first is a different question
+            // (`tool_choice`, not critical): Gemma 4 26B listed the directory
+            // before reading, a sound first step the strict form called
+            // "Limited" (2026-10-01).
+            let offered = call.and_then(|call| {
+                tools
+                    .as_array()?
+                    .iter()
+                    .find(|tool| tool["function"]["name"] == call.name.as_str())
+            });
+            let selected = answer.tool_calls.len() == 1 && offered.is_some();
             checks.push(check(
                 "tool_selection",
                 true,
@@ -461,32 +472,44 @@ pub async fn quick_calibrate<P: ModelProvider + ?Sized>(
                     Some(_) if answer.tool_calls.len() > 1 => {
                         format!("{} calls instead of one", answer.tool_calls.len())
                     }
+                    Some(call) if offered.is_none() => {
+                        format!("called {}, which was not offered", call.name)
+                    }
                     Some(call) => format!("called {}", call.name),
                 },
             ));
-            let schema = &tools[0]["function"]["parameters"];
-            checks.push(match call.filter(|_| selected) {
-                None => not_run("tool_arguments", true, "no read_file call to validate"),
-                Some(call) => match validate(schema, &call.arguments) {
-                    Err(error) => check("tool_arguments", true, false, error),
-                    Ok(()) if call.arguments["path"] == "src/parser.rs" => check(
-                        "tool_arguments",
-                        true,
-                        true,
-                        "arguments valid against the schema",
-                    ),
-                    Ok(()) => check(
-                        "tool_arguments",
-                        true,
-                        false,
-                        format!("valid, but asked for {}", call.arguments["path"]),
-                    ),
-                },
+            checks.push(match (call.filter(|_| selected), offered) {
+                (Some(call), Some(tool)) => {
+                    match validate(&tool["function"]["parameters"], &call.arguments) {
+                        Err(error) => check("tool_arguments", true, false, error),
+                        Ok(()) => check(
+                            "tool_arguments",
+                            true,
+                            true,
+                            "arguments valid against the schema",
+                        ),
+                    }
+                }
+                _ => not_run("tool_arguments", true, "no offered tool call to validate"),
             });
+            let chose = call.is_some_and(|call| {
+                call.name == "read_file" && call.arguments["path"] == "src/parser.rs"
+            });
+            checks.push(check(
+                "tool_choice",
+                false,
+                chose,
+                match call {
+                    Some(call) if chose => "read src/parser.rs".to_owned(),
+                    Some(call) => format!("started with {}", call.name),
+                    None => "no tool call was made".to_owned(),
+                },
+            ));
         }
         Err(error) => {
             checks.push(check("tool_selection", true, false, error.clone()));
             checks.push(not_run("tool_arguments", true, "no reply"));
+            checks.push(not_run("tool_choice", false, "no reply"));
         }
     }
 

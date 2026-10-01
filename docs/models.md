@@ -48,7 +48,7 @@ evidence of that kind.
 
 A bounded, deterministic check that PWR can *operate* a model — a compatibility
 smoke test, not a capability measurement (`crates/pwr-models/src/calibration.rs`;
-suite `quick-calibration-5`, `profile.rs:33`).
+suite `quick-calibration-6`, `profile.rs:33`).
 
 | Check | Scored by | Agent-critical |
 |---|---|---|
@@ -57,8 +57,9 @@ suite `quick-calibration-5`, `profile.rs:33`).
 | `structured_output` | JSON with exactly the two requested fields | no |
 | `code_understanding` | exactly `42` | no |
 | `repository_file_selection` | exactly `src/parser.rs` from a three-file fixture | no |
-| `tool_selection` | exactly one call, to `read_file` | yes |
-| `tool_arguments` | arguments validate against the schema and name the file | yes |
+| `tool_selection` | exactly one call, to a tool that was offered | yes |
+| `tool_arguments` | the arguments validate against that tool's schema | yes |
+| `tool_choice` | the call is `read_file` on `src/parser.rs` (a model that lists the directory first is not penalised) | no |
 | `tool_result_continuation` | uses a given tool result (`1337`) | yes |
 | `answer_after_reasoning` | with thinking allowed, answers `51` | no |
 | reasoning budget | with a 16-token budget, the engine closes the phase and an answer follows | no (sets the reasoning profile) |
