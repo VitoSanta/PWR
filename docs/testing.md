@@ -6,6 +6,15 @@ passes are recorded.
 
 ## Suites
 
+**MEASURED mission check, 2026-10-01, `ae1e36c1` plus preexisting working-tree
+process-safety changes:** Rust exit 0, 1,372 reported passed / 5 ignored;
+one Docker-dependent test skipped (included in the reported successes).
+Desktop 107 tests and production build, sidecar 41 tests, denied-warning
+Clippy, formatting and milestone agreement pass. This supersedes the older
+local counts below for the inspected tree, not its CI status. See the
+[initial audit](reviews/2026-10-01-audit.md) for exact provenance, logs and
+unexercised coverage. No new CI run or live-model measurement.
+
 | Suite | Run with | Where |
 |---|---|---|
 | Rust (every crate: unit, integration, property tests; **1,364 pass, 5 ignored** on 2026-10-01) | `cargo test --workspace` | `crates/*/src` (`#[cfg(test)]`), `crates/*/tests/` |
