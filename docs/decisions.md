@@ -21,7 +21,9 @@ logged, three defaults changed (all reversible by a workspace setting):
    temperature 0 stays greedy.
 2. **Actions per turn** 26 → 100 (`actions_per_turn`); a goal's own limit is
    no longer capped at 26 inside a turn.
-3. **Compaction ceiling** of 65,536 tokens under the percentage of the window,
+3. **Compaction ceiling** of 32,768 tokens (65,536 until 2026-10-01, lowered on
+   the evidence of a reported silent KV-cache corruption near 60k tokens on the
+   pinned MLX and of PWR's own collapse at 27k) under the percentage of the window,
    unless the person set a window (`context_tokens`) or a threshold. A
    hypothesis: nothing shows yet that a 4-bit model stays coherent above that
    size; what is certain is that every compaction or model switch re-reads the
