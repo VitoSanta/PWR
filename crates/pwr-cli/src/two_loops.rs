@@ -3939,7 +3939,7 @@ fn a_generation_that_looped_is_retried_with_a_presence_penalty() {
     };
     let seen = run(None);
     assert_eq!(seen.len(), 2);
-    assert!(seen[0].sampling.get("presence_penalty").is_none());
+    assert!(!seen[0].sampling.contains_key("presence_penalty"));
     assert_eq!(seen[1].sampling["presence_penalty"], 1.0);
     // Wide enough to see a loop: the engine's own window is 20 tokens.
     assert_eq!(seen[1].sampling["presence_context_size"], 1024);
