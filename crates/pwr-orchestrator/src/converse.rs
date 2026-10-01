@@ -893,6 +893,13 @@ pub fn chat_system_prompt(root: &std::path::Path) -> String {
          Call `complete` when the work is done and `decline` when it should not be done; either \
          ends your turn and its rationale is what the engineer reads.\n\
          \n\
+         The repository is the project. A new project or app goes directly in the repository \
+         root, not in a new subfolder: point the generator at `.` (for example `--directory .` \
+         or `-o .`; read the tool's options) or write the files yourself, unless the engineer \
+         asked for a subfolder or the root already holds a different project. If a generator \
+         refuses a folder that is not empty, say so and use a subfolder rather than clearing \
+         the engineer's files.\n\
+         \n\
          {}",
         // The name, not the absolute path: given the full path, a model reads
         // it as the prefix for every file it asks for, and every read is then
@@ -3999,5 +4006,22 @@ mod tests {
         // The machine, and where a missing toolchain goes.
         assert!(prompt.contains(std::env::consts::ARCH), "{prompt}");
         assert!(prompt.contains(".toolchains/<name>/"), "{prompt}");
+    }
+
+    /// Every model scaffolded into a new subfolder (`ng new web`), because a
+    /// generator names its folder after the project and the prompt never said the
+    /// repository already is the project (reported 2026-10-01).
+    #[test]
+    fn the_prompt_says_a_new_project_goes_in_the_root_not_a_subfolder() {
+        let prompt = chat_system_prompt(std::path::Path::new("/tmp/project"));
+        assert!(
+            prompt.contains("directly in the repository root"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("not in a new subfolder"), "{prompt}");
+        assert!(
+            prompt.contains("unless the engineer asked for a subfolder"),
+            "{prompt}"
+        );
     }
 }

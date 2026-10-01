@@ -25,7 +25,7 @@ comes from.
 The first message is the **system prompt**, rebuilt each turn
 (`compose_chat_turn`, `crates/pwr-cli/src/main.rs`) from:
 
-- PWR's instructions and harness rules (`chat_system_prompt_for`), including the workspace's reference folders;
+- PWR's instructions and harness rules (`chat_system_prompt_for`), including that a new project goes directly in the repository root and not in a new subfolder, unless asked (added 2026-10-01: every model scaffolded `ng new <name>` into a subfolder), including the workspace's reference folders;
 - the deployment's own suffix from its profile (a required section: a model
   switched mid-conversation gets its own suffix);
 - the personal block (`personal::prompt_block`, bounded to 8,000 characters):
