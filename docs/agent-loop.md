@@ -77,9 +77,15 @@ closing checks preserve edits and report unavailable verification. Closing the
 protocol input cancels permission waiters and background work; it cannot start
 another idle summary.
 
-The runtime honors the existing chosen one-response timeout (`timeout_secs`,
-900 seconds by default) across opening and streaming, using an absolute deadline
-that progress does not reset. Abandoning an unfinished response signals cancellation;
+The runtime honors the chosen response timeout (`timeout_secs`, 900 seconds by
+default) as a bound on silence: opening a response, and then each wait for its
+next chunk, may take at most that long. A reply that keeps arriving is not cut,
+however long it is; `max_tokens`, the loop detector and Stop bound its length.
+(The absolute deadline introduced in `c24028f5` also cut healthy replies, and
+was replaced: one Qwen3.6-35B-A3B response took 799 s on 2026-10-01.)
+On MLX a content-free chunk counts as life, since the worker sends one while it
+generates tool-call arguments, and the worker bounds its own engine's silence at
+300 s. A timeout is a backend fault, retried like one. Abandoning an unfinished response signals cancellation;
 MLX receives its explicit `cancel` operation, and HTTP streams release their body.
 This is a per-response bound, including runtime calls made by the scripted runner.
 Ordinary conversations still have no overall wall/token/recovery budget (W1.10).
@@ -92,7 +98,7 @@ separate lifecycle calls remain unmeasured.
 | Limit | Value | Where | What happens |
 |---|---|---|---|
 | Actions before checking in | 100 (was 26 until 2026-09-30); `actions_per_turn` in `.pwr/chat-config.json` | `DEFAULT_ACTIONS_PER_TURN` | The turn stops and says so; the next message continues. A goal's own limit (`goal_budget`) is used instead and is no longer capped at 26 |
-| Compactions per turn | 2 | `COMPACTIONS_PER_TURN` | Stop as compaction budget exhausted |
+| Compactions per turn | 2 | `COMPACTIONS_PER_TURN` | Stop as compaction budget exhausted. A trigger the turn cannot get under (verbatim objective above it, or a compaction that left the prompt above it) stops counting; only a full window compacts ([context.md](context.md)) |
 | Consecutive empty replies | 3 | `EMPTY_TURNS_BEFORE_GIVING_UP` | Stop as silent |
 | Consecutive unreadable calls | 3 | `UNPARSEABLE_CALLS_BEFORE_GIVING_UP` | Stop as unparseable |
 | Replies cut off inside a tool call, **in all** (not consecutive) | 3 | `CUT_OFF_REPLIES_PER_TURN` | The retry is capped at 8,192 tokens and the model is told to split the file (`replace_text`/`apply_patch` for the rest); the third stops the turn as unparseable |

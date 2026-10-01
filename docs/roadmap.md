@@ -1,6 +1,6 @@
 # Roadmap
 
-**As of 2026-10-01.** The order of work under the mission adopted on 2026-10-01. The detail
+**As of 2026-10-02.** The order of work under the mission adopted on 2026-10-01. The detail
 of every item — problem, evidence, change, acceptance, tests — is in the
 [implementation plan](plan/implementation-plan.md); this page is the summary a
 reader needs first. The roadmap before this date, with its reconciliations and
@@ -16,9 +16,10 @@ release plans, is in the [archive](archive/roadmap.md).
   the model-compatibility and recovery work of 2026-10-01 (adapters for the
   Mistral, Liquid and Granite families and a Qwen3-Coder format, tool-call ids
   for Gemma, a sampling floor, a clean start after collapsed replies…).
-- **MEASURED F1 sampling checks, parent `84b4654c` plus reviewed fixes and
-  preexisting safety changes:** Rust 1,405 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41;
-  formatting, Clippy and desktop build pass. No new CI or live-model check.
+- **MEASURED after the 2026-10-02 review of the F1 commits, with the
+  preexisting safety changes in the tree:** Rust 1,427 reported passed / 5
+  ignored (one Docker skip); formatting and Clippy pass; desktop 107 and
+  sidecar 41 at the executor cycle. No new CI or live-model check.
 - **Unproven:** that the harness makes a small model resolve more tasks than a
   simple loop. Development runs on the app's path (2026-10-01) show a signal on
   one deployment (3/8 → 6/8, one trial) and clear failures on hard tasks; no
@@ -33,7 +34,7 @@ release plans, is in the [archive](archive/roadmap.md).
 | Milestone | Status | Evidence recorded | What remains before advancement |
 |---|---|---|---|
 | G0 Documents match the code | **passed 2026-09-30** | Documentation rewritten from the code at 0776ff4f (plan W0.1); every claim of the 2026-09-30 review verified (docs/reviews/2026-09-30-verification.md); older documents archived whole. | Keep it true: a change that alters described behaviour updates the document in the same commit. |
-| G1 Effects are safe and honestly reported | **in progress: implemented on develop, hosted CI not run** | Implemented on develop with regression tests (not pushed, hosted CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, Goal budgets and frozen acceptance artifacts, context/sampling correctness repairs, configured response deadlines, managed cancellation and interrupted verification, policy-specific completion catalogues, honest empty/zero-test evidence and failure snapshots. Local suites in the 2026-10-02 F1 executor cycle: Rust 1,424 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41; evidence in docs/reviews/2026-10-01-audit.md. W3.4 implemented. Still open: W3.2 (CI proposals), W1.10 (aggregate ordinary budget), forced Goal-deadline transcript loss, separate lifecycle cancellation, W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated). | A push and green hosted CI on macOS; the native-app walk; the open items above. Local suites include preserved unrelated working-tree changes; clean npm installation and Docker remain unverified. |
+| G1 Effects are safe and honestly reported | **in progress: implemented on develop, hosted CI not run** | Implemented on develop with regression tests (not pushed, hosted CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, Goal budgets and frozen acceptance artifacts, context/sampling correctness repairs, a response timeout that bounds silence rather than length, managed cancellation and interrupted verification, policy-specific completion catalogues, honest empty/zero-test evidence and failure snapshots. Local suites after the 2026-10-02 review of the F1 commits: Rust 1,427 reported passed / 5 ignored (one Docker skip); desktop 107 and sidecar 41 at the executor cycle (no desktop or sidecar change since); evidence in docs/reviews/2026-10-01-audit.md. W3.4 implemented. Still open: W3.2 (CI proposals), W1.10 (aggregate ordinary budget), forced Goal-deadline transcript loss, separate lifecycle cancellation, W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated). | A push and green hosted CI on macOS; the native-app walk; the open items above. Local suites include preserved unrelated working-tree changes; clean npm installation and Docker remain unverified. |
 | G2 One execution path | **in progress: the app, the console and Goal mode share one executor; the evaluator does not** | `executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol. | W2.4: `EvalHost` so `eval run` calls the executor, the `legacy` arm for older campaigns, `pwr run` as a thin call; W2.1 for the scripted runner's result; the parity test lists no undeclared difference. |
 | G3 All-tier mission exit before Windows | **not started** | PLANNED under the owner-approved contract of 2026-10-01 (D-2026-10-01-2). No product-path confirmatory comparison or all-tier baseline exists. | W8.3 same-engine simple loop; W2.4/G2 parity; initial S/M/L/XL baseline and prospective power; owner-approved numerical thresholds; frozen W8.4/F6 against the simple loop and at least two eligible competitors per tier, with all capacity, daily-use, lightness, reliability and audit criteria satisfied; W8.5 publish evidence. |
 

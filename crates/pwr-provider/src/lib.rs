@@ -428,7 +428,17 @@ pub fn cancellable(cancel: Cancel, stream: ModelStream) -> ModelStream {
     ))
 }
 
-/// One response's configured wall bound, including opening and streaming.
+/// One response's configured bound on silence: the opening, and then the
+/// wait for each chunk, may each take at most `timeout`.
+///
+/// A bound on silence rather than on length. An absolute deadline also cut
+/// replies that were still arriving: one Qwen3.6-35B-A3B response took 799
+/// seconds on 2026-10-01 -- 369 prefilling, about 415 writing a whole file as
+/// tool-call arguments -- and a slower model's healthy reply is longer still.
+/// What a length bound was for is held elsewhere: `max_tokens` caps the reply,
+/// the loop detector ends one that repeats, and Stop ends any. A chunk carrying
+/// no text counts as life too: those 415 seconds reached the client as nothing
+/// else, and the MLX worker bounds its own engine's silence (300 seconds).
 pub async fn bounded_chat(
     provider: &dyn ModelProvider,
     request: ModelRequest,
@@ -436,17 +446,16 @@ pub async fn bounded_chat(
     timeout: std::time::Duration,
 ) -> Result<ModelStream, ProviderError> {
     let guard = cancel.drop_guard();
-    let deadline = tokio::time::Instant::now() + timeout;
-    let timed_out = || ProviderError::Timeout {
+    let timed_out = move || ProviderError::Timeout {
         safe_context: format!(
-            "response exceeded its configured {}-second deadline",
+            "the backend sent nothing for {} seconds, the configured response timeout",
             timeout.as_secs()
         ),
     };
     let stream = tokio::select! {
         biased;
         () = cancel.cancelled() => return Err(ProviderError::Cancelled),
-        result = tokio::time::timeout_at(deadline, provider.chat_cancellable(request, cancel.clone())) => {
+        result = tokio::time::timeout(timeout, provider.chat_cancellable(request, cancel.clone())) => {
             match result { Ok(result) => result?, Err(_) => return Err(timed_out()) }
         }
     };
@@ -457,9 +466,9 @@ pub async fn bounded_chat(
             let mut stream = stream?;
             tokio::select! {
                 biased;
-                () = tokio::time::sleep_until(deadline) => {
+                () = tokio::time::sleep(timeout) => {
                     cancel.cancel();
-                    Some((Err(ProviderError::Timeout { safe_context: format!("response exceeded its configured {}-second deadline", timeout.as_secs()) }), None))
+                    Some((Err(timed_out()), None))
                 }
                 next = stream.next() => next.map(|chunk| (chunk, Some(stream))),
             }
@@ -740,8 +749,17 @@ mod abandonment_tests {
 mod response_deadline_tests {
     use super::*;
     use futures_util::StreamExt;
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum Shape {
+        /// The opening never returns a stream.
+        OpeningHangs,
+        /// Three chunks, then nothing more from the backend.
+        GoesSilent,
+        /// Thirty chunks 100 ms apart, then the end: three seconds of progress.
+        KeepsStreaming,
+    }
     struct Worker {
-        opening: bool,
+        shape: Shape,
         tokens: std::sync::Mutex<Vec<Cancel>>,
     }
     #[async_trait]
@@ -756,13 +774,28 @@ mod response_deadline_tests {
             unreachable!()
         }
         async fn chat(&self, _: ModelRequest) -> Result<ModelStream, ProviderError> {
-            if self.opening {
+            let shape = self.shape;
+            if shape == Shape::OpeningHangs {
                 std::future::pending::<()>().await;
             }
-            Ok(Box::pin(futures_util::stream::unfold((), |()| async {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                Some((Ok(pwr_domain::ModelChunk::default()), ()))
-            })))
+            Ok(Box::pin(futures_util::stream::unfold(
+                0usize,
+                move |sent| async move {
+                    if shape == Shape::GoesSilent && sent == 3 {
+                        std::future::pending::<()>().await;
+                    }
+                    if sent == 30 {
+                        return None;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let chunk = pwr_domain::ModelChunk {
+                        content: "token ".into(),
+                        done: sent == 29,
+                        ..Default::default()
+                    };
+                    Some((Ok(chunk), sent + 1))
+                },
+            )))
         }
         async fn chat_cancellable(
             &self,
@@ -799,42 +832,72 @@ mod response_deadline_tests {
             sampling: Default::default(),
         }
     }
+    /// Reads `shape` through a one-second bound.
+    async fn through_the_bound(
+        shape: Shape,
+    ) -> (
+        Result<usize, ProviderError>,
+        std::time::Duration,
+        Cancel,
+        usize,
+    ) {
+        let worker = Worker {
+            shape,
+            tokens: Default::default(),
+        };
+        let cancel = Cancel::new();
+        let start = tokio::time::Instant::now();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let mut stream = bounded_chat(
+                &worker,
+                request(),
+                cancel.clone(),
+                std::time::Duration::from_secs(1),
+            )
+            .await?;
+            let mut chunks = 0;
+            while let Some(chunk) = stream.next().await {
+                chunk?;
+                chunks += 1;
+            }
+            Ok::<usize, ProviderError>(chunks)
+        })
+        .await
+        .expect("the bound never ended the response");
+        let opened = worker.tokens.lock().unwrap().len();
+        (outcome, start.elapsed(), cancel, opened)
+    }
     #[tokio::test(start_paused = true)]
-    async fn configured_response_deadline_covers_opening_and_active_progress() {
-        for opening in [true, false] {
-            let worker = Worker {
-                opening,
-                tokens: Default::default(),
-            };
-            let cancel = Cancel::new();
-            let start = tokio::time::Instant::now();
-            let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-                let mut stream = bounded_chat(
-                    &worker,
-                    request(),
-                    cancel.clone(),
-                    std::time::Duration::from_secs(1),
-                )
-                .await?;
-                while let Some(chunk) = stream.next().await {
-                    chunk?;
-                }
-                Ok::<(), ProviderError>(())
-            })
-            .await;
+    async fn configured_response_bound_covers_opening_and_silence() {
+        for (shape, silent_after) in [
+            (Shape::OpeningHangs, std::time::Duration::ZERO),
+            (Shape::GoesSilent, std::time::Duration::from_millis(300)),
+        ] {
+            let (outcome, elapsed, cancel, opened) = through_the_bound(shape).await;
             assert!(
-                matches!(outcome, Ok(Err(ProviderError::Timeout { .. }))),
-                "opening={opening}: {outcome:?}"
+                matches!(outcome, Err(ProviderError::Timeout { .. })),
+                "{shape:?}: {outcome:?}"
             );
-            assert_eq!(start.elapsed(), std::time::Duration::from_secs(1));
-            assert!(cancel.is_cancelled());
-            assert_eq!(worker.tokens.lock().unwrap().len(), 1);
+            assert_eq!(elapsed, silent_after + std::time::Duration::from_secs(1));
+            assert!(cancel.is_cancelled(), "{shape:?} left the worker running");
+            assert_eq!(opened, 1);
         }
+    }
+    /// The bound is on silence, not on length. Measured 2026-10-01: one
+    /// Qwen3.6-35B-A3B response on `rust-semver` took 799 seconds, 369 of them
+    /// reading a 43,406-token prompt; an absolute 900-second deadline would cut
+    /// a slower model's healthy reply.
+    #[tokio::test(start_paused = true)]
+    async fn a_response_that_keeps_making_progress_outlives_the_bound() {
+        let (outcome, elapsed, cancel, _) = through_the_bound(Shape::KeepsStreaming).await;
+        assert_eq!(outcome.unwrap(), 30);
+        assert_eq!(elapsed, std::time::Duration::from_secs(3));
+        assert!(!cancel.is_cancelled(), "a finished reply was cancelled");
     }
     #[tokio::test(start_paused = true)]
     async fn dropping_an_opening_response_cancels_its_worker() {
         let worker = Worker {
-            opening: true,
+            shape: Shape::OpeningHangs,
             tokens: Default::default(),
         };
         let cancel = Cancel::new();

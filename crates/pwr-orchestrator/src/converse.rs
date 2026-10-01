@@ -1201,6 +1201,12 @@ async fn take_turn_inner<P: ModelProvider>(
     // Retries since the last usable output, of every cause, so a front end
     // can say the turn recovered and after how many.
     let mut retrying = 0usize;
+    // A compaction trigger this turn cannot get under: an objective, kept
+    // verbatim, larger than it, or a compaction that left the prompt above it.
+    // Compacting on it again folds nothing that helps and spends the turn's
+    // compactions; from then on only the window itself, with no room left for
+    // an answer, compacts.
+    let mut trigger_unreachable = false;
     loop {
         if actions >= continuity.action_limit.unwrap_or(DEFAULT_ACTIONS_PER_TURN) {
             return stopped(actions, edited, StopReason::BudgetSpent);
@@ -1253,7 +1259,28 @@ async fn take_turn_inner<P: ModelProvider>(
         }
         .room()
             == 0;
-        if prompt_now >= room || no_answer_room {
+        if !trigger_unreachable {
+            let objective_tokens = continuity
+                .checkpoint
+                .lock()
+                .map(|checkpoint| {
+                    checkpoint
+                        .objectives
+                        .iter()
+                        .map(|text| crate::context::estimate_tokens(text))
+                        .sum::<usize>()
+                })
+                .unwrap_or_default();
+            if objective_tokens >= room {
+                trigger_unreachable = true;
+                on_step(TurnStep::Note(format!(
+                    "The objective and its revisions take {objective_tokens} estimated tokens, \
+                     above the {room}-token compaction trigger; this turn compacts only when \
+                     the window itself is full."
+                )));
+            }
+        }
+        if (prompt_now >= room && !trigger_unreachable) || no_answer_room {
             if compactions >= COMPACTIONS_PER_TURN {
                 return stopped(actions, edited, StopReason::CompactionBudget);
             }
@@ -1272,6 +1299,15 @@ async fn take_turn_inner<P: ModelProvider>(
                 measured_prompt = None;
                 measured_upto = 0;
                 on_step(TurnStep::Compacted(note));
+                let after = prompt_overhead.predict(prompt_tokens_now(messages, None, 0));
+                if after >= room && !trigger_unreachable {
+                    trigger_unreachable = true;
+                    on_step(TurnStep::Note(format!(
+                        "Compaction left {after} estimated tokens, above the {room}-token \
+                         compaction trigger; this turn compacts again only when the window \
+                         itself is full."
+                    )));
+                }
             }
         }
         // Replies that fall apart in a long conversation are not fixed by

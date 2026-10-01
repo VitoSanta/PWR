@@ -4268,6 +4268,138 @@ fn an_objective_above_the_compaction_trigger_can_fit_the_physical_window() {
     );
 }
 
+/// The same objective over a turn of several steps. Measured 2026-10-02 at
+/// `c24028f5`: the turn compacted twice -- the first compaction grew the
+/// prompt from 2,389 to 2,703 estimated tokens, since the objective is kept
+/// verbatim -- and stopped after three of five reads on its compaction budget,
+/// with a 16,384-token window mostly empty.
+#[test]
+fn an_objective_above_the_trigger_does_not_spend_compactions_it_cannot_use() {
+    let dir = workspace();
+    let objective = "x".repeat(6000);
+    let continuity = converse::Continuity {
+        compact_ceiling_tokens: Some(1024),
+        ..Default::default()
+    };
+    continuity
+        .checkpoint
+        .lock()
+        .unwrap()
+        .objectives
+        .push(objective.clone());
+    let mut script = Vec::new();
+    for n in 0..5 {
+        let path = format!("part{n}.txt");
+        std::fs::write(
+            dir.path().join(&path),
+            format!("{}\n", "y".repeat(79)).repeat(40),
+        )
+        .unwrap();
+        script.push(calls("read_file", serde_json::json!({"path": path})));
+    }
+    script.push(says("Read them all."));
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(script),
+        vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", &objective),
+        ],
+        16384,
+        continuity,
+    );
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?} after {} actions: {:?}",
+        outcome.report.stopped,
+        outcome.report.actions,
+        outcome.steps
+    );
+    assert_eq!(outcome.report.actions, 5);
+    assert!(
+        !outcome
+            .steps
+            .iter()
+            .any(|step| step.starts_with("compacted")),
+        "compacted with the window far from full: {:?}",
+        outcome.steps
+    );
+    assert!(
+        outcome
+            .steps
+            .iter()
+            .any(|step| step.contains("compaction trigger")),
+        "the unreachable trigger was not said: {:?}",
+        outcome.steps
+    );
+}
+
+/// An objective just under the trigger: compaction keeps it verbatim, so the
+/// prompt it leaves is still over, and compacting again would only spend the
+/// turn's budget.
+#[test]
+fn a_compaction_that_cannot_get_under_the_trigger_is_not_repeated() {
+    let dir = workspace();
+    let objective = "x".repeat(7000);
+    let continuity = converse::Continuity {
+        compact_ceiling_tokens: Some(2048),
+        ..Default::default()
+    };
+    continuity
+        .checkpoint
+        .lock()
+        .unwrap()
+        .objectives
+        .push(objective.clone());
+    let mut script = Vec::new();
+    for n in 0..5 {
+        let path = format!("part{n}.txt");
+        std::fs::write(
+            dir.path().join(&path),
+            format!("{}\n", "y".repeat(79)).repeat(40),
+        )
+        .unwrap();
+        script.push(calls("read_file", serde_json::json!({"path": path})));
+    }
+    script.push(says("Read them all."));
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(script),
+        vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", &objective),
+        ],
+        16384,
+        continuity,
+    );
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?} after {} actions: {:?}",
+        outcome.report.stopped,
+        outcome.report.actions,
+        outcome.steps
+    );
+    assert_eq!(outcome.report.actions, 5);
+    assert_eq!(
+        outcome
+            .steps
+            .iter()
+            .filter(|step| step.starts_with("compacted"))
+            .count(),
+        1,
+        "{:?}",
+        outcome.steps
+    );
+    assert!(
+        outcome
+            .steps
+            .iter()
+            .any(|step| step.starts_with("Compaction left")),
+        "{:?}",
+        outcome.steps
+    );
+}
+
 #[test]
 fn actual_prompt_overflow_stops_before_generation() {
     let dir = workspace();
