@@ -2484,6 +2484,31 @@ async fn take_turn_inner<P: ModelProvider>(
                     {
                         written.insert(path.clone(), pwr_domain::hash_bytes(&bytes));
                     }
+                    if edits_a_file
+                        && value.get("new_hash").is_some()
+                        && let Some(path) = &path
+                        && let Ok(mut stall) = continuity.stall.lock()
+                    {
+                        let count = {
+                            let count = stall.rewrites.entry(path.clone()).or_insert(0);
+                            *count += 1;
+                            *count
+                        };
+                        if count % crate::stall::REWRITES_BEFORE_NOTE == 0
+                            && let Some(object) = value.as_object_mut()
+                        {
+                            object.insert(
+                                "note".into(),
+                                serde_json::Value::String(crate::stall::rewrite_notice(
+                                    path, count,
+                                )),
+                            );
+                            on_step(TurnStep::Note(format!(
+                                "{path} has been written {count} times; the model was told to \
+                                 step back"
+                            )));
+                        }
+                    }
                     if let Some(path) = &path
                         && let Some(hash) = reads.known_hash(path)
                         && let Ok(mut known) = continuity.known.lock()

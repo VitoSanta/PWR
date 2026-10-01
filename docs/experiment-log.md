@@ -330,3 +330,13 @@ conversation, not with length or the cache. After two such replies in a row the
 turn now compacts the history to an 8,192-token room (two clean starts per turn
 at most) and carries on. Hypothesis: it rescues a model that is lost in its own
 history; measured on `dev` next.
+
+## 2026-10-01 — A file written again and again is named to the model (measurement-changing)
+
+`serial1-qwen3-coder` on `bash-rotate`: 130 actions in 60 minutes, `bin/rotate`
+written about seventy times with the same tests failing each time. The stall
+detector looks for windows that leave the workspace as it was; each write
+changed it. The conversation now counts writes per file, and every twelfth one
+carries a note in its result naming the count and the ways out (read the
+failing output line by line, change the approach, or say what blocks). It
+states and does not decide; no limit was added. Effect to be measured on `dev`.

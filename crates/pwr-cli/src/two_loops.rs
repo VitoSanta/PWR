@@ -3517,6 +3517,46 @@ fn a_file_the_model_created_is_rewritten_without_a_read() {
     assert_eq!(denied_writes(&store, conversation), 0);
 }
 
+/// Measured 2026-10-01: Qwen3-Coder wrote one script more than seventy times in
+/// an hour, each write changing the file, so no window "left the workspace
+/// where it was" and nothing said it was going in circles.
+#[test]
+fn a_file_rewritten_twelve_times_is_named_to_the_model_once_it_has() {
+    let dir = workspace();
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let conversation = pwr_domain::new_id();
+    let mut script: Vec<ModelChunk> = (0..13)
+        .map(|n| rewrite_of("rotate.sh", &format!("echo attempt {n}\n")))
+        .collect();
+    script.push(says("done"));
+    let provider = Scripted::new(script);
+    overwrite_turn(
+        dir.path(),
+        &provider,
+        &store,
+        conversation,
+        &converse::Continuity::default(),
+        "make the tests pass",
+    );
+    // What the model was shown after each write: the note is in the result of
+    // the twelfth and in no other.
+    let requests = provider.requests();
+    let carries_note = |request: &ModelRequest| {
+        request
+            .messages
+            .iter()
+            .any(|m| m.role == "tool" && m.content.contains("written 12 times"))
+    };
+    assert!(!carries_note(&requests[11]), "named too early");
+    assert!(carries_note(&requests[12]), "never named");
+    let first = requests[12]
+        .messages
+        .iter()
+        .filter(|m| m.content.contains("written 12 times"))
+        .count();
+    assert_eq!(first, 1);
+}
+
 /// W1.4: the remaining goal allowance bounds calls inside one reply, too.
 #[test]
 fn goal_budget_bounds_a_batch_of_tool_calls_before_the_next_generation() {
