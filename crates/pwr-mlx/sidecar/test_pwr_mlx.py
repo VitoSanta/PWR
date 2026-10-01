@@ -532,11 +532,23 @@ class Chat(unittest.TestCase):
         self.assertEqual(seen["sampler"], {
             "temp": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.1,
         })
+        # mlx-lm's own presence window is 20 tokens unless the caller widens it.
         self.assertEqual(seen["processors"], {
-            "presence_penalty": 0.2, "repetition_penalty": 1.05,
+            "presence_penalty": 0.2, "presence_context_size": 20,
+            "repetition_penalty": 1.05,
         })
         self.assertIs(seen["stream"]["sampler"], seen["sampler"])
         self.assertIs(seen["stream"]["logits_processors"], seen["processors"])
+
+    def test_a_wider_presence_window_reaches_the_processors(self):
+        seen = {}
+        self.module.make_logits_processors = lambda **kwargs: seen.setdefault("processors", kwargs)
+
+        def generate(model, tokenizer, prompt, max_tokens, **kwargs):
+            yield FakeResponse("ok", "stop")
+
+        self.chat(generate, presence_penalty=1.0, presence_context_size=1024)
+        self.assertEqual(seen["processors"]["presence_context_size"], 1024)
 
     def test_a_budget_closes_the_reasoning_and_the_answer_follows(self):
         generate = scripted(list("abcdefghij"), list("\n42"))
