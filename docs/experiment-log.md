@@ -309,3 +309,11 @@ row (repository passages, the task, notes). For the Mistral family, runs of
 user (or call-free assistant) messages are joined into one, in order, in the
 request to the engine (`alternating_roles`); other families' prompts are
 unchanged.
+
+## 2026-10-01 — Python-style lists in XML parameters (adapter, measurement-changing)
+
+`dev3-qwen3-coder` on `bash-rotate`: six `run_command` calls refused as "`args`
+looks like a list written as JSON, but it is not valid JSON": the model writes
+`<parameter=args>['python3', '-m', 'unittest']</parameter>`. A parameter that
+is wholly a Python list or dict literal is now read as one (Qwen-family XML
+parameters; same reader the Liquid adapter uses).
