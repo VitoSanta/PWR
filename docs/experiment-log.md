@@ -375,3 +375,15 @@ run). After the pin moved, Gemma 4 12B, Qwen3.5-9B, Devstral and gpt-oss passed
 the critical Quick Calibration checks. Not shown: that it removes the
 long-conversation collapse. A backend patch version is a *reduced*-confidence
 change for existing calibrations, not a stale one.
+
+## 2026-10-01 — `start_service` without a port finds the port the program listens on
+
+Found in the app, not by a campaign: a goal with Gemma 4 26B building an Angular
+site failed three times to start `npm run start`, first because `run_command`
+refuses a program that serves until stopped (correct), then because
+`start_service` with no port waited on a port PWR reserved and **never gave to
+the program** — `ng serve` listened on 4200, and the start failed after 30 s for
+a server that was up. Omitting the port now waits on the reserved port or on any
+port the service's own process group listens on and reports the one that
+answered (`wait_until_ready_on_any`, `lsof`); naming a port stays strict.
+Neither Full access nor Goal mode was involved.

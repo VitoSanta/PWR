@@ -179,3 +179,70 @@ fn a_port_already_in_use_is_named_and_nothing_starts() {
     assert!(message.contains("already in use"), "{message}");
     assert!(supervisor.running().is_empty());
 }
+
+/// Measured 2026-10-01: a goal built an Angular site and started `ng serve` as
+/// a service with no port. PWR reserved 51227, never gave it to the program,
+/// which listened on its own 4200, and the start failed after thirty seconds
+/// for a server that was up.
+#[test]
+fn a_service_that_listens_on_its_own_port_is_ready_on_that_port() {
+    let root = tempfile::tempdir().unwrap();
+    let reserved = ServiceSupervisor::reserve_port().unwrap();
+    let chosen_file = root.path().join("port.txt");
+    let mut supervisor = ServiceSupervisor::new();
+    let handle = block_on(supervisor.start(
+        &policy(root.path(), vec![Approval::LocalService]),
+        "python3",
+        &[
+            "-c".to_string(),
+            format!(
+                "import socket,time\ns=socket.socket()\ns.bind(('127.0.0.1',0))\ns.listen()\nopen({:?},'w').write(str(s.getsockname()[1]))\ntime.sleep(60)",
+                chosen_file.display().to_string()
+            ),
+        ],
+        Some(reserved),
+    ))
+    .unwrap();
+
+    let (_, answered) =
+        block_on(supervisor.wait_until_ready_on_any(handle.id, reserved, Duration::from_secs(20)))
+            .expect("a server that was listening was not found");
+    let chosen: u16 = std::fs::read_to_string(&chosen_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(answered, chosen);
+    assert_ne!(answered, reserved);
+    assert!(listening(answered));
+
+    // Asked for a port by name, the old wait stays strict.
+    let strict = block_on(supervisor.wait_until_ready(handle.id, reserved, Duration::from_secs(1)));
+    assert!(strict.is_err());
+    block_on(supervisor.stop(handle.id, 8192)).unwrap();
+}
+
+/// A service that listens on the reserved port itself is found at once.
+#[test]
+fn a_service_on_the_reserved_port_is_still_ready_on_it() {
+    let root = tempfile::tempdir().unwrap();
+    let port = ServiceSupervisor::reserve_port().unwrap();
+    let mut supervisor = ServiceSupervisor::new();
+    let handle = block_on(supervisor.start(
+        &policy(root.path(), vec![Approval::LocalService]),
+        "python3",
+        &[
+            "-c".to_string(),
+            format!(
+                "import http.server as h; h.HTTPServer(('127.0.0.1',{port}), h.SimpleHTTPRequestHandler).serve_forever()"
+            ),
+        ],
+        Some(port),
+    ))
+    .unwrap();
+    let (_, answered) =
+        block_on(supervisor.wait_until_ready_on_any(handle.id, port, Duration::from_secs(15)))
+            .unwrap();
+    assert_eq!(answered, port);
+    block_on(supervisor.stop(handle.id, 8192)).unwrap();
+}

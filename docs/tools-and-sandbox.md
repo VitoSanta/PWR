@@ -37,7 +37,7 @@ The scripted loop offers all of it; a conversation removes two and adds four
 | `delete_path`, `move_path`, `make_directory` | File-system changes inside the workspace; delete needs the file's hash | ✓ | ✓ |
 | `restore_file` | Put a file back as it was when first read or changed in this run | ✓ | ✓ |
 | `run_command` | Run one program with an argument list; no shell; `outside_sandbox` asks to run it unconfined | ✓ | ✓ |
-| `start_service`, `stop_service` | A supervised long-running process, ready when it accepts a connection | ✓ | ✓ |
+| `start_service`, `stop_service` | A supervised long-running process, ready when it accepts a connection — on the port named, or, when none is named, on the reserved port **or any port the program itself listens on** (found with `lsof` by process group; `ng serve` listens on 4200), and the port it answered on is reported | ✓ | ✓ |
 | `fetch_url` | Fetch one http(s) URL, or save it to a workspace path | ✓ | ✓ |
 | `vcs_status`, `vcs_diff` | What Git says changed | ✓ | ✓ |
 | `complete` | Declare the task done | ✓ | ✓ |
