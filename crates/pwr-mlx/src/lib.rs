@@ -906,14 +906,48 @@ pub fn template_message(message: &ChatMessage) -> serde_json::Value {
 /// A tool message that does not follow an assistant turn with calls is sent
 /// as a user message marked as PWR's.
 fn template_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
-    let mut answering = false;
+    // The calls of the assistant turn the next tool messages answer, as
+    // (id, name) in order. Templates match a result to its call by id (Gemma 4
+    // names the result from it; Mistral's refuses an id that is not nine
+    // letters or digits) and a call with no id made Gemma's fail outright:
+    // "can only concatenate str (not NoneType) to str", so Quick Calibration
+    // called Gemma 4 12B and 26B unable to use a tool result (2026-10-01).
+    let mut answering: Vec<(String, String)> = Vec::new();
+    let mut answered = 0usize;
+    let mut serial = 0usize;
     messages
         .iter()
         .map(|message| {
             let mut value = template_message(message);
             match message.role.as_str() {
-                "assistant" => answering = !message.tool_calls.is_empty(),
-                "tool" if answering => {}
+                "assistant" => {
+                    answering.clear();
+                    answered = 0;
+                    for (at, call) in message.tool_calls.iter().enumerate() {
+                        serial += 1;
+                        let id = call
+                            .id
+                            .clone()
+                            .unwrap_or_else(|| format!("pwrc{serial:05}"));
+                        value["tool_calls"][at]["id"] = serde_json::json!(id);
+                        answering.push((id, call.name.clone()));
+                    }
+                }
+                "tool" if !answering.is_empty() => {
+                    // By id when the result names one of the calls, else by
+                    // position: the n-th result answers the n-th call.
+                    let found = message
+                        .tool_call_id
+                        .as_ref()
+                        .and_then(|id| answering.iter().find(|(call, _)| call == id))
+                        .or_else(|| answering.get(answered))
+                        .cloned();
+                    answered += 1;
+                    if let Some((id, name)) = found {
+                        value["tool_call_id"] = serde_json::json!(id);
+                        value["name"] = serde_json::json!(name);
+                    }
+                }
                 "tool" => {
                     value["role"] = serde_json::json!("user");
                     value["content"] = serde_json::json!(format!("[PWR] {}", message.content));
@@ -921,7 +955,10 @@ fn template_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
                         object.remove("tool_call_id");
                     }
                 }
-                _ => answering = false,
+                _ => {
+                    answering.clear();
+                    answered = 0;
+                }
             }
             value
         })
@@ -1842,6 +1879,48 @@ mod tests {
         assert_eq!(rendered[1]["role"], "user");
         assert_eq!(rendered[1]["content"], "[PWR] The checks fail.");
         assert_eq!(rendered[3]["role"], "tool");
+        // The result carries the call's id and its tool's name.
+        assert_eq!(rendered[2]["tool_calls"][0]["id"], "c1");
+        assert_eq!(rendered[3]["tool_call_id"], "c1");
+        assert_eq!(rendered[3]["name"], "read_file");
+    }
+
+    #[test]
+    fn calls_without_ids_get_nine_character_ids_that_their_results_share() {
+        let call = |name: &str| ToolCall {
+            name: name.into(),
+            arguments: serde_json::json!({}),
+            id: None,
+        };
+        let messages = [
+            ChatMessage {
+                role: "assistant".into(),
+                tool_calls: vec![call("read_file"), call("list_tree")],
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: "one".into(),
+                tool_call_id: Some("unrelated".into()),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: "two".into(),
+                ..Default::default()
+            },
+        ];
+        let rendered = template_messages(&messages);
+        let first = rendered[0]["tool_calls"][0]["id"].as_str().unwrap();
+        let second = rendered[0]["tool_calls"][1]["id"].as_str().unwrap();
+        assert_eq!(first.len(), 9);
+        assert!(first.chars().all(|c| c.is_ascii_alphanumeric()));
+        assert_ne!(first, second);
+        // Answered in order when the result names no call of this turn.
+        assert_eq!(rendered[1]["tool_call_id"], first);
+        assert_eq!(rendered[1]["name"], "read_file");
+        assert_eq!(rendered[2]["tool_call_id"], second);
+        assert_eq!(rendered[2]["name"], "list_tree");
     }
 
     #[test]

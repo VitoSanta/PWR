@@ -273,3 +273,14 @@ syntax) and LFM2-24B `<function_call>{json}</function_call>`. `LiquidFamilyAdapt
 reads both, with a small reader of Python literals (strings with escapes,
 numbers, booleans, lists, dicts) and `<think>`; a block that does not decode is
 kept in the text and nothing is guessed.
+
+## 2026-10-01 — Tool calls and their results carry ids and names (measurement-changing)
+
+Gemma 4 12B and 26B were Limited: "tool_result_continuation: the MLX engine
+failed: TypeError: can only concatenate str (not NoneType) to str". Gemma's
+chat template names a tool result from the id of the call it answers; PWR sent
+calls with no `id` and results with no `name`. `template_messages` now gives
+every call an id (its own, else nine letters/digits -- Mistral's template
+insists on that) and every result the call's id and the tool's name, matched by
+id or, failing that, by position. Every MLX model's prompt gains these fields;
+Qwen-style templates ignore them.
