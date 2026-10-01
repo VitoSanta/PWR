@@ -572,7 +572,12 @@ fn parse_xml_call(body: &str) -> Option<ToolCall> {
         let raw = raw.strip_suffix('\n').unwrap_or(raw);
         let value = match serde_json::from_str::<serde_json::Value>(raw.trim()) {
             Ok(parsed) if !parsed.is_string() => parsed,
-            _ => serde_json::Value::String(raw.to_owned()),
+            // A list or object written the Python way (`['-m', 'unittest']`):
+            // Qwen3-Coder writes `args` so, six calls of one run refused as
+            // "written as JSON but not valid JSON" (2026-10-01). It has one
+            // reading, and only a value that is wholly such a literal is read.
+            _ => python_literal(raw.trim())
+                .unwrap_or_else(|| serde_json::Value::String(raw.to_owned())),
         };
         arguments.insert(key, value);
         rest = &value_from[consumed..];
@@ -717,6 +722,17 @@ const LFM_START: &str = "<|tool_call_start|>";
 const LFM_END: &str = "<|tool_call_end|>";
 const FUNCTION_CALL_OPEN: &str = "<function_call>";
 const FUNCTION_CALL_CLOSE: &str = "</function_call>";
+
+/// A whole list or dict written as a Python literal, or `None`.
+fn python_literal(text: &str) -> Option<serde_json::Value> {
+    if !(text.starts_with('[') || text.starts_with('{')) {
+        return None;
+    }
+    let mut reader = PyArgs::new(text);
+    let value = reader.value()?;
+    reader.skip();
+    (reader.at == reader.text.len()).then_some(value)
+}
 
 /// A reader of the Python literal subset a call's arguments use: strings
 /// (single, double, triple-quoted, with escapes), numbers, `True`/`False`/
@@ -1591,6 +1607,26 @@ mod tests {
     use super::*;
 
     /// Qwen2.5-Coder's edit, as it wrote it in the capability probe.
+    #[test]
+    fn a_list_written_the_python_way_in_an_xml_parameter_is_a_list() {
+        let found = QwenFamilyAdapter.normalize(&reply(
+            "<tool_call>\n<function=run_command>\n<parameter=args>\n['python3', '-m', 'unittest', \"it's\"]\n</parameter>\n<parameter=executable>\nbash\n</parameter>\n</function>\n</tool_call>",
+        ));
+        assert_eq!(
+            found.tool_calls[0].arguments["args"],
+            serde_json::json!(["python3", "-m", "unittest", "it's"])
+        );
+        assert_eq!(found.tool_calls[0].arguments["executable"], "bash");
+        // Prose that merely starts with a bracket stays a string.
+        let prose = QwenFamilyAdapter.normalize(&reply(
+            "<tool_call>\n<function=write_file>\n<parameter=path>\nn.md\n</parameter>\n<parameter=content>\n[a note, not a list] and more\n</parameter>\n</function>\n</tool_call>",
+        ));
+        assert_eq!(
+            prose.tool_calls[0].arguments["content"],
+            "[a note, not a list] and more"
+        );
+    }
+
     #[test]
     fn granite_reads_the_tool_call_block_its_template_writes() {
         let adapter = adapter_for(None, "mlx-community/granite-4.1-8b-4bit");
