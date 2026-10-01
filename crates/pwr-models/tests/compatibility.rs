@@ -550,6 +550,37 @@ async fn verified_evidence_applies_only_to_its_artifact_and_a_local_failure_outr
     assert_eq!(assessment.status, ProfileStatus::Limited);
 }
 
+/// Measured 2026-10-01: Qwen3-Coder stayed Limited after the adapter that could
+/// not read its tool calls was fixed, because the verdict said nothing about
+/// which adapter had read the replies.
+#[tokio::test]
+async fn a_failure_measured_through_an_older_adapter_is_not_held_against_the_model() {
+    let (model, evidence) = calibrated().await;
+    let limited = LocalEvidence {
+        status: ProfileStatus::Limited,
+        reason: Some("no tool call was made".into()),
+        ..evidence
+    };
+    let mut today = provenance(&model);
+    today.adapter_revision = Some("qwen-v3".into());
+
+    // The verdict recorded no adapter (it predates the field): not applied.
+    let assessment = assessed(&model, today.clone(), Some(&limited), &[]);
+    assert_ne!(assessment.status, ProfileStatus::Limited);
+
+    // Recorded under another revision: not applied either.
+    let mut older = limited.clone();
+    older.provenance.adapter_revision = Some("qwen-v2".into());
+    let assessment = assessed(&model, today.clone(), Some(&older), &[]);
+    assert_ne!(assessment.status, ProfileStatus::Limited);
+
+    // Measured through today's adapter, it still is the model's.
+    let mut same = limited.clone();
+    same.provenance.adapter_revision = Some("qwen-v3".into());
+    let assessment = assessed(&model, today, Some(&same), &[]);
+    assert_eq!(assessment.status, ProfileStatus::Limited);
+}
+
 #[tokio::test]
 async fn evidence_is_stored_outside_the_repository_and_read_back_by_key() {
     let (_, evidence) = calibrated().await;

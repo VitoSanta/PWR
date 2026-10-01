@@ -76,8 +76,17 @@ pub async fn subject<B: InferenceBackend>(
     );
     let version = backend.backend_version().await.ok().flatten();
     let class = machine_class(&pwr_runtime::models_root(kind)).await;
+    let mut provenance = Provenance::of(inspection, backend.backend_id(), version, Some(class));
+    provenance.adapter_revision = Some(
+        pwr_compat::adapter_for(
+            inspection.definition.family.as_deref(),
+            &inspection.deployment.model_ref,
+        )
+        .version()
+        .to_owned(),
+    );
     Subject {
-        provenance: Provenance::of(inspection, backend.backend_id(), version, Some(class)),
+        provenance,
         reasoning: template_reasoning(
             inspection,
             thinking_disabled(declared),
