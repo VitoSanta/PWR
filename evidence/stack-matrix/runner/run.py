@@ -297,7 +297,12 @@ def diff_against_seed(seed, workspace, exclude=NOT_SOURCE):
         return found
 
     def text(path):
-        data = path.read_bytes()
+        try:
+            data = path.read_bytes()
+        except OSError:
+            # A file the model left unreadable (mode 000 from a test of its
+            # own): the diff says so and the run goes on.
+            return None, -1
         if b"\0" in data[:8192] or len(data) > 512 * 1024:
             return None, len(data)
         try:
@@ -311,7 +316,12 @@ def diff_against_seed(seed, workspace, exclude=NOT_SOURCE):
         old, old_size = text(before[name]) if name in before else ([], 0)
         new, new_size = text(after[name]) if name in after else ([], 0)
         if old is None or new is None:
-            if before.get(name) is None or after.get(name) is None or before[name].read_bytes() != after[name].read_bytes():
+            def same():
+                try:
+                    return before[name].read_bytes() == after[name].read_bytes()
+                except OSError:
+                    return False
+            if before.get(name) is None or after.get(name) is None or not same():
                 chunks.append(f"Binary or large file {name}: {old_size} -> {new_size} bytes\n")
         elif old != new:
             chunks.extend(difflib.unified_diff(old, new, f"a/{name}", f"b/{name}"))
