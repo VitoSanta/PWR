@@ -3926,9 +3926,10 @@ impl serve::TurnRunner for ConsoleTurns {
         let failing_acceptance = failing
             .iter()
             .filter(|command| {
-                acceptance_commands
-                    .iter()
-                    .any(|accepted| accepted == *command)
+                acceptance_commands.iter().any(|accepted| {
+                    accepted == *command
+                        || accepted == command.strip_suffix(" ran no tests").unwrap_or(command)
+                })
             })
             .cloned()
             .collect();
@@ -4801,7 +4802,7 @@ async fn chat_turn(
     // Whoever asks the person: the console, or a protocol client.
     approvals: Arc<dyn pwr_orchestrator::ApprovalPrompt>,
     session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
-    _goal_mode: bool,
+    goal_mode: bool,
 ) -> ChatTurnResult {
     {
         let mut checkpoint = continuity
@@ -4985,7 +4986,9 @@ async fn chat_turn(
     let before = if checks.is_empty() {
         None
     } else {
-        pwr_verify::baseline(&policy, &checks).await.ok()
+        pwr_orchestrator::executor::baseline_until_stopped(&policy, &checks, &stop)
+            .await
+            .and_then(Result::ok)
     };
     // What this conversation has already established, re-hashed from disk. The
     // conversation is the loop most exposed to compaction loss -- it is the one
@@ -5069,6 +5072,11 @@ async fn chat_turn(
     } else {
         converse::chat_tool_catalog()
     };
+    let catalog = if goal_mode {
+        converse::with_goal_verification(catalog)
+    } else {
+        catalog
+    };
     let tools = provider.render_tools(&catalog);
     let report = converse::take_turn(
         &provider,
@@ -5121,7 +5129,7 @@ async fn chat_turn(
                 verification_policy.allow_commands.push(executable.clone());
             }
         }
-        pwr_orchestrator::executor::close_turn(
+        pwr_orchestrator::executor::close_turn_with_stop(
             pwr_orchestrator::executor::ClosingChecks {
                 policy: verification_policy,
                 checks_before: checks,
@@ -5131,6 +5139,7 @@ async fn chat_turn(
             &mut report,
             &mut messages,
             &mut |step| steps(step),
+            &stop,
         )
         .await;
     }
@@ -10480,10 +10489,8 @@ async fn verify_in(
             category: "internal",
             context: e.to_string(),
         })?;
-    let passed = baseline
-        .checks
-        .iter()
-        .all(|check| check.result.exit_code == Some(0));
+    let check_evidence = pwr_verify::evidence::checks(&baseline);
+    let passed = matches!(check_evidence, pwr_domain::ChecksOutcome::Passed);
     let comparison = previous
         .as_ref()
         .map(|prior| pwr_verify::compare(prior, &baseline));
@@ -10492,7 +10499,7 @@ async fn verify_in(
             .as_ref()
             .is_none_or(|result| result.regression_free);
     Ok(
-        serde_json::json!({"verified":verified,"checks_passed":passed,"scope":scope,"workspace_root":root,"baseline":baseline,"comparison":comparison,"note":"verified requires current checks and no baseline regressions when a prior baseline exists"}),
+        serde_json::json!({"verified":verified,"checks_passed":passed,"check_evidence":check_evidence,"scope":scope,"workspace_root":root,"baseline":baseline,"comparison":comparison,"note":"verified requires nonempty passing checks, no zero-test result and no baseline regressions when a prior baseline exists"}),
     )
 }
 fn provider_error(e: pwr_provider::ProviderError) -> SafeError {
@@ -12018,6 +12025,30 @@ mod tests {
         assert!(!said.contains("passing"), "{said}");
     }
 
+    #[tokio::test]
+    async fn verification_without_checks_cannot_claim_a_pass() {
+        let root = tempfile::tempdir().unwrap();
+        let report = verify_in(root.path(), None, "full".into(), vec![])
+            .await
+            .unwrap_or_else(|error| panic!("{}", error.context));
+        assert_eq!(report["baseline"]["checks"], serde_json::json!([]));
+        assert_eq!(report["checks_passed"], false, "{report}");
+        assert_eq!(report["verified"], false, "{report}");
+    }
+
+    #[tokio::test]
+    async fn verification_that_ran_zero_tests_cannot_claim_a_pass() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".pwr")).unwrap();
+        std::fs::write(root.path().join(".pwr/checks.json"), serde_json::json!({"checks":[{"executable":"sh","args":["-c","echo 'no tests ran' # pytest"]}]}).to_string()).unwrap();
+        let report = verify_in(root.path(), None, "full".into(), vec![])
+            .await
+            .unwrap_or_else(|error| panic!("{}", error.context));
+        assert_eq!(report["baseline"]["checks"][0]["result"]["exit_code"], 0);
+        assert_eq!(report["checks_passed"], false, "{report}");
+        assert_eq!(report["verified"], false, "{report}");
+    }
+
     /// A line of zeroes every time teaches the reader to skip the line that
     /// matters, so the counts that did not happen are not printed.
     #[test]
@@ -12086,6 +12117,37 @@ mod tests {
         let markdown = report_markdown(uuid::Uuid::nil(), &[]);
         assert!(markdown.contains(REPLAY_IS_NOT_EXECUTION), "{markdown}");
         assert!(REPLAY_IS_NOT_EXECUTION.contains("not a resumed run"));
+    }
+
+    #[tokio::test]
+    async fn a_zero_test_acceptance_check_cannot_be_exempted_as_a_baseline_failure() {
+        use serve::TurnRunner;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join(".pwr")).unwrap();
+        std::fs::write(root.path().join(".pwr/checks.json"), serde_json::json!({"checks":[{"executable":"sh","args":["-c","echo 'no tests ran' # pytest"],"kind":"acceptance"}]}).to_string()).unwrap();
+        let snapshot = pwr_verify::acceptance::snapshot(root.path())
+            .unwrap()
+            .unwrap();
+        let context = serve::CommandContext {
+            root: root.path().to_owned(),
+            conversation_id: pwr_domain::new_id(),
+            acceptance_contract_hash: Some(snapshot.digest()),
+            acceptance_snapshot: Some(snapshot),
+            authorized_acceptance_changes: Default::default(),
+            changed_files: Default::default(),
+            session_grants: vec![],
+        };
+        let runner = ConsoleTurns {
+            runtime: RuntimeFactory::local(BackendKind::Mlx),
+        };
+        let verdict = runner.verify_goal(context).await.unwrap();
+        assert!(verdict.acceptance_available);
+        assert!(!verdict.passed);
+        assert_eq!(verdict.failing.len(), 1);
+        assert_eq!(
+            verdict.failing_acceptance, verdict.failing,
+            "zero-test acceptance was eligible for baseline exemption"
+        );
     }
 
     #[tokio::test]

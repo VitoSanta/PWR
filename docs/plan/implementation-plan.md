@@ -89,6 +89,11 @@ PLANNED W2.4; no real-model capability or effective-window claim.
 
 ### W1.10 Bound ordinary conversations across turns
 
+- **PARTIAL correctness repair 2026-10-02.** The existing selected response
+  timeout now bounds runtime opening + streaming, with explicit worker cancel;
+  Stop reaches preparation, permissions and repository verification. Goal
+  baseline/verification/review are interruptible. No new ordinary aggregate
+  policy or default was introduced; overall bounds remain PLANNED.
 - **Problem/evidence.** A06; ordinary `turn.await` lacks the Goal deadline
   (`executor.rs:702`) while 100 is only a per-turn action cap.
 - **Design hypothesis.** Shared wall/time/token/recovery budget with explicit
@@ -786,7 +791,12 @@ runs, so it waits for the maintainer's go-ahead to run them.
 
 ### W3.4 Unverifiable completion, said once and the same way
 
-**Status:** NOW · S
+**Status:** IMPLEMENTED 2026-10-02 · S
+
+Catalogue regressions cover scripted, conversation and Goal policies; Goal
+dispatch renders the stricter description after selecting the conversation
+actions. Empty/zero-test checks do not claim a pass; no-check Goals finish
+unverified. Evidence: `docs/reviews/2026-10-01-audit.md` executor follow-up.
 
 - **Problem.** The scripted loop ends `verified: false, verifiable: false`
   when no verifier exists, which is right; documents said it was refused

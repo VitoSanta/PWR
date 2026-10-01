@@ -1,6 +1,6 @@
 # Mission status
 
-Updated 2026-10-01, F1 sampling correctness cycle. Resume from the owner's
+Updated 2026-10-02, F1 executor correctness cycle. Resume from the owner's
 mission mandate, this file, MASTER_SPEC, decisions and implementation plan.
 Evidence vocabulary is defined in MASTER_SPEC; no gate/model-capability claim
 follows from this status.
@@ -15,23 +15,29 @@ follows from this status.
 - **IMPLEMENTED F1 A05 correction, W5.6 PARTIAL:** scoped/mode-safe parser,
   schema 4 pinned cache and 19 new regressions. UI/chat/eval deliberately use
   unknown mode; per-generation selection after reasoning planning is PLANNED.
+- **IMPLEMENTED F1 A06/A08 repair:** configured response deadline and managed
+  cancellation, Stop during permissions/checks/Goal review, EOF teardown,
+  honest empty/zero-test evidence and policy-specific completion catalogues.
+  W3.4 implemented; aggregate ordinary bounds W1.10 remain PARTIAL/PLANNED.
 - **IMPLEMENTED F2 research artifact, partial:** competitors.md now includes
   opened Lost in the Middle/RULER, pinned Qwen3.6 mode and mlx-lm renderer
   sources. PWR effects remain unknown; full survey/audit remain PLANNED.
-- Cycle parent: `84b4654c` on `develop`; the completed sampling cycle commit
-  is resolved by `git log -1 -- docs/plan/mission-status.md`. Context cycle
-  `84b4654c` follows F0 `b9db2eab`. No fetch or push.
+- Cycle parent: `312070c6` on `develop`; this executor cycle commit is resolved
+  by `git log -1 -- docs/plan/mission-status.md`. Context `84b4654c` and
+  sampling `312070c6` follow F0 `b9db2eab`. No fetch or push.
 - Initial code baseline: `ae1e36c1e5dbe80f7fa3ee781072948b106a0208`.
   G1/G2/G3 are not newly satisfied; no release or model download.
 
 ## Reproduced checks / limits
 
-- **MEASURED** final Rust suite: 1,405 reported passed, 0 failed,
+- **MEASURED** final Rust suite: 1,424 reported passed, 0 failed,
   5 ignored; one host-dependent Docker test skipped (among reported passes).
 - **MEASURED** Clippy with denied warnings, formatting, desktop 107 tests /
   13 files, production build, sidecar 41 tests, milestone-table agreement and
   diff whitespace checks pass. Hosted CI / clean npm installation unknown.
-- **MEASURED** new product-conversation fixtures cover preparation failure,
+- **MEASURED** 19 new executor-cycle tests (including concurrent stress),
+  plus expanded fixtures, cover cancellation, deadlines and honest verification.
+  The prior context fixtures cover preparation failure,
   real Settings dispatch mutation/read-only recovery, objective over trigger,
   true overflow, physical-fit recovery, large call budgeting, fixed overhead,
   stale history count, productive compaction budget and audit event counts.
@@ -45,7 +51,8 @@ follows from this status.
   product-path capability/performance by tier and effective windows unknown.
 - Evidence: `~/Desktop/pwr-evidence/logs/mission-20261001-f0/` and
   `~/Desktop/pwr-evidence/logs/mission-20261001-f1-context/` and
-  `~/Desktop/pwr-evidence/logs/mission-20261001-f1-sampling/`.
+  `~/Desktop/pwr-evidence/logs/mission-20261001-f1-sampling/` and
+  `~/Desktop/pwr-evidence/logs/mission-20261001-f1-executor/`.
 
 ## Preserve other sessions' work
 
@@ -65,9 +72,9 @@ F0 saved patch. Suites include these hunks; commit only this cycle's work.
 | A03 productive compaction labelled Looping | IMPLEMENTED budget classification; MEASURED distinct-read regression; cap remains 2 |
 | A04 ignored tool arguments | IMPLEMENTED estimate correction; MEASURED 40 KiB write; exact preflight PLANNED W4.2 |
 | A05 sampling boundaries/mode | IMPLEMENTED correction + MEASURED regressions; dynamic per-generation selection PLANNED W5.6 |
-| A06 conversation-wide bound | unknown total bound in ordinary path; Goal bound IMPLEMENTED; W1.10 |
+| A06 conversation-wide bound | response timeout/managed cancel and Stop repairs IMPLEMENTED; ordinary total bound PLANNED W1.10; worker latency unknown |
 | A07 eval parity | PLANNED W2.4/W2.1; scripted eval still separate |
-| A08 completion promise | IMPLEMENTED misleading description; W3.4 open |
+| A08 completion promise | IMPLEMENTED correction W3.4; empty/zero-test evidence cannot claim verified; catalogue/evidence regressions |
 | Ceiling/actions/sampling floor | HYPOTHESIS of benefit; no product-path baseline/default tuning |
 | Same-model review / collapsed-reply recovery | HYPOTHESIS; no new causal evidence |
 | Stable prefix / ranked map / tier edit format | HYPOTHESIS; controls/dev rejection rules W5.7/W4.9/W2.8 |
@@ -79,8 +86,8 @@ No campaign queued or launched. External queue.sh serializes its own model
 list, but is not verified to exclude another queue/engine. F3 needs a lease
 and recorded provenance before timing; machine is not certified idle.
 
-1. Next correctness cycle: A06 ordinary conversation bounds / A08 completion
-   promises and remaining F1 audit; tests first, no default tuning.
+1. Continue remaining F1 audit; document cancellation/overall-budget limits
+   and coverage, tests first for demonstrated defects; no default tuning.
 2. Complete W2.4 eval on the app executor and then W5.6 selection after the final
    per-generation reasoning directive; continue full F2 survey and F3 simple
    control/provenance, power analysis and pinned dev split.

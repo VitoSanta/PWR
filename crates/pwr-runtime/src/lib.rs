@@ -77,11 +77,13 @@ impl RuntimeFactory {
         self.kind
     }
 
-    pub fn backend(&self, _timeout: Duration) -> Result<RuntimeBackend, ProviderError> {
+    pub fn backend(&self, timeout: Duration) -> Result<RuntimeBackend, ProviderError> {
         Ok(match self.kind {
-            BackendKind::Mlx => RuntimeBackend::Mlx(MlxProvider::new(MlxConfig::from_env())),
+            BackendKind::Mlx => {
+                RuntimeBackend::Mlx(MlxProvider::new(MlxConfig::from_env()), timeout)
+            }
             BackendKind::Llama => {
-                RuntimeBackend::Llama(LlamaProvider::new(LlamaConfig::from_env()))
+                RuntimeBackend::Llama(LlamaProvider::new(LlamaConfig::from_env()), timeout)
             }
         })
     }
@@ -116,8 +118,8 @@ pub struct ResolvedBackendSelection {
 /// Current runtime backends. New variants must delegate the stable provider
 /// contracts; application command handlers never match this enum.
 pub enum RuntimeBackend {
-    Mlx(MlxProvider),
-    Llama(LlamaProvider),
+    Mlx(MlxProvider, Duration),
+    Llama(LlamaProvider, Duration),
 }
 
 impl RuntimeBackend {
@@ -126,8 +128,8 @@ impl RuntimeBackend {
     pub fn render_tools(&self, catalog: &pwr_domain::ToolCatalog) -> serde_json::Value {
         match self {
             // The chat template renders them; it reads the OpenAI shape.
-            Self::Mlx(_) => pwr_compat::render_tools(catalog),
-            Self::Llama(_) => pwr_compat::render_tools(catalog),
+            Self::Mlx(_, _) => pwr_compat::render_tools(catalog),
+            Self::Llama(_, _) => pwr_compat::render_tools(catalog),
         }
     }
 }
@@ -139,20 +141,32 @@ impl ModelProvider for RuntimeBackend {
         deployment: &DeploymentDescriptor,
     ) -> Result<ModelInspection, ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.inspect(deployment).await,
-            Self::Llama(provider) => provider.inspect(deployment).await,
+            Self::Mlx(provider, _) => provider.inspect(deployment).await,
+            Self::Llama(provider, _) => provider.inspect(deployment).await,
         }
     }
     async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.runtime_state().await,
-            Self::Llama(provider) => provider.runtime_state().await,
+            Self::Mlx(provider, _) => provider.runtime_state().await,
+            Self::Llama(provider, _) => provider.runtime_state().await,
         }
     }
     async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
+        self.chat_cancellable(request, pwr_provider::Cancel::new())
+            .await
+    }
+    async fn chat_cancellable(
+        &self,
+        request: ModelRequest,
+        cancel: pwr_provider::Cancel,
+    ) -> Result<ModelStream, ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.chat(request).await,
-            Self::Llama(provider) => provider.chat(request).await,
+            Self::Mlx(provider, timeout) => {
+                pwr_provider::bounded_chat(provider, request, cancel, *timeout).await
+            }
+            Self::Llama(provider, timeout) => {
+                pwr_provider::bounded_chat(provider, request, cancel, *timeout).await
+            }
         }
     }
     async fn prepare_context(
@@ -161,8 +175,8 @@ impl ModelProvider for RuntimeBackend {
         context_tokens: u32,
     ) -> Result<u32, ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.prepare_context(deployment, context_tokens).await,
-            Self::Llama(provider) => provider.prepare_context(deployment, context_tokens).await,
+            Self::Mlx(provider, _) => provider.prepare_context(deployment, context_tokens).await,
+            Self::Llama(provider, _) => provider.prepare_context(deployment, context_tokens).await,
         }
     }
 }
@@ -171,50 +185,50 @@ impl ModelProvider for RuntimeBackend {
 impl InferenceBackend for RuntimeBackend {
     fn backend_id(&self) -> &'static str {
         match self {
-            Self::Mlx(provider) => provider.backend_id(),
-            Self::Llama(provider) => provider.backend_id(),
+            Self::Mlx(provider, _) => provider.backend_id(),
+            Self::Llama(provider, _) => provider.backend_id(),
         }
     }
     fn capabilities(&self) -> BackendCapabilities {
         match self {
-            Self::Mlx(provider) => provider.capabilities(),
-            Self::Llama(provider) => provider.capabilities(),
+            Self::Mlx(provider, _) => provider.capabilities(),
+            Self::Llama(provider, _) => provider.capabilities(),
         }
     }
     async fn discover_models(&self) -> Result<Vec<DiscoveredModel>, ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.discover_models().await,
-            Self::Llama(provider) => provider.discover_models().await,
+            Self::Mlx(provider, _) => provider.discover_models().await,
+            Self::Llama(provider, _) => provider.discover_models().await,
         }
     }
     async fn load_model(&self, model_ref: &str) -> Result<(), ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.load_model(model_ref).await,
-            Self::Llama(provider) => provider.load_model(model_ref).await,
+            Self::Mlx(provider, _) => provider.load_model(model_ref).await,
+            Self::Llama(provider, _) => provider.load_model(model_ref).await,
         }
     }
     async fn unload_model(&self, model_ref: &str) -> Result<(), ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.unload_model(model_ref).await,
-            Self::Llama(provider) => provider.unload_model(model_ref).await,
+            Self::Mlx(provider, _) => provider.unload_model(model_ref).await,
+            Self::Llama(provider, _) => provider.unload_model(model_ref).await,
         }
     }
     async fn backend_version(&self) -> Result<Option<String>, ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.backend_version().await,
-            Self::Llama(provider) => provider.backend_version().await,
+            Self::Mlx(provider, _) => provider.backend_version().await,
+            Self::Llama(provider, _) => provider.backend_version().await,
         }
     }
     async fn is_resident(&self, deployment: &DeploymentDescriptor) -> Result<bool, ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.is_resident(deployment).await,
-            Self::Llama(provider) => provider.is_resident(deployment).await,
+            Self::Mlx(provider, _) => provider.is_resident(deployment).await,
+            Self::Llama(provider, _) => provider.is_resident(deployment).await,
         }
     }
     async fn release(&self, deployment: &DeploymentDescriptor) -> Result<(), ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.release(deployment).await,
-            Self::Llama(provider) => provider.release(deployment).await,
+            Self::Mlx(provider, _) => provider.release(deployment).await,
+            Self::Llama(provider, _) => provider.release(deployment).await,
         }
     }
 
@@ -223,8 +237,8 @@ impl InferenceBackend for RuntimeBackend {
         deployment: &DeploymentDescriptor,
     ) -> Result<pwr_provider::ModelFacts, ProviderError> {
         match self {
-            Self::Mlx(provider) => provider.model_facts(deployment).await,
-            Self::Llama(provider) => provider.model_facts(deployment).await,
+            Self::Mlx(provider, _) => provider.model_facts(deployment).await,
+            Self::Llama(provider, _) => provider.model_facts(deployment).await,
         }
     }
 }
@@ -232,6 +246,172 @@ impl InferenceBackend for RuntimeBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Exercises the real runtime -> MLX pipe boundary, without loading weights.
+    #[tokio::test]
+    async fn runtime_stop_abandonment_and_deadline_send_cancel_to_the_managed_worker() {
+        use futures_util::StreamExt;
+        let dir = tempfile::tempdir().unwrap();
+        let model = dir.path().join("owner/model");
+        std::fs::create_dir_all(&model).unwrap();
+        std::fs::write(model.join("config.json"), r#"{"model_type":"fake"}"#).unwrap();
+        let script = dir.path().join("fake_sidecar.py");
+        std::fs::write(&script, r#"
+import json, sys
+from pathlib import Path
+log = Path(__file__).with_suffix('.jsonl')
+for line in sys.stdin:
+    request = json.loads(line)
+    with log.open('a') as output:
+        output.write(json.dumps(request) + '\n')
+    op = request['op']
+    if op == 'load':
+        print(json.dumps({'id': request['id'], 'event': 'loaded'}), flush=True)
+    elif op == 'cancel':
+        print(json.dumps({'id': request['target'], 'event': 'done', 'finish_reason': 'stop'}), flush=True)
+    elif op == 'shutdown':
+        break
+"#).unwrap();
+        let log = script.with_extension("jsonl");
+        let python = MlxConfig::from_env().python;
+        let provider = MlxProvider::new(MlxConfig {
+            python,
+            sidecar: script,
+            models_root: dir.path().to_owned(),
+        });
+        let backend = RuntimeBackend::Mlx(provider, Duration::from_millis(200));
+        let request = || ModelRequest {
+            deployment: DeploymentDescriptor {
+                schema_version: 1,
+                id: new_id(),
+                provider: "mlx".into(),
+                model_ref: "owner/model".into(),
+                endpoint: BackendKind::Mlx.default_endpoint().into(),
+                backend_options: Default::default(),
+                auth_ref: None,
+            },
+            messages: vec![pwr_domain::ChatMessage::text("user", "fixture")],
+            context_tokens: 4096,
+            tools: None,
+            seed: None,
+            sampling: Default::default(),
+        };
+        // Immediate drop makes ended and cancellation ready together: cancel must win.
+        for (index, phase) in ["stop", "abandon", "deadline", "raw"]
+            .into_iter()
+            .enumerate()
+        {
+            let cancel = pwr_provider::Cancel::new();
+            let mut stream = if phase == "raw" {
+                match &backend {
+                    RuntimeBackend::Mlx(provider, _) => provider.chat(request()).await.unwrap(),
+                    _ => unreachable!(),
+                }
+            } else {
+                backend
+                    .chat_cancellable(request(), cancel.clone())
+                    .await
+                    .unwrap()
+            };
+            match phase {
+                "stop" => {
+                    cancel.cancel();
+                    drop(stream);
+                }
+                "abandon" => {
+                    drop(stream);
+                    assert!(cancel.is_cancelled());
+                }
+                "raw" => {
+                    drop(stream);
+                }
+                _ => {
+                    let error = tokio::time::timeout(Duration::from_secs(2), stream.next())
+                        .await
+                        .expect("runtime ignored its configured deadline")
+                        .unwrap()
+                        .unwrap_err();
+                    assert!(matches!(error, ProviderError::Timeout { .. }), "{error}");
+                    assert!(cancel.is_cancelled());
+                    drop(stream);
+                }
+            }
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    let events: Vec<serde_json::Value> = std::fs::read_to_string(&log)
+                        .unwrap_or_default()
+                        .lines()
+                        .map(|line| serde_json::from_str(line).unwrap())
+                        .collect();
+                    let chat = events
+                        .iter()
+                        .filter(|event| event["op"] == "chat")
+                        .nth(index);
+                    if let Some(chat) = chat
+                        && events
+                            .iter()
+                            .any(|event| event["op"] == "cancel" && event["target"] == chat["id"])
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("managed worker received no cancel protocol");
+        }
+        backend.unload_model("owner/model").await.unwrap();
+        // A timeout during a partial pipe write must discard that protocol before reuse.
+        let blocked = dir.path().join("blocked_opening.py");
+        std::fs::write(&blocked, r#"
+import json, sys, time
+from pathlib import Path
+counter = Path(__file__).with_suffix('.count')
+boot = int(counter.read_text()) + 1 if counter.exists() else 1
+counter.write_text(str(boot))
+for line in sys.stdin:
+    request = json.loads(line)
+    if request['op'] == 'load':
+        print(json.dumps({'id': request['id'], 'event': 'loaded'}), flush=True)
+        if boot == 1:
+            time.sleep(30)
+    elif request['op'] == 'chat':
+        print(json.dumps({'id': request['id'], 'event': 'done', 'finish_reason': 'stop', 'usage': {}, 'timings': {}}), flush=True)
+    elif request['op'] == 'shutdown':
+        break
+"#).unwrap();
+        let provider = MlxProvider::new(MlxConfig {
+            python: MlxConfig::from_env().python,
+            sidecar: blocked.clone(),
+            models_root: dir.path().to_owned(),
+        });
+        let backend = RuntimeBackend::Mlx(provider, Duration::from_secs(2));
+        let mut large = request();
+        large.messages[0].content = "x".repeat(8 * 1024 * 1024);
+        let first = backend.chat(large).await;
+        assert!(
+            matches!(first, Err(ProviderError::Timeout { .. })),
+            "blocked opening did not time out"
+        );
+        let next = backend.chat(request()).await;
+        // Clean up even if the original broken pipe makes this second opening fail.
+        if let Ok(mut stream) = next {
+            assert!(stream.next().await.unwrap().unwrap().done);
+        } else {
+            let _ = tokio::time::timeout(
+                Duration::from_millis(100),
+                backend.unload_model("owner/model"),
+            )
+            .await;
+            panic!("opening cancellation left a partial pipe request that broke the next response");
+        }
+        backend.unload_model("owner/model").await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(blocked.with_extension("count")).unwrap(),
+            "2",
+            "an abandoned opening must restart the worker protocol"
+        );
+    }
 
     #[test]
     fn factory_resolves_the_engine_and_a_deployment_without_starting_it() {

@@ -1677,6 +1677,7 @@ name = "pwr-runtime"
 version = "0.2.0-alpha"
 dependencies = [
  "async-trait",
+ "futures-util",
  "pwr-compat",
  "pwr-domain",
  "pwr-llama",
@@ -1685,6 +1686,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "tempfile",
  "tokio",
 ]
 

@@ -575,9 +575,11 @@ async fn drive<H: SessionHost + ?Sized>(
         policy,
     } = request;
     let goal_mode = policy == Policy::Goal;
-    // A deadline covers the operation in progress, not just loop boundaries.
-    // Set the shared cancellation flag before dropping its future so the
-    // managed inference worker also sees cancellation.
+    let mut last_report: Option<TurnReport> = None;
+    // Stop interrupts checks/review here. A turn handles Stop cooperatively so
+    // it can return its transcript; dropping that future would lose its history.
+    // The Goal deadline can still abandon a turn, retaining its action checkpoint.
+    // Provider guards cancel abandoned opening futures and streams.
     macro_rules! bounded {
         ($operation:expr) => {
             bounded!($operation, false)
@@ -589,7 +591,22 @@ async fn drive<H: SessionHost + ?Sized>(
                     reached,
                 };
             }
-            match tokio::time::timeout(budget.remaining(), $operation).await {
+            let operation = tokio::select! {
+                biased;
+                () = converse::pressed(&stop), if !$running_turn => {
+                    let mut report = last_report.clone().unwrap_or(TurnReport {
+                        outcome: Default::default(), answer: String::new(), actions: 0,
+                        edited: false, completed: false, stopped: None, declined: false,
+                    });
+                    report.completed = false;
+                    report.stopped = Some(converse::StopReason::Interrupted);
+                    report.outcome.terminal = pwr_domain::TurnTerminal::Interrupted;
+                    report.outcome.checks = pwr_domain::ChecksOutcome::CouldNotRun { why: "Goal operation interrupted by the operator".into() };
+                    return SessionEnd::Reply { report, total_actions: budget.actions, goal: goal_mode, verification: None };
+                }
+                result = tokio::time::timeout(budget.remaining(), $operation) => result,
+            };
+            match operation {
                 Ok(value) if budget.started.elapsed() < budget.limits.wall => value,
                 _ => {
                     stop.store(true, Ordering::Relaxed);
@@ -710,6 +727,7 @@ async fn drive<H: SessionHost + ?Sized>(
                 };
             }
         };
+        last_report = Some(report.clone());
         total_actions = total_actions.saturating_add(report.actions);
         budget.actions = total_actions;
         messages = next_messages;
@@ -905,6 +923,18 @@ async fn drive<H: SessionHost + ?Sized>(
 /// What a goal says when the technical checks pass and there is nothing to
 /// verify the goal against.
 fn not_verified_note(verification: &GoalVerification) -> Option<String> {
+    if !verification.acceptance_available
+        && verification.failing.is_empty()
+        && matches!(
+            verification.checks,
+            Some(pwr_domain::ChecksOutcome::Unavailable { .. })
+        )
+    {
+        return Some(format!(
+            "Independent verification unavailable; the goal is not verified.\n{}",
+            verification.summary
+        ));
+    }
     (verification.technical_passed && !verification.acceptance_available).then(|| {
         format!(
             "Technical checks passed, but the goal is not verified because this workspace has no declared acceptance check.\n{}",
@@ -1022,6 +1052,47 @@ pub struct ClosingChecks {
     pub before: Option<pwr_verify::VerificationBaseline>,
 }
 
+/// Runs repository checks until the operator stops; None records interruption.
+pub async fn baseline_until_stopped(
+    policy: &pwr_tools::ToolPolicy,
+    checks: &[(String, Vec<String>)],
+    stop: &AtomicBool,
+) -> Option<Result<pwr_verify::VerificationBaseline, pwr_tools::ToolError>> {
+    tokio::select! {
+        biased;
+        () = converse::pressed(stop) => None,
+        result = pwr_verify::baseline(policy, checks) => Some(result),
+    }
+}
+
+/// Closing verification with the same operator Stop as the conversation.
+pub async fn close_turn_with_stop(
+    checks: ClosingChecks,
+    report: &mut TurnReport,
+    messages: &mut Vec<ChatMessage>,
+    steps: &mut dyn FnMut(TurnStep),
+    stop: &AtomicBool,
+) {
+    tokio::select! {
+        biased;
+        () = converse::pressed(stop) => {},
+        () = close_turn(checks, report, messages, steps) => return,
+    }
+    report.completed = false;
+    report.stopped = Some(converse::StopReason::Interrupted);
+    report.outcome.terminal = pwr_domain::TurnTerminal::Interrupted;
+    report.outcome.checks = pwr_domain::ChecksOutcome::CouldNotRun {
+        why: "verification interrupted by the operator".into(),
+    };
+    let verdict = "Independent verification interrupted at your request; changes are kept and remain unverified.";
+    report.answer = format!("{}\n\n{verdict}", report.answer.trim());
+    steps(TurnStep::Note(format!("– {verdict}")));
+    messages.push(ChatMessage {
+        purpose: Some(pwr_domain::MessagePurpose::VerificationFeedback),
+        ..ChatMessage::text("user", verdict)
+    });
+}
+
 /// Faces a turn that changed the workspace with the repository's own checks,
 /// and puts what they said into the answer, the model's next prompt and the
 /// turn's typed outcome.
@@ -1130,6 +1201,7 @@ pub async fn close_turn(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     /// The first passing verification asks once for a review against the
     /// request; a review that changes nothing ends the goal on it.
@@ -1507,6 +1579,230 @@ mod tests {
             sandbox: pwr_tools::SandboxPolicy::Disabled,
             approvals: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn stop_interrupts_baseline_and_closing_checks_without_claiming_completion() {
+        for closing in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let policy = closing_policy(dir.path());
+            let checks = vec![(
+                "sh".into(),
+                vec!["-c".into(), "touch started; sleep 30".into()],
+            )];
+            let stop = Arc::new(AtomicBool::new(false));
+            let signal = stop.clone();
+            let started = dir.path().join("started");
+            let stopping = tokio::spawn(async move {
+                while !started.exists() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                signal.store(true, Ordering::Relaxed);
+            });
+            let mut report = report(2, true);
+            report.edited = true;
+            let mut messages = vec![];
+            let mut notes = vec![];
+            tokio::time::timeout(Duration::from_secs(2), async {
+                if closing {
+                    close_turn_with_stop(
+                        ClosingChecks {
+                            policy,
+                            checks_before: checks.clone(),
+                            checks_after: checks,
+                            before: None,
+                        },
+                        &mut report,
+                        &mut messages,
+                        &mut |step| {
+                            if let TurnStep::Note(note) = step {
+                                notes.push(note);
+                            }
+                        },
+                        &stop,
+                    )
+                    .await;
+                    assert!(report.edited);
+                    assert_eq!(report.actions, 2);
+                    assert!(!report.completed);
+                    assert_eq!(report.stopped, Some(converse::StopReason::Interrupted));
+                    assert!(!report.outcome.verified());
+                    assert!(report.answer.contains("verification interrupted"));
+                    assert!(notes.iter().all(|note| !note.starts_with('✓')));
+                } else {
+                    assert!(
+                        baseline_until_stopped(&policy, &checks, &stop)
+                            .await
+                            .is_none()
+                    );
+                }
+            })
+            .await
+            .expect("Stop waited for a repository check to finish");
+            stopping.await.unwrap();
+        }
+    }
+
+    struct StopInGoalPhase {
+        phase: &'static str,
+        stop: Arc<AtomicBool>,
+        verifies: std::cell::Cell<usize>,
+    }
+    #[async_trait::async_trait(?Send)]
+    impl SessionHost for StopInGoalPhase {
+        async fn run_turn(
+            &self,
+            input: TurnInput,
+        ) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+            if self.phase == "turn" {
+                std::fs::write(input.root.join("lib.rs"), "edited before Stop").unwrap();
+                {
+                    let mut checkpoint = input.continuity.checkpoint.lock().unwrap();
+                    checkpoint.actions = 3;
+                    checkpoint
+                        .changed_files
+                        .insert("lib.rs".into(), "edited-hash".into());
+                }
+                self.stop.store(true, Ordering::Relaxed);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let mut stopped = report(3, false);
+                stopped.edited = true;
+                stopped.stopped = Some(converse::StopReason::Interrupted);
+                return Ok((stopped, input.messages));
+            }
+            let mut done = report(2, true);
+            done.edited = true;
+            Ok((done, input.messages))
+        }
+        async fn verify(
+            &self,
+        ) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+            let n = self.verifies.get();
+            self.verifies.set(n + 1);
+            if (self.phase == "baseline" && n == 0) || (self.phase == "verification" && n == 1) {
+                self.stop.store(true, Ordering::Relaxed);
+                std::future::pending::<()>().await;
+            }
+            Ok((
+                GoalVerification {
+                    passed: true,
+                    technical_passed: true,
+                    acceptance_available: true,
+                    ..Default::default()
+                },
+                BTreeMap::from([("lib.rs".into(), "hash".into())]),
+            ))
+        }
+        async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+            assert_eq!(self.phase, "review");
+            self.stop.store(true, Ordering::Relaxed);
+            std::future::pending().await
+        }
+        fn say(&self, _: &str) {}
+        fn keep_messages(&self, _: &[ChatMessage]) {}
+    }
+    #[tokio::test]
+    async fn stop_interrupts_goal_baseline_verification_and_review() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("lib.rs"), "pub fn value() -> u8 { 1 }").unwrap();
+        for phase in ["baseline", "verification", "review", "turn"] {
+            let mut input = request(Policy::Goal);
+            input.root = root.path().to_owned();
+            let host = StopInGoalPhase {
+                phase,
+                stop: input.stop.clone(),
+                verifies: Default::default(),
+            };
+            let result = tokio::time::timeout(
+                Duration::from_secs(1),
+                execute(&host, input, GoalLimits::default()),
+            )
+            .await
+            .expect("Stop did not interrupt a Goal phase");
+            match result.end {
+                SessionEnd::Reply {
+                    report,
+                    total_actions,
+                    verification,
+                    ..
+                } => {
+                    assert_eq!(report.stopped, Some(converse::StopReason::Interrupted));
+                    assert!(!report.completed);
+                    assert!(verification.is_none());
+                    assert_eq!(
+                        total_actions,
+                        match phase {
+                            "baseline" => 0,
+                            "turn" => 3,
+                            _ => 2,
+                        }
+                    );
+                    if phase == "turn" {
+                        assert_eq!(
+                            std::fs::read_to_string(root.path().join("lib.rs")).unwrap(),
+                            "edited before Stop"
+                        );
+                    }
+                    if phase != "baseline" {
+                        assert!(report.edited);
+                    }
+                }
+                _ => panic!("operator Stop was classified as a Goal budget or failure"),
+            }
+        }
+    }
+
+    struct TranscriptStop {
+        stop: Arc<AtomicBool>,
+        kept: Mutex<Vec<ChatMessage>>,
+    }
+    #[async_trait::async_trait(?Send)]
+    impl SessionHost for TranscriptStop {
+        async fn run_turn(
+            &self,
+            mut input: TurnInput,
+        ) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+            input.messages.push(ChatMessage::text(
+                "tool",
+                "edit receipt retained after Stop",
+            ));
+            self.stop.store(true, Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let mut stopped = report(1, false);
+            stopped.edited = true;
+            stopped.stopped = Some(converse::StopReason::Interrupted);
+            Ok((stopped, input.messages))
+        }
+        async fn verify(
+            &self,
+        ) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+            Ok((Default::default(), Default::default()))
+        }
+        async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+            unreachable!()
+        }
+        fn say(&self, _: &str) {}
+        fn keep_messages(&self, messages: &[ChatMessage]) {
+            *self.kept.lock().unwrap() = messages.to_vec();
+        }
+    }
+    #[tokio::test]
+    async fn goal_stop_retains_the_interrupted_turn_transcript() {
+        let input = request(Policy::Goal);
+        let host = TranscriptStop {
+            stop: input.stop.clone(),
+            kept: Default::default(),
+        };
+        let result = execute(&host, input, GoalLimits::default()).await;
+        assert!(matches!(result.end, SessionEnd::Reply { .. }));
+        assert!(
+            host.kept
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|message| message.content == "edit receipt retained after Stop"),
+            "outer Stop dropped the turn before its transcript was saved"
+        );
     }
 
     /// The one check the fixtures declare: green until a `broken` file exists.

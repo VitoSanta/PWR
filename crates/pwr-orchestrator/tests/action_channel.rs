@@ -1164,3 +1164,38 @@ fn file_content_sent_as_an_object_is_written_as_its_json() {
         other => panic!("wrong action: {other:?}"),
     }
 }
+
+#[test]
+fn completion_catalogs_do_not_promise_unavailable_independent_verification() {
+    let scripted = pwr_orchestrator::scripted_tool_catalog(false);
+    let conversation = pwr_orchestrator::converse::chat_tool_catalog();
+    for catalog in [&scripted, &conversation] {
+        let description = &catalog.get("complete").unwrap().description;
+        assert!(!description.contains("Accepted only if deterministic verification then passes"));
+        assert!(description.contains("unverified"), "{description}");
+    }
+    assert!(
+        conversation
+            .get("complete")
+            .unwrap()
+            .description
+            .contains("turn")
+    );
+}
+
+#[test]
+fn a_goal_catalog_requires_declared_acceptance_evidence_to_claim_verification() {
+    let catalog = pwr_orchestrator::converse::with_goal_verification(
+        pwr_orchestrator::converse::chat_tool_catalog(),
+    );
+    let description = &catalog.get("complete").unwrap().description;
+    assert!(description.contains("declared acceptance"));
+    assert!(description.contains("unverified"));
+    assert_eq!(
+        catalog.get("complete").unwrap().input_schema,
+        pwr_orchestrator::converse::chat_tool_catalog()
+            .get("complete")
+            .unwrap()
+            .input_schema
+    );
+}
