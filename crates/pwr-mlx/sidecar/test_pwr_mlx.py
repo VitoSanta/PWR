@@ -642,6 +642,46 @@ if __name__ == "__main__":
 
 
 class PrefillCancellation(unittest.TestCase):
+    def test_a_slow_model_gets_short_chunks_so_a_stop_is_seen_soon(self):
+        import time
+        import mlx.core as mx
+        import pwr_mlx
+        from pwr_mlx import Engine
+        from types import SimpleNamespace
+        engine = Engine.__new__(Engine)
+        engine.cache = [SimpleNamespace(state=mx.array([0]))]
+        engine.prefill_step = lambda offset: pwr_mlx.PREFILL_STEP
+        sizes = []
+
+        def slow(tokens, cache):
+            sizes.append(tokens.shape[1])
+            time.sleep(tokens.shape[1] * 0.002)  # 500 tokens a second
+        engine.model = slow
+        original = pwr_mlx.PREFILL_CHUNK_SECS
+        pwr_mlx.PREFILL_CHUNK_SECS = 0.3  # 150 tokens' worth: the floor, 256
+        try:
+            engine.prefill(list(range(2000)), 0)
+        finally:
+            pwr_mlx.PREFILL_CHUNK_SECS = original
+        self.assertEqual(sum(sizes), 2000)
+        self.assertEqual(sizes[0], pwr_mlx.PREFILL_FIRST_STEP)
+        self.assertTrue(all(size <= 256 for size in sizes[1:-1]), sizes)
+
+    def test_a_fast_model_is_let_run_in_big_chunks(self):
+        import mlx.core as mx
+        import pwr_mlx
+        from pwr_mlx import Engine
+        from types import SimpleNamespace
+        engine = Engine.__new__(Engine)
+        engine.cache = [SimpleNamespace(state=mx.array([0]))]
+        engine.prefill_step = lambda offset: pwr_mlx.PREFILL_STEP
+        sizes = []
+        engine.model = lambda tokens, cache: sizes.append(tokens.shape[1])
+        engine.prefill(list(range(20000)), 0)
+        self.assertEqual(sum(sizes), 20000)
+        self.assertEqual(sizes[0], pwr_mlx.PREFILL_FIRST_STEP)
+        self.assertGreater(max(sizes), pwr_mlx.PREFILL_FIRST_STEP)
+
     def test_stop_is_observed_between_chunks(self):
         import mlx.core as mx
         from pwr_mlx import Engine, PrefillCancelled

@@ -76,6 +76,7 @@ diagnostics and the graph are secondary (review §13).
 | "Engine busy: …" when a person waits behind a summary or a review | One generation at a time | W5.5 | open |
 | A gated model says it needs a token | Today a generic failure | W7.7 | open |
 | A warning before switching model in a long conversation (the new engine reads the whole prompt again: minutes) | Measured 2026-09-30, 32 minutes | — | open; only the progress line exists |
+| Feedback while a model switch waits for the engine (it queues behind a stopped generation; the picker looks dead) | Measured 2026-10-01 | W5.5 | open |
 | A setting for the per-turn action limit (`actions_per_turn`) | Today only in `.pwr/chat-config.json` | — | open |
 
 ## Tests

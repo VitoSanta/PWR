@@ -88,6 +88,16 @@ from mlx_lm.utils import load_tokenizer
 # LM Studio's on the same MLX build.
 PREFILL_STEP = 8192
 PREFILL_MIN_STEP = 256
+# A stop is seen between prefill chunks, so a chunk has to be short in *time*,
+# not only in tokens: a dense 31B model takes minutes over one 8,192-token
+# chunk, and Stop, a model switch and everything else waited behind it with
+# nothing on screen (2026-10-01, measured in the app: Stop at 17:41:52, the
+# engine free at about 17:44:40). The first chunk is small; after it the chunk
+# is as many tokens as take about this long at the speed just measured. Smaller
+# chunks cost nothing measurable (Gemma 4 12B, 4,976 tokens: 25.0 s at 1,024,
+# 25-27 s at 8,192).
+PREFILL_CHUNK_SECS = 3.0
+PREFILL_FIRST_STEP = 512
 # Attention scores are held in the activation dtype (bf16 or fp16).
 SCORE_BYTES = 2
 # A generation that keeps writing the same passage is stopped rather than left
@@ -634,6 +644,7 @@ class Engine:
         path = pathlib.Path(request["path"]).expanduser()
         config = json.loads((path / "config.json").read_text())
         self.model = self.tokenizer = self.processor = None
+        self.chunk_limit = PREFILL_FIRST_STEP
         mx.clear_cache()
         if "vision_config" in config and vlm_available():
             from mlx_vlm import load as load_vision
@@ -741,10 +752,17 @@ class Engine:
             if cancelled():
                 raise PrefillCancelled()
             progress(start, len(tokens))
-            step = self.prefill_step(offset + start)
-            self.model(mx.array(tokens[start:start + step])[None], cache=self.cache)
+            step = min(self.prefill_step(offset + start),
+                       getattr(self, "chunk_limit", PREFILL_FIRST_STEP))
+            chunk = tokens[start:start + step]
+            began = time.perf_counter()
+            self.model(mx.array(chunk)[None], cache=self.cache)
             mx.eval([c.state for c in self.cache])
-            start += step
+            took = time.perf_counter() - began
+            if took > 0:
+                fitting = int(len(chunk) / took * PREFILL_CHUNK_SECS) // 256 * 256
+                self.chunk_limit = max(PREFILL_MIN_STEP, min(PREFILL_STEP, fitting))
+            start += len(chunk)
         progress(len(tokens), len(tokens))
         mx.clear_cache()
 
