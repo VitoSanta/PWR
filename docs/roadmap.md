@@ -1,6 +1,6 @@
 # Roadmap
 
-**As of 2026-10-01.** The order of work, in the review's phases. The detail
+**As of 2026-10-01.** The order of work under the mission adopted on 2026-10-01. The detail
 of every item — problem, evidence, change, acceptance, tests — is in the
 [implementation plan](plan/implementation-plan.md); this page is the summary a
 reader needs first. The roadmap before this date, with its reconciliations and
@@ -11,14 +11,14 @@ release plans, is in the [archive](archive/roadmap.md).
 - **Released:** v0.2.0-alpha (2026-09-28), macOS on Apple silicon, as a
   prerelease. Fixes since then are on `develop` and recorded in
   [release/v0.2.x-mac-verification.md](release/v0.2.x-mac-verification.md).
-- **On `develop`, not released and not pushed:** 49 commits since the
+- **On `develop`, not released and not pushed:** local commits since the
   documentation baseline (`0776ff4f`): most of gate G1, the session executor, and
   the model-compatibility and recovery work of 2026-10-01 (adapters for the
   Mistral, Liquid and Granite families and a Qwen3-Coder format, tool-call ids
   for Gemma, a sampling floor, a clean start after collapsed replies…).
-- **Verified today (local only, no CI run since 2026-09-30):** Rust 1,364
-  passed / 5 ignored, desktop 107, sidecar 39; all 22 models installed on the
-  maintainer's Mac pass the critical Quick Calibration checks.
+- **MEASURED local checks at `ae1e36c1` plus preexisting safety changes:** Rust
+  1,372 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41;
+  formatting, Clippy and desktop build pass. No new CI or live-model check.
 - **Unproven:** that the harness makes a small model resolve more tasks than a
   simple loop. Development runs on the app's path (2026-10-01) show a signal on
   one deployment (3/8 → 6/8, one trial) and clear failures on hard tasks; no
@@ -33,9 +33,9 @@ release plans, is in the [archive](archive/roadmap.md).
 | Milestone | Status | Evidence recorded | What remains before advancement |
 |---|---|---|---|
 | G0 Documents match the code | **passed 2026-09-30** | Documentation rewritten from the code at 0776ff4f (plan W0.1); every claim of the 2026-09-30 review verified (docs/reviews/2026-09-30-verification.md); older documents archived whole. | Keep it true: a change that alters described behaviour updates the document in the same commit. |
-| G1 Effects are safe and honestly reported | **in progress: implemented on develop, CI not run** | Implemented on develop with regression tests (not pushed, CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, a goal budget on every branch, acceptance artifacts frozen, the objective kept whole in compaction, marks that follow verdicts, zero-test signatures for six toolchains, failure fingerprints. Local suites on 2026-10-01: Rust 1,364 passed / 5 ignored, desktop 107, sidecar 39. Still open: W3.2 (CI proposals), W3.4 (the `complete` promise), W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated). | A push and a green CI run on macOS (the first since 2026-09-30); the native-app walk; the open items above. |
+| G1 Effects are safe and honestly reported | **in progress: implemented on develop, CI not run** | Implemented on develop with regression tests (not pushed, CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, a goal budget on every branch, acceptance artifacts frozen, the objective kept whole in compaction, marks that follow verdicts, zero-test signatures for six toolchains, failure fingerprints. Local suites on 2026-10-01: Rust 1,372 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41; logs in docs/reviews/2026-10-01-audit.md. Still open: W3.2 (CI proposals), W3.4 (the `complete` promise), W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated). | A push and a green CI run on macOS (the first since 2026-09-30); the native-app walk; the open items above. |
 | G2 One execution path | **in progress: the app, the console and Goal mode share one executor; the evaluator does not** | `executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol. | W2.4: `EvalHost` so `eval run` calls the executor, the `legacy` arm for older campaigns, `pwr run` as a thin call; W2.1 for the scripted runner's result; the parity test lists no undeclared difference. |
-| G3 The decision on the adaptive layer | **not started** | None on the product path. | W8.3 simple loop defined; W8.4 preregistered and run on a 9B and a 14B deployment with new tasks; the decision rule applied and recorded in docs/decisions.md. |
+| G3 All-tier mission exit before Windows | **not started** | PLANNED under the owner-approved contract of 2026-10-01 (D-2026-10-01-2). No product-path confirmatory comparison or all-tier baseline exists. | W8.3 same-engine simple loop; W2.4/G2 parity; initial S/M/L/XL baseline and prospective power; owner-approved numerical thresholds; frozen W8.4/F6 against the simple loop and at least two eligible competitors per tier, with all capacity, daily-use, lightness, reliability and audit criteria satisfied; W8.5 publish evidence. |
 
 Campaign evidence: no campaign has measured the current product path against a baseline. The last paired comparison (R2 rerun, 2026-09-15, scripted loop) found no uplift on one deployment (11/30 vs 11/30) and an unconfirmed one on another (18 vs 13, p = 0.227). On the app's own path (stack matrix, 2026-10-01, development runs, one trial per task) Qwen3.6-35B-A3B went from 3/8 to 6/8 `dev` tasks after the review round also ran without a declared acceptance check: a signal, not a result; no `heldout` task has been run on the current harness (docs/evaluation.md). All of it stays on the maintainer's machine under experiments/ and ~/Desktop/pwr-evidence/.
 <!-- /generated:milestones -->
@@ -76,20 +76,26 @@ Gate **G1** closes this phase: it needs a push and a green CI run.
 | W9.2, W9.3 | Locked engine environment; licence inventory | | open; newer MLX releases exist, see [distribution.md](distribution.md) |
 | W10.1, W10.2, W10.4 | Selection/certification audit; a simpler wiki; god functions split along their decisions | | open |
 
-Gate **G2** comes before the campaign; gate **G3** is its decision.
+Gate **G2** comes before confirmation; **G3** is the owner-approved all-tier
+F6 exit criterion, not the former two-deployment decision. F1/F2 audit/research
+and F3 infrastructure proceed together; correctness fixes do not wait for G3.
 
-## LATER — only what the decision supports
+## LATER — measured extensions and Windows after the exit criterion
 
-Semantic retrieval and evidence-state compaction if they beat the simple
-alternatives; a complete llama.cpp path and then a second operating system
-(Windows) with its own command isolation; vision for selected UI tasks with an
-independent browser check; documentation retrieval and KV-cache quantization
-experiments; a desktop end-to-end test; notarization.
+**PLANNED:** stable extension/permission interface, then web, documents, data,
+browser, vision, memory, exploration subagents and background/computer work
+only with objective task sets, threat models and measured value. Core token and
+memory costs stay bounded. Runtime/context optimization hypotheses remain
+subject to controlled comparisons, not blanket prohibition.
+
+**PLANNED Windows:** persistent llama.cpp, cancellation/cache/template parity,
+CUDA/Vulkan, command isolation, CI and real GPU testing only after G3/F6.
+Core engine/sandbox interfaces remain portable now.
 
 ## NOT NOW
 
-Multi-agent execution, automatic model routing, a richer 3D graph, universal
-memory, critic/consensus calls, a general browser or computer agent, a
-marketplace, Windows/Linux parity now, a new PDF/OCR stack, maximum-context
-optimisation, a full certification system, enterprise features. Reasons in
-[decisions.md](decisions.md#d-2026-09-30-3--what-is-not-built-now).
+Automatic routing, richer 3D graphs, a marketplace, new PDF/OCR stack, enterprise
+features and broad certification without evidence. No cloud-inference dependency,
+no Windows implementation before the exit gate, no maximum-context target without
+quality/latency measures. D-2026-10-01-2 supersedes the previous blanket exclusions
+only within the new mission's measurement and permission requirements.

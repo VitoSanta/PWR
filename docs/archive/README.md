@@ -1,6 +1,6 @@
 # Archive
 
-Documents superseded on 2026-09-30, when the documentation was rewritten from
+Documents superseded from 2026-09-30, when the documentation was rewritten from
 the code (decision D-2026-09-30-5). They are kept whole, as evidence of how the
 design was reasoned about. **None of them describes the current system**:
 several contradict it (see the [verification](../reviews/2026-09-30-verification.md),
@@ -8,6 +8,7 @@ N7 and 9.4). Their own internal links point to where the files used to be.
 
 | Archived | What it was | Replaced by |
 |---|---|---|
+| [MASTER_SPEC-2026-09-30.md](MASTER_SPEC-2026-09-30.md) | The bounded local coding contract of 2026-09-30 | [MASTER_SPEC](../../MASTER_SPEC.md), adopted 2026-10-01 (D-2026-10-01-2) |
 | [MASTER_SPEC-2026-09-12.md](MASTER_SPEC-2026-09-12.md) | The project and research contract of 2026-09-12 | [MASTER_SPEC](../../MASTER_SPEC.md) |
 | [PWR_PRODUCT_SOURCE_OF_TRUTH.md](PWR_PRODUCT_SOURCE_OF_TRUTH.md) | Feature-by-feature account compiled for v0.1.0 (2026-09-24) | [feature-status](../feature-status.md) and the technical documents |
 | [roadmap.md](roadmap.md) | Research roadmap, reconciliations and release plans to 2026-09-28 | [roadmap](../roadmap.md), [plan](../plan/implementation-plan.md) |

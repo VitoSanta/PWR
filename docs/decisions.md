@@ -8,6 +8,47 @@ still holds it is restated here.
 
 ---
 
+## D-2026-10-01-2 — Mission expansion and Windows exit gate
+
+**Decision, approved 2026-10-01.** The owner accepted the F0 proposal and
+authorized continuation ("ok procedi"). The [mission contract](../MASTER_SPEC.md)
+sets the destination to the reference harness for local open-weight models,
+with coding across S/M/L/XL tiers and objectively measured extensions through
+a stable permission boundary. It does not assert current frontier-level
+capability or approve any particular adaptive mechanism.
+
+**Supersessions adopted with this decision:**
+
+- D-2026-09-30-1: widen the destination beyond bounded 9B/14B repository work;
+  retain inspectable effects, independent checks and controlled simplicity.
+- D-2026-09-30-2: F1/F2 research and F3 measurement infrastructure overlap;
+  correctness fixes proceed with failing tests, while claims and confirmation
+  still require the product executor and G1/G2 evidence. G3/W8.4's old
+  two-deployment decision is insufficient for the new all-tier exit gate.
+- D-2026-09-30-3: reopen extension interfaces, memory, exploration subagents,
+  context/cache and inference optimization as hypotheses requiring objective
+  tasks, threat models and controlled cost/benefit evidence. This does not
+  authorize a marketplace, automatic routing or a new PDF stack by default.
+- D-2026-09-30-4: Windows waits for the new F6 all-tier exit criterion, with
+  owner-approved numerical thresholds after the initial baseline, rather
+  than merely the former G3 decision. Portable core interfaces continue now.
+- D-2026-10-01-1 §5: clarify that a gate-directed push to `develop` may trigger
+  CI; CI green is required to claim the gate, not before dispatching CI. No
+  release is authorized by this amendment.
+
+**Basis.** The owner's mission mandate of 2026-10-01 changes the intended
+destination and sequencing. The [initial audit](reviews/2026-10-01-audit.md)
+checks current executor divergence, context errors and evidence limitations;
+it is not a measured argument that expanding scope improves performance.
+The old decisions remain preserved below. No implementation/default change,
+download, campaign, gate completion or release follows from contract adoption.
+
+**Adoption evidence.** The former MASTER_SPEC is preserved in the archive;
+the detailed plan retains W IDs and expands G3/W8.4 to the all-tier exit gate.
+G1/G2 remain unpassed. Local checks are recorded in the initial audit; no
+remote CI or capability campaign ran. Other sessions' uncommitted code and
+research changes remain outside this mission commit.
+
 ## D-2026-10-01-1 — A compatibility verdict is about PWR's reading as much as the model; campaigns run one model at a time
 
 **Decision.** From the day's direct tests on the maintainer's Mac:

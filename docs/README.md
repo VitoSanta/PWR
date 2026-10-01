@@ -39,6 +39,9 @@ whole, in the [archive](archive/README.md).
 | Document | Covers |
 |---|---|
 | [Evaluation](evaluation.md) | The measuring machinery, what has been measured, rules for a claim |
+| [Mission status](plan/mission-status.md) | Current cycle, evidence, next step and owner stops; F0 adopted 2026-10-01 |
+| [Initial mission audit](reviews/2026-10-01-audit.md) | Reproduced local checks, verified findings and unexamined F1 coverage |
+| [Competitor sources](research/competitors.md) | Partial F2 source/revision/license survey; no matched capability comparison |
 | [Experiment log](experiment-log.md) | Dated experiments and measurement-changing changes |
 | [Testing](testing.md) | Suites, CI, what "passed" means, manual passes |
 | [Distribution](distribution.md) | Building, releasing, reproducibility gaps |

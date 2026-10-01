@@ -18,6 +18,111 @@ Everything before the benchmark (W8) exists to make that answer trustworthy
 and the product safe to use while it is being found. Everything after it
 depends on the answer.
 
+## Mission overlay — adopted 2026-10-01
+
+**Adopted through D-2026-10-01-2.** The owner approved the broader
+[mission contract](../../MASTER_SPEC.md). G1/G2 still require their evidence;
+G3 now means the all-tier F6 exit criterion. No item becomes DONE from local
+implementation alone. F1/F2 have begun with the
+[initial audit](../reviews/2026-10-01-audit.md) and
+[partial source survey](../research/competitors.md). Cycle state is in
+[mission-status.md](mission-status.md).
+
+The phases map to existing work without dropping W IDs:
+
+| Mission phase | Existing plan / remaining adaptation |
+|---|---|
+| F0/F1 | W0–W7, W9.3, W10; add the verified context/sampling/bound findings below; complete all-subsystem audit and baseline |
+| F2 | Research sources inform this plan's hypotheses, with impact/confidence/cost estimates; no new standalone backlog |
+| F3 | W2.1/W2.4 parity; W8.1/W8.2 accounting; W8.3 same-engine minimal control; add exclusive engine lease, endpoint tests and full provenance |
+| F4 | W4.7/W8.6 and ranked dev hypotheses; defaults stay unchanged until initial dev/performance baseline |
+| F5 | Existing Later items reopen only as measured extensions with stable permissions/interface; each needs objective task verification |
+| F6 | W8.4/W8.5 expand to S/M/L/XL, simple loop and >=2 competitors, power-driven corpus, owner-approved exit thresholds; old 30-task/3-seed floor is not a power analysis |
+| F7 | Existing Windows Later work starts only after the new approved all-tier exit criterion; core portability continues |
+
+New work items, each **PLANNED** until acceptance evidence holds. The source finding
+is verified where stated; acceptance evidence remains open.
+
+### W4.8 Context grant, physical fit and compaction stop semantics
+
+- **Problem/evidence.** A01–A03 in the audit: `prepare_context` errors become
+  granted windows (`main.rs:941`, `converse.rs:1708`); objective fit uses policy
+  threshold/ceiling (`converse.rs:1234`); two compactions become `Looping`.
+- **Design.** Preserve the previous observed grant or explicitly fail on
+  preparation errors. Separate physical prompt/output capacity from the policy
+  trigger; budget exhaustion must not assert repeated model behavior. Simpler
+  alternative: explicit backend/budget stop, no new adaptive recovery.
+- **Tests before fixes.** Fake provider preparation failure; objective over
+  trigger but within physical window; required prompt really too large; three
+  productive compactions. Error-path invariant: zero invented grants and no
+  generation after an unsafe preparation error. No capability/default claim.
+- **Done when.** Product and migrated eval use identical semantics, new
+  regressions and local suites pass, documents state the actual bound.
+
+### W5.6 Conservative sampling recommendations with explicit mode
+
+- **Problem/evidence.** A05; pure probe accepts benchmark/fence recipes and
+  chooses thinking without active mode (`sampling.rs:339`).
+- **Design.** Restrict recommendation candidates to explicit sampling sections
+  and matching declared mode; ambiguity stays absent. Compare against the
+  simpler artifact-only fallback. Source inputs remain data, not instructions.
+- **Tests before fix.** Benchmark recipe, prose coding, next-line fence,
+  HTML formatting, conflicting modes with off/on/unknown active mode. Zero
+  excluded-source acceptance; preserve legitimate explicit recommendations.
+- **Done when.** Provenance/cache migration and actual active-mode callers are
+  tested; local suites pass. No new floor/default choice before baseline.
+
+### W1.10 Bound ordinary conversations across turns
+
+- **Problem/evidence.** A06; ordinary `turn.await` lacks the Goal deadline
+  (`executor.rs:702`) while 100 is only a per-turn action cap.
+- **Design hypothesis.** Shared wall/time/token/recovery budget with explicit
+  Stop/steering/reset semantics. Simpler control: per-turn deadline plus existing
+  action bound. Choose the policy only after initial usage measurements.
+- **Tests.** Mixed productive/retry turns exhaust exactly the declared budget;
+  baseline, tools and generation respect cancellation; ordinary chat behavior
+  is tested without falsely applying Goal acceptance semantics.
+- **Metrics/reject rule.** Zero operations begun after deadline/allowance
+  exhaustion; dev completion/cost comparison before fixing a new default.
+  Reject additional policy complexity if the simpler deadline provides equal
+  bounds and results. Numerical usage thresholds remain pending baseline.
+
+### W5.7 Stable prefix and cache instrumentation
+
+**HYPOTHESIS, initial priority medium; impact medium / confidence medium /
+cost medium (estimates).** Measure current rendered prefix/reuse before changing
+it. Compare identical app sessions with current vs preserved-prefix rendering;
+record warm TTFT, cached fraction, peak memory and correctness. Provisional dev
+rejection: <10% median warm-TTFT improvement or preregistered correctness/memory
+regression. Control/source: current cache path and opened mlx-lm/llama docs in
+the source survey. Changes need meaningful cache/prefix/cancellation fixtures.
+
+### W4.9 Capped ranked repository map
+
+**HYPOTHESIS, priority below correctness/parity; impact medium / confidence
+low–medium / cost medium (estimates).** Compare current retrieval/exploration
+against a fixed candidate symbol map capped initially at 1k tokens. Source:
+opened Aider map docs, not an assumed PWR gain. Provisional screening rejection:
+<10% fewer median exploration calls, >5% extra total time/tokens, or success
+regression. Use power/paired intervals before a capability decision. Simpler
+control is the current search/windowed-read tools. Ranking/cap must have
+behavioral fixtures; no model-specific hardcoded map.
+
+### W2.8 Declarative edit-format comparison by tier
+
+**HYPOTHESIS, priority below correctness/parity; impact medium / confidence
+low–medium / cost medium (estimates).** Current edit tools versus declared
+SEARCH/REPLACE/whole alternatives on paired dev tasks. Source: opened Aider
+format docs; OpenCode's inspected normalization illustrates a separate policy,
+not permission to weaken version guards. Measure invalid-edit rate, accepted
+task outcomes and emitted tokens. Provisional screening rejection: <20% relative
+invalid-edit reduction, success regression or >5% extra task time; specify
+zero-denominator handling before running. Use meaningful version/ambiguity/edit
+fixtures; retain the simpler current interface without evidence.
+
+No candidate above authorizes a campaign before the baseline/power/provenance
+requirements. F0 owner approval adopted scope, not the numerical F6 thresholds.
+
 ## How to read this plan
 
 Each work item has an ID (`W<stream>.<n>`), a status, and these parts:
@@ -64,7 +169,7 @@ LATER  only what G3 justifies (see Later)
 |---|---|---|
 | **G1 — effects** | W0.2, W1.1–W1.6, W1.9, W2.2, W3.1 and W4.1 are done; every P1 of the review has a regression test; the Rust, desktop and sidecar suites are green on CI with skips reported, not hidden | No new capability work starts. A release may ship fixes only. |
 | **G2 — one path** | W2.1, W2.3, W2.4 are done; `eval run` measures the executor the app uses; the parity test lists no behaviour present in one entry point and absent in another except the declared B0/B2 controls | The benchmark is not run: it would measure a path the product does not ship. |
-| **G3 — the decision** | W8.4's confirmatory campaign has run under its preregistration | See [the decision rule](#w84-the-confirmatory-campaign). |
+| **G3 — all-tier exit before Windows** | W8.4/F6 meets the owner-approved all-tier capacity, daily-use, lightness, reliability and audit criteria under preregistration | Record negative/inconclusive evidence; improve or propose an evidenced revision. Windows stays deferred. |
 
 A gate is recorded as passed in [roadmap.md](../roadmap.md) and
 [milestones.json](../milestones.json) with the commit and the evidence.
@@ -1010,40 +1115,43 @@ The review's fourth "build next", and the reason for the order above.
 
 ### W8.4 The confirmatory campaign
 
-**Status:** NEXT · L (after G2)
+**Status:** NEXT · L (after G1/G2 and initial baseline). Expanded on 2026-10-01
+by D-2026-10-01-2; the former 9B/14B question remains a subset, not the exit gate.
 
-- **Question.** On the runtime the app ships, does a 9B and a 14B model with
-  PWR beat the simple loop on new tasks at equal budget, without more false
-  acceptance or human interventions?
-- **Deployments.** One ~9B and one ~14B MLX deployment, chosen and pinned
-  (artifact digest, quantization, engine version) in the preregistration.
-  Candidates from the 2026-09-29/30 campaigns: Ornith-1.5-9B, Qwen3-14B.
-  Same Mac, same window, same reasoning effort for both arms.
-- **Tasks.** New tasks never used in development: bounded repository changes
-  (diagnosis and repair, small features, limited refactors) in existing
-  repositories, each with a hidden verifier and a reference solution, split
-  from the stack matrix's held-out set plus new ones. At least 30 tasks, at
-  least 3 seeds each.
-- **Measures.** Hidden-verifier success on the first cycle (primary); success
-  with interventions and their count; false acceptance (the agent or PWR says
-  done/verified, the hidden verifier fails); wall-clock and generated tokens
-  per task; accepted tasks per hour.
-- **Analysis.** Paired by task and seed; absolute uplift in percentage points
-  with a confidence interval over tasks; per-deployment, never pooled.
-- **Preregistration.** Deployments, tasks, seeds, budgets, thresholds and
-  this decision rule are committed before the first trial, in
-  `docs/thresholds.json` (a new dated amendment) and the experiment log.
-- **Decision rule.**
-  - PWR's primary success beats the simple loop by the preregistered margin on
-    at least one of the two deployments and does not lose on the other, with
-    no more false acceptance → the harness's adaptive mechanisms stay, and
-    each is then ablated (W8.6).
-  - Otherwise → the adaptive layer is cut back to what the executor needs to be
-    safe and honest (effects, verification, outcome, budgets); retrieval
-    heuristics, framework guidance, evidence-state compaction, calibration-driven
-    strategy and other adaptive parts are removed or moved behind experiment
-    switches, and the product is positioned as a dependable local agent without
-    the claim of compensation.
+- **Question.** On the app executor, does PWR meet the approved all-tier exit
+  criterion against a minimal loop and at least two eligible competitors?
+- **Deployments.** S/M/L/XL, at least two current families each; artifact/revision,
+  quantization, engine, actual window, sampling/provenance and reasoning mode
+  pinned. Compare identical deployments across harnesses; document unequal
+  endpoint/template/runtime factors. XL fit is measured, not assumed.
+- **Tasks/trials.** Prospectively power the campaign for the smallest relevant
+  difference before choosing corpus size and repetitions. No fixed 30-task/3-seed
+  floor substitutes for power. Hash-frozen dev/heldout split; current heldout
+  is not inspected or used to tune. Include varied languages, bugs/features/
+  refactors/new projects and long/resumed sessions with hidden verification.
+- **Controls.** W8.3 minimal same-engine loop; at least two competitors with
+  verified endpoint/streaming/tool support. Arm differences declared explicitly.
+- **Measures.** Unattended first-cycle hidden success, unbiased repeated-trial
+  pass@1 and between-trial variance, false verification and effect-boundary
+  violations; warm TTFT, task time/tokens, interventions, prefix cache fraction,
+  harness tokens, engine peak, app/core RSS and idle CPU. Nudged results separate.
+- **Analysis.** Paired task outcomes: exact McNemar or task-paired bootstrap,
+  Wilson proportion intervals, Holm across multiple comparisons. Effects with
+  intervals and costs; repeated seeds are not independent tasks.
+- **Preregistration.** Commit binary/sidecar/model/task/verifier identities,
+  power assumptions, budget, seeds, exclusions, metrics, analysis and numerical
+  thresholds before F6. Owner approves the thresholds after the initial baseline.
+  Existing build-included thresholds stay in place; amend through their dated
+  process when needed. Heldout runs once per configuration.
+- **Decision rule.** Every tier non-inferior within the approved margin to the
+  minimal loop and two best eligible competitors; significant superiority in
+  S/M/L; approved daily-use/lightness bounds; zero observed false verified
+  results or out-of-sandbox effects; CI/local suites green with skips explicit;
+  F1 closed or remaining risks accepted in writing, no known dead code.
+  All conditions must hold before Windows. Otherwise retain negative evidence,
+  improve or propose an evidenced owner-approved revision; do not declare success.
+  A mechanism that fails its controlled comparison is removed under the visible
+  feature-removal approval rule, with its result recorded.
 
 ### W8.5 Publish the evidence
 
@@ -1153,29 +1261,29 @@ not by size.
 
 ## Later
 
-Only after G3, and only what its answer supports:
+**PLANNED under D-2026-10-01-2:** F4 candidates (semantic retrieval, factual
+compaction, stable KV prefix, ranked maps, speculative decoding and KV
+quantization) need baseline and controlled evidence. F5 starts with stable
+extensions/permissions before web, documents, data, browser, vision, memory,
+exploration subagents, background tasks and computer use; each needs objective
+verifiers and a threat model. Research may proceed alongside F1/F3; capability
+implementation remains bounded by G1 and measurement prerequisites.
 
-- Semantic retrieval and evidence-state compaction, if they beat the simple
-  alternatives under W8's protocol (W4.7).
-- A complete llama.cpp path: a server kept alive across turns (old R.4),
-  W5.4, then a second operating system with its own command isolation (old
-  E.1, E.2, E.4). Windows was the v0.3.0 plan's main item; it moves here
-  (decision D-2026-09-30-4).
-- Vision for selected UI tasks, with an independent browser acceptance check,
-  not screenshots that merely succeed (`look_at` stays experimental).
-- Versioned documentation retrieval and KV-cache quantization (old C.22c),
-  as experiments against fixed baselines.
-- A desktop end-to-end test (W7.6), notarization (W9.4).
+A complete persistent llama.cpp engine and Windows command isolation/installer
+(old E.1/E.2/E.4) are F7, after the all-tier G3/F6 exit criterion. Keep portable
+engine/sandbox interfaces now. W7.6 desktop end-to-end tests and W9.4 notarization
+retain their IDs and acceptance requirements.
 
 ## Not now
 
-Decided in [decisions.md](../decisions.md) (D-2026-09-30-3): multi-agent
-execution; automatic model routing (old C.23); a richer 3D knowledge graph;
-generalised semantic memory; critic/consensus with extra calls; a general
-browser or computer agent; a plugin/MCP marketplace; Windows/Linux parity now;
-a new PDF/OCR stack; optimising for the maximum context; a full certification
-system; enterprise audit features. Each can be reopened by a dated decision
-citing new evidence.
+D-2026-10-01-2 supersedes D-2026-09-30-3 only within the approved measured mission.
+Automatic routing (C.23), richer 3D graphs, a marketplace, new PDF/OCR stack,
+enterprise features and certification without evidence remain deferred.
+No Windows implementation before the all-tier exit gate, maximum-context target
+without quality/latency evidence, or cloud inference without owner decision.
+The carry-over tables retain old IDs; where their former disposition conflicts
+with this section, this adopted mission controls and the old disposition is
+historical evidence, not an active prohibition.
 
 ---
 
@@ -1189,13 +1297,13 @@ citing new evidence.
 | Graphical bugs from the manual walk | W7.5 |
 | .NET installed per user; `look_at` on GitHub's runners | Done 2026-09-29 (`docs/release/v0.2.x-mac-verification.md`) |
 | llama.cpp kept alive across turns (R.4) | Later |
-| Command isolation on Windows; Windows installer and parity | Later (decision D-2026-09-30-4) |
+| Command isolation on Windows; Windows installer and parity | F7 after all-tier G3/F6 (D-2026-10-01-2) |
 | Agent-mode model matrix | W8.7 |
 | Stress tests | W8.7 |
 | Repeated campaigns (pass@k) | W8.4 (seeds), W8.7 |
 | Architecture review from stress results; scripted vs conversation divergence | W2.3, W2.4 |
 | Release gate: CI green without CI-only skips; stress suite; manual walk; model matrix; known limits | G1, W0.2, W7.5, W8.7, W9.1 |
-| After 0.3: C.22b, C.22c, MoE expert-routing experiment, speculative decoding, public evidence site | Later (C.22b/C.22c); MoE routing and speculative decoding: not now, no evidence yet that inference speed is the binding constraint for the benchmark; public evidence: W8.5 |
+| After 0.3: C.22b, C.22c, MoE expert-routing experiment, speculative decoding, public evidence site | F4 hypotheses (C.22b/C.22c/speculative decoding), controlled baseline required; MoE routing remains deferred; public evidence: W8.5 |
 
 ### Still open from the small-model campaigns (2026-09-29/30)
 

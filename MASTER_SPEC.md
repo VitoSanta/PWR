@@ -1,99 +1,190 @@
 # PWR: product and research contract
 
-**Adopted 2026-09-30**, replacing the contract of 2026-09-12
-([archived](docs/archive/MASTER_SPEC-2026-09-12.md)). It follows the
-[technical review of 2026-09-30](docs/reviews/2026-09-30-technical-review.md),
-whose claims were checked against the code before it was adopted
-([verification](docs/reviews/2026-09-30-verification.md)). This contract
-states what PWR is for, what it promises, and how a claim about it is allowed
-to be made. It does not describe the code; the [documentation index](docs/README.md)
-does, and says against which revision.
+**Adopted 2026-10-01**, approved by the owner after F0 review. Replaces the
+[2026-09-30 contract](docs/archive/MASTER_SPEC-2026-09-30.md) through
+[D-2026-10-01-2](docs/decisions.md#d-2026-10-01-2--mission-expansion-and-windows-exit-gate).
+This is the mission and evidence contract; it does not claim that its
+PLANNED destination has been implemented or measured.
 
-## What PWR is
+## Mission and product boundary
 
-> **PWR is a dependable local coding agent for Apple-silicon developers,
-> optimised for bounded repository changes with inspectable effects and
-> independent checks. Its harness removes mechanical work and execution errors
-> from small and medium models, and keeps adaptive mechanisms only where
-> controlled evaluations show a practical benefit.**
+Build the reference local agent harness for open-weight models on consumer
+hardware, approaching the experience and objectively verified results of
+frontier harnesses. This is the owner's destination, **not a capability claim**.
+Claude Code, Codex CLI and Cursor are comparison references, not runtime
+dependencies. PWR remains local, with no cloud inference unless the owner
+explicitly changes that boundary.
 
-| | |
+Coding is the core: bugs, features, refactors, new projects, long sessions and
+resumption in real repositories. Broader capabilities enter through a stable
+extension interface, with capability-specific permissions and objective task
+verifiers. Research, documents, data, browser, vision, memory, subagents,
+background work and computer use are **PLANNED directions**, not promises that
+the current product implements them. Load optional tool descriptions on demand;
+measure their token cost and do not hardwire each integration into the core.
+
+Start with Apple silicon and the owner's M2 Max with 64 GB unified memory.
+Keep engine and sandbox interfaces portable. Build Windows only after the
+exit criterion below passes, or after an explicit, evidenced revision approved
+by the owner. No claim of Windows command confinement before implementation
+and real hardware tests.
+
+## Claims, design and effects
+
+Use the [evidence vocabulary](#evidence-vocabulary) for every system-state
+claim: IMPLEMENTED, EXPERIMENTAL, PLANNED, HYPOTHESIS, MEASURED, or `unknown`.
+Recheck earlier documents, tests and reports against the current code and
+artifacts. A reachable implementation, a green test and a model calibration
+are distinct from measured agent competence.
+
+Every design choice cites an opened primary source or a repository measure.
+Without one, record a falsifiable hypothesis with a control, metric, threshold
+and rejection rule. Upstream behavior belongs in declarative family adapters
+and profiles; avoid model-specific core branches. Source code reuse requires
+an Apache-2.0-compatible license review and attribution in NOTICE. Observable
+ideas from proprietary products do not authorize copying their code.
+
+The model proposes; the harness owns file versions, permissions, checks and
+budgets. Tool output, files, web pages and MCP responses are untrusted data,
+never authority to change instructions or grant effects. Enforce the same
+effect boundary for file tools and commands; state each unenforceable limit.
+Keep objective revisions intact, writes atomic and based on the version seen,
+and acceptance artifacts frozen. Missing checks, zero tests and unconfined
+runs do not become verified results. Report errors explicitly, including
+context preparation failures; no I/O or model-output error becomes success.
+
+## Model tiers
+
+Tier assignment uses resident memory, KV requirements and active parameters
+on this machine, not total parameter count alone. The examples below are
+**HYPOTHESIS** classifications until the installed artifacts are measured.
+
+| Tier | Candidate scope | Intended use, to be measured |
+|---|---|---|
+| S | Dense up to about 8B, including 4B/8B | Small reliable tasks with strong harness support |
+| M | Dense 9–16B | Daily use on bounded tasks |
+| L | MoE 20–50B total with few active B; dense 20–32B | Candidate daily-use sweet spot |
+| XL | Dense about 70B; Q4 weights roughly 40 GB before KV/overhead | Correct, predictable work even when slower |
+
+Select at least two current families per tier after verifying availability
+and actual fit. Do not infer memory fit from the approximate XL weight size.
+Measure effective usable context, not just the advertised maximum. Any tier
+adaptation of prompt, offered tools, edit format, context or reasoning budget
+is declarative and must earn its cost in a controlled comparison.
+
+## Phases and execution
+
+| Phase | Work and completion evidence |
 |---|---|
-| **Core promise** | Local changes a person can control, with the outcome and the limits of their verification stated plainly. |
-| **Target user** | A developer on an Apple-silicon Mac who values privacy and working offline, and accepts a bounded capability. |
-| **Primary use** | Diagnosing and repairing bugs, small features and limited refactors in existing repositories. |
-| **Technical differentiator** | An interactive local runtime (PWR's own MLX engine) plus a harness whose value is measured: fewer execution errors and lower cost for the same model. |
-| **Success metric** | Tasks accepted by an independent check, per hour of use, reported with the human interventions they needed and the false acceptances they produced. |
+| F0 | Read governance and dirty changes; reproduce local checks; draft this contract and its decision; owner approval before commit; create mission status |
+| F1 | Audit engines, context, loops, tools, effects, checks, persistence, UI, evaluation and code; record promise, actual source, behavioral evidence, severity and gaps; obtain initial performance and dev capability baseline |
+| F2 | In parallel with F1, verify current competitors and primary literature; record revision/date/license, local support limits and hypotheses in the detailed plan |
+| F3 | Eval uses the app executor with parity tests; minimal same-engine control; competitor endpoints verified; frozen dev/heldout split and provenance; prospective power analysis |
+| F4 | Improve coding across all tiers in controlled dev cycles; keep, revise or remove each mechanism by its measured benefit and cost |
+| F5 | Stable extension/permission interface first, then capabilities in measured value order; each has objective verifiers and a threat model |
+| F6 | Freeze binary, sidecar, deployments and preregistration; heldout once per configuration; PWR vs simple loop and at least two competitors per tier; publish raw artifacts |
+| F7 | After the exit gate: persistent llama.cpp engine, CUDA/Vulkan, cancellation/cache/template parity, Windows isolation, CI and real GPU tests |
 
-**Non-goals.** General autonomy; replacing frontier agents; distributed or
-multi-agent execution; a universal personal assistant; a chat skin over
-someone else's runtime; a model trainer; a benchmark leaderboard.
+F1 and F2 overlap. Correct clear correctness/security defects with a failing
+behavioral test before the minimal fix. Do not change model-behavior defaults
+before the initial dev/performance baseline, or claim improvement before F3
+can measure the shipped path. Existing defaults remain hypotheses, including
+compaction ceiling, actions per turn, sampling floor, same-model review and
+collapsed-reply recovery. Their current values must come from code, not this
+contract. No heldout inspection or tuning; never weaken a verifier or change
+a task to improve a score.
 
-## The thesis, and what has to be proven
+Each cycle records the problem/evidence, hypothesis, design with simpler
+alternative, failing test, minimal implementation, local CI-equivalent
+checks, controlled measure and keep/revise/remove decision. Update the
+appropriate existing documents and mission status in the same small local
+commit; report the outcome and its limits to the owner in Italian. No visible
+feature removal without owner approval. A mechanism failing its controlled
+comparison is removed under that approval rule, with a negative result logged.
 
-PWR's bet is that **taking mechanical work off the model compensates for a
-measurable part of its limits**. That is a hypothesis, not a result. The
-evidence on record (R2, 2026-09-15) shows no uplift on one deployment and an
-unconfirmed one on another ([evaluation.md](docs/evaluation.md)).
+Keep only modules reachable from product/evaluation with meaningful behavioral
+coverage. Audit dead flags, dependencies, license obligations, duplicate paths,
+unchecked errors and model-input parsers; use properties/fuzzing where useful.
+Split large functions at their decision boundaries. At equal result, choose
+the simpler implementation.
 
-The one thing that must be proven:
+## Measurement contract
 
-> **On the runtime the app actually uses, a 9B/14B model with PWR beats a
-> simple loop on new tasks, at equal budget, without more false acceptance or
-> more human intervention.**
+Measure the executor users run; scripted-loop results do not establish a
+product-path improvement. Compare PWR, a minimal shell/edit control and
+competitors at the same model revision, quantization, sampling, window and
+budget. List every difference that cannot be equalized, including endpoint
+protocol, prompt/tool rendering and sampling support.
 
-The protocol and the decision rule are in the
-[implementation plan, W8.4](docs/plan/implementation-plan.md#w84-the-confirmatory-campaign).
-If the answer is no, the adaptive complexity is removed and PWR stays a
-dependable local agent without the compensation claim.
+Before each campaign, specify the smallest relevant difference and use a
+power analysis to choose tasks × trials; declare an insufficient budget rather
+than presenting an underpowered campaign as confirmation. Record per-task
+paired binary outcomes, unbiased repeated-trial pass@1 and between-trial
+variance. Use exact McNemar or a task-paired bootstrap for differences, Wilson
+intervals for proportions and Holm correction for multiple comparisons.
+Report effects with intervals plus time, tokens, human interventions and false
+acceptance. Repeated trials must not be treated as independent new tasks.
 
-Two things are kept apart in every claim: **removing a defect of the
-environment** (a template bug, a malformed call, a lost file hash) and
-**raising what the model can do**. Both have value; only the second supports
-the thesis.
+Every run automatically records binary/commit and sidecar identity, model
+repository/revision, quantization, engine/version, effective sampling and each
+value's provenance, actual window, seed, machine and load. Freeze task and
+verifier identities. Restore owner acceptance artifacts in an isolated hidden
+verifier. Docker unavailable is an environment failure, not a task verdict.
+Record unattended first-cycle outcomes separately from oracle-nudged outcomes.
 
-## The minimum core
+Track cold/warm TTFT, prefill/decode tok/s, matched pure mlx-lm and llama.cpp
+overhead, bandwidth/bytes-per-token roofline, harness tokens per turn and cached
+prefix fraction. Also task time, model calls, compaction cost, engine weights/KV
+peak memory, core/app RSS, idle CPU and startup. Timing runs require one engine
+on an idle machine; repeat and report medians and dispersion. Promote suitable
+deterministic metrics to CI regression checks only after calibration. Negative
+and inconclusive results remain part of the evidence.
 
-What stays even if every adaptive mechanism is falsified:
+## Exit criterion before Windows
 
-1. **One bounded agent session**, with a persistent objective, Stop and steering.
-2. **A managed MLX engine**: correct templates, prompt cache, cancellation,
-   the metrics a person needs.
-3. **A few robust tools**: search, windowed read, precise edit, command, local service.
-4. **Diffs and a verification contract**, with a baseline and protection of
-   the person's own work.
-5. **Evaluation of that same path**, with hidden acceptance and full costs.
+**PLANNED, numerical thresholds pending initial baseline and owner approval
+before F6.** All criteria must hold in the preregistered confirmatory campaign:
 
-Everything else is either infrastructure for these five or an experiment that
-has to earn its place (see [feature-status.md](docs/feature-status.md)).
+1. In each tier, non-inferiority within an approved margin against the simple
+   loop and the two best eligible competitors on the same model; statistically
+   significant superiority in at least S, M and L, with costs reported.
+2. Approved per-tier daily-use bounds for warm TTFT, task time and interventions.
+3. Approved lightness bounds for harness tokens, cache reuse, peak memory,
+   app/core RSS and idle app CPU.
+4. Zero false verified results and zero effects beyond declared sandbox bounds
+   in the campaign; local suites and CI green, with skipped coverage explicit.
+5. F1 findings closed or remaining risks accepted in writing; no known dead code.
 
-## Principles
+Zero observed violations is evidence about this campaign, not proof of universal
+safety. If a criterion cannot be achieved on this hardware/model range, show
+the evidence and propose a revision; do not declare success. Historical
+`docs/thresholds.json` bars remain at their build-time paths and do not
+substitute for this gate. Amend them and build fingerprints only through the
+existing threshold-change process if required by an approved campaign.
 
-1. **The model proposes; the harness keeps the facts.** File versions, tool
-   outcomes and check results are recorded outside the model. A model's claim
-   is never a verified fact.
-2. **An effect is bounded the same way whichever path causes it.** A
-   protection enforced for file tools and not for commands is not a
-   protection; one that cannot be enforced is reported as not enforced.
-3. **A write is based on what the model saw.** The harness never substitutes
-   the current version of a file for the one the model read.
-4. **One execution semantics.** The app, the command line and the evaluator
-   run the same executor and mean the same thing by *complete*. Experimental
-   controls are declared as such.
-5. **The objective is not compressed.** A person's request and its revisions
-   reach the model whole, or the turn stops and says why.
-6. **Verification claims only what it checked.** Passing checks are evidence
-   about what they check, under a contract whose artifacts are frozen. Missing
-   checks, zero tests, unconfined runs and changed acceptance files are stated,
-   never rounded up to "verified".
-7. **Every path is bounded.** Actions, time, recoveries and model calls have
-   limits that hold on every branch.
-8. **Measure the product path.** An improvement measured in one loop and
-   shipped in another has not been measured.
-9. **Keep what earns its cost.** A mechanism that does not beat the simpler
-   alternative under a controlled comparison is removed.
-10. **Negative results are results.** Campaigns, including failed ones, are
-    kept and cited with their conditions.
+## Operational continuity and owner stops
+
+`docs/plan/mission-status.md` (at most about 150 lines) records phase, active
+cycle, last commit, next step, hypotheses, queue and pending owner decisions.
+Resume from the mandate, status, MASTER_SPEC, decisions and detailed plan.
+Keep W0–W10 traceability; use existing documents and archive superseded ones.
+
+Code, comments, documents and commits are in English; owner updates are in
+Italian. Preserve and understand other sessions' dirty changes before edits.
+Ask when they are unclear. Subagents may research/audit in parallel, but the
+lead verifies their findings before recording them.
+
+Long campaigns/performance runs go in the night queue or require the owner to
+say the Mac is free. Brief daytime runs still check for an active campaign;
+only one inference engine at a time. Download at most 150 GB of new models,
+leaving at least 60 GB free; ask beyond that. Remove only models downloaded by
+this mission that are no longer needed; ask for other models.
+
+Push only `develop` and only to obtain CI evidence for a gate. No main push,
+tag, release or force-push; releases require explicit instruction. Stop for
+F0 adoption, F6 numerical thresholds, visible feature removal, unclear dirty
+changes, or external/irreversible actions outside this authorized scope.
+
 
 ## Evidence vocabulary
 

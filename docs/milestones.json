@@ -15,7 +15,7 @@
       "id": "G1",
       "name": "Effects are safe and honestly reported",
       "status": "in progress: implemented on develop, CI not run",
-      "evidence": "Implemented on develop with regression tests (not pushed, CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, a goal budget on every branch, acceptance artifacts frozen, the objective kept whole in compaction, marks that follow verdicts, zero-test signatures for six toolchains, failure fingerprints. Local suites on 2026-10-01: Rust 1,364 passed / 5 ignored, desktop 107, sidecar 39. Still open: W3.2 (CI proposals), W3.4 (the `complete` promise), W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated).",
+      "evidence": "Implemented on develop with regression tests (not pushed, CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, a goal budget on every branch, acceptance artifacts frozen, the objective kept whole in compaction, marks that follow verdicts, zero-test signatures for six toolchains, failure fingerprints. Local suites on 2026-10-01: Rust 1,372 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41; logs in docs/reviews/2026-10-01-audit.md. Still open: W3.2 (CI proposals), W3.4 (the `complete` promise), W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated).",
       "remaining": "A push and a green CI run on macOS (the first since 2026-09-30); the native-app walk; the open items above."
     },
     {
@@ -27,10 +27,10 @@
     },
     {
       "id": "G3",
-      "name": "The decision on the adaptive layer",
+      "name": "All-tier mission exit before Windows",
       "status": "not started",
-      "evidence": "None on the product path.",
-      "remaining": "W8.3 simple loop defined; W8.4 preregistered and run on a 9B and a 14B deployment with new tasks; the decision rule applied and recorded in docs/decisions.md."
+      "evidence": "PLANNED under the owner-approved contract of 2026-10-01 (D-2026-10-01-2). No product-path confirmatory comparison or all-tier baseline exists.",
+      "remaining": "W8.3 same-engine simple loop; W2.4/G2 parity; initial S/M/L/XL baseline and prospective power; owner-approved numerical thresholds; frozen W8.4/F6 against the simple loop and at least two eligible competitors per tier, with all capacity, daily-use, lightness, reliability and audit criteria satisfied; W8.5 publish evidence."
     }
   ]
 }

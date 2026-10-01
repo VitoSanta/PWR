@@ -13,6 +13,44 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-01 — Adopt the local harness mission
+
+**Decision, not a capability result.** The owner approved F0 and continuation
+("ok procedi"). D-2026-10-01-2 adopts the S/M/L/XL coding mission, measured
+extension boundary and all-tier F6 exit criterion before Windows. The former
+contract is archived whole; W IDs remain traceable and G1/G2 stay unpassed.
+Numerical exit thresholds await initial baseline and separate owner approval.
+No source/default change, inference, campaign, gate pass, push or release in
+this documentation cycle. Local checks are recorded in the initial audit.
+Other sessions' dirty code and research/doc hunks are preserved outside the
+mission commit.
+
+## 2026-10-01 — Mission F0 baseline checks and pure sampling reproduction
+
+**MEASURED local checks, not model capability.** At
+`ae1e36c1e5dbe80f7fa3ee781072948b106a0208` on the owner's M2 Max with the
+preexisting process-safety/research working-tree changes preserved: Rust exit
+0, 1,372 reported passed / 5 ignored, including one host-dependent Docker skip;
+desktop 107 tests and production build; sidecar 41 tests on Python 3.11.15,
+mlx 0.32.3 / mlx-lm 0.31.3; formatting, denied-warning Clippy, milestone agreement
+and diff whitespace checks pass. Docker unavailable is environmental. Hosted
+CI and a clean npm dependency installation were not run.
+
+**MEASURED pure parser defect.** A small Rust probe calls the current public
+sampling parser: a benchmark coding recipe returns `temperature=1.0`, a next-line
+fence opener returns `temperature=0.6`, and conflicting thinking/instruct coding
+sets choose thinking without an actual mode argument. These reproduce the
+source-boundary/mode problem, not sampling efficacy. Convert them into failing
+crate regressions before the minimal fix (proposed W5.6).
+
+The [initial audit](reviews/2026-10-01-audit.md) records source-verified findings,
+coverage gaps and local artifact paths. F0 contract/decision are drafts pending
+owner approval. No code/default changed, inference or capability/performance
+baseline ran, heldout was inspected, model was downloaded, campaign was queued,
+commit was made or push was dispatched. Next: F0 approval, correctness regressions,
+product/eval parity and prospective baseline protocol. Negative capability
+claims cannot be inferred from absent measurements.
+
 ## 2026-09-30 — W1.4 goal budget (working tree; commit pending)
 
 **IMPLEMENTED, not a capability measurement.** The product goal path now shares
