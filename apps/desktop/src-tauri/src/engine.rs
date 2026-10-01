@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 /// The versions the engine was measured on; the same as `scripts/setup-mlx.sh`.
 const PYTHON_VERSION: &str = "3.11";
-const PACKAGES: &[&str] = &["mlx==0.32.0", "mlx-lm==0.31.3", "mlx-embeddings==0.1.0", "mlx-vlm==0.6.17"];
+const PACKAGES: &[&str] = &["mlx==0.32.3", "mlx-lm==0.31.3", "mlx-embeddings==0.1.0", "mlx-vlm==0.6.17"];
 /// The encoder the semantic section ranking uses; the sidecar reads it offline.
 const ENCODER: &str = "intfloat/multilingual-e5-small";
 /// Written last, so a half-finished install is never taken for a ready one.
