@@ -500,7 +500,7 @@ pub async fn quick_calibrate<P: ModelProvider + ?Sized>(
                 false,
                 chose,
                 match call {
-                    Some(call) if chose => "read src/parser.rs".to_owned(),
+                    Some(_) if chose => "read src/parser.rs".to_owned(),
                     Some(call) => format!("started with {}", call.name),
                     None => "no tool call was made".to_owned(),
                 },
