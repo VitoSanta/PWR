@@ -1609,12 +1609,17 @@ async fn take_turn_inner<P: ModelProvider>(
                 // try, so a second loop costs minutes rather than a turn.
                 if matches!(fault, crate::ReplyFault::Looped(_)) {
                     runaway_retry = true;
-                    anti_loop = true;
                 }
+                // The engine's own repetition stop is the commoner way a reply
+                // falls apart (seen 2026-10-01 in the app, Gemma 4: one line
+                // written again and again), and it must count as a loop for the
+                // presence penalty too -- it did not, and the retries asked for
+                // none.
                 if matches!(fault, crate::ReplyFault::Looped(_))
                     || (matches!(fault, crate::ReplyFault::RanAway(_))
                         && fault.detail().contains("(repetition)"))
                 {
+                    anti_loop = true;
                     degenerate_replies += 1;
                 }
                 failed(&mut turn, fault.kind(), fault.detail().to_owned())?;

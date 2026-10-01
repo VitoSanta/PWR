@@ -99,7 +99,7 @@ effect yet:
 - the engine's own repetition stop and PWR's reader of the stream both end a
   reply that writes one passage again and again (`looping_reply`, or
   `runaway_reply` with a repetition detail);
-- once a reply of the turn has looped, every later generation of the turn asks
+- once a reply of the turn has looped — **by PWR's reader of the stream or by the engine's own repetition stop** (the commoner one; until 2026-10-01 only the first counted, so the penalty never fired in the app) — every later generation of the turn asks
   for a **presence penalty of 1.0 over the last 1,024 tokens** (the engine's
   own window is 20, which cannot see a repeated passage), unless a higher value
   is set — `presence_penalty`, `presence_context_size` in the request;

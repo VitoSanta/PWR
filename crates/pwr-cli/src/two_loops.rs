@@ -3773,6 +3773,8 @@ struct LoopsOnce {
     looped: Mutex<bool>,
     seen: Mutex<Vec<ModelRequest>>,
     inner: Scripted,
+    /// What the first generation fails with.
+    error: fn() -> ProviderError,
 }
 
 impl Recording for LoopsOnce {
@@ -3793,9 +3795,7 @@ impl ModelProvider for LoopsOnce {
         self.seen.lock().unwrap().push(request.clone());
         let first = !std::mem::replace(&mut *self.looped.lock().unwrap(), true);
         if first {
-            return Err(ProviderError::Looping {
-                safe_context: "the passage \"the same thought\" came back 4 times".into(),
-            });
+            return Err((self.error)());
         }
         self.inner.chat(request).await
     }
@@ -3980,12 +3980,13 @@ fn replies_that_fall_apart_twice_cut_the_conversation_back_to_start_clean() {
 /// loop ask for one -- and a value somebody set is never lowered.
 #[test]
 fn a_generation_that_looped_is_retried_with_a_presence_penalty() {
-    let run = |declared: Option<f64>| {
+    let run = |declared: Option<f64>, error: fn() -> ProviderError| {
         let dir = workspace();
         let provider = std::sync::Arc::new(LoopsOnce {
             looped: Mutex::new(false),
             seen: Mutex::new(Vec::new()),
             inner: Scripted::new(vec![says("done")]),
+            error,
         });
         let mut sampling = std::collections::BTreeMap::new();
         if let Some(value) = declared {
@@ -4001,14 +4002,36 @@ fn a_generation_that_looped_is_retried_with_a_presence_penalty() {
         );
         provider.requests()
     };
-    let seen = run(None);
+    let reader = || ProviderError::Looping {
+        safe_context: "the passage \"the same thought\" came back 4 times".into(),
+    };
+    // The engine's own stop, which is what actually fires in the app.
+    let engine = || ProviderError::Truncated {
+        safe_context: "the MLX engine stopped the reply (repetition) after 672 tokens".into(),
+    };
+    let seen = run(None, engine);
+    assert_eq!(
+        seen[1].sampling["presence_penalty"], 1.0,
+        "the engine's repetition stop"
+    );
+    assert_eq!(seen[1].sampling["presence_context_size"], 1024);
+    let seen = run(None, reader);
     assert_eq!(seen.len(), 2);
     assert!(!seen[0].sampling.contains_key("presence_penalty"));
     assert_eq!(seen[1].sampling["presence_penalty"], 1.0);
     // Wide enough to see a loop: the engine's own window is 20 tokens.
     assert_eq!(seen[1].sampling["presence_context_size"], 1024);
     // A value somebody set is never lowered.
-    assert_eq!(run(Some(1.5))[1].sampling["presence_penalty"], 1.5);
+    assert_eq!(run(Some(1.5), reader)[1].sampling["presence_penalty"], 1.5);
+    // A cut-off for another reason is not a loop.
+    let length = || ProviderError::Truncated {
+        safe_context: "the MLX engine stopped the reply (length) after 16384 tokens".into(),
+    };
+    assert!(
+        !run(None, length)[1]
+            .sampling
+            .contains_key("presence_penalty")
+    );
 }
 
 /// Measured 2026-09-30: the retry after a cut-off tool call was neither bounded
