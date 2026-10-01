@@ -47,6 +47,10 @@ and a prompt suffix; a profile names an exact artifact or deployment, never a
 bare family or tag. Adding a profile requires updating the counts in
 `crates/pwr-domain/tests/declared_profiles.rs`.
 
+## Known issues of a family
+
+Said beside the model in the compatibility panel, whatever its status (a model that passes Quick Calibration is not thereby free of them): **Gemma 4** (12B, 26B and 31B) can fall into a loop that writes "thought" or its channel markers over and over on long prompts with many tools — reported upstream at full precision as well, so it is the weights and not the quantization, and no sampling setting removes it ([google-deepmind/gemma#622](https://github.com/google-deepmind/gemma/issues/622), [#727](https://github.com/google-deepmind/gemma/issues/727), [the 12B discussion](https://huggingface.co/google/gemma-4-12B-it/discussions/41): about 44–60 % of trials on agent prompts of 8,000–23,000 tokens). Measured in the app on 2026-10-01 (12B, 26B, 31B, prompts of 11,000–22,000 tokens): replies of `<|channel>thought` repeated, or of one sentence repeated, stopped by the engine's repetition guard. PWR retries (with a presence penalty after the first), compacts above 20,000 tokens and says so, but for a long agent task another model is more dependable.
+
 ## Sampling
 
 Resolved once for the UI, chat and evaluations (`enrich_mlx_sampling`), in this

@@ -102,13 +102,39 @@ pub fn assess(subject: Subject) -> Assessment {
     let local = EvidenceStore::default_location()
         .and_then(|store| store.load(&subject.provenance.backend, &subject.provenance.model));
     let verified = verified_entries();
-    assess_evidence(AssessInput {
+    let notes = known_issues(
+        &subject.provenance.model,
+        subject.provenance.architecture.as_deref(),
+    );
+    let mut assessment = assess_evidence(AssessInput {
         current: subject.provenance,
         reasoning: subject.reasoning,
         incompatible: subject.incompatible,
         verified: &verified,
         local: local.as_ref(),
-    })
+    });
+    assessment.reasons.extend(notes);
+    assessment
+}
+
+/// What is publicly known to go wrong with a family of models and that no
+/// calibration of a few short requests can show, with where it is reported.
+/// Said beside the model, whatever its status: a model that passes every check
+/// here is not thereby free of it.
+pub fn known_issues(model: &str, architecture: Option<&str>) -> Vec<String> {
+    let evidence = format!("{model} {}", architecture.unwrap_or_default()).to_ascii_lowercase();
+    let mut notes = Vec::new();
+    if evidence.contains("gemma4") || evidence.contains("gemma-4") {
+        notes.push(
+            "Known upstream issue: Gemma 4 can fall into a loop that writes \"thought\" or its \
+             channel markers over and over on long prompts with many tools (reported against the \
+             12B, 26B and 31B, at full precision too; google-deepmind/gemma#622 and #727). No \
+             sampling setting removes it. PWR retries and compacts, but for a long agent task \
+             another model is more dependable; Gemma is fine for chat and short tasks."
+                .to_owned(),
+        );
+    }
+    notes
 }
 
 /// What the app shows beside the Reasoning Effort control.
@@ -143,4 +169,31 @@ pub fn reasoning_view(
         "budgets": reasoning.budget_enforceable().then_some(budgets),
         "budgetSource": reasoning.budget_enforceable().then_some(source),
     })
+}
+
+#[cfg(test)]
+mod known_issue_tests {
+    use super::known_issues;
+
+    #[test]
+    fn a_gemma_4_model_carries_its_upstream_issue_and_others_do_not() {
+        for model in [
+            "mlx-community/gemma-4-12B-it-4bit",
+            "mlx-community/gemma-4-26b-a4b-it-4bit",
+            "lmstudio-community/gemma-4-31B-it-MLX-6bit",
+        ] {
+            let notes = known_issues(model, None);
+            assert_eq!(notes.len(), 1, "{model}");
+            assert!(notes[0].contains("google-deepmind/gemma#622"));
+        }
+        assert_eq!(known_issues("some/model", Some("gemma4")).len(), 1);
+        assert!(
+            known_issues(
+                "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+                Some("qwen3_moe")
+            )
+            .is_empty()
+        );
+        assert!(known_issues("mlx-community/gemma-3-12b-it", None).is_empty());
+    }
 }

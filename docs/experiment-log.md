@@ -423,3 +423,18 @@ tokens, then about 3 s of work at the speed just measured, 256–8,192 tokens).
 Prefill speed is unchanged within noise (4,976 tokens: 25.0 s at 1,024-token
 chunks, 25–27 s at 8,192). The app still shows nothing while a switch waits
 (plan W5.5).
+
+## 2026-10-01 — Gemma 4 loops are an upstream weights defect, not PWR's reading
+
+Raw output from the app (Gemma 4 12B, prompt 15–17k tokens, tool declarations
+in the prompt): replies made of `<|channel>thought\n<channel|>` repeated, or
+`<|channel>` runs, stopped by the engine's repetition guard; earlier, one
+sentence repeated (31B and 26B). Searching the upstream reports found the same:
+a "thought\n…" attractor on long agent prompts, ~44–60 % of trials on the 12B,
+reproduced at full precision and across temperatures and top-k
+([google-deepmind/gemma#622, #727](https://github.com/google-deepmind/gemma/issues/727),
+[HF discussion 41](https://huggingface.co/google/gemma-4-12B-it/discussions/41));
+a changed chat template lowered it only from ~44 % to ~35 %. So it is not fixed
+by anything PWR sends, and the note is now shown beside every Gemma 4 model.
+Banning `<|channel>` was considered and not done: the same model writes
+`<channel|>` before a tool call even with thinking off.
