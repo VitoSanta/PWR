@@ -387,3 +387,14 @@ a server that was up. Omitting the port now waits on the reserved port or on any
 port the service's own process group listens on and reports the one that
 answered (`wait_until_ready_on_any`, `lsof`); naming a port stays strict.
 Neither Full access nor Goal mode was involved.
+
+## 2026-10-01 — The clean start only above 20,000 tokens
+
+In the app, a Gemma 4 26B goal writing a landing page had six clean starts
+(`context.compacted`, trigger `automatic`) at 11,000–15,000 tokens; the replies
+went on repeating after each (`turn.failed`, `runaway_reply`, answer repeated
+windows 40–96 %). The history was not what the model was lost in, and each cut
+cost it its reads and a cold prefill. The mechanism now acts only above 20,000
+tokens, where the collapse it was made for was seen (27,000, Qwen3-Coder). Why
+Gemma 4 26B repeats while writing a large component is **not known**; the next
+step is its raw output (`PWR_MLX_TRACE`).

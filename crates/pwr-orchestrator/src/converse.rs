@@ -154,6 +154,14 @@ const DEGENERATE_REPLIES_BEFORE_RESET: usize = 2;
 const DEGENERATE_RESETS_PER_TURN: usize = 2;
 const DEGENERATE_RESET_ROOM: usize = 8_192;
 
+/// A clean start is offered only when the history is long enough to be what the
+/// model is lost in. Seen 2026-10-01 in the app (Gemma 4 26B writing a landing
+/// page): six clean starts at 11,000-15,000 tokens, each costing the model its
+/// reads and a cold prefill, and the replies went on repeating after every one --
+/// the history was not the cause. The collapse the mechanism was made for was
+/// seen at 27,000.
+const DEGENERATE_RESET_MIN_PROMPT_TOKENS: usize = 20_000;
+
 /// The presence penalty a turn asks for after one of its generations looped.
 /// Qwen's cards say to raise it, between 0 and 2, "to reduce endless
 /// repetitions"; 1.0 is half way. Measured 2026-09-30: Qwen3.5-9B with its
@@ -1267,7 +1275,8 @@ async fn take_turn_inner<P: ModelProvider>(
         // back to what compaction keeps, and the work goes on from there.
         if degenerate_replies >= DEGENERATE_REPLIES_BEFORE_RESET
             && degenerate_resets < DEGENERATE_RESETS_PER_TURN
-            && prompt_tokens_now(messages, measured_prompt, measured_upto) > DEGENERATE_RESET_ROOM
+            && prompt_tokens_now(messages, measured_prompt, measured_upto)
+                > DEGENERATE_RESET_MIN_PROMPT_TOKENS
         {
             if let Some(note) = compact_and_record(
                 store,
