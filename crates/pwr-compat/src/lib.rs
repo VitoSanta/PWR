@@ -1029,7 +1029,7 @@ impl ModelBehaviorAdapter for GraniteFamilyAdapter {
     }
 
     fn version(&self) -> &'static str {
-        "granite-v1"
+        "granite-v2"
     }
 
     fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
@@ -1068,6 +1068,17 @@ impl ModelBehaviorAdapter for GraniteFamilyAdapter {
             });
             canonical.narrative = narrative;
             canonical.tool_calls = calls;
+        }
+        // Granite 4.1's template writes `<tool_call>{"name": …, "arguments":
+        // …}</tool_call>`, the block Qwen's adapter reads (Quick Calibration
+        // 2026-10-01: Limited, "no tool call was made").
+        if canonical.tool_calls.is_empty() {
+            let (narrative, calls, diagnostics) = extract_tool_calls(&canonical.narrative);
+            if !calls.is_empty() {
+                canonical.narrative = narrative;
+                canonical.tool_calls = calls;
+            }
+            canonical.diagnostics.extend(diagnostics);
         }
         canonical
     }
@@ -1580,6 +1591,21 @@ mod tests {
     use super::*;
 
     /// Qwen2.5-Coder's edit, as it wrote it in the capability probe.
+    #[test]
+    fn granite_reads_the_tool_call_block_its_template_writes() {
+        let adapter = adapter_for(None, "mlx-community/granite-4.1-8b-4bit");
+        let found = adapter.normalize(&reply(
+            "<tool_call>\n{\"name\": \"read_file\", \"arguments\": {\"path\": \"src/parser.rs\"}}\n</tool_call>",
+        ));
+        assert_eq!(found.tool_calls.len(), 1);
+        assert_eq!(found.tool_calls[0].arguments["path"], "src/parser.rs");
+        // The bare array it was first measured writing still reads.
+        let array = adapter.normalize(&reply(
+            "[{\"name\": \"read_file\", \"arguments\": {\"path\": \"a\"}}]",
+        ));
+        assert_eq!(array.tool_calls.len(), 1);
+    }
+
     #[test]
     fn liquid_calls_are_read_in_both_of_its_forms() {
         let adapter = adapter_for(None, "mlx-community/LFM2.5-8B-A1B-MLX-4bit");
