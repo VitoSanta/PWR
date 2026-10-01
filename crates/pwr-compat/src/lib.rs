@@ -195,9 +195,26 @@ fn wrap_bare_xml_calls(content: &str) -> (String, bool) {
         let before = &rest[..at];
         if before.trim_end().ends_with(OPEN_TOOL) {
             // Opened properly: copy through the block's end and go on after it.
-            let end = rest[at..]
-                .find(CLOSE_TOOL)
-                .map_or(rest.len(), |close| at + close + CLOSE_TOOL.len());
+            // A call whose `</function>` is there but whose `</tool_call>` the
+            // reply never wrote is whole all the same (Qwen3-Coder ended nine
+            // replies of one run so, each refused as "stopped inside an
+            // unfinished tool call", 2026-10-01): closed here.
+            let closed = rest[at..].find(CLOSE_TOOL).map(|close| at + close);
+            let function_end = rest[at..]
+                .find(CLOSE_FUNCTION)
+                .map(|close| at + close + CLOSE_FUNCTION.len());
+            let end = match (closed, function_end) {
+                (Some(close), _) => close + CLOSE_TOOL.len(),
+                (None, Some(function)) => {
+                    out.push_str(&rest[..function]);
+                    out.push('\n');
+                    out.push_str(CLOSE_TOOL);
+                    changed = true;
+                    rest = &rest[function..];
+                    continue;
+                }
+                (None, None) => rest.len(),
+            };
             out.push_str(&rest[..end]);
             rest = &rest[end..];
             continue;
@@ -1890,6 +1907,16 @@ mod tests {
         ));
         assert_eq!(two.tool_calls.len(), 2, "{:?}", two.diagnostics);
         assert_eq!(two.narrative, "Reading both.");
+        // The call is whole but its closing tag never came: read, not refused.
+        let open_end = QwenFamilyAdapter.normalize(&reply(
+            "<tool_call>\n<function=read_file>\n<parameter=path>\na.rs\n</parameter>\n</function>\n",
+        ));
+        assert_eq!(open_end.tool_calls.len(), 1, "{:?}", open_end.diagnostics);
+        // A call that is not whole still is not.
+        let half = QwenFamilyAdapter.normalize(&reply(
+            "<tool_call>\n<function=read_file>\n<parameter=path>\na.rs",
+        ));
+        assert!(half.tool_calls.is_empty());
         // A well-formed call is read once, and says nothing about a missing tag.
         let whole = QwenFamilyAdapter.normalize(&reply(
             "<tool_call>\n<function=read_file>\n<parameter=path>\na.rs\n</parameter>\n</function>\n</tool_call>",
