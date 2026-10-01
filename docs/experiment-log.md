@@ -353,3 +353,13 @@ otherwise, so every other generation is unchanged) and the sidecar passes it
 on. A card-declared presence penalty still runs on the engine's 20-token
 window; whether to widen that for the models that declare one (Ornith, Qwen3.5)
 is a separate, unmeasured decision.
+
+## 2026-10-01 — Compaction ceiling 65,536 → 32,768 (measurement-changing)
+
+Same hypothesis as the entry above, tightened on evidence found by reading
+rather than by testing: a silent KV-cache corruption reported against exactly
+the pinned engine (MLX 0.32.0, mlx-lm 0.31.3) on natural-language prompts of
+about 60k tokens and more, where generation collapses into token id 0 ("!")
+([jundot/omlx#3777](https://github.com/jundot/omlx/issues/3777)); and PWR's own
+collapse at 27k tokens of history (`dev9-qwen3-coder`). Neither is proven to be
+the same defect.

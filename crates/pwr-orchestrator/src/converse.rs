@@ -31,14 +31,20 @@ use std::collections::BTreeMap;
 pub const COMPACT_AT: f64 = 0.75;
 
 /// The most a conversation grows before it compacts, in tokens, when the person
-/// chose neither a window nor a threshold. HYPOTHESIS, a usability decision
-/// rather than a quality measurement: a model with a 262k window on a 64 GB
-/// Mac has a window far above any size at which a 4-bit model was seen to stay
-/// coherent, and every compaction (like a model switch) re-reads the whole
-/// prompt -- 32 minutes for a 30B at that size, measured 2026-09-30. Nemotron,
-/// GLM and Qwen3.5 went off the rails in long conversations in the same pass.
-/// Set `context_tokens` or the compaction percentage to opt out.
-pub const DEFAULT_COMPACTION_CEILING_TOKENS: usize = 65_536;
+/// chose neither a window nor a threshold. HYPOTHESIS, a stability and
+/// usability decision rather than a quality measurement.
+///
+/// Why 32,768 (it was 65,536 until 2026-10-01): a model with a 262k window on a
+/// 64 GB Mac has a window far above any size at which a 4-bit model was seen
+/// to stay coherent; every compaction (like a model switch) re-reads the whole
+/// prompt (32 minutes for a 30B at that size); and the engine PWR pins (MLX
+/// 0.32.0, mlx-lm 0.31.3) has a reported silent KV-cache corruption on
+/// natural-language prompts of about 60k tokens and more -- the model emits
+/// token id 0, "!", over and over (jundot/omlx#3777, same versions). PWR saw
+/// the same collapse at 27k tokens of failing-and-retrying history
+/// (Qwen3-Coder-30B, 2026-10-01). Set `context_tokens` or the compaction
+/// percentage to opt out.
+pub const DEFAULT_COMPACTION_CEILING_TOKENS: usize = 32_768;
 
 /// The thresholds, in percent of the window, a person may choose. Below half,
 /// a conversation compacts so often it forgets what it just read; above nine
