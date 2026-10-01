@@ -264,3 +264,12 @@ sweep of all installed models: it writes `[TOOL_CALLS]read_file[ARGS]{…}` and 
 adapter read that form. `MistralFamilyAdapter` reads it (and the older JSON
 array form), for `mistral`, `devstral`, `magistral`, `ministral`; the engine's
 live text holds `[TOOL_CALLS]` back like the other call markers.
+
+## 2026-10-01 — Liquid (LFM2) family adapter (`liquid-v1`; measurement-changing)
+
+LFM2-24B-A2B and LFM2.5-8B-A1B were Limited in the calibration sweep: LFM2.5
+writes `<|tool_call_start|>[read_file(path="…")]<|tool_call_end|>` (Python call
+syntax) and LFM2-24B `<function_call>{json}</function_call>`. `LiquidFamilyAdapter`
+reads both, with a small reader of Python literals (strings with escapes,
+numbers, booleans, lists, dicts) and `<think>`; a block that does not decode is
+kept in the text and nothing is guessed.
