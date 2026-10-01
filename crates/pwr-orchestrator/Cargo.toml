@@ -25,6 +25,9 @@ tempfile.workspace = true
 
 [dev-dependencies]
 pwr-store = { path = "../pwr-store" }
+# `test-util` for the paused clock: a goal's deadline is an hour by default,
+# and its tests set one of a minute without waiting for it.
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

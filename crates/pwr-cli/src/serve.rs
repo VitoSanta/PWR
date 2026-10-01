@@ -3934,7 +3934,14 @@ mod tests {
 
         async fn run(&self, turn: TurnInput) -> Result<(TurnReport, Vec<ChatMessage>), String> {
             if self.delay == Some("run") {
-                tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+                // A long generation that, like a real turn, ends when asked
+                // to stop; one that ignores Stop is an executor test.
+                let started = tokio::time::Instant::now();
+                while !turn.stop.load(Ordering::Relaxed)
+                    && started.elapsed() < std::time::Duration::from_secs(120)
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
             }
             let run = self.runs.fetch_add(1, Ordering::Relaxed);
             assert_eq!(turn.continuity.action_limit.is_some(), turn.goal_mode);

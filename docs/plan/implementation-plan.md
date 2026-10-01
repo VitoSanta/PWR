@@ -492,6 +492,12 @@ the person's work or report a boundary it does not have.
   Clippy passed with warnings denied; desktop 95 tests and production build
   passed; formatting, diff checks and roadmap generation passed. No model
   campaign was run. W1.3 is still open; G1 is not passed.
+- **Deadline during a turn (2026-10-02).** The deadline dropped the turn in
+  progress with its history: edits stayed on disk, out of the conversation.
+  The turn is now asked to stop and given `GOAL_STOP_GRACE` (10 s) to return
+  its history, which the session keeps; one that does not is dropped as
+  before. Paused-clock regressions: the kept transcript (failed before) and the
+  grace bound for a turn that ignores Stop.
 
 ### W1.5 Tell progress from repetition in goal verification
 

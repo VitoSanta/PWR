@@ -93,9 +93,8 @@ No campaign queued or launched. External queue.sh serializes its own model
 list, but is not verified to exclude another queue/engine. F3 needs a lease
 and recorded provenance before timing; machine is not certified idle.
 
-1. Preserve the turn transcript when the forced Goal deadline abandons a turn
-   (Stop cooperatively, bounded grace); then continue the remaining F1 audit,
-   tests first for demonstrated defects; no default tuning.
+1. Continue the remaining F1 audit, tests first for demonstrated defects;
+   no default tuning. (Goal-deadline transcript: IMPLEMENTED 2026-10-02.)
 2. Complete W2.4 eval on the app executor and then W5.6 selection after the final
    per-generation reasoning directive; continue full F2 survey and F3 simple
    control/provenance, power analysis and pinned dev split.

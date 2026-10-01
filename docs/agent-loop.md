@@ -190,8 +190,12 @@ operation's future is dropped. Synchronous filesystem work cannot be pre-empted
 by Tokio; backend cancellation still depends on its existing safe points. Stop
 also interrupts baseline, completion verification and review. During a turn it
 lets the interrupted messages return and be saved; during checks/review it
-retains the latest report, rather than reporting budget exhaustion. A forced
-Goal deadline still retains only the action checkpoint of an abandoned turn.
+retains the latest report, rather than reporting budget exhaustion. When the
+deadline passes during a turn, the turn is asked to stop and given
+`GOAL_STOP_GRACE` (10 s) to return its history, which the session keeps; the
+goal then ends out of budget. Only a turn that does not return within the grace
+is dropped, keeping just its action count. (Until 2026-10-02 every such turn was
+dropped, and its edits stayed on disk but out of the conversation.)
 
 | Limit | Default | Scope |
 |---|---|---|

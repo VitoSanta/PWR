@@ -100,6 +100,11 @@ pub const GOAL_MAX_REFUSED_COMPLETIONS: usize = 6;
 /// check-ins, and nothing else bounded how long: a slow model with slow checks
 /// spends the hour before the action count says anything.
 pub const GOAL_MAX_WALL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+/// How long a turn the deadline asked to stop has to return its history. A
+/// turn watches Stop every 50 ms around generation, permissions and commands
+/// (a killed command, a cancelled stream); this is for the case where it does
+/// not, so the deadline still holds.
+pub const GOAL_STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What bounds a goal, whichever branch of its loop it is going round.
 ///
@@ -577,14 +582,11 @@ async fn drive<H: SessionHost + ?Sized>(
     let goal_mode = policy == Policy::Goal;
     let mut last_report: Option<TurnReport> = None;
     // Stop interrupts checks/review here. A turn handles Stop cooperatively so
-    // it can return its transcript; dropping that future would lose its history.
-    // The Goal deadline can still abandon a turn, retaining its action checkpoint.
-    // Provider guards cancel abandoned opening futures and streams.
+    // it can return its transcript; dropping that future would lose its history,
+    // so the turn has its own deadline handling below. Provider guards cancel
+    // abandoned opening futures and streams.
     macro_rules! bounded {
-        ($operation:expr) => {
-            bounded!($operation, false)
-        };
-        ($operation:expr, $running_turn:expr) => {{
+        ($operation:expr) => {{
             if let Some(reached) = budget.reached() {
                 return SessionEnd::OutOfBudget {
                     total_actions: budget.actions,
@@ -593,7 +595,7 @@ async fn drive<H: SessionHost + ?Sized>(
             }
             let operation = tokio::select! {
                 biased;
-                () = converse::pressed(&stop), if !$running_turn => {
+                () = converse::pressed(&stop) => {
                     let mut report = last_report.clone().unwrap_or(TurnReport {
                         outcome: Default::default(), answer: String::new(), actions: 0,
                         edited: false, completed: false, stopped: None, declined: false,
@@ -610,9 +612,6 @@ async fn drive<H: SessionHost + ?Sized>(
                 Ok(value) if budget.started.elapsed() < budget.limits.wall => value,
                 _ => {
                     stop.store(true, Ordering::Relaxed);
-                    if $running_turn && let Ok(checkpoint) = continuity.checkpoint.lock() {
-                        budget.actions = budget.actions.saturating_add(checkpoint.actions);
-                    }
                     return SessionEnd::OutOfBudget {
                         total_actions: budget.actions,
                         reached: budget.time_limit(),
@@ -714,7 +713,33 @@ async fn drive<H: SessionHost + ?Sized>(
             goal_mode,
         });
         let outcome = if goal_mode {
-            bounded!(turn, true)
+            // The loop checked the limits just before this turn.
+            let mut turn = std::pin::pin!(turn);
+            let finished = tokio::time::timeout(budget.remaining(), &mut turn).await;
+            match finished {
+                Ok(value) if budget.started.elapsed() < budget.limits.wall => value,
+                // The deadline passed with the turn still working. Dropped, the
+                // turn took its history with it: its edits stayed on disk and
+                // out of the conversation, which continued as if they had not
+                // happened. Asked to stop, it returns that history.
+                finished => {
+                    stop.store(true, Ordering::Relaxed);
+                    let returned = match finished {
+                        Ok(value) => Some(value),
+                        Err(_) => tokio::time::timeout(GOAL_STOP_GRACE, &mut turn).await.ok(),
+                    };
+                    if let Some(Ok((report, next_messages))) = returned {
+                        budget.actions = budget.actions.saturating_add(report.actions);
+                        host.keep_messages(&next_messages);
+                    } else if let Ok(checkpoint) = continuity.checkpoint.lock() {
+                        budget.actions = budget.actions.saturating_add(checkpoint.actions);
+                    }
+                    return SessionEnd::OutOfBudget {
+                        total_actions: budget.actions,
+                        reached: budget.time_limit(),
+                    };
+                }
+            }
         } else {
             turn.await
         };
@@ -1802,6 +1827,112 @@ mod tests {
                 .iter()
                 .any(|message| message.content == "edit receipt retained after Stop"),
             "outer Stop dropped the turn before its transcript was saved"
+        );
+    }
+
+    /// A turn still working when the goal's time runs out: it edits, then
+    /// works until asked to stop -- or, `ignores_stop`, never returns.
+    struct OutlastsTheWall {
+        ignores_stop: bool,
+        kept: Mutex<Vec<ChatMessage>>,
+    }
+    #[async_trait::async_trait(?Send)]
+    impl SessionHost for OutlastsTheWall {
+        async fn run_turn(
+            &self,
+            mut input: TurnInput,
+        ) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+            input.messages.push(ChatMessage::text(
+                "tool",
+                "edit receipt from the turn the deadline ended",
+            ));
+            if let Ok(mut checkpoint) = input.continuity.checkpoint.lock() {
+                checkpoint.actions = 2;
+            }
+            loop {
+                if !self.ignores_stop && input.stop.load(Ordering::Relaxed) {
+                    let mut stopped = report(2, false);
+                    stopped.edited = true;
+                    stopped.stopped = Some(converse::StopReason::Interrupted);
+                    return Ok((stopped, input.messages));
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+        async fn verify(
+            &self,
+        ) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+            Ok((Default::default(), Default::default()))
+        }
+        async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+            unreachable!()
+        }
+        fn say(&self, _: &str) {}
+        fn keep_messages(&self, messages: &[ChatMessage]) {
+            *self.kept.lock().unwrap() = messages.to_vec();
+        }
+    }
+    /// The goal's deadline used to drop the turn in progress, and with it the
+    /// turn's history: its edits stayed on disk and out of the conversation,
+    /// so the next prompt continued as if they had not happened.
+    #[tokio::test(start_paused = true)]
+    async fn the_goal_deadline_keeps_the_transcript_of_the_turn_it_ends() {
+        let host = OutlastsTheWall {
+            ignores_stop: false,
+            kept: Default::default(),
+        };
+        let limits = GoalLimits {
+            wall: Duration::from_secs(60),
+            ..GoalLimits::default()
+        };
+        let result = execute(&host, request(Policy::Goal), limits).await;
+        match result.end {
+            SessionEnd::OutOfBudget {
+                total_actions,
+                reached,
+            } => {
+                assert!(
+                    matches!(reached, GoalLimitReached::Time { .. }),
+                    "{reached:?}"
+                );
+                assert_eq!(total_actions, 2);
+            }
+            _ => panic!("the deadline did not end the goal"),
+        }
+        assert!(
+            host.kept
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|message| message.content == "edit receipt from the turn the deadline ended"),
+            "the deadline dropped the turn before its transcript was kept"
+        );
+    }
+    /// A turn that does not stop when asked is abandoned after a bounded
+    /// grace, so the deadline still holds.
+    #[tokio::test(start_paused = true)]
+    async fn a_turn_that_ignores_the_deadline_is_abandoned_after_a_grace() {
+        let host = OutlastsTheWall {
+            ignores_stop: true,
+            kept: Default::default(),
+        };
+        let limits = GoalLimits {
+            wall: Duration::from_secs(60),
+            ..GoalLimits::default()
+        };
+        let started = tokio::time::Instant::now();
+        let result = execute(&host, request(Policy::Goal), limits).await;
+        assert!(matches!(
+            result.end,
+            SessionEnd::OutOfBudget {
+                total_actions: 2,
+                ..
+            }
+        ));
+        assert!(
+            started.elapsed() <= Duration::from_secs(60) + GOAL_STOP_GRACE,
+            "{:?}",
+            started.elapsed()
         );
     }
 
