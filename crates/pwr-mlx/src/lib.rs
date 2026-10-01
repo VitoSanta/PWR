@@ -933,7 +933,10 @@ fn template_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
                         answering.push((id, call.name.clone()));
                     }
                 }
-                "tool" if !answering.is_empty() => {
+                // A result beyond the calls of the turn answers nothing: one of
+                // PWR's own notes sent as a tool message (a refusal, "your
+                // last reply ran on"), which strict templates refuse.
+                "tool" if answered < answering.len() => {
                     // By id when the result names one of the calls, else by
                     // position: the n-th result answers the n-th call.
                     let found = message
@@ -1924,6 +1927,36 @@ mod tests {
         assert_eq!(rendered[2]["tool_calls"][0]["id"], "c1");
         assert_eq!(rendered[3]["tool_call_id"], "c1");
         assert_eq!(rendered[3]["name"], "read_file");
+    }
+
+    #[test]
+    fn a_tool_message_beyond_the_calls_of_its_turn_is_a_user_note() {
+        let call = ToolCall {
+            name: "read_file".into(),
+            arguments: serde_json::json!({}),
+            id: None,
+        };
+        let messages = [
+            ChatMessage {
+                role: "assistant".into(),
+                tool_calls: vec![call],
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: "result".into(),
+                ..Default::default()
+            },
+            ChatMessage {
+                role: "tool".into(),
+                content: "your last reply ran on".into(),
+                ..Default::default()
+            },
+        ];
+        let rendered = template_messages(&messages);
+        assert_eq!(rendered[1]["role"], "tool");
+        assert_eq!(rendered[2]["role"], "user");
+        assert_eq!(rendered[2]["content"], "[PWR] your last reply ran on");
     }
 
     #[test]
