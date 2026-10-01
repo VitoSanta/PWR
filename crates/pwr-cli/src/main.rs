@@ -888,24 +888,39 @@ struct ContextDecision {
     context_memory_budget_bytes: Option<u64>,
 }
 
+/// Update the observed window only after the backend acknowledges it.
+async fn prepare_chat_window(
+    provider: &dyn ModelProvider,
+    deployment: &DeploymentDescriptor,
+    config: &mut ChatConfig,
+    requested: u32,
+) -> Result<u32, SafeError> {
+    let granted = provider
+        .prepare_context(deployment, requested)
+        .await
+        .map_err(provider_error)?;
+    config.context_tokens = granted;
+    Ok(granted)
+}
+
 async fn compute_context(
     runtime: &RuntimeFactory,
     config: &mut ChatConfig,
-) -> Option<ContextDecision> {
+) -> Result<Option<ContextDecision>, SafeError> {
     use pwr_orchestrator::window;
-    let model = config.model.clone()?;
+    let Some(model) = config.model.clone() else {
+        return Ok(None);
+    };
     let timeout = Duration::from_secs(config.timeout_secs);
-    // Where the model cannot be measured, a window the person chose is still
-    // theirs; the 8,192-token default is not a better answer than it.
-    if let Some(setting) = config.context_setting {
-        config.context_tokens = setting;
-    }
-    let selection = runtime.select(model.clone(), timeout).ok()?;
+    // A requested setting becomes an observed window only after preparation.
+    let selection = runtime
+        .select(model.clone(), timeout)
+        .map_err(provider_error)?;
     let facts = selection
         .backend
         .model_facts(&selection.deployment)
         .await
-        .ok()?;
+        .map_err(provider_error)?;
     let declared = load_model_profiles(Path::new(MODEL_PROFILE_FILE))
         .ok()
         .and_then(|profiles| {
@@ -924,7 +939,7 @@ async fn compute_context(
     ) {
         Ok(decision) => decision,
         Err(error) => {
-            return Some(ContextDecision {
+            return Ok(Some(ContextDecision {
                 computed: false,
                 line: format!("{model} cannot run on this host: {error}"),
                 granted_tokens: config.context_tokens,
@@ -935,16 +950,17 @@ async fn compute_context(
                         .total_memory_bytes
                         .saturating_sub(budget.reserve_bytes)
                 }),
-            });
+            }));
         }
     };
-    let granted = selection
-        .backend
-        .prepare_context(&selection.deployment, decision.tokens)
-        .await
-        .unwrap_or(decision.tokens);
-    config.context_tokens = granted;
-    Some(ContextDecision {
+    let granted = prepare_chat_window(
+        &selection.backend,
+        &selection.deployment,
+        config,
+        decision.tokens,
+    )
+    .await?;
+    Ok(Some(ContextDecision {
         computed: true,
         line: if granted < decision.tokens {
             format!(
@@ -962,7 +978,7 @@ async fn compute_context(
                 .total_memory_bytes
                 .saturating_sub(budget.reserve_bytes)
         }),
-    })
+    }))
 }
 /// Paths the workspace declares part of the task rather than part of the work.
 ///
@@ -1495,7 +1511,7 @@ async fn hydrate_chat_readiness(
     // making every first manual task wait for one contradicted B.1.
     config.prepared_without_calibration = true;
     config.prepared_for_model = config.model.clone();
-    if announce && let Some(decision) = compute_context(runtime, config).await {
+    if announce && let Some(decision) = compute_context(runtime, config).await? {
         task_status(if decision.computed { "✓" } else { "!" }, decision.line);
     }
     Ok(())
@@ -2006,7 +2022,7 @@ async fn select_model_from_backend(
             selected
         ),
     );
-    if let Some(decision) = compute_context(runtime, config).await {
+    if let Some(decision) = compute_context(runtime, config).await? {
         task_status(if decision.computed { "✓" } else { "!" }, decision.line);
     }
     Ok(())
@@ -2037,7 +2053,7 @@ async fn select_discovered_model(
         config.prepared_for_model = Some(selected.to_owned());
         config.prepared_without_calibration = true;
     }
-    let _ = compute_context(runtime, config).await;
+    let _ = compute_context(runtime, config).await?;
     Ok(changed)
 }
 
@@ -2064,7 +2080,7 @@ async fn prepare_model_for_agent(
     config.profile = None;
     config.prepared_without_calibration = true;
     config.prepared_for_model = config.model.clone();
-    if let Some(decision) = compute_context(runtime, config).await {
+    if let Some(decision) = compute_context(runtime, config).await? {
         task_status(if decision.computed { "✓" } else { "!" }, decision.line);
     }
     task_status(
@@ -3129,6 +3145,7 @@ impl serve::TurnRunner for ConsoleTurns {
                 reasoning_effort,
                 acknowledge_provisional,
             } => {
+                let preparation_requested = selected.is_some() || context_tokens.is_some();
                 if let Some(effort) = reasoning_effort {
                     config.reasoning_effort = effort;
                     save_chat_config(&root, &config).map_err(|error| error.context)?;
@@ -3162,7 +3179,6 @@ impl serve::TurnRunner for ConsoleTurns {
                     // applies it, capped by what the host can hold, and
                     // prepares the backend once.
                     config.context_setting = Some(requested);
-                    config.context_tokens = requested;
                 }
                 let (backend, installed, unavailable) = match installed {
                     Ok((backend, models)) => (Some(backend), Some(models), None),
@@ -3192,20 +3208,29 @@ impl serve::TurnRunner for ConsoleTurns {
                 // renames files.
                 let download_status = artifact_download_status().map_err(|error| error.context)?;
                 let window_before = config.context_tokens;
-                let context_decision =
-                    compute_context(&self.runtime, &mut config)
-                        .await
-                        .map(|decision| {
-                            serde_json::json!({
-                                "computed": decision.computed,
-                                "requestedTokens": decision.requested_tokens,
-                                "grantedTokens": decision.granted_tokens,
-                                "bindingCeiling": decision.binding_ceiling,
-                                "contextMemoryBudgetBytes": decision.context_memory_budget_bytes,
-                                "rationale": decision.line,
-                                "setting": config.context_setting,
-                            })
-                        });
+                let context_decision = match compute_context(&self.runtime, &mut config).await {
+                    Ok(decision) => decision.map(|decision| {
+                        serde_json::json!({
+                            "computed": decision.computed,
+                            "requestedTokens": decision.requested_tokens,
+                            "grantedTokens": decision.granted_tokens,
+                            "bindingCeiling": decision.binding_ceiling,
+                            "contextMemoryBudgetBytes": decision.context_memory_budget_bytes,
+                            "rationale": decision.line,
+                            "setting": config.context_setting,
+                        })
+                    }),
+                    Err(error) if preparation_requested => return Err(error.context),
+                    // Inventory must remain available so an unavailable saved
+                    // model can be replaced. Report the failure without turning
+                    // a requested window into an acknowledged grant.
+                    Err(error) => Some(serde_json::json!({
+                        "computed": false,
+                        "grantedTokens": window_before,
+                        "rationale": format!("Context preparation unavailable: {}; retaining the previous observed window", error.context),
+                        "setting": config.context_setting,
+                    })),
+                };
                 // What is known about the selected model, and so what the
                 // Reasoning Effort control can do for it. An inspection that
                 // fails is concrete evidence: the artifact cannot be read.

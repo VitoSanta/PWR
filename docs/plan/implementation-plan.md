@@ -45,6 +45,13 @@ is verified where stated; acceptance evidence remains open.
 
 ### W4.8 Context grant, physical fit and compaction stop semantics
 
+**Status: PARTIAL, 2026-10-01.** IMPLEMENTED in the product conversation path:
+explicit metadata/preparation errors, acknowledgment before updating the observed
+window, policy/physical distinction, honest `CompactionBudget`, count invalidation
+with fixed overhead preserved, and no-op compaction preservation. MEASURED fake
+provider regressions exercise these decisions. Eval migration/parity remains
+PLANNED W2.4; no real-model capability or effective-window claim.
+
 - **Problem/evidence.** A01–A03 in the audit: `prepare_context` errors become
   granted windows (`main.rs:941`, `converse.rs:1708`); objective fit uses policy
   threshold/ceiling (`converse.rs:1234`); two compactions become `Looping`.
@@ -823,10 +830,15 @@ The review's third "build next".
 
 ### W4.2 Count the real prompt before generating
 
-**Status:** NEXT · M
+**Status:** PARTIAL · M (2026-10-01)
+
+The immediate estimate fix is IMPLEMENTED: appended call names/serialized
+arguments and reasoning are counted without duplicating a previous measurement.
+MEASURED regressions cover a 40 KiB write and its next output budget. Exact
+rendered preflight and panel integration remain PLANNED.
 
 - **Problem.** Budgets use `len()/4` and `len()/3` estimates; tool-call
-  arguments appended since the last measurement are not counted at all
+  arguments appended since the last measurement were omitted before the F1 fix
   (verification 7.1, 7.3, N1).
 - **Change.**
   1. Immediately (NOW, S): count tool-call arguments in `prompt_tokens_now`
@@ -838,9 +850,9 @@ The review's third "build next".
      `/apply-template` and `/tokenize`, where the server version has them;
      otherwise the estimate, labelled.
   3. The context panel shows the counted figure when there is one.
-- **Tests.** A history whose last assistant message carries a 40 KB
-  `write_file` triggers compaction before the request; sidecar unit test of
-  `count_prompt` against the tokenizer.
+- **Tests.** A history whose last assistant message carries a 40 KiB
+  `write_file` reduces the next answer allowance, or compacts when required;
+  sidecar unit test of `count_prompt` against the tokenizer remains planned.
 
 ### W4.3 Refuse a prompt whose required part does not fit
 

@@ -164,16 +164,16 @@ pub fn compact(
     trigger: Trigger,
 ) -> Option<Compaction> {
     let system = messages.first().cloned()?;
-    // Reasoning handed back between steps is the first thing a compaction
-    // gives up: it is a working note, and the record below keeps what those
-    // steps established.
-    for message in messages.iter_mut() {
-        message.reasoning = None;
-    }
     let mut spent = 0usize;
     let mut keep_from = messages.len();
     for (index, message) in messages.iter().enumerate().skip(1).rev() {
-        let cost = message_tokens(message);
+        // Size the tail as it will be retained, without historical reasoning.
+        let cost = message_tokens(message).saturating_sub(
+            message
+                .reasoning
+                .as_deref()
+                .map_or(0, crate::context::estimate_tokens),
+        );
         let kept = messages.len() - index;
         if spent + cost > tail_budget && kept > KEEP_AT_LEAST {
             break;
@@ -193,6 +193,11 @@ pub fn compact(
     // gets: re-folding it alone would make nothing smaller.
     if keep_from == 2 && messages[1].purpose == Some(MessagePurpose::CompactedMemory) {
         return None;
+    }
+    // Commit the history change only once there is an older stretch to fold.
+    // A no-op must not invalidate a caller's measurement or stored reasoning.
+    for message in messages.iter_mut() {
+        message.reasoning = None;
     }
     let folded = &messages[1..keep_from];
     let (preserved, requests) = preserve(folded, carry);
@@ -658,4 +663,24 @@ fn bounded(text: &str, limit: usize) -> String {
 pub(crate) fn one_line(text: &str) -> String {
     let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     bounded(&flat, LINE_CHARS)
+}
+
+#[cfg(test)]
+mod no_op_regression {
+    use super::*;
+
+    #[test]
+    fn a_compaction_that_cannot_fold_preserves_the_original_messages() {
+        let mut assistant = ChatMessage::text("assistant", "Answer.");
+        assistant.reasoning = Some("A working note.".to_owned());
+        let mut messages = vec![
+            ChatMessage::text("system", "System."),
+            ChatMessage::text("user", "Question."),
+            assistant,
+        ];
+        let before = serde_json::to_value(&messages).unwrap();
+        assert!(compact(&mut messages, 1000, &Carry::default(), Trigger::Automatic).is_none());
+        assert_eq!(serde_json::to_value(&messages).unwrap(), before);
+        assert_eq!(messages[2].reasoning.as_deref(), Some("A working note."));
+    }
 }

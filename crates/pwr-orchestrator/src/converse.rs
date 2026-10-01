@@ -81,14 +81,9 @@ const EMPTY_TURNS_BEFORE_GIVING_UP: usize = 3;
 /// tool calling this backend cannot rely on, and saying so beats retrying.
 const UNPARSEABLE_CALLS_BEFORE_GIVING_UP: usize = 3;
 
-/// Compactions one turn may perform before it is treated as looping.
-///
-/// There is no action budget here: an action count is what bounds a run nobody
-/// is watching, and this one has an operator and a stop key. But compaction
-/// removes the limit that would otherwise end a runaway turn by itself, so
-/// something has to take its place -- and "this turn has re-summarised its own
-/// context twice and still has not finished" is evidence of looping, where "it
-/// has taken thirty actions" is only evidence that the work was large.
+/// Automatic compactions one turn may perform before checking in.
+/// This is a harness resource allowance, not evidence of model repetition.
+/// The existing limit remains until product-path baselines justify tuning it.
 const COMPACTIONS_PER_TURN: usize = 2;
 
 /// Actions one turn takes before it stops and asks.
@@ -210,9 +205,8 @@ pub enum StopReason {
     Interrupted,
     /// The conversation filled the context it was given.
     ContextFull,
-    /// The turn kept compacting its own context without finishing, which is
-    /// looping rather than working.
-    Looping,
+    /// The turn used its compaction allowance before finishing.
+    CompactionBudget,
     /// The deployment produced neither an answer nor an action, repeatedly.
     Silent,
     /// The deployment wrote tool calls only inside its reasoning phase.
@@ -238,15 +232,13 @@ impl StopReason {
         use pwr_domain::TerminalClass;
         match self {
             Self::Interrupted => TerminalClass::Interrupted,
-            Self::BudgetSpent => TerminalClass::Budget,
+            Self::BudgetSpent | Self::CompactionBudget => TerminalClass::Budget,
             Self::Silent
             | Self::ToolCallInReasoning
             | Self::Unparseable
             | Self::ReasoningUnfinished => TerminalClass::Protocol,
             Self::BackendFailing => TerminalClass::Provider,
-            // Compaction could not make room, twice or at all: recovery ran out
-            // of ways forward, which is what the run calls the same position.
-            Self::ContextFull | Self::Looping | Self::NoProgress => TerminalClass::Recovery,
+            Self::ContextFull | Self::NoProgress => TerminalClass::Recovery,
         }
     }
 
@@ -263,7 +255,7 @@ impl StopReason {
     pub const ALL: [Self; 10] = [
         Self::Interrupted,
         Self::ContextFull,
-        Self::Looping,
+        Self::CompactionBudget,
         Self::Silent,
         Self::ToolCallInReasoning,
         Self::Unparseable,
@@ -281,9 +273,9 @@ impl StopReason {
                  a new one, or raise the context budget in Settings"
                     .to_owned()
             }
-            Self::Looping => {
-                "this turn summarised its own context twice and still did not finish, so it was \
-                 stopped; ask for something narrower"
+            Self::CompactionBudget => {
+                "this turn used its budget of two automatic compactions, so it stopped; \
+                 everything done is kept. Continue in another turn or ask for a narrower task"
                     .to_owned()
             }
             Self::Silent => {
@@ -307,12 +299,11 @@ impl StopReason {
                  likely to hold a long conversation together"
                     .to_owned()
             }
-            Self::BackendFailing => format!(
-                "the backend failed {BACKEND_FAULTS_BEFORE_GIVING_UP} times running -- this is \
-                 the server, not the model -- so the turn stopped; everything it did before that \
-                 is kept, and carrying on will retry. Check the backend is still serving the \
-                 model, then say to continue"
-            ),
+            Self::BackendFailing => {
+                "the backend could not continue -- this is the server, not the model -- so the \
+                 turn stopped; everything it did is kept. Check the backend is still serving \
+                 the model, then say to continue".to_owned()
+            },
             Self::NoProgress => format!(
                 "{} windows of {} actions running left the workspace exactly as it was and \
                  repeated what had already been tried, so the work was stopped rather than left \
@@ -967,15 +958,11 @@ pub async fn take_turn<P: ModelProvider>(
         match report.stopped {
             None => pwr_domain::TurnTerminal::Completed,
             Some(StopReason::Interrupted) => pwr_domain::TurnTerminal::Interrupted,
-            Some(StopReason::BudgetSpent) => pwr_domain::TurnTerminal::BudgetExhausted,
+            Some(StopReason::BudgetSpent | StopReason::CompactionBudget) => {
+                pwr_domain::TurnTerminal::BudgetExhausted
+            }
             Some(reason) => pwr_domain::TurnTerminal::Failed {
-                class: match reason {
-                    StopReason::BackendFailing => pwr_domain::TerminalClass::Provider,
-                    StopReason::Unparseable
-                    | StopReason::ToolCallInReasoning
-                    | StopReason::Silent => pwr_domain::TerminalClass::Protocol,
-                    _ => pwr_domain::TerminalClass::Recovery,
-                },
+                class: reason.terminal_class(),
             },
         }
     };
@@ -1165,6 +1152,8 @@ async fn take_turn_inner<P: ModelProvider>(
     // What the backend said the last prompt actually cost. `None` until the
     // first reply, which is the only turn with nothing to measure.
     let mut measured_prompt: Option<u64> = None;
+    // Schema/template costs remain when older messages are compacted away.
+    let mut prompt_overhead = crate::context::PromptOverhead::default();
     // How much of the history the measured count covers, and what this
     // deployment's counts say a character estimate is worth. Without the tail,
     // a turn that read a large file was measured as the prompt before the read
@@ -1232,28 +1221,30 @@ async fn take_turn_inner<P: ModelProvider>(
         // that has outgrown the window comes back as a provider error about
         // its length, which tells the operator nothing they can do.
         let room = continuity.compaction_room(context_tokens);
-        let objective_tokens = continuity
-            .checkpoint
-            .lock()
-            .map(|checkpoint| {
-                checkpoint
-                    .objectives
-                    .iter()
-                    .map(|text| crate::context::estimate_tokens(text))
-                    .sum::<usize>()
-            })
-            .unwrap_or_default();
-        if objective_tokens >= room {
-            on_step(TurnStep::Note(format!(
-                "The objective and its revisions take {objective_tokens} estimated tokens of {room}; choose a larger context or shorten the objective."
-            )));
-            return stopped(actions, edited, StopReason::ContextFull);
+        let prompt_now = prompt_tokens_now(messages, measured_prompt, measured_upto);
+        let input_now = conservative_prompt_tokens(messages, measured_prompt, measured_upto);
+        let (prompt_now, input_now) = if measured_prompt.is_none() {
+            (
+                prompt_overhead.predict(prompt_now),
+                prompt_overhead.predict(input_now),
+            )
+        } else {
+            (prompt_now, input_now)
+        };
+        let no_answer_room = pwr_domain::GenerationEnvelope {
+            context_limit: context_tokens,
+            input_tokens: u32::try_from(input_now).unwrap_or(u32::MAX),
+            answer_allowance: ANSWER_ALLOWANCE,
         }
-        if prompt_tokens_now(messages, measured_prompt, measured_upto) >= room {
+        .room()
+            == 0;
+        if prompt_now >= room || no_answer_room {
             if compactions >= COMPACTIONS_PER_TURN {
-                return stopped(actions, edited, StopReason::Looping);
+                return stopped(actions, edited, StopReason::CompactionBudget);
             }
-            match compact_and_record(
+            // If nothing can be folded, the physical envelope below still
+            // decides whether the intact prompt has room for an answer.
+            if let Some(note) = compact_and_record(
                 store,
                 conversation_id,
                 deployment,
@@ -1262,14 +1253,10 @@ async fn take_turn_inner<P: ModelProvider>(
                 room,
                 continuity,
             )? {
-                Some(note) => {
-                    compactions += 1;
-                    on_step(TurnStep::Compacted(note));
-                }
-                // Nothing left to summarise: the recent exchanges alone
-                // already fill the window, so no amount of compacting will
-                // make room and saying so is the only honest answer.
-                None => return stopped(actions, edited, StopReason::ContextFull),
+                compactions += 1;
+                measured_prompt = None;
+                measured_upto = 0;
+                on_step(TurnStep::Compacted(note));
             }
         }
         // Replies that fall apart in a long conversation are not fixed by
@@ -1294,6 +1281,8 @@ async fn take_turn_inner<P: ModelProvider>(
                 DEGENERATE_RESET_ROOM,
                 continuity,
             )? {
+                measured_prompt = None;
+                measured_upto = 0;
                 degenerate_resets += 1;
                 degenerate_replies = 0;
                 on_step(TurnStep::Compacted(format!(
@@ -1347,18 +1336,28 @@ async fn take_turn_inner<P: ModelProvider>(
         // prompt takes (counted conservatively), and the answer's own cap.
         let envelope = pwr_domain::GenerationEnvelope {
             context_limit: context_tokens,
-            input_tokens: u32::try_from(conservative_prompt_tokens(
-                messages,
-                measured_prompt,
-                measured_upto,
-            ))
-            .unwrap_or(u32::MAX),
+            input_tokens: {
+                let estimate = conservative_prompt_tokens(messages, measured_prompt, measured_upto);
+                let input = if measured_prompt.is_none() {
+                    prompt_overhead.predict(estimate)
+                } else {
+                    estimate
+                };
+                u32::try_from(input).unwrap_or(u32::MAX)
+            },
             answer_allowance: request_sampling
                 .get("max_tokens")
                 .and_then(serde_json::Value::as_u64)
                 .and_then(|value| u32::try_from(value).ok())
                 .unwrap_or(ANSWER_ALLOWANCE),
         };
+        if envelope.room() == 0 {
+            on_step(TurnStep::Note(format!(
+                "The prompt takes {} estimated or measured tokens in a {}-token window; no answer room remains after the safety margin.",
+                envelope.input_tokens, envelope.context_limit
+            )));
+            return stopped(actions, edited, StopReason::ContextFull);
+        }
         let finalizing = unfinished_reasoning > 0 || answer_without_thinking;
         answer_without_thinking = false;
         let plan = if finalizing {
@@ -1381,6 +1380,7 @@ async fn take_turn_inner<P: ModelProvider>(
         };
         // The prompt as sent: what the count that comes back is a count of.
         let sent_upto = messages.len();
+        let sent_estimate = crate::compaction::estimated_tokens(messages);
         // What this request is about to occupy, said before a generation that
         // can take minutes. Only once a count exists: an estimate from the
         // messages alone leaves out the instructions and the tool schemas,
@@ -1705,10 +1705,20 @@ async fn take_turn_inner<P: ModelProvider>(
                         limit: usize::from(max_context_drops),
                         detail: format!("{safe_context}; asking for {lower} tokens"),
                     });
-                    let granted = provider
-                        .prepare_context(deployment, lower)
-                        .await
-                        .unwrap_or(lower);
+                    let granted = match provider.prepare_context(deployment, lower).await {
+                        Ok(granted) => granted,
+                        Err(error) => {
+                            store.append(
+                                Some(conversation_id),
+                                "context.preparation_failed",
+                                serde_json::json!({"requested_tokens": lower, "previous_tokens": context_tokens, "detail": error.to_string()}),
+                            ).map_err(|error| error.to_string())?;
+                            on_step(TurnStep::Refused(format!(
+                                "could not prepare the {lower}-token window: {error}"
+                            )));
+                            return stopped(actions, edited, StopReason::BackendFailing);
+                        }
+                    };
                     if granted != lower {
                         on_step(TurnStep::Refused(format!(
                             "the backend served {granted} tokens rather than the {lower} asked \
@@ -1729,7 +1739,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 // On a backend that cannot be calibrated there is no ladder to
                 // drop down, and compaction is the whole answer.
                 if compactions >= COMPACTIONS_PER_TURN {
-                    return stopped(actions, edited, StopReason::ContextFull);
+                    return stopped(actions, edited, StopReason::CompactionBudget);
                 }
                 match compact_and_record(
                     store,
@@ -1742,6 +1752,8 @@ async fn take_turn_inner<P: ModelProvider>(
                 )? {
                     Some(note) => {
                         compactions += 1;
+                        measured_prompt = None;
+                        measured_upto = 0;
                         on_step(TurnStep::Compacted(format!(
                             "{note} (after the backend refused the prompt: {safe_context})"
                         )));
@@ -1788,6 +1800,9 @@ async fn take_turn_inner<P: ModelProvider>(
             .metrics
             .as_ref()
             .and_then(|metrics| metrics.prompt_tokens);
+        if let Some(counted) = counted {
+            prompt_overhead.observe(sent_estimate, counted);
+        }
         // Said once, because it is a property of how the deployment is loaded
         // and will hold for the rest of the conversation: repeating it every
         // turn would bury the turns themselves.
@@ -2866,18 +2881,23 @@ fn conservative_prompt_tokens(
         ),
         None => (0, 0),
     };
-    let since: usize = messages
-        .iter()
-        .skip(from)
-        .map(|message| {
-            message.content.len().div_ceil(3)
-                + message
+    let since = messages.iter().skip(from).fold(0usize, |total, message| {
+        let calls = message.tool_calls.iter().fold(0usize, |tokens, call| {
+            tokens
+                .saturating_add(call.name.len().div_ceil(3))
+                .saturating_add(call.arguments.to_string().len().div_ceil(3))
+        });
+        total
+            .saturating_add(message.content.len().div_ceil(3))
+            .saturating_add(
+                message
                     .reasoning
                     .as_ref()
-                    .map_or(0, |r| r.len().div_ceil(3))
-                + 4
-        })
-        .sum();
+                    .map_or(0, |r| r.len().div_ceil(3)),
+            )
+            .saturating_add(calls)
+            .saturating_add(4)
+    });
     base.saturating_add(since)
 }
 
@@ -3010,20 +3030,12 @@ fn prompt_tokens_now(
     let Some(measured) = measured else {
         return conversation_tokens(messages, None);
     };
-    let since: usize = messages
-        .iter()
-        .skip(measured_upto)
-        .map(|message| {
-            crate::context::estimate_tokens(&message.content)
-                + message
-                    .reasoning
-                    .as_deref()
-                    .map_or(0, crate::context::estimate_tokens)
-        })
-        .sum();
-    // The measured count is of a whole request, tool schemas and template
-    // included, so what it is missing is only what was appended after it.
-    usize::try_from(measured).unwrap_or(usize::MAX) + since
+    // The measured count covers the whole previous request, including schemas
+    // and template; estimate only messages appended after it.
+    let since = crate::compaction::estimated_tokens(&messages[measured_upto.min(messages.len())..]);
+    usize::try_from(measured)
+        .unwrap_or(usize::MAX)
+        .saturating_add(since)
 }
 
 /// fixed, and finally made the build pass by abandoning the signals the
@@ -3037,10 +3049,7 @@ fn conversation_tokens(messages: &[ChatMessage], measured: Option<u64>) -> usize
         // result.
         return usize::try_from(measured).unwrap_or(usize::MAX);
     }
-    messages
-        .iter()
-        .map(|message| crate::context::estimate_tokens(&message.content))
-        .sum()
+    crate::compaction::estimated_tokens(messages)
 }
 
 /// Automatic compaction: the shared [`crate::compaction::compact`], keeping
@@ -3843,6 +3852,32 @@ mod tests {
     }
 
     #[test]
+    fn appended_tool_call_arguments_are_in_both_prompt_estimates() {
+        let messages = vec![
+            said("system", "already counted"),
+            ChatMessage {
+                role: "assistant".into(),
+                content: String::new(),
+                reasoning: Some("r".repeat(120)),
+                tool_calls: vec![pwr_domain::ToolCall {
+                    name: "write_file".into(),
+                    arguments: serde_json::json!({"path": "large.txt", "content": "x".repeat(40 * 1024)}),
+                    id: Some("call-1".into()),
+                }],
+                ..Default::default()
+            },
+        ];
+        assert!(prompt_tokens_now(&messages, Some(100), 1) > 10_000);
+        assert!(conservative_prompt_tokens(&messages, Some(100), 1) > 13_000);
+        assert!(conversation_tokens(&messages, None) > 10_000);
+        assert_eq!(
+            prompt_tokens_now(&messages, Some(100), 2),
+            100,
+            "counted arguments must not be added twice"
+        );
+    }
+
+    #[test]
     fn a_measured_prompt_is_preferred_to_a_guess_at_one() {
         // Characters chosen so the heuristic and the measurement disagree the
         // way they did in the run.
@@ -3897,7 +3932,7 @@ mod tests {
             match reason {
                 StopReason::Interrupted
                 | StopReason::ContextFull
-                | StopReason::Looping
+                | StopReason::CompactionBudget
                 | StopReason::Silent
                 | StopReason::ToolCallInReasoning
                 | StopReason::Unparseable

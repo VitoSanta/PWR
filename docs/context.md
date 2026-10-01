@@ -1,6 +1,6 @@
 # Context
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** What reaches the
+**IMPLEMENTED, reviewed in the 2026-10-01 F1 context cycle.** What reaches the
 model, how it is counted, how it is compacted, and where repository knowledge
 comes from.
 
@@ -17,6 +17,13 @@ comes from.
   the sidecar, disables semantic requests for that ranker and falls back to the
   lexical candidates, recorded in the events and shown to the person (plan W1.8,
   W4.6 in part). Scripted `ContextCompiled` carries `retrieval_fallback`.
+- **Observed windows require acknowledgment.** Metadata/preparation errors are
+  explicit; Settings and context-tier recovery do not turn a requested window
+  into a granted one. A backend acknowledgment still does not prove physical
+  or effective model capacity.
+- **The policy trigger differs from physical fit.** An objective above the
+  compaction trigger may still fit. If nothing can be folded, the generation
+  envelope decides whether prompt plus safety margin leaves answer room.
 - **Token costs are still estimates**; an exact, template- and tool-aware
   preflight (W4.2) is not implemented.
 
@@ -99,9 +106,17 @@ fits. Re-read anything you need rather than relying on this."*, keeping:
 
 The system prompt is never folded; the tail kept verbatim is whatever recent
 conversation fits in half the room, and at least two messages. Tool output,
-superseded ledgers and retrieved passages are dropped and counted. A later
+superseded ledgers and retrieved passages are dropped and counted. A compaction
+that cannot fold anything preserves the original messages, including reasoning.
+Successful automatic compaction invalidates the previous whole-history count;
+the learned schema/template offset remains in estimates. Both prompt estimates
+include serialized tool-call names and arguments, plus reasoning. These remain
+heuristics, not exact counts. A later
 compaction merges the earlier record. Each compaction records
 `context.compacted` in the event log; a manual one also writes a snapshot.
+The existing limit of two automatic compactions per turn remains. Exhaustion
+is `CompactionBudget` (terminal class `budget`), not a model-loop diagnosis.
+Degenerate-reply resets keep their separate existing bound.
 
 **What compaction still loses:** tool output, superseded ledgers and retrieved
 passages (counted, not kept), and the exact wording of the model's earlier
