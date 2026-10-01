@@ -209,6 +209,58 @@ impl ServiceSupervisor {
         }
     }
 
+    /// Like [`wait_until_ready`](Self::wait_until_ready), for a service whose
+    /// port the caller did not choose: ready when it accepts a connection on
+    /// the reserved port **or on any port the service itself is listening on**,
+    /// and the port it answered on is returned.
+    ///
+    /// The reserved port is never handed to the process, so a program that
+    /// takes its port from its own default (`ng serve` on 4200, Vite on 5173,
+    /// `flask run` on 5000) never opens it, and the wait used to end in
+    /// "did not accept a connection on port 51227" for a server that was up
+    /// (measured 2026-10-01, a Gemma 4 goal building an Angular site). The
+    /// service's own listening sockets are asked of the operating system
+    /// (`lsof`, by process group), not read from its output.
+    pub async fn wait_until_ready_on_any(
+        &mut self,
+        id: u32,
+        reserved: u16,
+        timeout: Duration,
+    ) -> Result<(Duration, u16), ToolError> {
+        let deadline = Instant::now() + timeout;
+        let mut round = 0u32;
+        loop {
+            if let Some(running) = self.running.get_mut(&id)
+                && running.child.try_wait().ok().flatten().is_some()
+            {
+                return Err(ToolError::Denied(format!(
+                    "service {id} exited before it accepted a connection. If this is \
+                     something that runs and finishes -- a script, a build, a test run -- \
+                     use run_command for it; start_service is for a server that keeps \
+                     running and listens on a port"
+                )));
+            }
+            let waited = timeout.saturating_sub(deadline.saturating_duration_since(Instant::now()));
+            if accepts(reserved) {
+                return Ok((waited, reserved));
+            }
+            // Asking the system is a process spawn: every tenth round, not every one.
+            if round % 10 == 5
+                && let Some(running) = self.running.get(&id)
+                && let Some(port) = listening_ports(running.group)
+                    .into_iter()
+                    .find(|port| accepts(*port))
+            {
+                return Ok((waited, port));
+            }
+            round += 1;
+            if Instant::now() >= deadline {
+                return Err(ToolError::Timeout);
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
     /// Stops a service and reports what it did.
     ///
     /// The process group, not the process: a server that forked workers leaves
@@ -261,6 +313,38 @@ impl Drop for ServiceSupervisor {
             kill_group(running.group);
         }
     }
+}
+
+fn accepts(port: u16) -> bool {
+    std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_millis(100),
+    )
+    .is_ok()
+}
+
+/// The TCP ports the processes of a group are listening on, from `lsof`; empty
+/// where there is no `lsof` or nothing listens.
+fn listening_ports(group: Option<u32>) -> Vec<u16> {
+    let Some(group) = group else {
+        return Vec::new();
+    };
+    let Ok(output) = std::process::Command::new("lsof")
+        .args(["-nP", "-a", "-g"])
+        .arg(group.to_string())
+        .args(["-iTCP", "-sTCP:LISTEN", "-Fn"])
+        .output()
+    else {
+        return Vec::new();
+    };
+    let mut ports: Vec<u16> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.strip_prefix('n'))
+        .filter_map(|name| name.rsplit(':').next()?.parse().ok())
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
 }
 
 fn kill_group(pid: Option<u32>) {

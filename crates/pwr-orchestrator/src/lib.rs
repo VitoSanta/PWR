@@ -1466,34 +1466,55 @@ async fn attempt_action(
         } => {
             // A port is reserved rather than chosen: a fixed range collides
             // with whatever else the developer is running, and this project
-            // has no business claiming 8080 on their machine.
-            let port = match port {
-                Some(port) => *port,
+            // has no business claiming 8080 on their machine. The reserved
+            // port is not handed to the program, so when the caller named no
+            // port the program's own port counts as well (`ng serve` listens
+            // on 4200): the one it answers on is reported.
+            let asked = *port;
+            let port = match asked {
+                Some(port) => port,
                 None => pwr_tools::service::ServiceSupervisor::reserve_port()?,
             };
             let handle = services.start(policy, executable, args, Some(port)).await?;
-            let waited = services
-                .wait_until_ready(
-                    handle.id,
-                    port,
-                    std::time::Duration::from_secs(
-                        ready_timeout_secs.unwrap_or(SERVICE_READY_TIMEOUT_SECS),
-                    ),
-                )
-                .await;
+            let timeout = std::time::Duration::from_secs(
+                ready_timeout_secs.unwrap_or(SERVICE_READY_TIMEOUT_SECS),
+            );
+            let waited = if asked.is_some() {
+                services
+                    .wait_until_ready(handle.id, port, timeout)
+                    .await
+                    .map(|waited| (waited, port))
+            } else {
+                services
+                    .wait_until_ready_on_any(handle.id, port, timeout)
+                    .await
+            };
             match waited {
-                Ok(waited) => Ok(serde_json::json!({
-                    "service_id": handle.id,
-                    "port": port,
-                    "ready_after_ms": waited.as_millis(),
-                })),
+                Ok((waited, answered)) => {
+                    let mut report = serde_json::json!({
+                        "service_id": handle.id,
+                        "port": answered,
+                        "ready_after_ms": waited.as_millis(),
+                    });
+                    if answered != port {
+                        report["note"] = serde_json::json!(format!(
+                            "the program listens on port {answered} by itself; use that port"
+                        ));
+                    }
+                    Ok(report)
+                }
                 Err(error) => {
                     // A service that never answered is stopped rather than
                     // left running: a failed start that keeps a process alive
                     // is the leak this supervisor exists to prevent.
                     let outcome = services.stop(handle.id, policy.output_limit).await.ok();
                     Err(ActionExecutionError::Io(format!(
-                        "service did not accept a connection on port {port}: {error}. Output: {}",
+                        "service did not accept a connection on port {port}{}: {error}. Output: {}",
+                        if asked.is_some() {
+                            ""
+                        } else {
+                            " or on any port it listens on"
+                        },
                         outcome
                             .map(|outcome| format!("{}{}", outcome.stdout, outcome.stderr))
                             .unwrap_or_default()
@@ -4821,7 +4842,7 @@ pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
         ),
         function(
             "start_service",
-            "Start a long-running service and wait until it accepts a connection. Needs the local-service grant. Omit port and one is reserved for you and reported back. Use it to stand a server up and then exercise it; it is stopped automatically when the run ends.",
+            "Start a long-running service and wait until it accepts a connection. Needs the local-service grant. Omit port and PWR waits for whichever port the program listens on and reports it (a dev server keeps its own default, such as 4200); pass port only to wait on a specific one, and give the program its own port flag then. Use it to stand a server up and then exercise it; it is stopped automatically when the run ends.",
             serde_json::json!({
                 "executable": {"type": "string"},
                 "args": {"type": "array", "items": {"type": "string"}},
