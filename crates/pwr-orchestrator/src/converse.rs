@@ -154,6 +154,12 @@ const DEGENERATE_RESET_ROOM: usize = 8_192;
 /// card's sampling (penalty 0) still looped in its reasoning on a Bash task --
 /// the same passage four times, five generations in an hour.
 const ANTI_LOOP_PRESENCE_PENALTY: f64 = 1.0;
+
+/// How far back the engine looks for a token already written, once a reply has
+/// looped. mlx-lm's own window is 20 tokens (read from its source, 2026-10-01),
+/// which cannot see a passage repeated at length: the penalty above did
+/// nothing against exactly the loops it was added for.
+const ANTI_LOOP_PRESENCE_WINDOW: u64 = 1_024;
 /// Replies a turn may lose to being cut off inside a tool call, in all.
 ///
 /// Not consecutive, unlike the counters beside it. Measured 2026-09-30 (Bonsai
@@ -1288,6 +1294,10 @@ async fn take_turn_inner<P: ModelProvider>(
                 request_sampling.insert(
                     "presence_penalty".into(),
                     serde_json::json!(ANTI_LOOP_PRESENCE_PENALTY),
+                );
+                request_sampling.insert(
+                    "presence_context_size".into(),
+                    serde_json::json!(ANTI_LOOP_PRESENCE_WINDOW),
                 );
                 if let Some(sources) = request_sampling
                     .get_mut("_pwr_sampling_sources")

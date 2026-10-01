@@ -340,3 +340,16 @@ changed it. The conversation now counts writes per file, and every twelfth one
 carries a note in its result naming the count and the ways out (read the
 failing output line by line, change the approach, or say what blocks). It
 states and does not decide; no limit was added. Effect to be measured on `dev`.
+
+## 2026-10-01 — The anti-loop presence penalty gets a window that can see a loop (measurement-changing)
+
+Reading mlx-lm 0.31.3's `make_logits_processors`: the presence penalty looks only
+at the **last 20 tokens** (`presence_context_size=20`), whereas a vendor's
+presence penalty (Qwen's 1.5) is defined over everything generated so far. A
+loop of a passage longer than 20 tokens is invisible to it, so the penalty
+added after a looped reply (entry above) could not do what it was added for.
+The request now carries `presence_context_size` (1,024 after a loop; absent
+otherwise, so every other generation is unchanged) and the sidecar passes it
+on. A card-declared presence penalty still runs on the engine's 20-token
+window; whether to widen that for the models that declare one (Ornith, Qwen3.5)
+is a separate, unmeasured decision.

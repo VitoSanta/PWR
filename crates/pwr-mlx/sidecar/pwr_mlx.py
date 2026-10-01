@@ -881,8 +881,14 @@ class Engine:
             top_k=int(request.get("top_k") or 0),
             min_p=float(request.get("min_p") or 0.0),
         )
+        # mlx-lm penalises only the last 20 tokens by default. A vendor's
+        # presence penalty (Qwen's 1.5) is defined over everything generated
+        # so far, and a loop of a passage longer than 20 tokens is invisible to
+        # a 20-token window: `presence_context_size` widens it where the
+        # caller asks (PWR does after a reply has looped).
         logits_processors = make_logits_processors(
             presence_penalty=request.get("presence_penalty"),
+            presence_context_size=int(request.get("presence_context_size") or 20),
             repetition_penalty=request.get("repetition_penalty"),
         )
 
