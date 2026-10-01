@@ -317,3 +317,16 @@ looks like a list written as JSON, but it is not valid JSON": the model writes
 `<parameter=args>['python3', '-m', 'unittest']</parameter>`. A parameter that
 is wholly a Python list or dict literal is now read as one (Qwen-family XML
 parameters; same reader the Liquid adapter uses).
+
+## 2026-10-01 — A clean start after two degenerate replies (measurement-changing)
+
+`dev9-qwen3-coder` on `bash-rotate`: thirty-two sound generations, then at
+26,900 tokens of failing-and-retrying history nine replies in a row collapsed
+into "!!!!!" or "call call call" (engine repetition stop), and the turn ended
+`protocol`. Controls (2026-10-01, same engine, same model): a fresh 30,000-token
+prompt is answered correctly, and a synthetic 40-turn chain of cache-reusing
+requests to 32,000 tokens stays coherent. So the collapse comes with the
+conversation, not with length or the cache. After two such replies in a row the
+turn now compacts the history to an 8,192-token room (two clean starts per turn
+at most) and carries on. Hypothesis: it rescues a model that is lost in its own
+history; measured on `dev` next.
