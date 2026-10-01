@@ -15,7 +15,7 @@
       "id": "G1",
       "name": "Effects are safe and honestly reported",
       "status": "in progress: implemented on develop, CI not run",
-      "evidence": "Implemented on develop with regression tests (not pushed, CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, a goal budget on every branch, acceptance artifacts frozen, the objective kept whole in compaction, marks that follow verdicts, zero-test signatures for six toolchains, failure fingerprints. Local suites in the 2026-10-01 F1 context cycle: Rust 1,386 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41; logs in docs/reviews/2026-10-01-audit.md. Still open: W3.2 (CI proposals), W3.4 (the `complete` promise), W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated).",
+      "evidence": "Implemented on develop with regression tests (not pushed, CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, a goal budget on every branch, acceptance artifacts frozen, the objective kept whole in compaction, marks that follow verdicts, zero-test signatures for six toolchains, failure fingerprints. Local suites in the 2026-10-01 F1 sampling cycle: Rust 1,405 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41; logs in docs/reviews/2026-10-01-audit.md. Still open: W3.2 (CI proposals), W3.4 (the `complete` promise), W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated).",
       "remaining": "A push and a green CI run on macOS (the first since 2026-09-30); the native-app walk; the open items above."
     },
     {

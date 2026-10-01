@@ -7359,6 +7359,9 @@ const PACKAGED_MODEL_PROFILES: &str = include_str!("../../../strategies/models.j
 
 /// A cached, pinned card recommendation for an installed MLX artifact. A
 /// missing card or unavailable Hub leaves generation_config.json in charge.
+/// Enrichment precedes per-generation reasoning planning (including Off on
+/// finalization), so this boundary deliberately resolves mode-neutral cards.
+/// A profile's initial `think` is not the mode of every later generation.
 async fn model_card_sampling(
     model_ref: &str,
 ) -> Option<(pwr_models::sampling::CardSampling, String)> {
