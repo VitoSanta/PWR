@@ -363,3 +363,15 @@ about 60k tokens and more, where generation collapses into token id 0 ("!")
 ([jundot/omlx#3777](https://github.com/jundot/omlx/issues/3777)); and PWR's own
 collapse at 27k tokens of history (`dev9-qwen3-coder`). Neither is proven to be
 the same defect.
+
+## 2026-10-01 — `mlx` 0.32.0 → 0.32.3 (measurement-changing)
+
+Compared in a scratch environment before the pin moved (one model at a time):
+the sidecar's 39 tests pass on 0.32.3; Gemma 4 12B prefill of a 4,976-token
+prompt 23.7–24.1 s against 25.3–27.4 s on 0.32.0; Qwen3-Coder-30B answers a
+fresh 30,000-token prompt and a 40-turn cache-reusing chain to 32,000 tokens
+coherently on both (neither reproduced the 27k-token collapse seen in a real
+run). After the pin moved, Gemma 4 12B, Qwen3.5-9B, Devstral and gpt-oss passed
+the critical Quick Calibration checks. Not shown: that it removes the
+long-conversation collapse. A backend patch version is a *reduced*-confidence
+change for existing calibrations, not a stale one.
