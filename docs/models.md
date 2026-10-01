@@ -1,6 +1,6 @@
 # Models
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** How PWR finds, rates,
+**Checked against `develop`, 2026-10-01; sampling correctness parent `84b4654c`.** How PWR finds, rates,
 downloads and adapts to models, and what its model evidence does and does not
 show. Code: `crates/pwr-models` (catalogue, fit, downloads, profiles,
 calibration), `crates/pwr-compat` (family conventions),
@@ -59,16 +59,32 @@ order, each value remembering where it came from (the Sampling dialog shows it):
 1. **the person's own values** (`.pwr-user-sampling.json` in the model folder);
 2. **a declared profile** for the exact artifact (`strategies/models.json`);
 3. **the model card**, read from the Hub at the downloaded revision and pinned
-   (`.pwr-card-sampling.json`): the card's recommended-sampling section, else
-   the thinking *coding* set of a card that lists one set per mode (Qwen3.5), else
-   the original model's `generation_config.json`; a "none found" is looked for
-   again after a day;
+   (`.pwr-card-sampling.json`): an unambiguous, mode-neutral recommendation
+   inside an explicitly named sampling scope, else the original model's
+   `generation_config.json`; a "none found" is looked for again after a day;
 4. **the artifact's `generation_config.json`**;
 5. **PWR's floor: temperature 0.6, top_p 0.95, top_k 20**, when no temperature is
    declared anywhere (never greedy by default, because greedy decoding is what
    Qwen's cards warn leads to endless repetition). An explicit temperature 0
    stays greedy, and a vendor's lone temperature is not topped up with
    truncation it did not ask for.
+
+**IMPLEMENTED A05 correction:** benchmark/evaluation/reproduction descendants,
+unscoped coding prose, fenced and indented code, and HTML code blocks are
+excluded. Complete alternatives are compared rather than blended. General-use
+precedence on neutral cards is retained. Cache schema 4 includes repository,
+artifact revision and requested mode, rejects old assumed-thinking choices,
+and retains the pinned source revision and source-file URL.
+
+The parser/cache can resolve an explicitly fixed thinking or non-thinking
+switch. **Product enrichment uses unknown mode:** UI/chat/eval resolve sampling
+before their reasoning planner, which can later disable thinking or remove its
+switch. A profile's initial `think=true`, template capability or vendor default
+therefore does not justify selecting a thinking recipe here. Mode-specific
+per-generation selection remains **PLANNED W5.6** after final reasoning planning;
+only neutral card values are currently applied. Artifact/profile/user values
+and the existing floor retain their precedence and values. This fixes source
+selection, not task capability; no model measurement supports an improvement.
 
 `presence_penalty` and `repetition_penalty` are passed to mlx-lm, whose
 penalties look at the **last 20 tokens only** (read from its source,

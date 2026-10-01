@@ -13,6 +13,41 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-01 — F1 sampling source correctness (measurement-changing)
+
+**IMPLEMENTED A05 correction; MEASURED deterministic regressions, no model experiment.**
+Parent `84b4654c`. Before the fix, the parser accepted unscoped benchmark/coding
+prose, fenced continuation values, mode-bound recipes under unknown mode and
+out-of-range top_k; cache schema 3 reused those chosen recipes. Additional
+failing regressions exposed excluded-label continuation, section-end, HTML and
+indented-code leaks. Control is the prior parser/cache on the same fixtures;
+criterion: zero excluded-source acceptance and no guessed mode or hybrid recipe.
+
+**Decision: keep the correctness correction; W5.6 remains PARTIAL.** Named scopes,
+excluded ancestry, matching fences and code boundaries, complete alternatives,
+explicit fixed-mode parsing and repository/revision/mode cache schema 4 are
+implemented. Pinned source-file provenance is retained; original fallback uses
+the already-verified artifact/base relationship. UI/chat/eval enrichment uses
+unknown mode because later reasoning/finalization planning can change `think`.
+Fixed-mode APIs preserve legitimate recipes; product selection after final
+per-generation planning remains PLANNED. The simpler safe control is neutral
+recommendations followed by the existing artifact/default precedence, chosen
+here rather than adding another dynamic planner before executor parity.
+
+Old Qwen fixture fragments now include their actual sampling scope and an
+explicit mode; the permissive unscoped-prose assertion now requires rejection.
+These replace unsafe expectations, not weaker verifiers. There are 19 new
+sampling tests, including a real local HTTP/cache path, no model or Hub traffic.
+No new numerical floor/profile tuning; rejecting old card choices can change
+sampling on existing deployments, so prior campaign arms are not interchangeable.
+Task capability/performance effects remain unknown; no inference, heldout
+inspection, model download or push.
+
+**MEASURED final checks:** Rust exit 0, 1,405 reported passed / 0 failed / 5 ignored across 102 target summaries; one reported pass is a Docker socket skip. Clippy with denied warnings, fmt, desktop 107 tests / 13 files and production build, sidecar 41 tests, milestone agreement and diff checks pass. Existing npm dependencies were reused;
+hosted CI, clean npm installation and the Docker case remain unverified.
+Starting process-safety and Semantic Decision Layer hunks remain uncommitted.
+Evidence: `/Users/vitosantanelli/Desktop/pwr-evidence/logs/mission-20261001-f1-sampling/`.
+
 ## 2026-10-01 — F1 context correctness (measurement-changing)
 
 **IMPLEMENTED; MEASURED deterministic regressions, no model experiment.**

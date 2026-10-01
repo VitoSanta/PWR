@@ -69,6 +69,8 @@ impl CardSampling {
 struct Cached {
     schema_version: u32,
     artifact_revision: String,
+    repository: String,
+    mode: SamplingMode,
     recommendation: Option<CardSampling>,
     #[serde(default)]
     retry_after_unix: Option<i64>,
@@ -82,6 +84,17 @@ pub async fn for_installed(
     repository: &str,
     model_dir: &Path,
 ) -> Option<CardSampling> {
+    for_installed_for_mode(hub, repository, model_dir, SamplingMode::Unknown).await
+}
+
+/// Only use a known mode when it is fixed for every request that will consume
+/// the result. Chat/eval enrichment intentionally uses the unknown-mode wrapper.
+pub async fn for_installed_for_mode(
+    hub: &HubClient,
+    repository: &str,
+    model_dir: &Path,
+    mode: SamplingMode,
+) -> Option<CardSampling> {
     if !crate::catalog::is_repository(repository) {
         return None;
     }
@@ -94,15 +107,22 @@ pub async fn for_installed(
     if let Ok(bytes) = std::fs::read(&cache_path)
         && bytes.len() <= 16 * 1024
         && let Ok(cache) = serde_json::from_slice::<Cached>(&bytes)
-        && cache.schema_version == 3
+        && cache.schema_version == 4
+        && cache.repository == repository
+        && cache.mode == mode
         && cache.artifact_revision == revision
+        && cache.recommendation.as_ref().is_none_or(|card| {
+            card.artifact_revision == revision
+                && crate::catalog::is_repository(&card.source_repository)
+                && crate::catalog::is_revision(&card.source_revision)
+        })
         && cache
             .retry_after_unix
             .is_none_or(|retry| chrono::Utc::now().timestamp() < retry)
     {
         return cache.recommendation;
     }
-    let found = tokio::time::timeout(FETCH_BUDGET, fetch(hub, repository, revision)).await;
+    let found = tokio::time::timeout(FETCH_BUDGET, fetch(hub, repository, revision, mode)).await;
     let (recommendation, retry_after_unix) = match found {
         // A card that says nothing today may say something after an edit:
         // "none found" is looked for again after a day.
@@ -111,10 +131,11 @@ pub async fn for_installed(
         _ => (None, Some(chrono::Utc::now().timestamp() + 60)),
     };
     let cache = Cached {
-        // 2: an original model's generation_config.json is read too, so a
-        // "none found" kept under 1 is looked for again. 3: a card with a set
-        // per mode gives its coding set, so a "none found" kept under 2 is too.
-        schema_version: 3,
+        // 4: reject the former unscoped/assumed-thinking selection; identity
+        // includes repository and requested mode as well as artifact revision.
+        schema_version: 4,
+        repository: repository.into(),
+        mode,
         artifact_revision: revision.into(),
         recommendation: recommendation.clone(),
         retry_after_unix,
@@ -126,9 +147,17 @@ pub async fn for_installed(
     recommendation
 }
 
-async fn fetch(hub: &HubClient, repository: &str, revision: &str) -> Option<Option<CardSampling>> {
+async fn fetch(
+    hub: &HubClient,
+    repository: &str,
+    revision: &str,
+    mode: SamplingMode,
+) -> Option<Option<CardSampling>> {
     let exact = hub.card(repository, revision).await.ok()?;
-    if let Some(values) = exact.as_deref().and_then(parse_recommendations) {
+    if let Some(values) = exact
+        .as_deref()
+        .and_then(|card| parse_recommendations_for_mode(card, mode))
+    {
         return Some(Some(CardSampling {
             artifact_revision: revision.into(),
             source_repository: repository.into(),
@@ -144,23 +173,23 @@ async fn fetch(hub: &HubClient, repository: &str, revision: &str) -> Option<Opti
     if model.revision.as_deref() != Some(revision) {
         return Some(None);
     }
-    for base in model.base_models {
-        if !crate::catalog::is_repository(&base) {
+    for base in &model.base_models {
+        if !crate::catalog::is_repository(base) {
             continue;
         }
-        let Ok(source) = hub.model(&base).await else {
+        let Ok(source) = hub.model(base).await else {
             continue;
         };
         let Some(source_revision) = source.revision else {
             continue;
         };
-        let Ok(Some(card)) = hub.card(&base, &source_revision).await else {
+        let Ok(Some(card)) = hub.card(base, &source_revision).await else {
             continue;
         };
-        if let Some(values) = parse_recommendations(&card) {
+        if let Some(values) = parse_recommendations_for_mode(&card, mode) {
             return Some(Some(CardSampling {
                 artifact_revision: revision.into(),
-                source_repository: base,
+                source_repository: base.clone(),
                 source_revision,
                 values,
                 source_file: None,
@@ -173,23 +202,23 @@ async fn fetch(hub: &HubClient, repository: &str, revision: &str) -> Option<Opti
     // none, so they ran at temperature 0 -- greedy decoding, which Qwen's
     // card for Qwen3 warns leads to endless repetition -- while
     // Qwen/Qwen3-14B's says 0.6, top_p 0.95, top_k 20.
-    for base in hub.model(repository).await.ok()?.base_models {
-        if !crate::catalog::is_repository(&base) {
+    for base in &model.base_models {
+        if !crate::catalog::is_repository(base) {
             continue;
         }
-        let Ok(source) = hub.model(&base).await else {
+        let Ok(source) = hub.model(base).await else {
             continue;
         };
         let Some(source_revision) = source.revision else {
             continue;
         };
-        let Ok(Some(config)) = hub.generation_config(&base, &source_revision).await else {
+        let Ok(Some(config)) = hub.generation_config(base, &source_revision).await else {
             continue;
         };
         if let Some(values) = generation_sampling(&config) {
             return Some(Some(CardSampling {
                 artifact_revision: revision.into(),
-                source_repository: base,
+                source_repository: base.clone(),
                 source_revision,
                 values,
                 source_file: Some("generation_config.json".into()),
@@ -231,59 +260,243 @@ pub fn generation_sampling(config: &Value) -> Option<BTreeMap<String, Value>> {
     (!values.is_empty()).then_some(values)
 }
 
-/// Only literal `name=value` pairs in a section explicitly about sampling.
-/// General-use lines take precedence over benchmark reproduction lines.
+/// A requested template switch, not a capability or an inferred default.
+/// Callers whose planner can change the switch must use `Unknown`.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SamplingMode {
+    #[default]
+    Unknown,
+    Thinking,
+    NonThinking,
+}
+
+/// Existing chat/eval callers resolve before per-generation reasoning planning,
+/// so only mode-neutral recommendations are safe at this boundary.
 pub fn parse_recommendations(card: &str) -> Option<BTreeMap<String, Value>> {
-    let mut section_level = None;
-    let mut in_fence = false;
-    let mut ordinary = BTreeMap::new();
-    let mut general = BTreeMap::new();
-    for line in card.lines() {
+    parse_recommendations_for_mode(card, SamplingMode::Unknown)
+}
+
+#[derive(Clone, Copy, Default)]
+struct RecipeContext {
+    excluded: bool,
+    mode: SamplingMode,
+    // Within a known mode prefer coding, then general; neutral cards retain
+    // their explicit general-use precedence over task-specific recipes.
+    task: u8,
+    recipe: usize,
+}
+
+fn excluded_label(lower: &str) -> bool {
+    lower.contains("benchmark") || lower.contains("reproduc") || lower.contains("evaluat")
+}
+
+fn labelled_context(lower: &str, mut parent: RecipeContext, recipe: usize) -> RecipeContext {
+    parent.excluded |= excluded_label(lower);
+    // Non-thinking also contains "thinking"; classify it first.
+    if lower.contains("non-thinking")
+        || lower.contains("non thinking")
+        || lower.contains("instruct mode")
+    {
+        parent.mode = SamplingMode::NonThinking;
+    } else if lower.contains("thinking") {
+        parent.mode = SamplingMode::Thinking;
+    }
+    if lower.contains("coding") {
+        parent.task = 2;
+    } else if lower.contains("general tasks") {
+        parent.task = 1;
+    }
+    if lower.contains("thinking")
+        || lower.contains("non-thinking")
+        || lower.contains("non thinking")
+        || lower.contains("instruct mode")
+        || lower.contains("coding")
+        || lower.contains("general tasks")
+        || excluded_label(lower)
+    {
+        parent.recipe = recipe;
+    }
+    parent
+}
+
+/// Literal assignments inside a named sampling scope. This deliberately
+/// supports a small subset of Markdown/HTML rather than guessing from prose.
+/// Unknown mode accepts no mode-specific recipe. Conflicting recipes at the
+/// selected priority are absent; partial alternatives are never blended.
+pub fn parse_recommendations_for_mode(
+    card: &str,
+    mode: SamplingMode,
+) -> Option<BTreeMap<String, Value>> {
+    let mut headings: Vec<(usize, RecipeContext)> = Vec::new();
+    let mut items: Vec<(usize, RecipeContext)> = Vec::new();
+    // heading boundary, numbered-list boundary, quoted scope
+    let mut section: Option<(usize, Option<usize>, bool)> = None;
+    let mut fence: Option<(char, usize)> = None;
+    let mut html_code = false;
+    let mut recipes: BTreeMap<usize, (RecipeContext, BTreeMap<String, Value>, bool)> =
+        BTreeMap::new();
+    let mut serial = 0;
+    let mut root = RecipeContext::default();
+    let mut paragraph = None;
+    for original in card.lines() {
+        let mut line = original.trim_start();
+        let quoted = line.starts_with('>');
+        while let Some(rest) = line.strip_prefix('>') {
+            line = rest.strip_prefix(' ').unwrap_or(rest);
+        }
+        let indentation = if quoted { line } else { original };
+        let indent = indentation
+            .chars()
+            .take_while(|c| c.is_whitespace())
+            .map(|c| if c == '\t' { 4 } else { 1 })
+            .sum::<usize>();
         let trimmed = line.trim();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
+        let delimiter = trimmed.chars().next().filter(|c| matches!(c, '`' | '~'));
+        if let Some(ch) = delimiter {
+            let count = trimmed.chars().take_while(|c| *c == ch).count();
+            if count >= 3 {
+                match fence {
+                    None => fence = Some((ch, count)),
+                    Some((open, length))
+                        if ch == open && count >= length && trimmed[count..].trim().is_empty() =>
+                    {
+                        fence = None
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+        }
+        if fence.is_some() {
             continue;
         }
-        if in_fence {
+        if trimmed.is_empty() {
             continue;
         }
         let lower = trimmed.to_ascii_lowercase();
-        let level = trimmed.bytes().take_while(|byte| *byte == b'#').count();
-        if let Some(start_level) = section_level {
-            if level > 0 && level <= start_level {
-                break;
-            }
-        } else if lower.contains("recommended sampling parameters")
-            || (level > 0 && lower.contains("sampling parameters"))
-        {
-            section_level = Some(if level == 0 { 3 } else { level });
-        } else {
+        if html_code || lower.contains("<pre") || lower.contains("<script") {
+            html_code = !(lower.contains("</pre>") || lower.contains("</script>"));
             continue;
         }
-        if lower.contains("benchmark") || lower.contains("reproduc") || lower.contains("evaluat") {
-            continue;
+        let level = trimmed.bytes().take_while(|b| *b == b'#').count();
+        let numbered = trimmed.split_once('.').is_some_and(|(number, rest)| {
+            !number.is_empty()
+                && number.bytes().all(|b| b.is_ascii_digit())
+                && rest.starts_with(' ')
+        });
+        let item = numbered
+            || ["- ", "* ", "+ "]
+                .iter()
+                .any(|prefix| trimmed.starts_with(prefix));
+        if section.is_some_and(|(start, list, was_quoted)| {
+            (level > 0 && level <= start)
+                || (numbered && list.is_some_and(|start| indent <= start))
+                || (was_quoted && !quoted)
+                || lower == "</ul>"
+        }) {
+            section = None;
+            root = RecipeContext::default();
+            paragraph = None;
+            items.clear();
         }
-        let target = if lower.contains("general tasks") {
-            &mut general
+        serial += 1;
+        if level > 0 {
+            while headings.last().is_some_and(|(at, _)| *at >= level) {
+                headings.pop();
+            }
+            items.clear();
+            paragraph = None;
+        } else if item {
+            while items.last().is_some_and(|(at, _)| *at >= indent) {
+                items.pop();
+            }
         } else {
-            &mut ordinary
-        };
-        for (name, value) in line_pairs(trimmed) {
-            match target.get(&name) {
-                Some(previous) if previous != &value => return None,
-                _ => {
-                    target.insert(name, value);
-                }
+            while items.last().is_some_and(|(at, _)| *at > indent) {
+                items.pop();
             }
         }
+        let parent = items
+            .last()
+            .map(|(_, ctx)| *ctx)
+            .or(if level == 0 { paragraph } else { None })
+            .or_else(|| headings.last().map(|(_, ctx)| *ctx))
+            .unwrap_or(root);
+        let mut context = labelled_context(&lower, parent, serial);
+        let scope_label = lower.contains("sampling parameters")
+            && (level > 0
+                || lower.contains("recommended sampling parameters")
+                || lower.contains("recommend using")
+                || (numbered && lower.contains("**sampling parameters**")));
+        if scope_label && !context.excluded {
+            section = Some((
+                if level > 0 { level } else { usize::MAX },
+                numbered.then_some(indent),
+                quoted,
+            ));
+            context.recipe = serial;
+            root = context;
+        }
+        if level > 0 {
+            headings.push((level, context));
+        }
+        if item {
+            items.push((indent, context));
+        }
+        // An unstructured label can introduce following lines, including
+        // bullets. Excluded labels must persist too, before any early return.
+        if context.recipe == serial && !item && level == 0 && !lower.contains("<li") {
+            paragraph = Some(context);
+        }
+        // Markdown code is indented four columns relative to list content.
+        // Supported list continuation has at most three extra columns after
+        // its marker; plain code has four or more.
+        let code_indent = items.last().map_or(4, |(at, _)| at + 6);
+        if indent >= code_indent || section.is_none() || context.excluded {
+            continue;
+        }
+        let pairs = line_pairs(trimmed);
+        if pairs.is_empty() {
+            continue;
+        }
+        let (_, values, ambiguous) = recipes
+            .entry(context.recipe)
+            .or_insert_with(|| (context, BTreeMap::new(), false));
+        for (name, value) in pairs {
+            if values.get(&name).is_some_and(|old| old != &value) {
+                *ambiguous = true;
+            }
+            values.insert(name, value);
+        }
     }
-    if !general.is_empty() {
-        Some(general)
-    } else if !ordinary.is_empty() {
-        Some(ordinary)
-    } else {
-        coding_mode_recommendations(card)
+    let priority = |ctx: RecipeContext| -> Option<u8> {
+        if ctx.mode == SamplingMode::Unknown {
+            Some(match ctx.task {
+                1 => 2,
+                2 => 0,
+                _ => 1,
+            })
+        } else if mode != SamplingMode::Unknown && ctx.mode == mode {
+            Some(3 + ctx.task)
+        } else {
+            None
+        }
+    };
+    let best = recipes
+        .values()
+        .filter_map(|(ctx, _, _)| priority(*ctx))
+        .max()?;
+    let mut selected = None;
+    for (ctx, values, ambiguous) in recipes.values() {
+        if priority(*ctx) != Some(best) {
+            continue;
+        }
+        if *ambiguous || selected.as_ref().is_some_and(|old| old != values) {
+            return None;
+        }
+        selected = Some(values.clone());
     }
+    selected
 }
 
 /// The literal `name=value` pairs on one line, each checked against the range
@@ -308,7 +521,11 @@ fn line_pairs(line: &str) -> Vec<(String, Value)> {
                 .ok()
                 .filter(|n| n.is_finite() && (0.0..=1.0).contains(n))
                 .map(|n| serde_json::json!(n)),
-            "top_k" => raw.parse::<u32>().ok().map(|n| serde_json::json!(n)),
+            "top_k" => raw
+                .parse::<u32>()
+                .ok()
+                .filter(|n| *n <= i32::MAX as u32)
+                .map(|n| serde_json::json!(n)),
             // Qwen 3.5-family cards (Ornith's among them) recommend a
             // presence penalty against repetition; the engine takes both.
             "presence_penalty" => raw
@@ -328,50 +545,6 @@ fn line_pairs(line: &str) -> Vec<(String, Value)> {
         }
     }
     found
-}
-
-/// A card that lists one set per mode and task ("Thinking mode for general
-/// tasks", "Instruct mode", "precise coding tasks") has no single
-/// recommendation, but PWR is a coding agent that runs the model with its
-/// thinking phase on: the set a card gives for coding is the one that applies,
-/// the thinking one if there are several. Measured 2026-09-30: Qwen3.5's card
-/// is of this kind, nothing was found, and the model ran greedy.
-fn coding_mode_recommendations(card: &str) -> Option<BTreeMap<String, Value>> {
-    let lines: Vec<&str> = card.lines().map(str::trim).collect();
-    let mut in_fence = false;
-    let mut candidates: Vec<(bool, Vec<(String, Value)>)> = Vec::new();
-    for (at, line) in lines.iter().enumerate() {
-        if line.starts_with("```") || line.starts_with("~~~") {
-            in_fence = !in_fence;
-            continue;
-        }
-        let lower = line.to_ascii_lowercase();
-        if in_fence || !lower.contains("coding") {
-            continue;
-        }
-        let mut pairs = line_pairs(line);
-        if pairs.is_empty()
-            && let Some(next) = lines.get(at + 1)
-        {
-            pairs = line_pairs(next);
-        }
-        if pairs.iter().any(|(name, _)| name == "temperature") {
-            candidates.push((lower.contains("thinking"), pairs));
-        }
-    }
-    if candidates.iter().any(|(thinking, _)| *thinking) {
-        candidates.retain(|(thinking, _)| *thinking);
-    }
-    let mut values = BTreeMap::new();
-    for (name, value) in candidates.into_iter().flat_map(|(_, pairs)| pairs) {
-        match values.get(&name) {
-            Some(previous) if previous != &value => return None,
-            _ => {
-                values.insert(name, value);
-            }
-        }
-    }
-    (!values.is_empty()).then_some(values)
 }
 
 #[cfg(test)]
@@ -452,16 +625,16 @@ mod tests {
     #[test]
     fn a_card_with_a_set_per_mode_gives_its_thinking_coding_set() {
         // Qwen3.5-9B's card, both layouts it uses.
-        let tip = "> - Thinking mode for general tasks: `temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5`\n\
+        let tip = "> We recommend using the following set of sampling parameters for generation\n> - Thinking mode for general tasks: `temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5`\n\
 > - Thinking mode for precise coding tasks (e.g. WebDev): `temperature=0.6, top_p=0.95, top_k=20, min_p=0.0, presence_penalty=0.0, repetition_penalty=1.0`\n\
 > - Instruct (or non-thinking) mode for general tasks: `temperature=0.7, top_p=0.8, top_k=20`";
-        let found = parse_recommendations(tip).unwrap();
+        let found = parse_recommendations_for_mode(tip, SamplingMode::Thinking).unwrap();
         assert_eq!(found["temperature"], serde_json::json!(0.6));
         assert_eq!(found["top_k"], serde_json::json!(20));
         assert_eq!(found["presence_penalty"], serde_json::json!(0.0));
-        let list = "     - **Thinking mode for precise coding tasks (e.g., WebDev)**:  \n       `temperature=0.6`, `top_p=0.95`, `top_k=20`\n     - **Instruct mode for general tasks**:  \n       `temperature=0.7`, `top_p=0.8`";
+        let list = "1. **Sampling Parameters**:\n     - **Thinking mode for precise coding tasks (e.g., WebDev)**:  \n       `temperature=0.6`, `top_p=0.95`, `top_k=20`\n     - **Instruct mode for general tasks**:  \n       `temperature=0.7`, `top_p=0.8`";
         assert_eq!(
-            parse_recommendations(list).unwrap()["temperature"],
+            parse_recommendations_for_mode(list, SamplingMode::Thinking).unwrap()["temperature"],
             serde_json::json!(0.6)
         );
     }
@@ -474,7 +647,7 @@ mod tests {
             parse_recommendations(
                 "coding tasks are fun, temperature=0.6 in a fence:\n```\ntemperature=1\n```"
             )
-            .is_some()
+            .is_none()
         );
     }
 
@@ -482,6 +655,356 @@ mod tests {
     fn benchmarks_and_code_without_a_sampling_section_are_not_recommendations() {
         assert!(parse_recommendations("Benchmark temp=1.0 top_p=1.0").is_none());
         assert!(parse_recommendations("```python\ntemperature=1.0\n```").is_none());
+    }
+
+    #[test]
+    fn unscoped_coding_prose_and_benchmarks_are_not_recommendations() {
+        for card in [
+            "Benchmark coding: temperature=1.0",
+            "For coding use temperature=0.6",
+            "Thinking coding:\n```temperature=0.6\n```",
+        ] {
+            assert!(parse_recommendations(card).is_none(), "{card}");
+        }
+    }
+
+    #[test]
+    fn unknown_mode_does_not_select_a_mode_recipe() {
+        for card in [
+            "## Sampling Parameters\nThinking mode for coding: temperature=0.6",
+            "## Sampling Parameters\nNon-thinking mode: temperature=0.7",
+            "## Sampling Parameters\n### Thinking mode\ntemperature=0.6",
+        ] {
+            assert!(parse_recommendations(card).is_none(), "{card}");
+        }
+    }
+
+    #[test]
+    fn benchmark_ancestry_excludes_nested_sampling_and_continuations() {
+        for card in [
+            "## Benchmarks\n### Sampling Parameters\ntemperature=1.0",
+            "## Sampling Parameters\n### Benchmark reproduction\n- Coding\n  temperature=1.0",
+            "## Sampling Parameters\n- Evaluation recipe:\n  temperature=1.0",
+        ] {
+            assert!(parse_recommendations(card).is_none(), "{card}");
+        }
+    }
+
+    #[test]
+    fn quoted_fences_and_mismatched_delimiters_do_not_expose_values() {
+        for card in [
+            "> Recommended sampling parameters:\n> ```\n> temperature=1.0\n> ```",
+            "## Sampling Parameters\n```\n~~~\ntemperature=1.0\n```",
+        ] {
+            assert!(parse_recommendations(card).is_none(), "{card}");
+        }
+    }
+
+    #[test]
+    fn top_k_outside_engine_range_is_not_a_recommendation() {
+        assert!(parse_recommendations("## Sampling Parameters\ntop_k=4294967295").is_none());
+    }
+
+    #[test]
+    fn mode_headings_are_not_neutral_assignments() {
+        assert!(
+            parse_recommendations("## Sampling Parameters\n### Thinking\ntemperature=0.6")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn explicit_mode_selects_only_the_matching_complete_recipe() {
+        let card = "## Sampling Parameters\n### Thinking mode for general tasks\ntemperature=1.0\n### Thinking mode for coding\ntemperature=0.6\ntop_k=20\n### Instruct (non-thinking) mode\ntemperature=0.7\ntop_p=0.8";
+        assert!(parse_recommendations(card).is_none());
+        let thinking = parse_recommendations_for_mode(card, SamplingMode::Thinking).unwrap();
+        assert_eq!(
+            thinking,
+            BTreeMap::from([
+                ("temperature".into(), serde_json::json!(0.6)),
+                ("top_k".into(), serde_json::json!(20))
+            ])
+        );
+        let off = parse_recommendations_for_mode(card, SamplingMode::NonThinking).unwrap();
+        assert_eq!(off["temperature"], 0.7);
+        assert_eq!(off["top_p"], 0.8);
+        assert!(!off.contains_key("top_k"));
+    }
+
+    #[test]
+    fn alternate_partial_recipes_are_never_blended() {
+        let card = "## Sampling Parameters\n- Thinking mode for coding: temperature=0.6, top_k=20\n- Thinking mode for coding: temperature=0.6, top_p=0.95";
+        assert!(parse_recommendations_for_mode(card, SamplingMode::Thinking).is_none());
+    }
+
+    #[test]
+    fn excluded_descendants_do_not_poison_a_neutral_recipe() {
+        let card = "## Sampling Parameters\ntemperature=0.6\n### Benchmark reproduction\ntemperature=1.0\n#### Coding parameters\ntop_p=1.0\n## Serving\ntemperature=0.1";
+        assert_eq!(
+            parse_recommendations(card).unwrap(),
+            BTreeMap::from([("temperature".into(), serde_json::json!(0.6))])
+        );
+    }
+
+    #[test]
+    fn labelled_scope_ends_before_sibling_or_unquoted_examples() {
+        for card in [
+            "1. **Sampling Parameters**:\n   - Thinking mode for coding:\n     ```temperature=0.6\n     ```\n2. **Coding example**:\n   temperature=1.0",
+            "> Recommended sampling parameters:\n> No recommendation\ncoding temperature=1.0",
+            "Recommended sampling parameters:\n<ul>\n</ul>\ncoding temperature=1.0",
+            "## Sampling Parameters\n    temperature=1.0",
+        ] {
+            assert!(
+                parse_recommendations_for_mode(card, SamplingMode::Thinking).is_none(),
+                "{card}"
+            );
+        }
+    }
+
+    #[test]
+    fn plain_labels_preserve_exclusion_and_mode_on_continuations() {
+        for card in [
+            "## Sampling Parameters\nBenchmark recipe:\ntemperature=1.0",
+            "## Sampling Parameters\nThinking mode:\n- temperature=0.6",
+            "## Sampling Parameters\nThinking mode:\n\ntemperature=0.6",
+            "## Sampling Parameters\nBenchmark recipe:\n\ntemperature=1.0",
+        ] {
+            assert!(parse_recommendations(card).is_none(), "{card}");
+        }
+    }
+
+    #[test]
+    fn plain_sampling_label_stops_at_the_next_heading() {
+        assert!(
+            parse_recommendations("Recommended sampling parameters:\n\n## Usage\ntemperature=0.9")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn list_indented_code_is_not_a_recommendation() {
+        assert!(
+            parse_recommendations(
+                "## Sampling Parameters\n- Usage example:\n\n      temperature=1.0"
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn html_and_tab_indented_code_are_excluded() {
+        for card in [
+            "## Sampling Parameters\n<pre><code>temperature=1.0</code></pre>",
+            "## Sampling Parameters\n<pre>\ntemperature=1.0\n</pre>",
+            "## Sampling Parameters\n\ttemperature=1.0",
+        ] {
+            assert!(parse_recommendations(card).is_none(), "{card}");
+        }
+    }
+
+    const TEST_REVISION: &str = "1111111111111111111111111111111111111111";
+
+    fn cached_model(schema: u32, repository: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(crate::download::REVISION_FILE),
+            TEST_REVISION,
+        )
+        .unwrap();
+        let cache = serde_json::json!({
+            "schema_version": schema, "repository": repository, "mode": "unknown",
+            "artifact_revision": TEST_REVISION, "retry_after_unix": null,
+            "recommendation": {
+                "artifact_revision": TEST_REVISION, "source_repository": "owner/source",
+                "source_revision": TEST_REVISION, "values": {"temperature": 0.6},
+                "source_file": "generation_config.json"
+            }
+        });
+        std::fs::write(
+            dir.path().join(CACHE_FILE),
+            serde_json::to_vec(&cache).unwrap(),
+        )
+        .unwrap();
+        dir
+    }
+
+    fn offline_hub() -> HubClient {
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = socket.local_addr().unwrap();
+        drop(socket);
+        HubClient::new(&format!("http://{address}"), None).unwrap()
+    }
+
+    #[tokio::test]
+    async fn legacy_chosen_recipe_is_not_reused() {
+        let dir = cached_model(3, "owner/model");
+        assert!(
+            for_installed(&offline_hub(), "owner/model", dir.path())
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn cache_identity_includes_artifact_repository() {
+        let dir = cached_model(4, "owner/other-model");
+        assert!(
+            for_installed(&offline_hub(), "owner/model", dir.path())
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn pinned_cache_is_reused_only_for_its_mode_and_revision() {
+        let dir = cached_model(4, "owner/model");
+        let hub = offline_hub();
+        let card = for_installed(&hub, "owner/model", dir.path())
+            .await
+            .unwrap();
+        assert_eq!(
+            card.url(&hub),
+            hub.file_url("owner/source", TEST_REVISION, "generation_config.json")
+        );
+        assert!(
+            for_installed_for_mode(&hub, "owner/model", dir.path(), SamplingMode::Thinking)
+                .await
+                .is_none()
+        );
+        let dir = cached_model(4, "owner/model");
+        std::fs::write(
+            dir.path().join(crate::download::REVISION_FILE),
+            "2222222222222222222222222222222222222222",
+        )
+        .unwrap();
+        assert!(
+            for_installed(&hub, "owner/model", dir.path())
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_negative_cache_is_retried_and_malformed_provenance_rejected() {
+        let hub = offline_hub();
+        let dir = cached_model(4, "owner/model");
+        let path = dir.path().join(CACHE_FILE);
+        let mut cache: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        cache["recommendation"] = Value::Null;
+        cache["retry_after_unix"] = serde_json::json!(chrono::Utc::now().timestamp() - 1);
+        std::fs::write(&path, serde_json::to_vec(&cache).unwrap()).unwrap();
+        assert!(
+            for_installed(&hub, "owner/model", dir.path())
+                .await
+                .is_none()
+        );
+        let rewritten: Cached = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(rewritten.retry_after_unix.unwrap() > chrono::Utc::now().timestamp());
+        let dir = cached_model(4, "owner/model");
+        let path = dir.path().join(CACHE_FILE);
+        let mut cache: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        cache["recommendation"]["source_revision"] = serde_json::json!("main");
+        std::fs::write(&path, serde_json::to_vec(&cache).unwrap()).unwrap();
+        assert!(
+            for_installed(&hub, "owner/model", dir.path())
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn installed_dynamic_caller_never_reuses_a_fixed_mode_recipe() {
+        use std::io::{Read, Write};
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let address = socket.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            let mut paths = Vec::new();
+            while paths.len() < 4 && std::time::Instant::now() < deadline {
+                let (mut stream, _) = match socket.accept() {
+                    Ok(stream) => stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(error) => panic!("{error}"),
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut request = [0; 4096];
+                let count = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..count]);
+                let path = request.split_whitespace().nth(1).unwrap().to_owned();
+                let (status, body) = if path.ends_with("README.md") {
+                    (
+                        "200 OK",
+                        "## Sampling Parameters\n- Thinking mode for coding: temperature=0.6\n- Non-thinking mode: temperature=0.7",
+                    )
+                } else {
+                    ("404 Not Found", "")
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+                paths.push(path);
+            }
+            paths
+        });
+        let hub = HubClient::new(&format!("http://{address}"), None).unwrap();
+        let dir = cached_model(3, "owner/model");
+        let thinking =
+            for_installed_for_mode(&hub, "owner/model", dir.path(), SamplingMode::Thinking)
+                .await
+                .unwrap();
+        assert_eq!(thinking.values["temperature"], 0.6);
+        assert_eq!(thinking.source_revision, TEST_REVISION);
+        assert_eq!(
+            thinking.url(&hub),
+            hub.file_url("owner/model", TEST_REVISION, "README.md")
+        );
+        assert_eq!(
+            for_installed_for_mode(&hub, "owner/model", dir.path(), SamplingMode::Thinking)
+                .await
+                .unwrap(),
+            thinking
+        );
+        assert_eq!(
+            for_installed_for_mode(&hub, "owner/model", dir.path(), SamplingMode::NonThinking)
+                .await
+                .unwrap()
+                .values["temperature"],
+            0.7
+        );
+        assert!(
+            for_installed(&hub, "owner/model", dir.path())
+                .await
+                .is_none()
+        );
+        assert!(
+            for_installed(&hub, "owner/model", dir.path())
+                .await
+                .is_none()
+        );
+        let paths = server.join().unwrap();
+        assert_eq!(paths.len(), 4, "{paths:?}");
+        assert_eq!(
+            paths
+                .iter()
+                .filter(|path| path.ends_with("README.md"))
+                .count(),
+            3
+        );
+        assert!(
+            paths
+                .iter()
+                .filter(|path| path.ends_with("README.md"))
+                .all(|path| path.contains(TEST_REVISION))
+        );
     }
 
     #[test]

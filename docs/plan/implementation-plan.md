@@ -76,6 +76,14 @@ PLANNED W2.4; no real-model capability or effective-window claim.
 - **Tests before fix.** Benchmark recipe, prose coding, next-line fence,
   HTML formatting, conflicting modes with off/on/unknown active mode. Zero
   excluded-source acceptance; preserve legitimate explicit recommendations.
+- **IMPLEMENTED, PARTIAL (2026-10-01; parent `84b4654c`).** Named sampling
+  scopes, excluded ancestry, matching fences/HTML/indented code, complete
+  recipe comparison, explicit tri-state parser and mode/repository/revision
+  cache schema 4. Product enrichment deliberately uses unknown mode because
+  both conversation and scripted planning can change `think` afterward.
+  Fixed-mode parser/cache tests preserve explicit matching recipes; dynamic
+  callers safely abstain. Per-generation selection after the final directive
+  remains PLANNED; capability/default tuning requires the baseline.
 - **Done when.** Provenance/cache migration and actual active-mode callers are
   tested; local suites pass. No new floor/default choice before baseline.
 

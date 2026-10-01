@@ -1,25 +1,27 @@
 # Testing
 
-**IMPLEMENTED suites, MEASURED in the 2026-10-01 F1 context cycle.** What the tests cover,
+**IMPLEMENTED suites, MEASURED in the 2026-10-01 F1 sampling cycle.** What the tests cover,
 how CI runs them, what a green run does and does not mean, and how the manual
 passes are recorded.
 
 ## Suites
 
-**MEASURED F1 context cycle, 2026-10-01, parent `b9db2eab` plus the reviewed
-context fixes and preexisting process-safety changes:** Rust exit 0, 1,386
-reported passed / 5 ignored across 102 target summaries; one Docker-dependent
-test skipped (included in reported successes). Desktop 107 tests in 13 files
-and production build, sidecar 41 tests, Clippy with denied warnings, formatting
-and milestone agreement pass. The focused overflow regression was rerun after
-a lint-only fixture edit. Installed npm dependencies were reused.
-See the [audit follow-up](reviews/2026-10-01-audit.md#f1-context-follow-up--after-f0-adoption)
-for failing-before-fix provenance and logs. Hosted CI, a clean npm installation
-and the Docker case remain unverified; no live-model measurement.
+**MEASURED F1 sampling cycle, 2026-10-01, parent `84b4654c` plus reviewed
+sampling fixes and preexisting process-safety changes:** Rust exit 0, 1,405
+reported passed / 0 failed / 5 ignored across 102 target summaries; one
+Docker-dependent test skipped (included in reported successes). Desktop 107
+tests in 13 files and production build, sidecar 41 tests, Clippy with denied
+warnings, formatting and milestone agreement pass. Nineteen new sampling
+regressions cover exclusions, mode selection, complete alternatives and pinned
+cache identity/provenance; a loopback server exercises the real installed-model
+fetch/cache wrapper. Existing npm dependencies were reused.
+See the [sampling audit follow-up](reviews/2026-10-01-audit.md#f1-sampling-follow-up--after-context-correctness)
+for red/green provenance and limits. Hosted CI, clean npm installation and the
+Docker case remain unverified; no live-model measurement.
 
 | Suite | Run with | Where |
 |---|---|---|
-| Rust (every crate: unit, integration, property tests; **1,386 reported passed, 5 ignored; one Docker skip** on 2026-10-01) | `cargo test --workspace` | `crates/*/src` (`#[cfg(test)]`), `crates/*/tests/` |
+| Rust (every crate: unit, integration, property tests; **1,405 reported passed, 5 ignored; one Docker skip** on 2026-10-01) | `cargo test --workspace` | `crates/*/src` (`#[cfg(test)]`), `crates/*/tests/` |
 | Desktop unit tests (107 in 13 spec files, 2026-10-01) | `npm test -- --watch=false` in `apps/desktop` | `apps/desktop/src/app/**/*.spec.ts` |
 | MLX sidecar (41, 2026-10-01) | `python -m unittest discover -s crates/pwr-mlx/sidecar` with the engine's interpreter | `crates/pwr-mlx/sidecar/test_pwr_mlx.py` |
 | Protocol transcripts | part of the Rust suite | `crates/pwr-cli/tests/fixtures/acp/` |
