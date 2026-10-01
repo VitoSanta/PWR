@@ -12,7 +12,7 @@ comes from.
   allowance, generation ends as *context full* (plan W4.1).
 - **The compaction threshold has a ceiling** of 32,768 tokens unless the person
   chose a window or a threshold, and a **clean-start compaction** runs after
-  two replies in a row that fell apart ([agent-loop.md](agent-loop.md#replies-that-fall-apart)).
+  two replies in a row that fell apart on a prompt over 20,000 tokens ([agent-loop.md](agent-loop.md#replies-that-fall-apart)).
 - **Embedding** startup and each reply have a 30-second deadline; a timeout kills
   the sidecar, disables semantic requests for that ranker and falls back to the
   lexical candidates, recorded in the events and shown to the person (plan W1.8,

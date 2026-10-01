@@ -25,9 +25,10 @@ Each step of the loop:
    [D-2026-09-30-7](decisions.md). At most two compactions per turn; a third
    need stops the turn as looping. If there is nothing left to fold, the turn
    stops with *context full*. Separately, after **two replies in a row that fell
-   apart** (a loop, or the engine's repetition stop) the history is compacted
-   to an 8,192-token room and the work goes on from there (twice per turn at
-   most; see *Replies that fall apart* below).
+   apart** (a loop, or the engine's repetition stop) **and the prompt is over
+   20,000 tokens**, the history is compacted to an 8,192-token room and the work
+   goes on from there (twice per turn at most; see *Replies that fall apart*
+   below).
 3. **Envelope.** The generation's budget is planned: prompt tokens (the
    engine's last count plus an estimate for what was appended), the answer
    allowance (16,384 tokens unless sampling names one), and the reasoning
@@ -83,7 +84,7 @@ the verdict is appended to the answer and to the history (see
 | Failed runs in a row after edits | 5 | `FAILED_RUN_LIMIT` | The model is told to hand over what is ready |
 | No-progress windows | 3 of 6 actions | `NO_PROGRESS_LIMIT`, `NO_PROGRESS_WINDOW` | Stop as no progress |
 | Reasoning kept per step | 16,000 chars | `REASONING_KEPT_CHARS` | Older reasoning is cut from the start |
-| Replies that fell apart, in a row | 2 | `DEGENERATE_REPLIES_BEFORE_RESET`, `DEGENERATE_RESETS_PER_TURN` (2), `DEGENERATE_RESET_ROOM` (8,192) | The history is compacted to that room and the turn goes on |
+| Replies that fell apart, in a row, on a prompt over 20,000 tokens | 2 | `DEGENERATE_REPLIES_BEFORE_RESET`, `DEGENERATE_RESETS_PER_TURN` (2), `DEGENERATE_RESET_ROOM` (8,192), `DEGENERATE_RESET_MIN_PROMPT_TOKENS` (20,000) | The history is compacted to that room and the turn goes on |
 | A file written again and again | every 12th write of one path | `REWRITES_BEFORE_NOTE`, `stall.rs` | The write's result carries a note naming the count and the ways out; no limit |
 
 Each limit has its own counter; there is no shared recovery budget (plan W2.6).
@@ -102,9 +103,11 @@ effect yet:
   for a **presence penalty of 1.0 over the last 1,024 tokens** (the engine's
   own window is 20, which cannot see a repeated passage), unless a higher value
   is set — `presence_penalty`, `presence_context_size` in the request;
-- two such replies in a row compact the history (above): the same model
-  answers a fresh 30,000-token prompt correctly, so what is cut back is the
-  history it was lost in.
+- two such replies in a row compact the history (above), **only above 20,000
+  tokens**: the same model answers a fresh 30,000-token prompt correctly, so on a
+  long history what is cut back is what it was lost in. On a short one it is
+  not (Gemma 4 26B, 2026-10-01: six clean starts at 11,000–15,000 tokens and the
+  replies went on repeating), so nothing is cut.
 
 ### Stop reasons
 
