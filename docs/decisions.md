@@ -8,6 +8,35 @@ still holds it is restated here.
 
 ---
 
+## D-2026-10-01-1 — A compatibility verdict is about PWR's reading as much as the model; campaigns run one model at a time
+
+**Decision.** From the day's direct tests on the maintainer's Mac:
+
+1. **Quick Calibration asks whether a model can use tools**, not which tool it
+   reaches for first (`tool_selection`, `tool_arguments`; `tool_choice` is
+   recorded, not critical; suite `quick-calibration-6`). A verdict records the
+   adapter revision that read the replies, and a **failure** recorded under
+   none or under another revision is void: the adapter may have been the cause.
+2. **A model refused as Limited is first a question about PWR.** The raw reply
+   (`PWR_MLX_TRACE`) is read before the verdict is believed. Seven models were
+   refused for PWR's own reasons on 2026-10-01 (call formats, a template's
+   needs).
+3. **Campaigns run one model at a time** on a machine: a second engine overruns
+   the GPU's working set and both write nonsense without an error. Runs made so
+   are discarded and kept apart; wall-clock times are comparable only for runs
+   made alone.
+4. **The mechanisms added that day are hypotheses until measured**, each
+   recorded in [experiment-log.md](experiment-log.md): the review round without
+   a declared acceptance check, the clean start after collapsed replies, the
+   presence window, the rewrite note and the 32,768-token compaction ceiling.
+5. **Nothing is pushed or released until the CI gates have run on it.**
+
+**Why.** Seven working models were hidden behind "Limited"; a measurement made
+with two engines was worthless; and none of the day's mechanisms had been
+tested for its effect when it was written.
+
+**Reversible by** a new entry with campaign evidence.
+
 ## D-2026-09-30-7 — Defaults that keep a local model usable
 
 **Decision.** Under the maintainer's mandate of 2026-09-30 to make the agent

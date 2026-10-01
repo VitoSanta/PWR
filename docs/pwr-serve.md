@@ -1,7 +1,6 @@
 # `pwr serve` — the protocol between the app and the core
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30** (`crates/pwr-cli/src/serve.rs`,
-dispatch from line 846). The design history of this protocol, including its
+**Checked against `develop` at `bff93062`, 2026-10-01** (`crates/pwr-cli/src/serve.rs`). The design history of this protocol, including its
 phases and the decision to adopt ACP, is in the
 [archived version](archive/pwr-serve.md).
 
@@ -36,7 +35,7 @@ neither confined nor recorded.
 Tool kinds: `read_file` → `read`; `search`, `find_definition`, `list_tree` →
 `search`; edits → `edit`; `delete_path` → `delete`; `move_path` → `move`;
 commands and services → `execute`; `fetch_url` → `fetch`; else `other`
-(`tool_kind`, `serve.rs:3187`).
+(`tool_kind`).
 
 ## PWR extensions
 
@@ -46,7 +45,7 @@ Requests (each takes the session or workspace it applies to):
 |---|---|
 | `_pwr/steer` | Deliver a message into the running turn at the next action boundary; refused between turns |
 | `_pwr/models`, `_pwr/local_models`, `_pwr/catalog`, `_pwr/hardware` | Model readiness and selection; models on disk; the Hub catalogue with fit ratings; this machine |
-| `_pwr/download` | Download a model variant (progress as notifications) |
+| `_pwr/download`, `_pwr/download_cancel` | Download a model variant (progress as notifications); cancel it |
 | `_pwr/model_delete` | Delete a model's files, with the refusals in [models.md](models.md#downloads) |
 | `_pwr/model_sampling` | A model's sampling settings |
 | `_pwr/quick_calibration`, `_pwr/quick_calibration_cancel` | Run or cancel Quick Calibration |
@@ -56,7 +55,8 @@ Requests (each takes the session or workspace it applies to):
 | `_pwr/rewind` | Rewind the conversation to one of the person's messages, restoring files this session changed |
 | `_pwr/files`, `_pwr/file` | List and read workspace files for the app |
 | `_pwr/profile`, `_pwr/memory`, `_pwr/projects` | The person's profile, memories, known projects |
-| `_pwr/wiki`, `_pwr/wiki_summarise` | The project wiki; start background summaries |
+| `_pwr/wiki`, `_pwr/wiki_summarise`, `_pwr/wiki_settings` | The project wiki; start background summaries; turn them on or off (off by default) |
+| `_pwr/acceptance_authorize` | The person authorizes one changed acceptance artifact, by path, for this session (journaled before it takes effect; the model has no such tool) |
 | `_pwr/session_delete` | Delete a conversation |
 | `_pwr/changes`, `_pwr/verify`, `_pwr/report`, `_pwr/diagnose`, `_pwr/doctor` | The commands also offered as `/changes`… in a prompt: files changed and their diff, the repository's checks, the session's recorded report, loops and stalls in its events, whether the backend serves the model |
 
@@ -72,7 +72,7 @@ shows "Reading the conversation · 37%".
 ## Stop reasons
 
 Every prompt response carries ACP's stop reason and, in `_meta.pwr.terminal`,
-PWR's own class (`stop_reason`, `serve.rs:3327`):
+PWR's own class (`stop_reason`):
 
 | PWR ending | ACP `stopReason` | `_meta.pwr.terminal` |
 |---|---|---|
@@ -95,8 +95,10 @@ Goal outcomes also carry `_meta.pwr.goalBudget` (effective limits and spent
 counters). A budget stop names the limit in `_meta.pwr.budget` and explains it
 in `goal.reason`; see [agent-loop.md](agent-loop.md#goal-mode).
 
-Plan W2.1 replaces these partial fields with one structured outcome carried
-in `_meta.pwr`.
+Every prompt response also carries the typed **`TurnOutcome`** in
+`_meta.pwr.outcome` (delivery, checks, baseline, acceptance, confinement,
+budgets, the terminal class); the app reads its status from it (plan W2.1/W7.1,
+partial: the scripted runner's own JSON is not migrated).
 
 ## Tests
 

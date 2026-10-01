@@ -1,6 +1,6 @@
 # Models
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** How PWR finds, rates,
+**Checked against `develop` at `bff93062`, 2026-10-01.** How PWR finds, rates,
 downloads and adapts to models, and what its model evidence does and does not
 show. Code: `crates/pwr-models` (catalogue, fit, downloads, profiles,
 calibration), `crates/pwr-compat` (family conventions),
@@ -14,17 +14,65 @@ that it could yet (review §6).
 
 ## Families and adapters
 
-`pwr-compat` (Qwen, GLM, Seed, Harmony, Gemma 4, Granite, Mistral) normalises each family's way of writing tool calls and reasoning
-(Qwen's `<tool_call>` blocks, Harmony channels for gpt-oss, Gemma 4's
-`<|tool_call>` and thought channel, fenced calls, unterminated calls, invented
-tool names or argument spellings with one reading) into canonical actions.
-An adapter has a revision (`gemma4-v2`) that is part of a calibration's
-provenance. Fixes are made to help every model where possible, not per model.
+`pwr-compat` normalises each family's way of writing tool calls and reasoning
+into canonical actions. An adapter has a revision that a calibration records.
+
+| Family (revision) | Calls it reads |
+|---|---|
+| Qwen, Nemotron 3.x (`qwen-v3`) | `<tool_call>` JSON; the XML `<function=…><parameter=…>` form with or without its opening or closing `<tool_call>` tag (Qwen3-Coder arrives without the opening one); a list or dict written the Python way inside a parameter (`['-m', 'unittest']`); fenced JSON; `<tools>` written as a call; inline `<think>` |
+| GLM-4.x | `<tool_call>name<arg_key>…<arg_value>…` |
+| Seed-OSS | `<seed:tool_call>`, `<seed:think>` |
+| gpt-oss (Harmony) | channels and `to=functions.…` |
+| Gemma 4 (`gemma4-v2`) | `<|tool_call>call:name{…}<tool_call|>` and its thought channel |
+| Granite (`granite-v2`) | a bare JSON array, and `<tool_call>{json}</tool_call>`; role-header reasoning |
+| Mistral, Devstral, Magistral, Ministral (`mistral-v1`) | `[TOOL_CALLS]name[ARGS]{json}` (several in a row) and the older `[TOOL_CALLS][{…}]`; the request is rendered with the roles Mistral's template insists on (below) |
+| Liquid LFM2 (`liquid-v1`) | `<|tool_call_start|>[name(key="v", …)]<|tool_call_end|>` (Python call syntax) and `<function_call>{json}</function_call>`; `<think>` |
+
+A call a model wrote whole but could not finish (cut off inside the arguments)
+is never guessed at: it is reported as cut off, and the turn retries smaller.
+Fixes are made to help every model where possible, not per model.
+
+**What the request carries for the chat template** (`template_messages`): every
+tool call has an id (its own, else nine letters or digits, which Mistral's
+template insists on) and every tool result the call's id and the tool's name
+(Gemma 4's template names a result from the id; without it the template failed
+with `TypeError`); a `tool` message that answers no call is sent as a note from
+PWR in a user message; for the Mistral family runs of user messages become one
+message and a note after a tool result rides on the result, because the
+template counts only user messages and call-free assistant messages and
+requires them to alternate. Other families' prompts are unchanged.
 
 Profiles for known models (`strategies/models.json`) carry vendor sampling
 and a prompt suffix; a profile names an exact artifact or deployment, never a
 bare family or tag. Adding a profile requires updating the counts in
 `crates/pwr-domain/tests/declared_profiles.rs`.
+
+## Sampling
+
+Resolved once for the UI, chat and evaluations (`enrich_mlx_sampling`), in this
+order, each value remembering where it came from (the Sampling dialog shows it):
+
+1. **the person's own values** (`.pwr-user-sampling.json` in the model folder);
+2. **a declared profile** for the exact artifact (`strategies/models.json`);
+3. **the model card**, read from the Hub at the downloaded revision and pinned
+   (`.pwr-card-sampling.json`): the card's recommended-sampling section, else
+   the thinking *coding* set of a card that lists one set per mode (Qwen3.5), else
+   the original model's `generation_config.json`; a "none found" is looked for
+   again after a day;
+4. **the artifact's `generation_config.json`**;
+5. **PWR's floor: temperature 0.6, top_p 0.95, top_k 20**, when no temperature is
+   declared anywhere (never greedy by default, because greedy decoding is what
+   Qwen's cards warn leads to endless repetition). An explicit temperature 0
+   stays greedy, and a vendor's lone temperature is not topped up with
+   truncation it did not ask for.
+
+`presence_penalty` and `repetition_penalty` are passed to mlx-lm, whose
+penalties look at the **last 20 tokens only** (read from its source,
+2026-10-01); a vendor's presence penalty (Qwen's 1.5) is defined over everything
+generated so far. After a reply of a turn has looped, PWR asks for a presence
+penalty of 1.0 over 1,024 tokens ([agent-loop.md](agent-loop.md#replies-that-fall-apart)); a
+card-declared penalty still runs on the 20-token window, and whether to widen it
+for the models that declare one (Ornith, Qwen3.5) is an unmeasured decision.
 
 ## Status of a model
 
@@ -48,7 +96,7 @@ evidence of that kind.
 
 A bounded, deterministic check that PWR can *operate* a model — a compatibility
 smoke test, not a capability measurement (`crates/pwr-models/src/calibration.rs`;
-suite `quick-calibration-6`, `profile.rs:33`).
+suite `quick-calibration-6`, `crates/pwr-models/src/profile.rs`).
 
 | Check | Scored by | Agent-critical |
 |---|---|---|
@@ -127,7 +175,7 @@ off.
 **Correction to the previous document:** reasoning *is* carried in the
 history — each assistant step keeps up to 16,000 characters of its reasoning,
 the end of it, until compaction folds it (`kept_reasoning`,
-`crates/pwr-orchestrator/src/converse.rs:2519`). It is never written to the
+`crates/pwr-orchestrator/src/converse.rs`). It is never written to the
 event log: a test asserts no event payload contains it.
 
 `pwr eval run --reasoning-effort` bounds a campaign's reasoning the way the
@@ -192,12 +240,17 @@ uses, anything outside the models folder (symlinks included), a folder with no
 
 ## Model evidence on record
 
-- Local calibrations on the maintainer's M2 Max, 64 GB: `gemma-4-31B-it-MLX-6bit`
-  and `gpt-oss-20b-MXFP4-Q8` became Locally calibrated after adapter fixes of
-  2026-09-29 ([release/v0.2.x-mac-verification.md](release/v0.2.x-mac-verification.md)).
+- Local calibrations on the maintainer's M2 Max, 64 GB. **2026-10-01: all 22
+  models installed there pass the critical checks of Quick Calibration**
+  (`quick-calibration-6`), after the adapter, template and probe fixes of the
+  day; before them seven were Limited for PWR's reasons (Qwen3-Coder, Devstral,
+  LFM2 24B and 2.5 8B, Granite 4.1, Gemma 4 12B/26B/e4b). This is compatibility,
+  not capability.
 - Small models building from scratch (`corpus/small-apps-v1.json`, four tasks,
   one trial, 2026-09-29/30): gpt-oss-20b 4/4, Qwen3-14B 3/4, Ornith-1.5-9B 3/4,
   Qwen2.5-Coder-14B 1/4 — development runs, not a comparison.
+- On the app's path with hidden tests (2026-10-01, one trial per task): see
+  [evaluation.md](evaluation.md#what-has-been-measured).
 - Nemotron-3-Nano-4B and Kimi-Linear-48B were refused: they need code from
   their repositories to load.
 

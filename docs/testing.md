@@ -1,6 +1,6 @@
 # Testing
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** What the tests cover,
+**Checked against `develop` at `bff93062`, 2026-10-01.** What the tests cover,
 how CI runs them, what a green run does and does not mean, and how the manual
 passes are recorded.
 
@@ -8,9 +8,9 @@ passes are recorded.
 
 | Suite | Run with | Where |
 |---|---|---|
-| Rust (every crate: unit, integration, property tests) | `cargo test --workspace` | `crates/*/src` (`#[cfg(test)]`), `crates/*/tests/` |
-| Desktop unit tests (94 in 12 spec files, review count) | `npm test -- --watch=false` in `apps/desktop` | `apps/desktop/src/app/**/*.spec.ts` |
-| MLX sidecar (37, review count) | `python -m unittest discover -s crates/pwr-mlx/sidecar` with the engine's interpreter | `crates/pwr-mlx/sidecar/test_pwr_mlx.py` |
+| Rust (every crate: unit, integration, property tests; **1,364 pass, 5 ignored** on 2026-10-01) | `cargo test --workspace` | `crates/*/src` (`#[cfg(test)]`), `crates/*/tests/` |
+| Desktop unit tests (107 in 13 spec files, 2026-10-01) | `npm test -- --watch=false` in `apps/desktop` | `apps/desktop/src/app/**/*.spec.ts` |
+| MLX sidecar (39, 2026-10-01) | `python -m unittest discover -s crates/pwr-mlx/sidecar` with the engine's interpreter | `crates/pwr-mlx/sidecar/test_pwr_mlx.py` |
 | Protocol transcripts | part of the Rust suite | `crates/pwr-cli/tests/fixtures/acp/` |
 | Conversation fixtures through a real `take_turn` | part of the Rust suite | `crates/pwr-cli/src/two_loops.rs` |
 | Regression suites (tool calls, navigation, editing, verification) | `pwr eval suite suites/a1-tool-calls.json` … | `suites/` |
@@ -22,7 +22,7 @@ They show the harness's invariants: path policy, the sandbox profile,
 tool-call parsing, edit conflicts, cancellation, compaction, completion
 holds, action budgets, corpus accounting, protocol and session behaviour.
 
-They do not show: that a 9B uses the tools reliably; that a specification
+They do not show: that every model family's calls are read (that is a calibration, run per model on the machine: [models.md](models.md#quick-calibration)); that a 9B uses the tools reliably; that a specification
 survives many compactions; competence on new repositories; the quality of a
 generated UI; that any adaptive policy helps. Those are measured, not tested
 ([evaluation.md](evaluation.md)).
@@ -40,10 +40,11 @@ requests, three jobs:
 - **`mlx-sidecar`** (macOS 15, Apple silicon): the pinned `mlx` and `mlx-lm`,
   then the sidecar's unit tests, offline.
 
-No inference engine or live model runs in CI.
+No inference engine or live model runs in CI. **No push and no CI run has happened since 2026-09-30**: everything above is local evidence, and gate G1 needs the CI run.
 
-The release workflow (`.github/workflows/release-macos.yml`) builds the DMG
-from a tag and **runs none of these** (plan W9.1).
+The release workflow (`.github/workflows/release-macos.yml`) reuses the CI
+workflow (`workflow_call`) and builds the DMG only after it passes (plan W9.1,
+implemented; never run in anger: no tag has been pushed since).
 
 ## What "passed" means
 

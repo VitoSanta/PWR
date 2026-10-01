@@ -1,6 +1,6 @@
 # Building and distributing
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.**
+**Checked against `develop` at `bff93062`, 2026-10-01.**
 
 ## What ships
 
@@ -42,17 +42,19 @@ cleans the Rust outputs, `npm ci`, builds the DMG with Tauri, verifies it
 (`hdiutil verify`, mounts it, checks the bundle's version and executable) and
 writes `dist/release/`. It publishes nothing.
 
-The workflow `.github/workflows/release-macos.yml`, on the tag, runs that
-script and creates a draft prerelease.
+The workflow `.github/workflows/release-macos.yml`, on a `v*` tag, first reuses
+the whole CI workflow (`checks`), and only then runs that script, taking the
+version from the tag and the notes from `docs/release/<tag>-release-notes.md`,
+and creates a draft prerelease. It has not run since it was changed.
 
 ## Reproducibility gaps
 
 | Gap | Evidence | Plan |
 |---|---|---|
-| The release workflow runs no tests; nothing ties the artifact to a commit that passed CI | `release-macos.yml`, `scripts/release-macos.sh` | W9.1 |
-| The workflow hard-codes the tag `v0.2.0-alpha` and its notes file | `release-macos.yml` | W9.1 |
-| The engine installs its four direct pins (`mlx==0.32.0`, `mlx-lm==0.31.3`, `mlx-embeddings==0.1.0`, `mlx-vlm==0.6.17`) with no lock of their transitive dependencies and no hashes | `engine.rs:20`, `scripts/setup-mlx.sh:21` | W9.2 |
-| Python is `3.11`, not a patch release | `engine.rs:19` | W9.2 |
+| The release workflow ran no tests; nothing tied the artifact to a commit that passed CI | now `needs: checks` | W9.1 — implemented, never run |
+| The engine installs its four direct pins (`mlx==0.32.0`, `mlx-lm==0.31.3`, `mlx-embeddings==0.1.0`, `mlx-vlm==0.6.17`) with no lock of their transitive dependencies and no hashes | `engine.rs`, `scripts/setup-mlx.sh` | W9.2 |
+| **Newer engine releases exist**: `mlx` 0.32.3 (2026-09-29) and `mlx-lm` 0.32.0 (2026-10-01) on PyPI. 0.32.1–0.32.3 carry attention and quantized-matmul fixes (a GQA decode kernel's batch offset, state corruption when a primitive throws during eval, a quantized matmul corruption when the quantized dimension is not a multiple of 32). The pinned `mlx` 0.32.0 / `mlx-lm` 0.31.3 are the versions a reported silent KV-cache corruption near 60k tokens names (jundot/omlx#3777). **Not upgraded**: each bump needs a calibration of the installed models and a long-conversation check first | [experiment-log.md](experiment-log.md) | W9.2 |
+| Python is `3.11`, not a patch release | `engine.rs` | W9.2 |
 | CI's sidecar job installs only `mlx` and `mlx-lm` | `ci.yml` | W9.2 |
 | No licence or supply-chain inventory ships with the release | — | W9.3 |
 | Not notarized | — | W9.4 |

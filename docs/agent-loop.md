@@ -1,13 +1,13 @@
 # The agent loop
 
-**Baseline checked at `0776ff4f`, 2026-09-30; goal budget updated for W1.4 in this working tree.** How a turn, a goal
+**Checked against `develop` at `bff93062`, 2026-10-01** (the baseline was `0776ff4f`; every behaviour changed since is in this page). How a turn, a goal
 and a scripted run proceed, every limit that bounds them, and the defects the
 plan fixes. Three loops exist; see [architecture.md](architecture.md#three-execution-semantics)
 for why that matters.
 
 ## The conversation turn
 
-`converse::take_turn` (`crates/pwr-orchestrator/src/converse.rs:829`), called by
+`converse::take_turn` (`crates/pwr-orchestrator/src/converse.rs`), called by
 `run_chat_turn` in `crates/pwr-cli/src/main.rs` (the host's turn) for the app (`pwr serve`) and
 the console (`pwr chat`).
 
@@ -17,11 +17,17 @@ Each step of the loop:
    appended as user messages and recorded as a new objective revision
    (`conversation::record_steering`). Only the revision number is kept in the
    checkpoint, not its text (plan W4.1).
-2. **Room.** If the prompt estimate reaches the compaction threshold (75 % of
-   the window by default, 50–90 % per workspace), the history is compacted
-   (see [context.md](context.md#compaction)). At most two compactions per
-   turn; a third need stops the turn as looping. If there is nothing left to
-   fold, the turn stops with *context full*.
+2. **Room.** If the prompt estimate reaches the compaction threshold, the
+   history is compacted (see [context.md](context.md#compaction)). The
+   threshold is 75 % of the window (50–90 % per workspace) **under a ceiling of
+   32,768 tokens** unless the person set a window (`context_tokens`) or a
+   threshold (`compact_at_percent`) — a hypothesis, see
+   [D-2026-09-30-7](decisions.md). At most two compactions per turn; a third
+   need stops the turn as looping. If there is nothing left to fold, the turn
+   stops with *context full*. Separately, after **two replies in a row that fell
+   apart** (a loop, or the engine's repetition stop) the history is compacted
+   to an 8,192-token room and the work goes on from there (twice per turn at
+   most; see *Replies that fall apart* below).
 3. **Envelope.** The generation's budget is planned: prompt tokens (the
    engine's last count plus an estimate for what was appended), the answer
    allowance (16,384 tokens unless sampling names one), and the reasoning
@@ -29,8 +35,10 @@ Each step of the loop:
 4. **Generation** through the provider, streamed to the app: reasoning and
    answer on separate channels.
 5. **Parsing.** Tool calls in the family's convention are normalised to
-   canonical actions (`pwr-compat`). An unreadable call is answered with what
-   was wrong; three in a row end the turn.
+   canonical actions (`pwr-compat`; [models.md](models.md#families-and-adapters)
+   lists the forms read). An unreadable call is answered with what was wrong;
+   three in a row end the turn. A call written whole but without its closing
+   tag is read; one cut off inside is not, and is retried smaller.
 6. **Completion holds.** A `complete` is not carried out, and the model is told
    why, when it arrived in the same reply as other calls whose results it has
    not read (`COMPLETION_OVER_UNSEEN_RESULTS`), when the turn has written, run
@@ -61,26 +69,46 @@ the verdict is appended to the answer and to the history (see
 
 | Limit | Value | Where | What happens |
 |---|---|---|---|
-| Actions before checking in | 100 (was 26 until 2026-09-30); `actions_per_turn` in `.pwr/chat-config.json` | `DEFAULT_ACTIONS_PER_TURN`, `converse.rs:99` | The turn stops and says so; the next message continues. A goal's own limit (`goal_budget`) is used instead and is no longer capped at 26 |
-| Compactions per turn | 2 | `COMPACTIONS_PER_TURN`, `converse.rs:76` | Stop as looping |
-| Consecutive empty replies | 3 | `EMPTY_TURNS_BEFORE_GIVING_UP`, `converse.rs:60` | Stop as silent |
-| Consecutive unreadable calls | 3 | `UNPARSEABLE_CALLS_BEFORE_GIVING_UP`, `converse.rs:66` | Stop as unparseable |
+| Actions before checking in | 100 (was 26 until 2026-09-30); `actions_per_turn` in `.pwr/chat-config.json` | `DEFAULT_ACTIONS_PER_TURN` | The turn stops and says so; the next message continues. A goal's own limit (`goal_budget`) is used instead and is no longer capped at 26 |
+| Compactions per turn | 2 | `COMPACTIONS_PER_TURN` | Stop as looping |
+| Consecutive empty replies | 3 | `EMPTY_TURNS_BEFORE_GIVING_UP` | Stop as silent |
+| Consecutive unreadable calls | 3 | `UNPARSEABLE_CALLS_BEFORE_GIVING_UP` | Stop as unparseable |
 | Replies cut off inside a tool call, **in all** (not consecutive) | 3 | `CUT_OFF_REPLIES_PER_TURN` | The retry is capped at 8,192 tokens and the model is told to split the file (`replace_text`/`apply_patch` for the rest); the third stops the turn as unparseable |
-| Consecutive backend faults | 3 | `BACKEND_FAULTS_BEFORE_GIVING_UP`, `converse.rs:112` | Stop as backend failing; edits so far are kept in the history |
-| Reasoning finalization retries | 1 | `REASONING_FINALIZATION_RETRIES`, `converse.rs:118` | Stop as reasoning unfinished |
-| Unstructured reply guard | 3,000 / 12,000 chars | `AGENT_UNSTRUCTURED_REPLY_GUARD`, `converse.rs:130` | A long prose reply after long thinking is retried once at 8,192 max tokens |
-| Same refused action | 3 | `REPEATED_REFUSAL_LIMIT`, `repetition.rs:21` | The model is told to stop proposing it |
-| Echoed results | 3 in 10 | `ECHO_LIMIT`, `ECHO_WINDOW`, `repetition.rs:106-107` | Flagged to the model |
-| Same failed command | 2 | `REPEATED_FAILURE_LIMIT`, `repetition.rs:162` | Not run a third time |
-| Failed runs in a row after edits | 5 | `FAILED_RUN_LIMIT`, `repetition.rs:193` | The model is told to hand over what is ready |
-| No-progress windows | 3 of 6 actions | `NO_PROGRESS_LIMIT`, `NO_PROGRESS_WINDOW`, `stall.rs:26-30` | Stop as no progress |
-| Reasoning kept per step | 16,000 chars | `REASONING_KEPT_CHARS`, `converse.rs:2515` | Older reasoning is cut from the start |
+| Consecutive backend faults | 3 | `BACKEND_FAULTS_BEFORE_GIVING_UP` | Stop as backend failing; edits so far are kept in the history |
+| Reasoning finalization retries | 1 | `REASONING_FINALIZATION_RETRIES` | Stop as reasoning unfinished |
+| Unstructured reply guard | 3,000 / 12,000 chars | `AGENT_UNSTRUCTURED_REPLY_GUARD` | A long prose reply after long thinking is retried once at 8,192 max tokens |
+| Same refused action | 3 | `REPEATED_REFUSAL_LIMIT` | The model is told to stop proposing it |
+| Echoed results | 3 in 10 | `ECHO_LIMIT`, `ECHO_WINDOW` | Flagged to the model |
+| Same failed command | 2 | `REPEATED_FAILURE_LIMIT` | Not run a third time |
+| Failed runs in a row after edits | 5 | `FAILED_RUN_LIMIT` | The model is told to hand over what is ready |
+| No-progress windows | 3 of 6 actions | `NO_PROGRESS_LIMIT`, `NO_PROGRESS_WINDOW` | Stop as no progress |
+| Reasoning kept per step | 16,000 chars | `REASONING_KEPT_CHARS` | Older reasoning is cut from the start |
+| Replies that fell apart, in a row | 2 | `DEGENERATE_REPLIES_BEFORE_RESET`, `DEGENERATE_RESETS_PER_TURN` (2), `DEGENERATE_RESET_ROOM` (8,192) | The history is compacted to that room and the turn goes on |
+| A file written again and again | every 12th write of one path | `REWRITES_BEFORE_NOTE`, `stall.rs` | The write's result carries a note naming the count and the ways out; no limit |
 
 Each limit has its own counter; there is no shared recovery budget (plan W2.6).
 
+### Replies that fall apart
+
+Three mechanisms act on a generation that loops or collapses, all added on
+2026-10-01 from runs of Qwen3.5-9B and Qwen3-Coder-30B
+([experiment-log.md](experiment-log.md)), and none of them measured for its
+effect yet:
+
+- the engine's own repetition stop and PWR's reader of the stream both end a
+  reply that writes one passage again and again (`looping_reply`, or
+  `runaway_reply` with a repetition detail);
+- once a reply of the turn has looped, every later generation of the turn asks
+  for a **presence penalty of 1.0 over the last 1,024 tokens** (the engine's
+  own window is 20, which cannot see a repeated passage), unless a higher value
+  is set — `presence_penalty`, `presence_context_size` in the request;
+- two such replies in a row compact the history (above): the same model
+  answers a fresh 30,000-token prompt correctly, so what is cut back is the
+  history it was lost in.
+
 ### Stop reasons
 
-`StopReason` (`converse.rs:154`): `Interrupted`, `ContextFull`, `Looping`,
+`StopReason`: `Interrupted`, `ContextFull`, `Looping`,
 `Silent`, `ToolCallInReasoning`, `Unparseable`, `BudgetSpent`,
 `BackendFailing`, `NoProgress`, `ReasoningUnfinished`. How they reach the app
 is in [pwr-serve.md](pwr-serve.md#stop-reasons).
@@ -170,11 +198,11 @@ chat turns do not use this goal budget.
 
 `pwr run "<task>"` and every `pwr eval run` trial use
 `run_action_loop_with_prompt_budget_and_context_tiers`
-(`crates/pwr-orchestrator/src/lib.rs:2936`). Unattended: grants only what
+(`crates/pwr-orchestrator/src/lib.rs`). Unattended: grants only what
 `--approve` names. It differs from the conversation in ways a campaign
 measures and the app does not ship:
 
-- a hard action budget (`DEFAULT_MAX_ACTIONS` 26, `lib.rs:2088`, or
+- a hard action budget (`DEFAULT_MAX_ACTIONS` 26, or
   `--max-actions`), with two provider turns per action (`TURNS_PER_ACTION`);
 - a baseline of the checks before editing, checks on completion, and a
   recovery cycle (reproduce, classify, diagnose, retry within budget; stop on
@@ -191,7 +219,7 @@ measures and the app does not ship:
 - `--plan` decomposition, `--provision` toolchain installs, `--session`
   continuation;
 - completion with no usable verifier ends `verified: false,
-  verifiable: false` (`lib.rs:3783-3815`).
+  verifiable: false` .
 
 The B0 (conventional loop) and B2 (fixed staged workflow) controls live in
 `crates/pwr-orchestrator/src/baseline.rs` and share the tools, policy and log.
@@ -200,7 +228,8 @@ The B0 (conventional loop) and B2 (fixed staged workflow) controls live in
 
 | Defect | Evidence | Plan |
 |---|---|---|
-| Post-turn verification happens after the turn ended, so a failing verdict does not send the model back | `executor::close_turn` | W2.3 (decision), W7.1 |
-| Three loops with different holds, compaction, recovery and catalogues; fixes land in one | this page | W2.4 |
+| Post-turn verification happens after the turn ended, so a failing verdict does not send the model back | `executor::close_turn` | W7.1 decides |
+| The app, the console and Goal mode share one executor; the scripted loop (`pwr run`, `eval run`) still has its own holds, compaction, recovery and catalogue | [plan/executor-parity.md](plan/executor-parity.md); the evaluator is not on the executor | W2.4 (open) |
 | A dozen independent limits and no shared recovery budget | table above | W2.6 |
-| The objective's text is not kept outside the compressible history | `conversation.rs:52`, `compaction.rs:48-54` | W4.1 |
+| A model that thrashes (rewrites one file seventy times) is told, not stopped; a goal's wall-clock is what ends it | `dev11-qwen3-coder`, 130 actions in 60 min | measure the note, then decide |
+| The objective is kept whole, outside what compaction may shorten (W4.1) | — | done on `develop`; CI not run |

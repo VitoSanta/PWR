@@ -11,10 +11,12 @@ is [archived](archive/glossary.md).
 | **Deployment** | One servable configuration: the model artifact (digest), quantization, engine and its version, adapter, window and runtime options. Two deployments of the same model name can behave differently |
 | **Engine / backend** | What runs a model: PWR's MLX sidecar, or `llama-server` for GGUF |
 | **Sidecar** | The Python process (`pwr_mlx.py`) that loads a model and generates, driven by the core over JSON lines |
-| **Adapter** | The code in `pwr-compat` that reads a family's tool-call and reasoning conventions |
+| **Adapter** | The code in `pwr-compat` that reads a family's tool-call and reasoning conventions; it has a revision (`qwen-v3`) that a calibration records |
 | **Profile** | Declared facts and sampling for an exact artifact (`strategies/models.json`) |
 | **Status** | Verified, Locally calibrated, Provisional, Limited, Incompatible ([models.md](models.md#status-of-a-model)) |
-| **Quick Calibration** | A nine-request compatibility smoke test; not a capability measure |
+| **Quick Calibration** | A nine-request compatibility smoke test (suite `quick-calibration-6`); not a capability measure |
+| **Sampling floor** | 0.6 / top_p 0.95 / top_k 20, used when nothing declares how a model samples; never greedy by default |
+| **Prefill** | The engine reading the prompt before it can write the first word; minutes on a long conversation with a cold cache |
 | **Reasoning Effort** | Low / Medium / High: the budget of a model's thinking phase per generation |
 | **Window** | The context length a generation may use, computed from the model and the host |
 
@@ -25,14 +27,15 @@ is [archived](archive/glossary.md).
 | **Turn** | One response of the agent to one message: generations and tool calls until it answers, completes, or is stopped |
 | **Goal** | Goal mode: turns repeated until the work is verified, paused, blocked or out of budget |
 | **Scripted run** | `pwr run` / `eval run`: the unattended research loop, a different loop from the turn |
-| **Executor** | (planned, W2.3) the one component every entry point will call to run a turn or a goal |
+| **Executor** | `pwr_orchestrator::executor`: the component the app, the console and Goal mode call to run a turn or a goal (the scripted loop does not yet, W2.4) |
 | **Action** | A canonical tool call after normalisation (`ActionProposal`) |
 | **Catalogue** | The tools offered to the model on a path |
 | **Hold** | A `complete` the harness does not carry out, telling the model why (unseen results, nothing done, never ran) |
 | **Detector** | A check that stops or redirects a turn (silence, unreadable calls, repetition, no progress…) |
 | **Steering** | A message delivered into a running turn (*Send now*); it opens a new objective revision |
 | **Compaction** | Replacing older history with a mechanical record when the prompt nears the threshold |
-| **Objective** | What the person asked for, and its revisions. Today compaction may shorten it; W4.1 keeps it whole |
+| **Objective** | What the person asked for, and its revisions. Compaction never shortens it; if it cannot fit, the turn stops |
+| **Clean start** | A compaction to a small room after two replies in a row that fell apart, so the model continues from a short history |
 
 ## Effects and permissions
 
@@ -44,7 +47,7 @@ is [archived](archive/glossary.md).
 | **Permission mode** | Protected (`ask`), Standard (`auto`), Full access (`full`) |
 | **Sandbox** | The macOS Seatbelt profile a command runs under; absent in Full access |
 | **Confined / unconfined** | Whether a command ran under the sandbox |
-| **Protected path** | A path in `.pwr/protected.json`: readable, not changeable by the file tools (commands: not yet, W1.3) |
+| **Protected path** | A path in `.pwr/protected.json`, or a frozen acceptance artifact or installed dependency: readable, not changeable by the file tools or by commands (outside Full access) |
 | **Known version** | The hash of a file as the conversation last saw it — read, created or edited (`Continuity::known`); a whole-file rewrite is checked against it |
 
 ## Verification
@@ -53,11 +56,11 @@ is [archived](archive/glossary.md).
 |---|---|
 | **Check** | A command that verifies something about the repository (build, test, lint) |
 | **Acceptance check** | A check declared `"kind": "acceptance"` in `.pwr/checks.json`: the owner's evidence that the requested behaviour works |
-| **Acceptance contract** | The acceptance checks and — after W3.1 — the files they run, frozen at session start |
+| **Acceptance contract** | The acceptance checks and the files they run (declared, else inferred), frozen at session start |
 | **Baseline** | The checks' results before the agent edits, to tell regressions from pre-existing failures |
 | **Verified** | Acceptance reached under an unchanged contract. Passing checks without it is *checks passed*, not verified |
 | **Unavailable** | No check exists or none could run; stated, never rounded up |
-| **Fingerprint** | (planned, W1.5) the identity of a failure: failing test names, or a digest of the normalised output |
+| **Fingerprint** | The identity of a failure: failing test names, or a digest of the normalised output (Rust, pytest, Go, .NET, Jest, Vitest) |
 | **Hidden verifier** | In evaluation, a check the agent never sees, used to score |
 | **False acceptance** | The agent or PWR said done or verified, and the hidden verifier failed |
 
@@ -79,6 +82,7 @@ is [archived](archive/glossary.md).
 | **Campaign** | A set of trials under one manifest |
 | **Intervention / nudge** | Any message to the agent after the brief; a success after one is not unattended |
 | **Split** | `dev` tasks PWR is improved against; `heldout` tasks only measured |
+| **Stack matrix** | `evidence/stack-matrix`: tasks run through the app's own protocol, verified in Docker with hidden tests |
 | **Uplift** | PWR's success minus the baseline's, paired, per deployment, in percentage points |
 
 ## Status words

@@ -1,6 +1,6 @@
 # Evaluation
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** How PWR is measured,
+**Checked against `develop` at `bff93062`, 2026-10-01.** How PWR is measured,
 what has been measured, and what has not. The methodology before this date is
 in the [archive](archive/evaluation.md); the decisive campaign still to run is
 specified in the [implementation plan, W8](plan/implementation-plan.md#w8--the-decisive-benchmark).
@@ -36,13 +36,12 @@ app's path.
   `--oracle-context` (a localization diagnostic), `--reasoning-effort`
   (Medium by default, `off` for the pre-2026-09-30 behaviour),
   repeated `--seed`s under one lease, `--resume` from an immutable manifest.
-- **Comparison**: `pwr eval compare` pairs by deployment, task and seed;
-  **permissively by default**, which lets campaigns that also changed corpus,
-  sampling or hardware pair silently. `--strict` (implied by `--declare`)
-  requires every differing field to be declared as the treatment, rejects
-  double-recorded trials and counts every assigned trial in the denominator
-  (`compare_strict`, `crates/pwr-eval/src/lib.rs:2883`). Plan W8.1 makes strict
-  the default.
+- **Comparison**: `pwr eval compare` pairs by deployment, task and seed and is
+  **strict by default** (plan W8.1, implemented): every field the two sides
+  differ on must be named by `--declare` as the treatment, a trial recorded
+  twice is an error and every assigned trial is in the denominator
+  (`compare_strict`, `crates/pwr-eval/src/lib.rs`). `--legacy-pairing` is the
+  old permissive pairing and cannot carry a causal reading.
 - **Thresholds**: `docs/thresholds.json` is what the code reads (`pwr-eval`
   includes it at build time); its reasoning and amendments are in
   [thresholds.md](thresholds.md). Bars on record: resolved task rate ≥ 0.4,
@@ -55,8 +54,9 @@ app's path.
   measure uplift.
 
 **The measured loop is not the shipped one.** `eval run` runs the scripted
-loop; the app runs the conversation turn and Goal mode. Plan W2.4 and gate G2
-fix this before the decisive campaign.
+loop; the app runs the conversation turn and Goal mode through the session
+executor. Plan W2.4 and gate G2 fix this before the decisive campaign; until
+then the **stack matrix is the only measurement of the app's own path** (below).
 
 ## The stack matrix
 
@@ -68,6 +68,11 @@ what the task names. The verdict comes from a clean copy with the owner's tests
 restored and hidden tests laid over, run in the task's container. Tasks have
 `dev` and `heldout` splits; a held-out task whose failure was read to change
 PWR moves to `dev`, and every such move is listed in its README.
+
+**One model at a time.** A second engine on the same Mac overruns the GPU's
+working set (about 55 GB of 64 GB for the maintainer's M2 Max) and both emit
+text without meaning; the runs made that way on 2026-10-01 were discarded.
+Wall-clock times are not comparable across runs unless one ran alone.
 
 After a failed verification the runner sends the model a generic nudge ("the
 work does not satisfy everything I asked") and tries again. That is an

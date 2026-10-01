@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "assessed_on": "2026-09-30",
+  "assessed_on": "2026-10-01",
   "note": "The single source of milestone status. The roadmap's status table is generated from this file by `scripts/milestones.py`; nothing else asserts a milestone's state. Milestones are the gates of docs/plan/implementation-plan.md. The research milestones M0-M6 of 2026-09-06 are kept in docs/archive/milestones-2026-09-06.json.",
-  "campaign_evidence": "no campaign has measured the current product path. The last paired comparison (R2 rerun, 2026-09-15, scripted loop) found no uplift on one deployment (11/30 vs 11/30) and an unconfirmed one on another (18 vs 13, p = 0.227); the small-model campaigns of 2026-09-29/30 are development runs, one trial per task (docs/release/v0.2.x-mac-verification.md). All of it stays on the maintainer's machine under experiments/",
+  "campaign_evidence": "no campaign has measured the current product path against a baseline. The last paired comparison (R2 rerun, 2026-09-15, scripted loop) found no uplift on one deployment (11/30 vs 11/30) and an unconfirmed one on another (18 vs 13, p = 0.227). On the app's own path (stack matrix, 2026-10-01, development runs, one trial per task) Qwen3.6-35B-A3B went from 3/8 to 6/8 `dev` tasks after the review round also ran without a declared acceptance check: a signal, not a result; no `heldout` task has been run on the current harness (docs/evaluation.md). All of it stays on the maintainer's machine under experiments/ and ~/Desktop/pwr-evidence/",
   "milestones": [
     {
       "id": "G0",
@@ -14,16 +14,16 @@
     {
       "id": "G1",
       "name": "Effects are safe and honestly reported",
-      "status": "not started",
-      "evidence": "The defects are confirmed in the code: execution-time overwrite hash, non-atomic writes, protections missing from the command sandbox, a goal budget on one branch, acceptance frozen to checks.json only, 800/200-character objective in compaction, an unconditional check mark.",
-      "remaining": "W0.2, W1.1-W1.6, W1.9, W2.2, W3.1, W4.1 done, each with a regression test; Rust, desktop and sidecar suites green on CI with skips reported."
+      "status": "in progress: implemented on develop, CI not run",
+      "evidence": "Implemented on develop with regression tests (not pushed, CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, a goal budget on every branch, acceptance artifacts frozen, the objective kept whole in compaction, marks that follow verdicts, zero-test signatures for six toolchains, failure fingerprints. Local suites on 2026-10-01: Rust 1,364 passed / 5 ignored, desktop 107, sidecar 39. Still open: W3.2 (CI proposals), W3.4 (the `complete` promise), W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated).",
+      "remaining": "A push and a green CI run on macOS (the first since 2026-09-30); the native-app walk; the open items above."
     },
     {
       "id": "G2",
       "name": "One execution path",
-      "status": "not started",
-      "evidence": "Three semantics today: the chat turn with post-turn checks (pwr-cli main.rs), Goal mode (serve.rs), the scripted loop (orchestrator lib.rs). The evaluator measures the scripted loop.",
-      "remaining": "W2.1, W2.3, W2.4 done; eval run measures the executor the app uses; the parity test lists no undeclared difference."
+      "status": "in progress: the app, the console and Goal mode share one executor; the evaluator does not",
+      "evidence": "`executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol.",
+      "remaining": "W2.4: `EvalHost` so `eval run` calls the executor, the `legacy` arm for older campaigns, `pwr run` as a thin call; W2.1 for the scripted runner's result; the parity test lists no undeclared difference."
     },
     {
       "id": "G3",

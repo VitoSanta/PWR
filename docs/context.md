@@ -1,30 +1,31 @@
 # Context
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** What reaches the
+**Checked against `develop` at `bff93062`, 2026-10-01.** What reaches the
 model, how it is counted, how it is compacted, and where repository knowledge
 comes from.
 
-## Working-tree update (2026-09-30)
+## What changed since the baseline (`0776ff4f`)
 
-Full human objectives and steering revisions live in the persisted checkpoint,
-independently of compacted history. Every compaction carries them verbatim; if
-these objectives cannot fit the input allowance, generation ends as ContextFull.
-The compiler reports `over_budget_by` for required content. Token costs remain
-estimates: exact template/tool-aware backend preflight (W4.2) is not implemented.
-
-Embedding startup and each reply have a 30-second deadline; timeout kills the
-sidecar. An error disables further semantic requests for that ranker, retrieval
-rebuilds the lexical candidate set, and conversation context events/operator
-notes record the fallback. Scripted `ContextCompiled` carries
-`retrieval_fallback`. These diagnostics do not enter the task prompt.
+- **The objective is kept whole.** Full human objectives and steering revisions
+  live in the persisted checkpoint, independent of the compressible history,
+  and every compaction carries them verbatim; if they cannot fit the input
+  allowance, generation ends as *context full* (plan W4.1).
+- **The compaction threshold has a ceiling** of 32,768 tokens unless the person
+  chose a window or a threshold, and a **clean-start compaction** runs after
+  two replies in a row that fell apart ([agent-loop.md](agent-loop.md#replies-that-fall-apart)).
+- **Embedding** startup and each reply have a 30-second deadline; a timeout kills
+  the sidecar, disables semantic requests for that ranker and falls back to the
+  lexical candidates, recorded in the events and shown to the person (plan W1.8,
+  W4.6 in part). Scripted `ContextCompiled` carries `retrieval_fallback`.
+- **Token costs are still estimates**; an exact, template- and tool-aware
+  preflight (W4.2) is not implemented.
 
 ## What a conversation turn sends
 
 The first message is the **system prompt**, rebuilt each turn
-(`compose_chat_turn`, `crates/pwr-cli/src/main.rs:4214`) from:
+(`compose_chat_turn`, `crates/pwr-cli/src/main.rs`) from:
 
-- PWR's instructions and harness rules (`chat_system_prompt_for`,
-  `main.rs:1296`), including the workspace's reference folders;
+- PWR's instructions and harness rules (`chat_system_prompt_for`), including the workspace's reference folders;
 - the deployment's own suffix from its profile (a required section: a model
   switched mid-conversation gets its own suffix);
 - the personal block (`personal::prompt_block`, bounded to 8,000 characters):
@@ -33,7 +34,7 @@ The first message is the **system prompt**, rebuilt each turn
   `AGENTS.md`, else `PWR.md`).
 
 When a new user request arrives, it is composed with typed sections
-(`context::compile`, `crates/pwr-orchestrator/src/context.rs:521`):
+(`context::compile`, `crates/pwr-orchestrator/src/context.rs`):
 
 | Section | Required | Evicted |
 |---|---|---|
@@ -48,7 +49,9 @@ The budget is the window minus a 25 % output reserve (`OUTPUT_RESERVE_SHARE`).
 Optional sections are dropped in eviction order until the rest fits; the last
 one considered is truncated instead if at least 2,000 characters of it would
 survive. **Required sections are never cut, and nothing refuses a prompt
-whose required part exceeds the budget** (plan W4.3).
+whose required part exceeds the budget** from the composer's side: it reports
+`over_budget_by`, and the callers reject oversized required input (plan W4.3,
+partial until the exact preflight of W4.2).
 
 After that, the history grows with the model's replies (answer, tool calls,
 and up to 16,000 characters of its reasoning per step) and the tool results.
@@ -59,10 +62,10 @@ and up to 16,000 characters of its reasoning per step) and the tool results.
 |---|---|---|
 | Prompt and generated tokens of the last request (MLX) | the engine, with the model's tokenizer | exact, one request stale |
 | Same, llama.cpp | the server's usage block | exact for its tokenizer |
-| Composition, section costs | `len() / 4` (`CHARS_PER_TOKEN`, `context.rs:129`) | estimate, labelled |
-| Compaction trigger | last engine count + `len()/4` of what was appended (`prompt_tokens_now`, `converse.rs:2537`) | estimate |
-| Generation envelope | last engine count + `len()/3` of what was appended (`conservative_prompt_tokens`, `converse.rs:2448`) | estimate, denser on purpose |
-| Tool schemas and template overhead | learned as a constant offset from the engine's counts, capped at 8,192 (`context.rs:131-150`) | learned |
+| Composition, section costs | `len() / 4` (`CHARS_PER_TOKEN`) | estimate, labelled |
+| Compaction trigger | last engine count + `len()/4` of what was appended (`prompt_tokens_now`) | estimate |
+| Generation envelope | last engine count + `len()/3` of what was appended (`conservative_prompt_tokens`) | estimate, denser on purpose |
+| Tool schemas and template overhead | learned as a constant offset from the engine's counts, capped at 8,192 | learned |
 
 Two defects: tool-call **arguments** appended since the last count are not
 counted by either running estimate — a large `write_file` is nearly free until
@@ -73,16 +76,20 @@ of the real rendered prompt before a generation. Plan W4.2 fixes both.
 
 `compaction::compact` (`crates/pwr-orchestrator/src/compaction.rs`) is the
 only conversation compaction. The turn calls it when the prompt reaches the
-threshold (default 75 % of the window; 50–90 % per workspace, saved as
-`compact_at_percent` in `.pwr/chat-config.json`); **Compact now**
+threshold (75 % of the window by default, under a ceiling of 32,768 tokens
+unless the person chose a window or a threshold; 50–90 % per workspace, saved as
+`compact_at_percent` in `.pwr/chat-config.json`), and, with a smaller room, after two
+replies in a row that fell apart; **Compact now**
 (`_pwr/compact`) calls the same function between turns.
 
 It is mechanical — no model writes it. The folded history is replaced by one
 record, headed *"Earlier in this conversation, summarised because it no longer
 fits. Re-read anything you need rather than relying on this."*, keeping:
 
-- the **first request, cut to 800 characters**, and up to **12 later requests,
-  each cut to a 200-character line**;
+- **the objective and every revision of it, verbatim**, from the checkpoint
+  (when they cannot fit, the turn stops as *context full* instead); the first
+  request is also kept (cut to 800 characters), and up to **12 later requests,
+  each cut to a 200-character line**, as the readable history;
 - up to 24 actions with their paths or commands, and up to 40 paths;
 - up to 6 statements of the model, the last being where it left off;
 - every file the conversation changed with its current hash (from the
@@ -96,10 +103,10 @@ superseded ledgers and retrieved passages are dropped and counted. A later
 compaction merges the earlier record. Each compaction records
 `context.compacted` in the event log; a manual one also writes a snapshot.
 
-**The defect:** a long specification loses the constraints that decide
-success, by construction. Plan W4.1 keeps the objective and its revisions
-verbatim, outside what compaction may shorten, and stops the turn instead of
-abbreviating them.
+**What compaction still loses:** tool output, superseded ledgers and retrieved
+passages (counted, not kept), and the exact wording of the model's earlier
+reasoning. Whether this record beats recent history plus reads on request is
+unmeasured (plan W4.7, W8).
 
 The scripted loop has its own ledger compaction and optional policies
 (`recency-fill`, `evidence-state`, `crates/pwr-orchestrator/src/evidence.rs`);
@@ -119,8 +126,7 @@ proof that content is unchanged.
 
 Files over 1 MB (`MAX_INDEXED_BYTES`) and binary files are left out of the
 index entirely — the constant's comment says they are "inventory entries
-only", which the code does not do — and **they are read whole before the size
-is checked** (plan W1.7).
+only", which the code does not do — and, from `develop`, a **size bound is checked before the read** (plan W1.7).
 
 ### Retrieval
 
@@ -130,12 +136,11 @@ counted), headings weighted 3× in Markdown; excerpts are windows of ±12 lines,
 up to 90 lines per Markdown section, at most 5 excerpts, within the budget
 left. Each excerpt carries its file hash and why it was chosen. The block says
 it is lexical and a starting point. Files one import away from the three strongest candidates get a smaller
-bonus (`graph_neighbours`, `IMPORT_PROXIMITY` 6). **A retrieval error becomes an empty section silently** (plan W4.6).
+bonus (`graph_neighbours`, `IMPORT_PROXIMITY` 6). A retrieval error from the embedding encoder falls back to the lexical set and says so (plan W4.6, partial: other retrieval paths can still fail silently).
 
 Semantic fusion with a local embedding model exists and is **experimental,
 opt-in** (`PWR_SEMANTIC_RETRIEVAL=1`, `crates/pwr-cli/src/semantic.rs`); its
-cache under `.pwr/embeddings/` has no eviction, and the encoder's read has no
-timeout (plan W1.8, W6.5).
+cache under `.pwr/embeddings/` has no eviction (plan W6.5); the encoder's reads now have a 30-second deadline.
 
 `pwr repo rank "<request>"` prints what a turn would be given, with scores.
 
@@ -145,7 +150,7 @@ For Angular workspaces only (`angular.json` or `@angular/core`),
 `workspace_topology` describes the bootstrap and routing layout, and a
 guidance section gives Angular-specific rules. **The guidance says no tool
 can render or screenshot the page**, which is false for vision models offered
-`look_at` (`context.rs:384`; plan W4.5).
+`look_at` (`context.rs`; plan W4.5).
 
 ## The project wiki and memory
 
@@ -172,8 +177,10 @@ Rust `crate::`/`super::`, Python dotted modules), *named* (a package import),
 call graph and not semantic understanding.
 
 **Summaries** are written after every non-chat turn while no session is busy,
-up to 8 per idle period, 400 tokens each, no tools, no reasoning. They occupy
-the only engine and are unverified text; plan W5.2 turns them off by default.
+up to 8 per idle period, 400 tokens each, no tools, no reasoning — **only when
+the person turns them on** (`background_summaries`, off by default since plan W5.2;
+an incoming prompt pre-empts one in flight). They occupy the only engine and
+are unverified text.
 
 `remember`, `recall_project` and `wiki_query` are offered to conversations
 only, never to scripted runs.
@@ -187,13 +194,13 @@ the last compaction; the app's context indicator and panel show them
 
 ## Known defects
 
-| Defect | Plan |
-|---|---|
-| The objective is compressed to 800/200 characters | W4.1 |
-| Tool-call arguments uncounted; no exact preflight | W4.2 |
-| Required sections can exceed the budget with no signal | W4.3 |
-| Large tool output is dropped past its bound, not retrievable | W4.4 |
-| Angular guidance contradicts `look_at` | W4.5 |
-| Retrieval errors are silent | W4.6 |
-| Oversized files read whole before the bound; dropped from the index though documented as inventory entries | W1.7 |
-| No evidence yet that this context system beats recent history plus reads on request | W4.7, W8 |
+| Defect | Plan | State |
+|---|---|---|
+| Tool-call arguments uncounted; no exact preflight | W4.2 | open |
+| Required sections can exceed the budget without an exact backend preflight | W4.3 | partial |
+| Large tool output is dropped past its bound, not retrievable | W4.4 | open |
+| Angular guidance contradicts `look_at` | W4.5 | open |
+| Retrieval errors outside the embedding path are silent | W4.6 | partial |
+| The embedding cache has no eviction | W6.5 | open |
+| No evidence yet that this context system beats recent history plus reads on request | W4.7, W8 | open |
+| The compaction ceiling (32,768) and the clean-start compaction are hypotheses | [D-2026-09-30-7](decisions.md) | unmeasured |

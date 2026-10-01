@@ -1,10 +1,10 @@
 # Verification
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** How PWR finds a
+**Checked against `develop` at `bff93062`, 2026-10-01.** How PWR finds a
 repository's checks, when it runs them, what a result is allowed to claim, and
 where the contract is incomplete. Crate: `crates/pwr-verify`.
 
-## Working-tree update (2026-09-30)
+## What changed since the baseline (`0776ff4f`)
 
 A goal freezes `.pwr/checks.json` and the selected verifier artifacts before
 baseline verification. Declare them explicitly when possible:
@@ -52,7 +52,7 @@ signature detection, not proof of coverage.
 
 ## Discovering checks
 
-`discover_checks` (`crates/pwr-verify/src/lib.rs:538`), first source that
+`discover_checks` (`crates/pwr-verify/src/lib.rs`), first source that
 yields anything wins:
 
 1. **`.pwr/checks.json`** — the owner's declaration:
@@ -97,9 +97,11 @@ denials and unreachable networks are environment, not code; warnings are
 stripped first; "not found" is environment unless the output points at a
 source location. It is a heuristic, not a taxonomy.
 
-`classify_with_reproduction` re-runs a failing check; **it calls the failure
-non-deterministic only if the exit code changes** — two different failures
-with exit 1 look the same (plan W3.3).
+`classify_with_reproduction` re-runs a failing check and compares the **failure
+identity** (a fingerprint of the failing tests or errors for Rust, pytest, Go,
+.NET, Jest and Vitest), not only the exit code (plan W3.3); for other
+toolchains the output's own shape decides and two different failures with
+exit 1 can still look alike.
 
 ## After a conversation turn
 
@@ -111,8 +113,9 @@ edited files:
   after (green, regressions, still failing);
 - with checks discovered only after the edit → their result, "no prior
   baseline";
-- `cargo test` that ran zero tests → said explicitly; no other toolchain's
-  zero-test case is detected (plan W3.5);
+- a check that ran zero tests → said explicitly, for cargo, pytest, Jest, Vitest,
+  Go and .NET (signature detection, not proof of coverage; other runners are
+  plan W3.5, partial);
 - no checks → *"Independent verification unavailable: this workspace declares
   no automated checks"*.
 
@@ -130,16 +133,15 @@ On each `complete` in Goal mode, the executor asks its host for the full
 verification (`verify_goal` in `main.rs`) and decides:
 
 - **passed** only if the technical checks pass, no `cargo test` ran zero
-  tests, a declared acceptance check exists, and **`.pwr/checks.json` has the
-  same hash it had when the session began** (`acceptance_contract_hash`,
-  `crates/pwr-cli/src/serve.rs:723`) — so a goal cannot create or relax its
+  tests, a declared acceptance check exists, and **`.pwr/checks.json` and the frozen acceptance artifacts have the
+  hashes they had when the session began** (`acceptance_contract_hash`, `crates/pwr-cli/src/serve.rs`) — so a goal cannot create or relax its
   own contract file;
 - checks pass but no acceptance check is declared → *"Technical checks
   passed, but the goal is not verified"*;
 - only checks that failed before the goal fail, none of them acceptance →
   ended, naming them;
-- otherwise → back to the model with the evidence; the same failing set of
-  check **names** three times → *blocked*.
+- otherwise → back to the model with the evidence; the same failure
+  fingerprints three times → *blocked*.
 
 Before ending, one **review round** (also when the technical checks pass and no
 acceptance check is declared, from 2026-09-30; the goal then still ends *not
@@ -147,14 +149,14 @@ verified*) reads the request against the
 changed files (same model, reasoning bounded to 4,000 tokens). Its findings
 are guidance, not verification.
 
-**The gap:** the hash covers `.pwr/checks.json` only. The tests, fixtures and
-scripts an acceptance command runs are protected only if listed in
-`.pwr/protected.json` — and then only from the file tools, not from commands
-(see [tools-and-sandbox.md](tools-and-sandbox.md#where-the-boundary-ends)).
-A goal can weaken a test and be reported verified. Plan W3.1 freezes the
-acceptance artifacts; the stack-matrix runner already does the equivalent by
-restoring the owner's tests in a clean copy
-(`evidence/stack-matrix/runner/run.py:153`).
+**What remains of the gap:** the artifacts an acceptance command runs are
+frozen from what the declaration names or, failing that, from conventions
+(tests, fixtures, scripts, manifests); a dependency chain the conventions
+cannot see is not covered, so owners should declare artifacts explicitly. Under
+Full access the files can still be changed — the hashes then detect it and the
+goal stops, which is detection and not prevention. The stack-matrix runner does
+the equivalent from outside, by restoring the owner's tests in a clean copy
+(`evidence/stack-matrix/runner/run.py`).
 
 In Full access mode, checks and acceptance run unconfined.
 
@@ -165,8 +167,7 @@ explicitly quarantined checks), verify on `complete`, and recover:
 reproduce, classify, give diagnostic feedback, and retry within
 edit/verify and context-tier budgets (`RecoveryDecision`); they stop on
 environment, policy or non-determinism. With no usable verifier a run ends
-**completed, `verified: false, verifiable: false`** (`crates/pwr-orchestrator/src/lib.rs:3783-3815`)
-— completion is *not* refused, whatever older documents said. A person can
+**completed, `verified: false, verifiable: false`** — completion is *not* refused, whatever older documents said. A person can
 adopt a check the model proposes (`propose_verifier`, with the
 `verifier_proposal` grant). With `--mode verifier-supplied` (the default for
 `eval run`) the corpus's own check is handed to the agent; `--mode
@@ -184,17 +185,17 @@ under an unchanged contract.
 
 ## Known defects
 
-| Defect | Plan |
-|---|---|
-| Acceptance freezes the contract file, not the artifacts it runs | W3.1 |
-| Post-turn note `✓` regardless of the verdict; verdict appended as an orphan `tool` message | W2.2 |
-| Goal failures compared by check name | W1.5 |
-| Flakiness judged by exit code | W3.3 |
-| CI discovery reconstructs commands without `working-directory`, `env`, multi-line scripts, and is used as acceptance-grade evidence | W3.2 |
-| CI proposals lack execution-context provenance and explicit adoption | W3.2 |
-| Zero-test detection only for Cargo | W3.5 |
-| `complete` promises verification the path may not do | W3.4 |
-| Three result shapes | W2.1 |
+| Defect | Plan | State |
+|---|---|---|
+| Acceptance froze the contract file, not the artifacts it runs | W3.1 | fixed on `develop` (conventions inferred when not declared); CI not run |
+| Post-turn note `✓` regardless of the verdict; verdict appended as an orphan `tool` message | W2.2 | fixed on `develop` |
+| Goal failures compared by check name | W1.5 | fixed on `develop` (fingerprints) |
+| Flakiness judged by exit code | W3.3 | fixed for six toolchains |
+| CI discovery reconstructs commands without `working-directory`, `env`, multi-line scripts, and is used as acceptance-grade evidence | W3.2 | open; malformed declarations now fail closed |
+| Zero-test detection only for Cargo | W3.5 | partial: six toolchains |
+| `complete` promises verification the path may not do ("Accepted only if deterministic verification then passes") | W3.4 | open |
+| Three result shapes | W2.1 | partial: the typed outcome reaches the app; the scripted runner's JSON does not |
+| With no declared acceptance check a goal is never *verified*; a review by the same model is the only further check | — | by design, stated in the answer |
 
 Acceptance artifacts are checked again after verification commands finish. A
 check that rewrites its own evidence cannot certify a goal. Explicit artifact

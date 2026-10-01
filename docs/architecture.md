@@ -1,6 +1,6 @@
 # Architecture
 
-**Checked against `develop` at `0776ff4f`, 2026-09-30.** What the code is, not
+**Checked against `develop` at `bff93062`, 2026-10-01.** What the code is, not
 what it should become; the changes are in the
 [implementation plan](plan/implementation-plan.md) and referred to by item.
 
@@ -43,27 +43,27 @@ workspace, one event log).
 
 ## Components
 
-| Component | Responsibility | Size (lines, incl. tests) |
+| Component | Responsibility | Size (lines of Rust under the crate, tests included, 2026-10-01) |
 |---|---|---|
 | `apps/desktop` (Angular) | Conversation, models, permissions, diffs, workbench, metrics. Never writes to a workspace itself. | — |
 | `apps/desktop/src-tauri` | Finds and starts the core, relays JSON-RPC, terminal tabs, the engine installer, workspace trust. Commands: `core_start`, `core_send`, `core_stop`, `engine_status`, `engine_install`, `engine_cancel`, `term_*`, `workspace_is_trusted`, `trust_workspace`, `default_workspace`, `chat_home_path`, `open_external`, `debug_export_chat` | — |
-| `pwr-cli` | The `pwr` binary: command line, `pwr serve`, the chat console, configuration, sessions, permission modes, **post-turn verification and Goal mode** | 23,159 |
-| `pwr-orchestrator` | The conversation turn (`converse.rs`), the scripted loop (`lib.rs`), B0/B2 baselines, context compilation, compaction, window arithmetic, wiki and graph, personal memory | 20,937 |
-| `pwr-tools` | Tool policy, Seatbelt profile, file tools, commands, services, fetch, documents, screenshots | 9,123 |
-| `pwr-models` | Hugging Face catalogue, fit rating, verified downloads, model profiles, Quick Calibration | 6,758 |
-| `pwr-eval` | Corpora, materialisation, scoring, campaigns, comparisons, thresholds | 4,278 |
-| `pwr-domain` | Versioned domain types: messages, actions, events, deployments, reasoning, outcomes | 3,006 |
-| `pwr-mlx` | The MLX engine's Rust side: sidecar process, protocol, inspection, embeddings | 2,413 (+ 1,063 Python) |
-| `pwr-verify` | Check discovery, execution, baseline comparison, failure classification | 1,730 |
-| `pwr-llama` | GGUF inspection, a managed `llama-server`, streaming | 1,680 |
-| `pwr-compat` | Family conventions for tool calls and reasoning, normalised to canonical actions | 1,635 |
-| `pwr-runtime` | Backend selection and host observation; no task or policy logic | 1,426 |
-| `pwr-repo` | Incremental repository inventory, shallow symbols and imports, lexical retrieval | 1,191 |
-| `pwr-provider` | The model boundary: generation, streams, cancellation, metrics | 637 |
-| `pwr-observe` | Export of a run's log and reports read back from it | 607 |
-| `pwr-store` | SQLite migrations and the append-only, hash-chained event log | 375 |
+| `pwr-cli` | The `pwr` binary: command line, `pwr serve`, the chat console, configuration, sessions, permission modes, **post-turn verification and Goal mode** | 25,941 |
+| `pwr-orchestrator` | The conversation turn (`converse.rs`), the scripted loop (`lib.rs`), B0/B2 baselines, context compilation, compaction, window arithmetic, wiki and graph, personal memory | 30,670 |
+| `pwr-tools` | Tool policy, Seatbelt profile, file tools, commands, services, fetch, documents, screenshots | 15,291 |
+| `pwr-models` | Hugging Face catalogue, fit rating, verified downloads, model profiles, Quick Calibration | 8,788 |
+| `pwr-eval` | Corpora, materialisation, scoring, campaigns, comparisons, thresholds | 7,068 |
+| `pwr-domain` | Versioned domain types: messages, actions, events, deployments, reasoning, outcomes | 4,548 |
+| `pwr-mlx` | The MLX engine's Rust side: sidecar process, protocol, inspection, embeddings | 2,827 (+ 1,843 Python, sidecar and its tests) |
+| `pwr-verify` | Check discovery, execution, baseline comparison, failure classification | 3,236 |
+| `pwr-llama` | GGUF inspection, a managed `llama-server`, streaming | 1,794 |
+| `pwr-compat` | Family conventions for tool calls and reasoning, normalised to canonical actions | 2,317 |
+| `pwr-runtime` | Backend selection and host observation; no task or policy logic | 2,382 |
+| `pwr-repo` | Incremental repository inventory, shallow symbols and imports, lexical retrieval | 1,952 |
+| `pwr-provider` | The model boundary: generation, streams, cancellation, metrics | 1,150 |
+| `pwr-observe` | Export of a run's log and reports read back from it | 895 |
+| `pwr-store` | SQLite migrations and the append-only, hash-chained event log | 517 |
 
-The Cargo workspace has 15 members (`Cargo.toml`). `unsafe_code` is forbidden
+The Cargo workspace has 16 members (the 15 crates and the desktop shell's) (`Cargo.toml`). `unsafe_code` is forbidden
 workspace-wide.
 
 ## The production path
@@ -99,7 +99,7 @@ architecture's main problem (review §2, §3.2; plan W2).
 
 | | Conversation turn | Goal mode | Scripted run (`pwr run`, `eval run`) |
 |---|---|---|---|
-| Code | `converse::take_turn` + `run_chat_turn`, sequenced by `executor::execute` | `executor::execute` (goal policy) around the turn | `run_action_loop_with_prompt_budget_and_context_tiers`, `orchestrator/src/lib.rs:2936` |
+| Code | `converse::take_turn` + `run_chat_turn`, sequenced by `executor::execute` | `executor::execute` (goal policy) around the turn | `run_action_loop_with_prompt_budget_and_context_tiers`, `orchestrator/src/lib.rs` |
 | Verification | `executor::close_turn` after the turn; the turn is already over | full verification on each `complete`, acceptance contract, one review round | inside the loop: baseline, checks on completion, recovery cycle |
 | Completion | `complete` held if unseen results, held once if nothing done or a built program never ran (all three on every path) | verified only with a declared, unchanged acceptance check | `verified: false` allowed when no verifier exists |
 | Compaction | mechanical record (`compaction.rs`) | same | ledger compaction; optional `recency-fill` / `evidence-state` policies |
@@ -110,12 +110,14 @@ Every campaign so far measured the third column; the app ships the first two.
 
 ## Dependencies that do not follow responsibility
 
-- `pwr-models` depends on `pwr-orchestrator` for the window arithmetic
-  (`crates/pwr-models/src/fit.rs:30`). Plan W2.5 moves the arithmetic.
+- The window arithmetic now lives in `pwr-runtime::window` and `pwr-models` uses
+  it from there (plan W2.5, done); the orchestrator re-exports it.
 - The scripted loop still sequences its own verification and completion
-  (`orchestrator/src/lib.rs`); plan W2.4 converges it onto the executor. The
-  executor itself (`crates/pwr-orchestrator/src/executor.rs`) now owns the
+  (`orchestrator/src/lib.rs`); plan W2.4 converges it onto the executor
+  (`crates/pwr-orchestrator/src/executor.rs`), which already owns the
   conversation policy, the goal loop and the checks that close a turn.
+- `main.rs` (13,562 lines), `serve.rs` (6,308) and the orchestrator's `lib.rs`
+  (8,902) and `converse.rs` (3,989) hold most of the decisions (plan W10.4).
 
 ## State
 

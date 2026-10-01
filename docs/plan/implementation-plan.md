@@ -115,6 +115,27 @@ not evidence of model uplift. No live-model campaign was run. Remote CI cannot c
 `gh auth status` reports no authenticated GitHub host. This does not satisfy G1.
 The gate-dependent executor migration and product-path benchmark remain pending.
 
+### Addendum — 2026-10-01 (not plan items: found by running the app)
+
+Work after the integration commit, on `develop`, each with a regression test and
+an entry in [experiment-log.md](../experiment-log.md); none is a gate:
+
+- the session executor for the app and the console (W2.3) and the first moves of
+  the scripted loop onto it (W2.4, rows 5, 6, 8, 14); the evaluator is **not** on
+  it;
+- model compatibility: adapters for Mistral/Devstral and Liquid LFM2, fixes for
+  Qwen3-Coder and Granite 4.1, call ids and result names for Gemma 4, Mistral's
+  role alternation, a calibration that asks for use, not preference, and a verdict
+  that records its adapter (all 22 installed models pass the critical checks);
+- sampling floor and per-mode cards; `actions_per_turn` (100); prefill progress
+  in the app; compaction at 32,768 tokens by default; a clean start after two
+  collapsed replies; the presence window; a note on a file rewritten twelve
+  times; the review round without a declared acceptance check;
+- evidence tooling: the runner survives unreadable files; `watch.py`.
+
+Local suites on 2026-10-01: Rust 1,364 passed / 5 ignored, desktop 107, sidecar
+39. **No push and no CI since 2026-09-30.**
+
 Additional W1.3 regression found during implementation: protecting a leaf alone
 was insufficient when an agent deleted/renamed its parent or addressed it through
 an alias. File guards now compare the physical target and ancestors; Seatbelt

@@ -39,6 +39,52 @@ Recorded in detail, with what was checked, in
   more one-reading repairs of malformed calls.
 - Ornith-1.5-9B uses its vendor's temperature.
 
+### Effects and verification (not yet in a release; CI not run)
+
+- **Commands cannot change what the edit tools refuse**: frozen acceptance
+  files, installed dependencies and their parents are denied inside the
+  sandbox, renames and symlink aliases included; Full access remains
+  unconfined and says so in every turn's outcome (plan W1.3, W1.9, W7.4).
+- **A goal is bounded on every path** — actions, refused completions,
+  verifications, review rounds and a wall-clock deadline (plan W1.4) — and its
+  progress is judged by the *identity of a failure*, not the name of a check
+  (plan W1.5). Zero-test runs are named for cargo, pytest, Jest, Vitest, Go and
+  .NET.
+- **Acceptance artifacts are frozen**: the files an acceptance check runs are
+  hashed before the goal starts, and a changed one stops it even in Full access;
+  you can authorize a single file (plan W3.1).
+- **One structured outcome** per turn (delivery, checks, baseline, acceptance,
+  confinement, budgets) reaches the app; the ✓ follows what the checks said.
+- The app, the terminal console and Goal mode run **one session executor**
+  (plan W2.3). The review round — the work read against the request, rule by
+  rule — now also runs when the checks pass and no acceptance check is
+  declared, the usual case (the goal then still ends *not verified*).
+- The objective and its revisions are never shortened by compaction; if they do
+  not fit, the turn stops and says so (plan W4.1). PDF decompression, the
+  repository walk and the embedding sidecar are bounded; the event log is
+  transactional.
+
+### Models and the engine
+
+- **Two more families read and two fixed**, so models that were wrongly refused as
+  "Limited" now work: Mistral/Devstral and Liquid LFM2 (new adapters), Qwen3-Coder
+  (its calls arrive without their opening tag, and with Python-style lists) and
+  Granite 4.1.
+  Gemma 4's template got the call ids it names results by. All 22 models
+  installed on the maintainer's Mac pass Quick Calibration (`quick-calibration-6`),
+  which now asks whether a model can *use* tools, not which one it reaches for
+  first; a failure measured through an adapter that later changed is void.
+- **Sampling is never greedy by default**: a model with no declared sampling
+  uses 0.6 / 0.95 / 20, a card that lists one set per mode gives its thinking,
+  coding set, and each value says where it came from.
+- **Long conversations**: compaction at 32,768 tokens by default (a
+  hypothesis); a clean start after two replies in a row that fall apart; a
+  presence penalty that can actually see a repeated passage after a reply
+  looped; a note when one file has been rewritten twelve times; the action limit
+  per turn is 100 (it was 26) and `actions_per_turn` changes it.
+- The app shows how far the engine has read the prompt ("Reading the
+  conversation · 37 %") instead of looking stuck.
+
 ### Sandbox and permissions
 
 - Three permission modes: Protected, Standard and **Full access** (no
@@ -56,8 +102,12 @@ Recorded in detail, with what was checked, in
 
 ### Evaluation
 
-- `pwr eval run --reasoning-effort` bounds reasoning as the app does.
+- `pwr eval run --reasoning-effort` bounds reasoning as the app does (Medium by
+  default; `off` is the old behaviour and must be declared as the treatment).
+- `pwr eval compare` is strict by default.
 - New corpus `corpus/small-apps-v1.json`.
+- The stack-matrix runner drives the app's own protocol with hidden tests, and
+  `runner/watch.py` follows a run token by token.
 
 ## v0.2.0-alpha — 2026-09-28
 
