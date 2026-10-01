@@ -409,3 +409,17 @@ These are real loops, not a false alarm on repetitive code. The state log showed
 the retries asked for **no** presence penalty: only PWR's own `Looped` fault
 set it, and the engine's stop arrives as a cut-off reply. Both now count. Whether
 a penalty over 1,024 tokens ends such loops is **unmeasured**.
+
+## 2026-10-01 — Prefill chunks bounded in time, so Stop is seen (measurement-changing)
+
+Found in the app: after Stop during the cold prefill that follows a compaction
+(Gemma 4 31B, 6-bit), the model picker did not switch for about three minutes —
+the selection was written to the config only when the engine, which sees a stop
+only *between* prefill chunks, finished one 8,192-token chunk. Reproduced with a
+small model (a model switch after a cancelled generation took 101 s) and
+measured with Gemma 4 12B: a cancel during a 8,900-token prefill was seen after
+32.7 s with 8,192-token chunks and 2.3 s with time-bounded ones (first chunk 512
+tokens, then about 3 s of work at the speed just measured, 256–8,192 tokens).
+Prefill speed is unchanged within noise (4,976 tokens: 25.0 s at 1,024-token
+chunks, 25–27 s at 8,192). The app still shows nothing while a switch waits
+(plan W5.5).

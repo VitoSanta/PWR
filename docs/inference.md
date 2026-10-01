@@ -60,10 +60,12 @@ What it owns:
   checkpoint copy. Background `aside` requests (summaries, reviews) do not
   evict the conversation's cache. The cache is **per model**: a model switch is
   a full cold prefill of the conversation.
-- **Prefill** in chunks of up to 8,192 tokens (mlx-lm's own default is 2,048),
-  shrinking with the context where attention materialises its scores (a fixed
-  8,192-token step once asked for 41.9 GB at 160k tokens) and staying full where
-  attention is fused. It reports `prefill` events as it goes, and **observes a
+- **Prefill** in chunks bounded **in time**: the first is 512 tokens, then as
+  many (at most 8,192, at least 256) as take about 3 s at the speed just
+  measured, so a Stop is seen within seconds (it waited 33 s on Gemma 4 12B and
+  minutes on a 31B behind one 8,192-token chunk; measured 2026-10-01: 32.7 s →
+  2.3 s). The chunk also shrinks with the context where attention materialises
+  its scores (a fixed 8,192-token step once asked for 41.9 GB at 160k tokens). It reports `prefill` events as it goes, and **observes a
   cancel between chunks** (plan W5.1). Measured 2026-10-01 on Gemma 4 12B: a
   4,976-token prompt took about 26 s with 8,192-token steps and 25 s with 1,024:
   prefill is compute-bound on this machine (about 200 tokens/s for a 12B dense
@@ -112,6 +114,7 @@ Read, not tested; none is proven to be the cause of anything PWR saw.
 |---|---|---|
 | **The window is not checked against the real request.** `prepare_context` records and returns the window asked for | `crates/pwr-mlx/src/lib.rs` | W5.3 |
 | **Switching model in a long conversation re-reads everything**: 32 minutes measured for a 30B at about 160k tokens; the app shows progress but does not warn first | 2026-09-30 manual pass | a warning |
+| **Every other request waits behind a generation the person stopped** — a model switch, the context panel, a calibration — until the engine sees the stop; with time-bounded prefill chunks that is seconds, but the app still shows nothing while it waits (measured 2026-10-01: a model switch that took 100 s) | `crates/pwr-mlx` (one sidecar lock) | W5.5 |
 | **An abandoned reply that does not drain restarts the engine** (300 s of silence) | `ENGINE_SILENCE` | — |
 | **Background summaries** occupy the engine only when the person turned them on; one in flight is pre-empted by a prompt | plan W5.2 (done) | — |
 | **The embedding sidecar** has a 30 s deadline and a lexical fallback (plan W1.8, done) | — | — |
