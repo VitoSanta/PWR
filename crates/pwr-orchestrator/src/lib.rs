@@ -2228,12 +2228,20 @@ fn adopted_verifier(outcome: &serde_json::Value) -> Option<(String, Vec<String>)
 /// is the harness's to do. The prose stays: a located line is not the whole
 /// message, and a diagnostic the parser did not recognise must not disappear
 /// because of that.
+fn check_ran_zero_tests(check: &pwr_verify::CheckRecord) -> bool {
+    pwr_verify::evidence::ran_zero_tests(
+        &check.command,
+        &format!("{}\n{}", check.result.stdout, check.result.stderr),
+    )
+}
+
 fn failing_check_report(check: &pwr_verify::CheckRecord) -> serde_json::Value {
     let located =
         pwr_verify::diagnostics(&format!("{}\n{}", check.result.stdout, check.result.stderr));
     serde_json::json!({
         "command": check.command,
         "exit_code": check.result.exit_code,
+        "ran_zero_tests": check_ran_zero_tests(check),
         "stdout": check.result.stdout,
         "stderr": check.result.stderr,
         "duration_ms": check.result.duration_ms,
@@ -2254,10 +2262,10 @@ fn remember_verification(
 ) -> Result<serde_json::Value, String> {
     let failing: Vec<_> = checks
         .iter()
-        .filter(|c| c.result.exit_code != Some(0))
+        .filter(|c| c.result.exit_code != Some(0) || check_ran_zero_tests(c))
         .map(failing_check_report)
         .collect();
-    let passing = failing.is_empty();
+    let passing = !checks.is_empty() && failing.is_empty();
     let diagnostics = bounded_result(
         serde_json::json!({"checked":checks.len(), "failing_checks": failing}),
         4096,
@@ -3869,8 +3877,10 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             let acceptance_passed = !required.is_empty()
                 && required
                     .iter()
-                    .all(|check| check.result.exit_code == Some(0));
+                    .all(|check| check.result.exit_code == Some(0) && !check_ran_zero_tests(check));
+            let ran_zero_tests = after.checks.iter().any(check_ran_zero_tests);
             let verified = verifiable
+                && !ran_zero_tests
                 && comparison.regression_free
                 && if tuning.preserve_baseline {
                     read_only_unchanged
@@ -3982,7 +3992,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             let failing_diagnostics: Vec<serde_json::Value> = after
                 .checks
                 .iter()
-                .filter(|check| check.result.exit_code != Some(0))
+                .filter(|check| check.result.exit_code != Some(0) || check_ran_zero_tests(check))
                 .map(failing_check_report)
                 .collect();
             let failure_class = if let Some((index, failed)) =
@@ -4014,14 +4024,23 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 edit_recovery_attempts = edit_recovery_attempts.saturating_add(1);
             }
             if matches!(decision, pwr_verify::RecoveryDecision::Stop { .. }) {
+                let reason = if ran_zero_tests {
+                    "recovery stopped: verification ran zero tests"
+                } else {
+                    "recovery stopped"
+                };
                 persist_failure(
                     store,
                     run_id,
                     &mut task_state,
-                    "recovery stopped",
-                    serde_json::json!({"decision": decision}),
+                    reason,
+                    serde_json::json!({"decision": decision, "failing_checks": failing_diagnostics}),
                 )?;
-                return Err("verification failed and recovery budget exhausted".into());
+                return Err(if ran_zero_tests {
+                    "verification ran zero tests; work remains unverified".into()
+                } else {
+                    "verification failed and recovery budget exhausted".into()
+                });
             }
             request.messages.push(pwr_domain::ChatMessage {
                 role: "tool".into(),
@@ -4912,7 +4931,7 @@ pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
         ),
         function(
             "complete",
-            "Declare the task done. Accepted only if deterministic verification then passes.",
+            "Request task completion with your final answer. The harness runs available deterministic checks and decides whether to accept it. If no check can run, completion is reported as unverified; a completion claim itself is never evidence that checks passed.",
             serde_json::json!({"rationale": {"type": "string"}}),
             &["rationale"],
         ),

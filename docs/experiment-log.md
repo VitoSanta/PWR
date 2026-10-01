@@ -1,5 +1,20 @@
 # Experiment log
 
+## 2026-10-02 — F1 executor cancellation and verification correctness
+
+**IMPLEMENTED correctness repair, not a capability experiment.** Parent
+`312070c6`. The existing chosen response timeout now covers runtime opening
+and streaming. Stop/drop signal managed worker cancellation; Stop also reaches
+context preparation, permissions, baseline/closing checks and Goal review.
+Protocol EOF releases permission waiters. Empty or recognized zero-test checks
+cannot certify CLI/scripted completion; zero-test declared acceptance is never
+eligible for Goal baseline exemption. Completion descriptions follow each policy.
+No defaults were tuned, no weights loaded and no heldout inspected. Ordinary
+aggregate conversation bounds, real cancellation latency and model capability
+remain unknown/PLANNED; full F1 audit is incomplete. Regression/check evidence:
+[executor follow-up](reviews/2026-10-01-audit.md) and
+`~/Desktop/pwr-evidence/logs/mission-20261001-f1-executor/`.
+
 Dated entries, newest first, for every experiment and every change that
 alters what a campaign measures (prompt, catalogue, loop, budgets, adapters).
 Each entry names: the hypothesis or question, the conditions compared (commit,

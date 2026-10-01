@@ -585,6 +585,7 @@ struct Server<R> {
     /// Whether wiki summaries are being written in the background.
     summarising: Rc<std::cell::Cell<bool>>,
     summary_cancel: RefCell<pwr_provider::Cancel>,
+    closing: std::cell::Cell<bool>,
 }
 
 /// The server as the executor's host: one session's notifications and
@@ -664,6 +665,7 @@ where
         usage: Rc::default(),
         summarising: Rc::default(),
         summary_cancel: RefCell::default(),
+        closing: std::cell::Cell::new(false),
     });
     let mut lines = input.lines();
     while let Some(line) = lines.next_line().await.map_err(|error| error.to_string())? {
@@ -703,8 +705,14 @@ where
     }
     // Input closed: turns still running are asked to stop, and the writer
     // finishes what is queued once every sender is gone.
-    for session in server.sessions.borrow().values() {
+    server.closing.set(true);
+    server.summary_cancel.borrow().cancel();
+    for stop in server.calibrations.borrow().values() {
+        stop.store(true, Ordering::Relaxed);
+    }
+    for (id, session) in server.sessions.borrow().iter() {
         session.stop.store(true, Ordering::Relaxed);
+        cancel_questions(&server.pending, id);
     }
     for download in server.downloads.borrow().values() {
         download.stop.store(true, Ordering::Relaxed);
@@ -2646,7 +2654,8 @@ impl<R: TurnRunner + 'static> Server<R> {
     /// must not wait behind more than one short summary. What is left is
     /// picked up after the next turn.
     fn summarise_while_idle(self: &Rc<Self>, root: PathBuf) {
-        if self.sessions.borrow().values().any(|session| session.busy)
+        if self.closing.get()
+            || self.sessions.borrow().values().any(|session| session.busy)
             || self.summarising.replace(true)
         {
             return;
@@ -4291,6 +4300,40 @@ mod tests {
             .collect()
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn input_eof_releases_an_unanswered_permission_request() {
+        let mut runner = budget_runner();
+        runner.ask_on_first = Some(pwr_tools::Approval::ContainerEngine);
+        tokio::task::LocalSet::new()
+            .run_until(async move {
+                let (to_server, input) = tokio::io::duplex(1 << 16);
+                let (output, from_server) = tokio::io::duplex(1 << 16);
+                let mut client = Client {
+                    receive_wiki_notifications: false,
+                    to_server,
+                    from_server: BufReader::new(from_server).lines(),
+                    asked: Default::default(),
+                    turns_started: vec![],
+                };
+                let server =
+                    tokio::task::spawn_local(serve(Rc::new(runner), BufReader::new(input), output));
+                let session = client.new_session(1).await;
+                client.prompt(2, &session, "work").await;
+                loop {
+                    if client.receive().await["method"] == "session/request_permission" {
+                        break;
+                    }
+                }
+                client.to_server.shutdown().await.unwrap();
+                tokio::time::timeout(Duration::from_secs(1), server)
+                    .await
+                    .expect("EOF left the permission waiter and writer alive")
+                    .unwrap()
+                    .unwrap();
+            })
+            .await;
+    }
+
     #[tokio::test]
     async fn context_reports_what_fills_the_window_and_takes_a_bounded_threshold() {
         with_server(|mut client| async move {
@@ -4996,6 +5039,31 @@ mod tests {
             assert_eq!(meta["budget"]["limit"], "time", "{phase}");
             assert_eq!(meta["budget"]["spentSeconds"], 2, "{phase}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_goal_without_checks_ends_unverified_without_claiming_they_passed() {
+        let mut runner = budget_runner();
+        runner.alternate = false;
+        runner.verification = GoalVerification {
+            checks: Some(pwr_domain::ChecksOutcome::Unavailable {
+                why: "no checks were run".into(),
+            }),
+            summary: "this workspace declares no checks".into(),
+            ..Default::default()
+        };
+        let (messages, runs) = goal_prompt(runner).await;
+        assert_eq!(
+            runs, 1,
+            "no checks were treated as repeated verification failures"
+        );
+        assert!(!says(&messages, "The checks pass"));
+        assert!(!says(&messages, "Technical checks passed"));
+        assert!(says(&messages, "Independent verification unavailable"));
+        assert_eq!(
+            messages.last().unwrap()["result"]["_meta"]["pwr"]["goal"]["verified"],
+            false
+        );
     }
 
     #[tokio::test]

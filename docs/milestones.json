@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "assessed_on": "2026-10-01",
+  "assessed_on": "2026-10-02",
   "note": "The single source of milestone status. The roadmap's status table is generated from this file by `scripts/milestones.py`; nothing else asserts a milestone's state. Milestones are the gates of docs/plan/implementation-plan.md. The research milestones M0-M6 of 2026-09-06 are kept in docs/archive/milestones-2026-09-06.json.",
   "campaign_evidence": "no campaign has measured the current product path against a baseline. The last paired comparison (R2 rerun, 2026-09-15, scripted loop) found no uplift on one deployment (11/30 vs 11/30) and an unconfirmed one on another (18 vs 13, p = 0.227). On the app's own path (stack matrix, 2026-10-01, development runs, one trial per task) Qwen3.6-35B-A3B went from 3/8 to 6/8 `dev` tasks after the review round also ran without a declared acceptance check: a signal, not a result; no `heldout` task has been run on the current harness (docs/evaluation.md). All of it stays on the maintainer's machine under experiments/ and ~/Desktop/pwr-evidence/",
   "milestones": [
@@ -14,9 +14,9 @@
     {
       "id": "G1",
       "name": "Effects are safe and honestly reported",
-      "status": "in progress: implemented on develop, CI not run",
-      "evidence": "Implemented on develop with regression tests (not pushed, CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, a goal budget on every branch, acceptance artifacts frozen, the objective kept whole in compaction, marks that follow verdicts, zero-test signatures for six toolchains, failure fingerprints. Local suites in the 2026-10-01 F1 sampling cycle: Rust 1,405 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41; logs in docs/reviews/2026-10-01-audit.md. Still open: W3.2 (CI proposals), W3.4 (the `complete` promise), W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated).",
-      "remaining": "A push and a green CI run on macOS (the first since 2026-09-30); the native-app walk; the open items above."
+      "status": "in progress: implemented on develop, hosted CI not run",
+      "evidence": "Implemented on develop with regression tests (not pushed, hosted CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, Goal budgets and frozen acceptance artifacts, context/sampling correctness repairs, configured response deadlines, managed cancellation and interrupted verification, policy-specific completion catalogues, honest empty/zero-test evidence and failure snapshots. Local suites in the 2026-10-02 F1 executor cycle: Rust 1,424 reported passed / 5 ignored (one Docker skip), desktop 107, sidecar 41; evidence in docs/reviews/2026-10-01-audit.md. W3.4 implemented. Still open: W3.2 (CI proposals), W1.10 (aggregate ordinary budget), forced Goal-deadline transcript loss, separate lifecycle cancellation, W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated).",
+      "remaining": "A push and green hosted CI on macOS; the native-app walk; the open items above. Local suites include preserved unrelated working-tree changes; clean npm installation and Docker remain unverified."
     },
     {
       "id": "G2",

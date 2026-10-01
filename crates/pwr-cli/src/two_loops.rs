@@ -4580,3 +4580,170 @@ fn model_inventory_remains_available_when_the_saved_model_cannot_be_inspected() 
         crate::load_chat_config(dir.path()).unwrap_or_else(|error| panic!("{}", error.context));
     assert_eq!(saved.context_tokens, 8192);
 }
+
+/// Like a managed worker, reading its stream is separate from stopping it.
+struct ManagedWait {
+    phase: &'static str,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    tokens: Mutex<Vec<pwr_provider::Cancel>>,
+    inner: Scripted,
+}
+#[async_trait]
+impl ModelProvider for ManagedWait {
+    async fn inspect(&self, _: &DeploymentDescriptor) -> Result<ModelInspection, ProviderError> {
+        unreachable!()
+    }
+    async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+        unreachable!()
+    }
+    async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
+        if self.inner.requests.lock().unwrap().is_empty() {
+            return self.inner.chat(request).await;
+        }
+        if self.phase == "preparing" {
+            return Err(ProviderError::ContextLimit {
+                safe_context: "fixture exceeds the loaded window".into(),
+            });
+        }
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if self.phase == "opening" {
+            std::future::pending::<()>().await;
+        }
+        Ok(Box::pin(futures_util::stream::pending()))
+    }
+    async fn prepare_context(
+        &self,
+        _: &DeploymentDescriptor,
+        _: u32,
+    ) -> Result<u32, ProviderError> {
+        assert_eq!(self.phase, "preparing");
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        std::future::pending().await
+    }
+    async fn chat_cancellable(
+        &self,
+        request: ModelRequest,
+        cancel: pwr_provider::Cancel,
+    ) -> Result<ModelStream, ProviderError> {
+        self.tokens.lock().unwrap().push(cancel.clone());
+        Ok(pwr_provider::cancellable(cancel, self.chat(request).await?))
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn stop_cancels_managed_generation_and_preparation_without_losing_prior_edits() {
+    for phase in ["opening", "streaming", "preparing"] {
+        let dir = workspace();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker = ManagedWait {
+            phase,
+            stop: stop.clone(),
+            tokens: Default::default(),
+            inner: Scripted::new(vec![calls(
+                "replace_text",
+                serde_json::json!({"path":"code.rs","expected_hash":pwr_domain::hash_bytes("one\n"),"find":"one","replace":"two"}),
+            )]),
+        };
+        let adapter = pwr_compat::adapter_for(None, "fake");
+        let store = pwr_store::Store::open(":memory:").unwrap();
+        let mut messages = vec![ChatMessage::text("user", "fix it")];
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(1),
+            converse::take_turn(
+                &worker,
+                adapter.as_ref(),
+                &deployment(),
+                &store,
+                pwr_domain::new_id(),
+                &policy_for(dir.path()),
+                &mut messages,
+                8192,
+                &[4096],
+                Default::default(),
+                pwr_compat::render_tools(&converse::chat_tool_catalog()),
+                &stop,
+                &Default::default(),
+                &pwr_orchestrator::DenyWithoutAsking,
+                |_| {},
+            ),
+        )
+        .await
+        .expect("Stop did not reach the opening request")
+        .unwrap();
+        assert_eq!(outcome.stopped, Some(converse::StopReason::Interrupted));
+        assert!(outcome.edited);
+        assert_eq!(outcome.actions, 1);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+            "two\n"
+        );
+        let tokens = worker.tokens.lock().unwrap();
+        assert_eq!(tokens.len(), 2, "managed cancellation API was bypassed");
+        if phase != "preparing" {
+            assert!(
+                tokens.last().unwrap().is_cancelled(),
+                "the worker kept generating after Stop"
+            );
+        }
+    }
+}
+
+struct StoppingPermission(std::sync::Arc<std::sync::atomic::AtomicBool>);
+#[async_trait]
+impl pwr_orchestrator::ApprovalPrompt for StoppingPermission {
+    async fn ask(&self, _: pwr_tools::Approval, _: &str) -> pwr_orchestrator::ApprovalDecision {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        std::future::pending().await
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn stop_releases_an_unanswered_tool_permission_and_preserves_edits() {
+    let dir = workspace();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let provider = Scripted::new(vec![
+        calls(
+            "replace_text",
+            serde_json::json!({"path":"code.rs","expected_hash":pwr_domain::hash_bytes("one\n"),"find":"one","replace":"two"}),
+        ),
+        calls(
+            "run_command",
+            serde_json::json!({"executable":"unlisted-fictional-program","args":[]}),
+        ),
+    ]);
+    let mut policy = policy_for(dir.path());
+    policy
+        .approvals
+        .retain(|approval| *approval != pwr_tools::Approval::ToolchainInstall);
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let adapter = pwr_compat::adapter_for(None, "fake");
+    let mut messages = vec![ChatMessage::text("user", "fix it")];
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(1),
+        converse::take_turn(
+            &provider,
+            adapter.as_ref(),
+            &deployment(),
+            &store,
+            pwr_domain::new_id(),
+            &policy,
+            &mut messages,
+            8192,
+            &[],
+            Default::default(),
+            pwr_compat::render_tools(&converse::chat_tool_catalog()),
+            &stop,
+            &Default::default(),
+            &StoppingPermission(stop.clone()),
+            |_| {},
+        ),
+    )
+    .await
+    .expect("Stop waited for permission to be answered")
+    .unwrap();
+    assert_eq!(outcome.stopped, Some(converse::StopReason::Interrupted));
+    assert!(outcome.edited);
+    assert!(!outcome.completed);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "two\n"
+    );
+}

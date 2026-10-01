@@ -197,3 +197,70 @@ fn a_check_that_fails_on_the_code_is_still_required() {
     assert!(verifiable, "a runnable check was reported as no verifier");
     assert!(!verified, "a run whose check fails is not verified");
 }
+
+#[test]
+fn a_scripted_check_reporting_zero_tests_never_certifies_completion() {
+    let (store, run_id, verified, verifiable) = run_with((
+        "sh".into(),
+        vec!["-c".into(), "echo 'no tests ran' # pytest".into()],
+    ));
+    assert!(verifiable);
+    assert!(!verified, "zero executed tests certified the task");
+    let events = store.events_for_run(run_id).unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|event| event.event_type == "verification.result")
+    );
+    assert!(!events.iter().any(
+        |event| event.event_type == "verification.result" && event.payload["verified"] == true
+    ));
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.event_type == "task.complete" && event.payload["verified"] == true)
+    );
+    let failed = events
+        .iter()
+        .find(|event| event.event_type == "task.failed")
+        .expect("missing terminal evidence");
+    assert!(
+        failed.payload["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("zero tests"),
+        "zero-test evidence was hidden by generic recovery: {}",
+        failed.payload
+    );
+    let diagnostics = failed.payload["detail"]["failing_checks"]
+        .as_array()
+        .expect("missing diagnostics for the failed completion");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0]["ran_zero_tests"], true);
+    assert_eq!(diagnostics[0]["exit_code"], 0);
+}
+
+#[test]
+fn zero_tests_never_leave_a_passing_verification_snapshot() {
+    let (store, run_id, _, _) = run_with((
+        "sh".into(),
+        vec!["-c".into(), "echo 'no tests ran' # pytest".into()],
+    ));
+    let events = store.events_for_run(run_id).unwrap();
+    let snapshots: Vec<_> = events
+        .iter()
+        .filter(|event| event.event_type == "verification.diagnostics")
+        .collect();
+    assert!(!snapshots.is_empty());
+    for snapshot in snapshots {
+        assert_eq!(
+            snapshot.payload["passing"], false,
+            "zero-test snapshot claimed a pass: {}",
+            snapshot.payload
+        );
+        assert_eq!(
+            snapshot.payload["diagnostics"]["failing_checks"][0]["ran_zero_tests"],
+            true
+        );
+    }
+}

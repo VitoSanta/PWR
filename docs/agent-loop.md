@@ -67,16 +67,32 @@ person presses Stop, or a detector or budget stops it. It returns a
 the stop reason) and the new message list.
 
 **After the turn** — not inside it — the host's `run_chat_turn` hands the
-repository's checks to `executor::close_turn` if the turn edited anything, and
+repository's checks to `executor::close_turn_with_stop` if the turn edited anything, and
 the verdict is appended to the answer and to the history (see
 [verification.md](verification.md#after-a-conversation-turn)).
+
+Stop also reaches a pending model opening, a measured-tier preparation,
+unanswered tool permission, and pre/post-turn repository checks. Interrupted
+closing checks preserve edits and report unavailable verification. Closing the
+protocol input cancels permission waiters and background work; it cannot start
+another idle summary.
+
+The runtime honors the existing chosen one-response timeout (`timeout_secs`,
+900 seconds by default) across opening and streaming, using an absolute deadline
+that progress does not reset. Abandoning an unfinished response signals cancellation;
+MLX receives its explicit `cancel` operation, and HTTP streams release their body.
+This is a per-response bound, including runtime calls made by the scripted runner.
+Ordinary conversations still have no overall wall/token/recovery budget (W1.10).
+An abandoned MLX opening discards its worker protocol, including a partial
+pipe write/load/drain, before reuse. Real stop latency and cancellation of
+separate lifecycle calls remain unmeasured.
 
 ### Limits of a turn
 
 | Limit | Value | Where | What happens |
 |---|---|---|---|
 | Actions before checking in | 100 (was 26 until 2026-09-30); `actions_per_turn` in `.pwr/chat-config.json` | `DEFAULT_ACTIONS_PER_TURN` | The turn stops and says so; the next message continues. A goal's own limit (`goal_budget`) is used instead and is no longer capped at 26 |
-| Compactions per turn | 2 | `COMPACTIONS_PER_TURN` | Stop as looping |
+| Compactions per turn | 2 | `COMPACTIONS_PER_TURN` | Stop as compaction budget exhausted |
 | Consecutive empty replies | 3 | `EMPTY_TURNS_BEFORE_GIVING_UP` | Stop as silent |
 | Consecutive unreadable calls | 3 | `UNPARSEABLE_CALLS_BEFORE_GIVING_UP` | Stop as unparseable |
 | Replies cut off inside a tool call, **in all** (not consecutive) | 3 | `CUT_OFF_REPLIES_PER_TURN` | The retry is capped at 8,192 tokens and the model is told to split the file (`replace_text`/`apply_patch` for the rest); the third stops the turn as unparseable |
@@ -151,6 +167,8 @@ verification, no second turn.
        acceptance check → ends, naming them;
      - technical checks pass but no acceptance check is declared → ends,
        *not verified*;
+     - no repository or acceptance checks exist → ends with independent
+       verification unavailable; it does not claim technical checks passed;
      - otherwise the model is sent back with the evidence; the same failing
        set three times → *blocked*.
    - without `complete`, the goal continues with a nudge within the shared goal budget.
@@ -163,7 +181,11 @@ The remaining action allowance is passed into the conversation and checked
 before each call, including multiple calls in one reply. A deadline also bounds
 asynchronous work in progress: on expiry the cancellation flag is set and the
 operation's future is dropped. Synchronous filesystem work cannot be pre-empted
-by Tokio; backend cancellation still depends on its existing safe points.
+by Tokio; backend cancellation still depends on its existing safe points. Stop
+also interrupts baseline, completion verification and review. During a turn it
+lets the interrupted messages return and be saved; during checks/review it
+retains the latest report, rather than reporting budget exhaustion. A forced
+Goal deadline still retains only the action checkpoint of an abandoned turn.
 
 | Limit | Default | Scope |
 |---|---|---|

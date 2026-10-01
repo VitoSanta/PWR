@@ -132,12 +132,14 @@ not send the model back (plan W7.1 decides whether it should).
 On each `complete` in Goal mode, the executor asks its host for the full
 verification (`verify_goal` in `main.rs`) and decides:
 
-- **passed** only if the technical checks pass, no `cargo test` ran zero
-  tests, a declared acceptance check exists, and **`.pwr/checks.json` and the frozen acceptance artifacts have the
+- **passed** only if nonempty technical checks pass and no recognized runner
+  reports zero tests, a declared acceptance check exists, and **`.pwr/checks.json` and the frozen acceptance artifacts have the
   hashes they had when the session began** (`acceptance_contract_hash`, `crates/pwr-cli/src/serve.rs`) — so a goal cannot create or relax its
   own contract file;
 - checks pass but no acceptance check is declared → *"Technical checks
   passed, but the goal is not verified"*;
+- no repository or acceptance checks exist → independent verification
+  unavailable, never a passing technical check;
 - only checks that failed before the goal fail, none of them acceptance →
   ended, naming them;
 - otherwise → back to the model with the evidence; the same failure
@@ -193,7 +195,7 @@ under an unchanged contract.
 | Flakiness judged by exit code | W3.3 | fixed for six toolchains |
 | CI discovery reconstructs commands without `working-directory`, `env`, multi-line scripts, and is used as acceptance-grade evidence | W3.2 | open; malformed declarations now fail closed |
 | Zero-test detection only for Cargo | W3.5 | partial: six toolchains |
-| `complete` promises verification the path may not do ("Accepted only if deterministic verification then passes") | W3.4 | open |
+| `complete` describes each policy's actual closing checks; unavailable checks never certify completion | W3.4 | IMPLEMENTED 2026-10-02; catalogue regressions |
 | Three result shapes | W2.1 | partial: the typed outcome reaches the app; the scripted runner's JSON does not |
 | With no declared acceptance check a goal is never *verified*; a review by the same model is the only further check | — | by design, stated in the answer |
 
@@ -201,3 +203,12 @@ Acceptance artifacts are checked again after verification commands finish. A
 check that rewrites its own evidence cannot certify a goal. Explicit artifact
 paths into excluded dependency/build/state directories are refused rather than
 silently omitted.
+
+The CLI verification JSON uses the same typed check evidence as closing turns:
+an empty set or a recognized zero-test result makes `checks_passed` and
+`verified` false. A zero-test declared acceptance check remains an acceptance
+failure even when the same result existed at the Goal baseline. Scripted
+completion likewise rejects recognized zero-test evidence and records the cause
+in its diagnostic snapshot and terminal failure, retaining the existing
+Environment recovery policy. Signature detection
+is not a measurement of test quality or completeness.

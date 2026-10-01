@@ -329,11 +329,10 @@ pub fn looping(text: &str) -> Option<String> {
 /// backend answered. A backend that answers is not a backend that stopped
 /// generating.
 ///
-/// What actually stops a local backend is the connection closing, so that is
-/// the mechanism here rather than a message: cancelling drops the underlying
-/// stream, which drops the HTTP body, which closes the socket. The error is
-/// then reported as `Cancelled` rather than as a broken stream, so abandoning a
-/// reply is never recorded as the deployment failing.
+/// HTTP backends release their response body on cancellation. A managed pipe
+/// backend also watches this handle and sends its explicit cancel protocol.
+/// Reader teardown alone is not evidence that a worker stopped generating.
+/// The error is reported as `Cancelled`, rather than as a broken reply.
 #[derive(Clone, Default)]
 pub struct Cancel {
     flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -358,38 +357,117 @@ impl Cancel {
     /// Resolves once cancelled, and immediately if it already was.
     pub async fn cancelled(&self) {
         loop {
+            // notify_waiters observes a Notified from its creation, even before
+            // its first poll. Register before reading the flag to close the race.
+            let notified = self.notify.notified();
             if self.is_cancelled() {
                 return;
             }
-            self.notify.notified().await;
+            notified.await;
         }
     }
 }
 
+/// Cancels an in-flight operation when its owning future is abandoned.
+/// Disarm only after ownership passes to a guarded stream or work finishes.
+pub struct CancelGuard(Option<Cancel>);
+impl CancelGuard {
+    pub fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        if let Some(cancel) = &self.0 {
+            cancel.cancel();
+        }
+    }
+}
+impl Cancel {
+    pub fn drop_guard(&self) -> CancelGuard {
+        CancelGuard(Some(self.clone()))
+    }
+}
+
+// Field order matters: notify the worker before dropping its reply/ended sender.
+struct CancellableReply {
+    guard: CancelGuard,
+    cancel: Cancel,
+    stream: ModelStream,
+}
+
 /// Wraps a stream so cancelling the handle closes it.
 ///
-/// The drop is the point. A flag that only stops the reader leaves the backend
-/// generating into a socket nobody reads, which is the resource this is meant
-/// to release.
+/// Abandoning an unfinished stream also signals cancellation before dropping
+/// its body, so managed workers can stop through their backend-specific watcher.
 pub fn cancellable(cancel: Cancel, stream: ModelStream) -> ModelStream {
+    let state = CancellableReply {
+        guard: cancel.drop_guard(),
+        cancel,
+        stream,
+    };
     Box::pin(futures_util::stream::unfold(
-        (Some(stream), cancel),
-        |(stream, cancel)| async move {
-            let mut stream = stream?;
-            if cancel.is_cancelled() {
-                // Dropped by leaving scope with `None` as the next state; the
-                // connection closing is what stops the backend.
-                return Some((Err(ProviderError::Cancelled), (None, cancel)));
-            }
+        Some(state),
+        |state| async move {
+            let mut state = state?;
             tokio::select! {
-                next = stream.next() => next.map(|item| (item, (Some(stream), cancel))),
-                () = cancel.cancelled() => {
-                    drop(stream);
-                    Some((Err(ProviderError::Cancelled), (None, cancel)))
+                biased;
+                () = state.cancel.cancelled() => Some((Err(ProviderError::Cancelled), None)),
+                next = state.stream.next() => {
+                    match next {
+                        None => { state.guard.disarm(); None },
+                        Some(Ok(chunk)) => {
+                            if chunk.done { state.guard.0 = None; }
+                            Some((Ok(chunk), Some(state)))
+                        }
+                        Some(Err(error)) => Some((Err(error), None)),
+                    }
                 }
             }
         },
     ))
+}
+
+/// One response's configured wall bound, including opening and streaming.
+pub async fn bounded_chat(
+    provider: &dyn ModelProvider,
+    request: ModelRequest,
+    cancel: Cancel,
+    timeout: std::time::Duration,
+) -> Result<ModelStream, ProviderError> {
+    let guard = cancel.drop_guard();
+    let deadline = tokio::time::Instant::now() + timeout;
+    let timed_out = || ProviderError::Timeout {
+        safe_context: format!(
+            "response exceeded its configured {}-second deadline",
+            timeout.as_secs()
+        ),
+    };
+    let stream = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Err(ProviderError::Cancelled),
+        result = tokio::time::timeout_at(deadline, provider.chat_cancellable(request, cancel.clone())) => {
+            match result { Ok(result) => result?, Err(_) => return Err(timed_out()) }
+        }
+    };
+    let timer_cancel = cancel.clone();
+    let timed = futures_util::stream::unfold(Some(stream), move |stream| {
+        let cancel = timer_cancel.clone();
+        async move {
+            let mut stream = stream?;
+            tokio::select! {
+                biased;
+                () = tokio::time::sleep_until(deadline) => {
+                    cancel.cancel();
+                    Some((Err(ProviderError::Timeout { safe_context: format!("response exceeded its configured {}-second deadline", timeout.as_secs()) }), None))
+                }
+                next = stream.next() => next.map(|chunk| (chunk, Some(stream))),
+            }
+        }
+    });
+    let stream = cancellable(cancel, Box::pin(timed));
+    guard.disarm();
+    Ok(stream)
 }
 
 /// One model reply, assembled from every chunk of its stream.
@@ -601,7 +679,15 @@ pub trait ModelProvider: Send + Sync {
         request: ModelRequest,
         cancel: Cancel,
     ) -> Result<ModelStream, ProviderError> {
-        Ok(cancellable(cancel, self.chat(request).await?))
+        let guard = cancel.drop_guard();
+        let stream = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(ProviderError::Cancelled),
+            result = self.chat(request) => result?,
+        };
+        let stream = cancellable(cancel, stream);
+        guard.disarm();
+        Ok(stream)
     }
 }
 
@@ -633,5 +719,164 @@ mod rope_tests {
         ] {
             assert!(crate::rope_extension(&config).is_none(), "{config}");
         }
+    }
+}
+
+#[cfg(test)]
+mod abandonment_tests {
+    #[test]
+    fn dropping_a_managed_stream_signals_worker_cancellation() {
+        let cancel = super::Cancel::new();
+        let stream = super::cancellable(cancel.clone(), Box::pin(futures_util::stream::pending()));
+        drop(stream);
+        assert!(
+            cancel.is_cancelled(),
+            "dropping the reader left the worker running"
+        );
+    }
+}
+
+#[cfg(test)]
+mod response_deadline_tests {
+    use super::*;
+    use futures_util::StreamExt;
+    struct Worker {
+        opening: bool,
+        tokens: std::sync::Mutex<Vec<Cancel>>,
+    }
+    #[async_trait]
+    impl ModelProvider for Worker {
+        async fn inspect(
+            &self,
+            _: &DeploymentDescriptor,
+        ) -> Result<ModelInspection, ProviderError> {
+            unreachable!()
+        }
+        async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+            unreachable!()
+        }
+        async fn chat(&self, _: ModelRequest) -> Result<ModelStream, ProviderError> {
+            if self.opening {
+                std::future::pending::<()>().await;
+            }
+            Ok(Box::pin(futures_util::stream::unfold((), |()| async {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                Some((Ok(pwr_domain::ModelChunk::default()), ()))
+            })))
+        }
+        async fn chat_cancellable(
+            &self,
+            request: ModelRequest,
+            cancel: Cancel,
+        ) -> Result<ModelStream, ProviderError> {
+            self.tokens.lock().unwrap().push(cancel.clone());
+            let guard = cancel.drop_guard();
+            let stream = tokio::select! {
+                biased;
+                () = cancel.cancelled() => return Err(ProviderError::Cancelled),
+                result = self.chat(request) => result?,
+            };
+            let stream = cancellable(cancel, stream);
+            guard.disarm();
+            Ok(stream)
+        }
+    }
+    fn request() -> ModelRequest {
+        ModelRequest {
+            deployment: DeploymentDescriptor {
+                schema_version: 1,
+                id: pwr_domain::new_id(),
+                provider: "fake".into(),
+                endpoint: "http://localhost/".into(),
+                model_ref: "fake".into(),
+                backend_options: Default::default(),
+                auth_ref: None,
+            },
+            messages: vec![],
+            context_tokens: 8192,
+            tools: None,
+            seed: None,
+            sampling: Default::default(),
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn configured_response_deadline_covers_opening_and_active_progress() {
+        for opening in [true, false] {
+            let worker = Worker {
+                opening,
+                tokens: Default::default(),
+            };
+            let cancel = Cancel::new();
+            let start = tokio::time::Instant::now();
+            let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                let mut stream = bounded_chat(
+                    &worker,
+                    request(),
+                    cancel.clone(),
+                    std::time::Duration::from_secs(1),
+                )
+                .await?;
+                while let Some(chunk) = stream.next().await {
+                    chunk?;
+                }
+                Ok::<(), ProviderError>(())
+            })
+            .await;
+            assert!(
+                matches!(outcome, Ok(Err(ProviderError::Timeout { .. }))),
+                "opening={opening}: {outcome:?}"
+            );
+            assert_eq!(start.elapsed(), std::time::Duration::from_secs(1));
+            assert!(cancel.is_cancelled());
+            assert_eq!(worker.tokens.lock().unwrap().len(), 1);
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn dropping_an_opening_response_cancels_its_worker() {
+        let worker = Worker {
+            opening: true,
+            tokens: Default::default(),
+        };
+        let cancel = Cancel::new();
+        let mut response = Box::pin(bounded_chat(
+            &worker,
+            request(),
+            cancel.clone(),
+            std::time::Duration::from_secs(30),
+        ));
+        tokio::select! { biased; _ = &mut response => panic!("opening completed"), _ = tokio::time::sleep(std::time::Duration::from_millis(1)) => {} }
+        drop(response);
+        assert!(cancel.is_cancelled());
+        assert_eq!(worker.tokens.lock().unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod cancellation_race_tests {
+    use super::*;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn simultaneous_cancellation_does_not_strand_waiters() {
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..10_000 {
+            let cancel = Cancel::new();
+            let gate = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+            let waiting = cancel.clone();
+            let waiting_gate = gate.clone();
+            tasks.spawn(async move {
+                waiting_gate.wait().await;
+                waiting.cancelled().await;
+            });
+            tasks.spawn(async move {
+                gate.wait().await;
+                cancel.cancel();
+            });
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while let Some(result) = tasks.join_next().await {
+                result.unwrap();
+            }
+        })
+        .await
+        .expect("a simultaneous cancellation lost its notification");
     }
 }

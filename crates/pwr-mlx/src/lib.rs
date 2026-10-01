@@ -336,6 +336,32 @@ struct Sidecar {
     pending: Option<u64>,
 }
 
+// An opening owns the protocol until a complete request passes to its stream.
+// Cancellation during a partial write/load/drain must restart it, never reuse
+// a possibly incomplete JSON line or forgotten pending reply.
+struct OpeningSidecar<'a> {
+    slot: &'a mut Option<Sidecar>,
+    complete: bool,
+}
+impl std::ops::Deref for OpeningSidecar<'_> {
+    type Target = Option<Sidecar>;
+    fn deref(&self) -> &Self::Target {
+        self.slot
+    }
+}
+impl std::ops::DerefMut for OpeningSidecar<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.slot
+    }
+}
+impl Drop for OpeningSidecar<'_> {
+    fn drop(&mut self) {
+        if !self.complete {
+            *self.slot = None;
+        }
+    }
+}
+
 impl Sidecar {
     async fn send(&mut self, request: serde_json::Value) -> Result<(), ProviderError> {
         write_line(&self.stdin, request).await
@@ -473,23 +499,27 @@ impl MlxProvider {
             pwr_compat::adapter_for(family.as_deref(), &request.deployment.model_ref),
         );
         let mut guard = self.sidecar.clone().lock_owned().await;
-        if guard
+        let mut opening = OpeningSidecar {
+            slot: &mut guard,
+            complete: false,
+        };
+        if opening
             .as_ref()
             .is_some_and(|sidecar| sidecar.pending.is_some())
         {
             match tokio::time::timeout(
                 Self::ENGINE_SILENCE,
-                guard.as_mut().expect("pending sidecar").drain(),
+                opening.as_mut().expect("pending sidecar").drain(),
             )
             .await
             {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => {
-                    *guard = None;
+                    *opening = None;
                     return Err(error);
                 }
                 Err(_) => {
-                    *guard = None;
+                    *opening = None;
                     return Err(unavailable(
                         "the previous MLX reply did not finish draining; the engine was restarted"
                             .into(),
@@ -497,27 +527,32 @@ impl MlxProvider {
                 }
             }
         }
-        self.ensure_loaded(&mut guard, &dir).await?;
+        self.ensure_loaded(&mut opening, &dir).await?;
         let requested = tokio::time::timeout(
             Self::ENGINE_SILENCE,
-            guard.as_mut().expect("loaded").request(chat_body(&request)),
+            opening
+                .as_mut()
+                .expect("loaded")
+                .request(chat_body(&request)),
         )
         .await;
         let id = match requested {
             Ok(Ok(id)) => id,
             Ok(Err(error)) => return Err(error),
             Err(_) => {
-                *guard = None;
+                *opening = None;
                 return Err(unavailable(
                     "the previous MLX reply did not finish draining; the engine was restarted"
                         .into(),
                 ));
             }
         };
-        let sidecar = guard.as_mut().expect("loaded");
+        let sidecar = opening.as_mut().expect("loaded");
         sidecar.pending = Some(id);
         let stdin = sidecar.stdin.clone();
         let (ended_tx, ended_rx) = tokio::sync::oneshot::channel::<()>();
+        opening.complete = true;
+        drop(opening);
         let live = Live {
             answer: String::new(),
             sent_thinking: 0,
@@ -1621,27 +1656,32 @@ impl ModelProvider for MlxProvider {
     }
 
     async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
-        Ok(self.reply(request).await?.0)
+        self.chat_cancellable(request, pwr_provider::Cancel::new())
+            .await
     }
 
     /// Stops the generation itself, not only the reading of it: the sidecar is
-    /// told to cancel the request, and ends it within a token.
+    /// told to cancel the request. Live worker stop latency is measured separately.
     async fn chat_cancellable(
         &self,
         request: ModelRequest,
         cancel: pwr_provider::Cancel,
     ) -> Result<ModelStream, ProviderError> {
+        let guard = cancel.drop_guard();
         let (stream, id, stdin, ended) = self.reply(request).await?;
         let watch = cancel.clone();
         tokio::spawn(async move {
             tokio::select! {
+                biased;
                 () = watch.cancelled() => {
                     let _ = write_line(&stdin, serde_json::json!({"op": "cancel", "target": id})).await;
                 }
                 _ = ended => {}
             }
         });
-        Ok(pwr_provider::cancellable(cancel, stream))
+        let stream = pwr_provider::cancellable(cancel, stream);
+        guard.disarm();
+        Ok(stream)
     }
 
     /// The window is a property of each request here, not of a load: MLX grows

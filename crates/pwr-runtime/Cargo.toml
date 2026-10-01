@@ -18,6 +18,8 @@ sysinfo.workspace = true
 tokio = { workspace = true, features = ["fs", "process", "time"] }
 
 [dev-dependencies]
+futures-util.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]

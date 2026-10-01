@@ -712,6 +712,9 @@ pub fn chat_tool_catalog() -> ToolCatalog {
                                     replace_text or apply_patch."
                     .into();
             }
+            if tool.name == "complete" {
+                tool.description = "Declare this turn done with your final answer. Repository checks run after an editing turn and their evidence is reported separately. Completion itself does not certify the work: unavailable checks or zero tests leave it unverified.".into();
+            }
             tool
         })
         .collect();
@@ -721,6 +724,18 @@ pub fn chat_tool_catalog() -> ToolCatalog {
     tools.push(recall_project_tool());
     tools.push(wiki_query_tool());
     ToolCatalog::new(tools).expect("a filtered catalogue is valid")
+}
+
+/// Goal mode uses the conversation's actions with its stricter closing policy.
+pub fn with_goal_verification(mut catalog: ToolCatalog) -> ToolCatalog {
+    if let Some(tool) = catalog
+        .tools
+        .iter_mut()
+        .find(|tool| tool.name == "complete")
+    {
+        tool.description = "Declare the whole objective ready for verification with your final answer. Goal mode checks the full repository and declared acceptance checks, and may request a review. Only passing declared acceptance evidence verifies the goal; without it completion remains unverified.".into();
+    }
+    catalog
 }
 
 /// `look_at`: what a page on this machine looks like, for a model that
@@ -1460,12 +1475,19 @@ async fn take_turn_inner<P: ModelProvider>(
                 )
                 .map_err(|error| error.to_string())
         };
-        let collected = match provider.chat(request).await {
-            // Stop has to reach a generation already in flight, not merely the
-            // gap between actions: a reply that takes a minute is exactly when
-            // an operator presses it. Abandoning the read drops the stream,
-            // which drops the HTTP body, which closes the socket -- so the
-            // backend stops generating rather than being politely waited out.
+        let cancel = pwr_provider::Cancel::new();
+        let opening_guard = cancel.drop_guard();
+        let opened = tokio::select! {
+            biased;
+            () = pressed(stop) => {
+                cancel.cancel();
+                failed(&mut turn, "cancelled", "stopped by the operator".into())?;
+                return stopped(actions, edited, StopReason::Interrupted);
+            }
+            result = provider.chat_cancellable(request, cancel.clone()) => result,
+        };
+        opening_guard.disarm();
+        let collected = match opened {
             Ok(stream) => tokio::select! {
                 outcome = pwr_provider::collect_reply_with_guard(stream, |chunk| {
                     if let Some(progress) = chunk.prefill {
@@ -1520,6 +1542,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 }, (deployment.provider == "mlx" && !continuity.chat_only)
                     .then_some(AGENT_UNSTRUCTURED_REPLY_GUARD)) => outcome,
                 () = pressed(stop) => {
+                    cancel.cancel();
                     failed(&mut turn, "cancelled", "stopped by the operator".into())?;
                     return stopped(actions, edited, StopReason::Interrupted);
                 }
@@ -1705,7 +1728,12 @@ async fn take_turn_inner<P: ModelProvider>(
                         limit: usize::from(max_context_drops),
                         detail: format!("{safe_context}; asking for {lower} tokens"),
                     });
-                    let granted = match provider.prepare_context(deployment, lower).await {
+                    let prepared = tokio::select! {
+                        biased;
+                        () = pressed(stop) => return stopped(actions, edited, StopReason::Interrupted),
+                        result = provider.prepare_context(deployment, lower) => result,
+                    };
+                    let granted = match prepared {
                         Ok(granted) => granted,
                         Err(error) => {
                             store.append(
@@ -2368,7 +2396,10 @@ async fn take_turn_inner<P: ModelProvider>(
                 messages.push(tool_message(call, serde_json::json!({"not_run": why})));
                 continue;
             }
-            let mut granted_once = match crate::session::gate(
+            let gated = tokio::select! {
+                biased;
+                () = pressed(stop) => return stopped(actions, edited, StopReason::Interrupted),
+                result = crate::session::gate(
                 store,
                 conversation_id,
                 u8::try_from(actions).unwrap_or(u8::MAX),
@@ -2378,9 +2409,9 @@ async fn take_turn_inner<P: ModelProvider>(
                 prompt,
                 &mut refused_streak,
                 call.id.clone(),
-            )
-            .await?
-            {
+            ) => result?,
+            };
+            let mut granted_once = match gated {
                 crate::session::Gate::Refused(message) => {
                     let why = if message.content == crate::repetition::repetition_notice() {
                         "proposed again after being refused, and not run".to_owned()
@@ -2447,7 +2478,10 @@ async fn take_turn_inner<P: ModelProvider>(
             };
             let mut outcome = outcome;
             if let Some(command) = command {
-                let withheld = crate::session::withheld(
+                let withheld = tokio::select! {
+                    biased;
+                    () = pressed(stop) => return stopped(actions, edited, StopReason::Interrupted),
+                    result = crate::session::withheld(
                     store,
                     conversation_id,
                     u8::try_from(actions).unwrap_or(u8::MAX),
@@ -2457,8 +2491,8 @@ async fn take_turn_inner<P: ModelProvider>(
                     &mut policy,
                     prompt,
                     &mut refused_streak,
-                )
-                .await?;
+                ) => result?,
+                };
                 if let crate::session::Withheld::Allowed { approval, once } = withheld {
                     if once {
                         granted_once.push(approval);
@@ -3116,7 +3150,7 @@ fn compact(messages: &mut Vec<ChatMessage>, room: usize) -> Option<String> {
 /// Polled rather than notified, because the flag is shared with a terminal
 /// event loop that has no async waker to offer. The interval is short enough
 /// that stop feels immediate and long enough to cost nothing.
-async fn pressed(stop: &std::sync::atomic::AtomicBool) {
+pub(crate) async fn pressed(stop: &std::sync::atomic::AtomicBool) {
     while !stop.load(std::sync::atomic::Ordering::Relaxed) {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
