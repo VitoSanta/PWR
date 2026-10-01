@@ -605,6 +605,106 @@ fn parse_call_value(value: &serde_json::Value) -> Option<ToolCall> {
     })
 }
 
+/// Mistral's conventions (Mistral Small, Devstral, Magistral, Ministral): a call
+/// is `[TOOL_CALLS]name[ARGS]{"path": "src/a.rs"}`, several in a row each with
+/// its own marker; the older template writes `[TOOL_CALLS][{"name": …,
+/// "arguments": {…}}]`. Measured 2026-10-01: Devstral-Small-2 was refused agent
+/// tasks (Limited, "no tool call was made") because nothing read this form.
+pub struct MistralFamilyAdapter;
+
+const MISTRAL_CALLS: &str = "[TOOL_CALLS]";
+const MISTRAL_ARGS: &str = "[ARGS]";
+
+/// The first JSON value in `text` and what follows it, or `None` when it is
+/// not whole.
+fn first_json_value(text: &str) -> Option<(serde_json::Value, &str)> {
+    let mut stream = serde_json::Deserializer::from_str(text).into_iter::<serde_json::Value>();
+    let value = stream.next()?.ok()?;
+    Some((value, &text[stream.byte_offset()..]))
+}
+
+fn mistral_call(segment: &str) -> Option<Vec<ToolCall>> {
+    let segment = segment.trim();
+    if segment.starts_with('[') {
+        // The older form: one JSON array of calls.
+        let (value, _) = first_json_value(segment)?;
+        let calls: Vec<ToolCall> = value
+            .as_array()?
+            .iter()
+            .filter_map(parse_call_value)
+            .collect();
+        return (!calls.is_empty()).then_some(calls);
+    }
+    let (name, rest) = segment.split_once(MISTRAL_ARGS)?;
+    let name = name.trim();
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return None;
+    }
+    let (arguments, _) = first_json_value(rest.trim_start())?;
+    arguments.is_object().then(|| {
+        vec![ToolCall {
+            name: name.to_owned(),
+            arguments,
+            id: None,
+        }]
+    })
+}
+
+impl ModelBehaviorAdapter for MistralFamilyAdapter {
+    fn id(&self) -> &'static str {
+        "mistral"
+    }
+
+    fn version(&self) -> &'static str {
+        "mistral-v1"
+    }
+
+    fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
+        let mut canonical = CanonicalReply::verbatim(reply);
+        if !canonical.tool_calls.is_empty() || !canonical.narrative.contains(MISTRAL_CALLS) {
+            return canonical;
+        }
+        let text = canonical.narrative.clone();
+        let mut parts = text.split(MISTRAL_CALLS);
+        let narrative = parts.next().unwrap_or_default().trim().to_owned();
+        let mut calls = Vec::new();
+        let mut undecodable = false;
+        for segment in parts {
+            match mistral_call(segment) {
+                Some(found) => calls.extend(found),
+                None => undecodable = true,
+            }
+        }
+        if undecodable {
+            // Kept whole: a call that did not decode is evidence about the
+            // template, and nothing is guessed at.
+            canonical.diagnostics.push(Diagnostic {
+                kind: "mistral_unterminated_tool_call",
+                detail: "a [TOOL_CALLS] block did not hold a whole name and arguments".into(),
+            });
+            return canonical;
+        }
+        canonical.narrative = narrative;
+        canonical.diagnostics.push(Diagnostic {
+            kind: "mistral_tool_call",
+            detail: format!(
+                "read {} from [TOOL_CALLS]",
+                calls
+                    .iter()
+                    .map(|call| call.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
+        canonical.tool_calls = calls;
+        canonical
+    }
+}
+
 /// Granite's conventions, added as a proof that a second family costs a
 /// family adapter and nothing else.
 ///
@@ -1161,6 +1261,13 @@ pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehavi
     if evidence.contains("granite") {
         return Box::new(GraniteFamilyAdapter);
     }
+    if evidence.contains("mistral")
+        || evidence.contains("devstral")
+        || evidence.contains("magistral")
+        || evidence.contains("ministral")
+    {
+        return Box::new(MistralFamilyAdapter);
+    }
     Box::new(GenericAdapter)
 }
 
@@ -1169,6 +1276,50 @@ mod tests {
     use super::*;
 
     /// Qwen2.5-Coder's edit, as it wrote it in the capability probe.
+    #[test]
+    fn mistral_calls_are_read_in_both_of_its_forms() {
+        let adapter = adapter_for(
+            None,
+            "mlx-community/Devstral-Small-2-24B-Instruct-2512-4bit",
+        );
+        assert_eq!(adapter.id(), "mistral");
+        let one = adapter.normalize(&reply(
+            "[TOOL_CALLS]read_file[ARGS]{\"path\": \"src/parser.rs\"}",
+        ));
+        assert_eq!(one.tool_calls.len(), 1);
+        assert_eq!(one.tool_calls[0].name, "read_file");
+        assert_eq!(one.tool_calls[0].arguments["path"], "src/parser.rs");
+        assert_eq!(one.narrative, "");
+        let two = adapter.normalize(&reply(
+            "Reading both.[TOOL_CALLS]read_file[ARGS]{\"path\": \"a.rs\"}[TOOL_CALLS]read_file[ARGS]{\"path\": \"b {}.rs\"}",
+        ));
+        assert_eq!(two.tool_calls.len(), 2);
+        assert_eq!(two.tool_calls[1].arguments["path"], "b {}.rs");
+        assert_eq!(two.narrative, "Reading both.");
+        let old = adapter.normalize(&reply(
+            "[TOOL_CALLS] [{\"name\": \"read_file\", \"arguments\": {\"path\": \"a.rs\"}}]",
+        ));
+        assert_eq!(old.tool_calls.len(), 1);
+        // Cut off in the arguments: nothing is run, and it says so.
+        let cut = adapter.normalize(&reply(
+            "[TOOL_CALLS]write_file[ARGS]{\"path\": \"a.rs\", \"content\": \"fn main",
+        ));
+        assert!(cut.tool_calls.is_empty());
+        assert!(
+            cut.diagnostics
+                .iter()
+                .any(|d| d.kind == "mistral_unterminated_tool_call")
+        );
+        // A backend that already decoded the call is left alone.
+        let mut decoded = reply("[TOOL_CALLS]read_file[ARGS]{\"path\": \"x\"}");
+        decoded.tool_calls.push(ToolCall {
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": "x"}),
+            id: None,
+        });
+        assert_eq!(adapter.normalize(&decoded).tool_calls.len(), 1);
+    }
+
     #[test]
     fn a_reply_that_is_one_fenced_call_is_read_as_one() {
         let text = "```json\n{\n  \"name\": \"apply_replace\",\n  \"arguments\": {\n    \"expected_hash\": \"236e\",\n    \"path\": \"probe.rs\",\n    \"replacement\": \"pub fn value() -> i32 {\\n    2\\n}\"\n  }\n}\n```";

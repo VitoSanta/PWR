@@ -1040,7 +1040,8 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
 /// Where the part of an answer that can be shown ends: the first place a
 /// call may begin. Everything from there on is held until the reply ends and
 /// the family adapter has taken the calls out.
-const CALL_MARKERS: [&str; 8] = [
+const CALL_MARKERS: [&str; 9] = [
+    "[TOOL_CALLS]",
     "<tool_call>",
     "<|tool_call>",
     "<seed:tool_call>",
@@ -1269,6 +1270,7 @@ fn step_of(
                         || diagnostic.kind == "harmony_unterminated_tool_call"
                         || diagnostic.kind == "gemma_unterminated_tool_call"
                         || diagnostic.kind == "gemma_undecodable_tool_call"
+                        || diagnostic.kind == "mistral_unterminated_tool_call"
                 }) {
                     return Step::Finish(Err(ProviderError::Truncated {
                         safe_context:
