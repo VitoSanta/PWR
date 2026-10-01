@@ -248,3 +248,11 @@ arrives. The Qwen adapter now reads a `<function=` call with no opening tag
 (revision `qwen-v3`, so earlier calibrations of Qwen-family models become
 stale and are retaken). A model's own tool format being refused is a product
 defect, not a model result: any Qwen3-Coder user had no agent mode.
+
+## 2026-10-01 — A failure is stale once the adapter that read it changed
+
+After `qwen-v3` Qwen3-Coder stayed **Limited** in every campaign run: the stored
+verdict (`~/.pwr/model-evidence`) did not say which adapter had read the replies,
+and Limited outranks everything. Provenance now records the adapter revision; a
+Limited/Incompatible verdict recorded under none, or under another revision, is
+stale and the model is calibrated again. A pass is kept.

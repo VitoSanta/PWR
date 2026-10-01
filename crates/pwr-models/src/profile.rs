@@ -85,6 +85,11 @@ pub struct Provenance {
     pub backend_version: Option<String>,
     pub pwr_version: String,
     pub calibration_version: String,
+    /// The revision of the family adapter that read the model's replies
+    /// (`qwen-v3`). A failure measured through an adapter that has since been
+    /// fixed is not the model's: see [`adapter_changed`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_revision: Option<String>,
     /// Coarse: platform, architecture, chip family and memory. Behaviour is a
     /// property of the model and engine, so a different machine lowers
     /// confidence rather than voiding evidence.
@@ -130,10 +135,21 @@ impl Provenance {
             backend_version,
             pwr_version: env!("CARGO_PKG_VERSION").to_owned(),
             calibration_version: CALIBRATION_VERSION.to_owned(),
+            adapter_revision: None,
             hardware_class,
             observed_at: chrono::Utc::now().to_rfc3339(),
         }
     }
+}
+
+/// Whether a calibration was taken through an adapter other than today's. A
+/// pass stays a pass under a later adapter (the compare above says when to
+/// re-measure), but a failure may have been the adapter's: evidence that
+/// records no adapter at all predates the field and is read that way too.
+/// Measured 2026-10-01: Qwen3-Coder stayed Limited, refused every agent task,
+/// after the adapter that could not read its calls was fixed.
+pub fn adapter_changed(evidence: &Provenance, current: &Provenance) -> bool {
+    current.adapter_revision.is_some() && evidence.adapter_revision != current.adapter_revision
 }
 
 /// A coarse machine class for provenance: `macos-arm64-apple-m2-64gb`.
@@ -258,6 +274,13 @@ pub fn compare(evidence: &Provenance, current: &Provenance) -> ReuseDecision {
     match (evidence.artifact_bytes, current.artifact_bytes) {
         (Some(before), Some(now)) if before != now => stale.push("artifact size changed".into()),
         _ => {}
+    }
+    if let (Some(before), Some(now)) = (&evidence.adapter_revision, &current.adapter_revision)
+        && before != now
+    {
+        stale.push(format!(
+            "the model's replies are now read by {now}, not {before}"
+        ));
     }
     if evidence.calibration_version != current.calibration_version {
         stale.push(format!(
@@ -758,7 +781,21 @@ pub fn assess(input: AssessInput<'_>) -> Assessment {
             false,
         );
     }
-    let local_decision = local.map(|evidence| (evidence, compare(&evidence.provenance, &current)));
+    let local_decision = local.map(|evidence| {
+        let mut decision = compare(&evidence.provenance, &current);
+        if matches!(
+            evidence.status,
+            ProfileStatus::Limited | ProfileStatus::Incompatible
+        ) && adapter_changed(&evidence.provenance, &current)
+            && decision.reuse != Reuse::Stale
+        {
+            decision.reuse = Reuse::Stale;
+            decision.reasons.push(
+                "the failure was measured through an earlier reader of the model's replies".into(),
+            );
+        }
+        (evidence, decision)
+    });
     // A local failure that still applies outranks everything but static
     // incompatibility.
     if let Some((evidence, decision)) = &local_decision

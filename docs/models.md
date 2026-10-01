@@ -74,7 +74,7 @@ quantization, backend, template or engine version.
 
 ## Provenance and reuse
 
-A calibration records: model reference, Hub revision (`.pwr-revision`), the
+A calibration records: model reference, the family adapter's revision (`qwen-v3`), Hub revision (`.pwr-revision`), the
 backend's artifact digest, a fingerprint of the weight files' names and sizes,
 size, quantization, format, architecture, tokenizer and chat-template
 fingerprints, backend and its version (`mlx-lm <v>; mlx <v>; sidecar <hash>`),
@@ -86,7 +86,8 @@ unknown.
 
 | What differs | Outcome |
 |---|---|
-| backend, format, artifact digest, weight files, size, quantization, revision, tokenizer, chat template, architecture, calibration suite | **stale** — not applied; Provisional |
+| backend, format, artifact digest, weight files, size, quantization, revision, tokenizer, chat template, architecture, calibration suite, the adapter's revision (when both are recorded) | **stale** — not applied; Provisional |
+| a **failure** (Limited/Incompatible) recorded under no adapter or another one than today's | **stale** (from 2026-10-01): the adapter that read the replies may have been the cause |
 | backend major version (for 0.x, the minor) | **stale** |
 | backend minor/patch, the sidecar's hash, hardware class, a fact known on one side only | **reduced** — applied with lower confidence |
 | PWR version, path, time | applies |
