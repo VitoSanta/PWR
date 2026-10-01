@@ -203,6 +203,20 @@ describe('ModelsStore downloads', () => {
     await models.saveProfile(true);
     expect(saved.pop()).toEqual({});
     expect(models.profileDraft()['temperature']).toBe('');
+
+    // An Italian keyboard writes a decimal comma; it is a decimal point.
+    models.setProfileValue('temperature', ' 0,6 ');
+    await models.saveProfile();
+    expect(saved.pop()).toEqual({ temperature: 0.6 });
+
+    // Out of range or not a number: said, and nothing is sent.
+    models.setProfileValue('temperature', '-1');
+    await models.saveProfile();
+    expect(saved).toEqual([]);
+    expect(models.profileError()).toContain('temperature must be at least 0');
+    models.setProfileValue('temperature', 'warm');
+    await models.saveProfile();
+    expect(models.profileError()).toContain('must be a number');
   });
 });
 

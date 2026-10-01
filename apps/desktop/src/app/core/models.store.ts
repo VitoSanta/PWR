@@ -159,9 +159,19 @@ export class ModelsStore {
     if (!reset) {
       for (const [name, raw] of Object.entries(this.profileDraft())) {
         if (!raw.trim()) continue;
-        const value = Number(raw);
+        // A decimal comma is a decimal point: the number input this replaced
+        // refused "0,6" on an Italian keyboard (WebKit gave it no value) and
+        // the field emptied itself -- "it does not accept decimals".
+        const value = Number(raw.trim().replace(',', '.'));
         if (!Number.isFinite(value)) {
           this.profileError.set(`${name} must be a number`);
+          return;
+        }
+        const [low, high] = samplingBounds(name);
+        if (value < low || (high !== null && value > high)) {
+          this.profileError.set(
+            `${name} must be ${high === null ? `at least ${low}` : `between ${low} and ${high}`}`,
+          );
           return;
         }
         values[name] = value;
@@ -560,4 +570,12 @@ function clean(filters: CatalogFilters): Record<string, unknown> {
       ([, value]) => value !== undefined && value !== null && value !== '',
     ),
   );
+}
+
+/** The range the engine accepts for each sampling value; the core validates again. */
+export function samplingBounds(name: string): [number, number | null] {
+  if (name === 'top_p' || name === 'min_p') return [0, 1];
+  if (name === 'presence_penalty') return [-2, 2];
+  if (name === 'repetition_penalty') return [0.01, null];
+  return [0, null];
 }
