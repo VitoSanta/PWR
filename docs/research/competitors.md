@@ -2,7 +2,7 @@
 
 **Initial F2 source pass, 2026-10-01.** IMPLEMENTED below means an inspected
 upstream path or documented feature; it is not a measured local-agent capability.
-This is a partial survey of six projects. No competitor was installed or run,
+This is a partial survey of six projects plus focused primary sources. No competitor was installed or run,
 no benchmark claim is adopted, and PWR superiority remains **unknown**.
 The lead independently fetched release metadata/licenses and reopened selected
 sources after a read-only research subagent's pass.
@@ -129,6 +129,24 @@ not measured optimal values. A small screening run cannot prove non-regression;
 keep/removal capability decisions need the power and paired-interval protocol.
 First priority remains correctness and product/eval parity, not these treatments.
 
+## Context and mode sources reopened during the F1 follow-up
+
+Retrieved 2026-10-01 by the lead after the read-only research pass. These are
+source observations; PWR effects remain **unknown** until matched dev runs.
+No recipe or paper threshold becomes a PWR default.
+
+| Opened primary source | What it supports | Limit / implication for planned work |
+|---|---|---|
+| [Lost in the Middle, arXiv v3](https://arxiv.org/html/2307.03172v3), Liu et al., revision 2023-11-20 | MEASURED by the paper: multi-document QA and key-value retrieval can vary with relevant-information position. Some tested models nearly solve the synthetic retrieval case; it is not a universal failure law. | The tested deployments are older than today's local models. PWR effective context is unknown; sample positions and task types in W5.3 rather than importing a universal context ceiling. |
+| [RULER, arXiv v3](https://arxiv.org/html/2404.06654v3), Hsieh et al., Table 3 / Appendix B–D | MEASURED by the paper: 13 controlled configurations across retrieval, variable tracing, aggregation and QA. Its effective length is the largest tested length above the Llama2-7B-at-4K reference score, 85.6%. | This is a benchmark-specific score criterion, not physical input capacity or PWR coding/exit thresholds. QA includes SQuAD/HotpotQA; do not describe every task as entirely synthetic. W5.3 needs a prospective local criterion. |
+| [Qwen3.6-35B-A3B card at 995ad96e](https://huggingface.co/Qwen/Qwen3.6-35B-A3B/raw/995ad96eacd98c81ed38be0c5b274b04031597b0/README.md), sampling / preserve-thinking sections | DOCUMENTED separate general-thinking, precise-coding-thinking and non-thinking recipes. Historical thinking retention is controlled by preserve_thinking; default retention concerns the latest user exchange. | A card does not prove PWR's active mode. W5.6 must receive effective mode and distinguish unknown mode; W5.7 must compare actual rendered token prefixes. Claimed cache/cost benefits remain unmeasured in PWR. |
+| [mlx-lm tokenizer wrapper at 53b9af37](https://raw.githubusercontent.com/ml-explore/mlx-lm/53b9af378278d6dd5dacac447edeb0f523b16253/mlx_lm/tokenizer_utils.py), apply_chat_template | IMPLEMENTED mapping of the thinking keyword for custom renderers; an omitted keyword defaults from tokenizer thinking support. Custom template output is encoded without adding special tokens. | Rendering settings and tokenization are part of provenance. Compare the same token IDs for pure/runtime baselines; API labels or identical message strings do not establish prefix identity. |
+
+These observations support the **PLANNED** controls in W5.3/W5.6/W5.7; they do
+not demonstrate that today's compaction ceiling or preserved reasoning improves
+coding. The context fixes above are justified by deterministic error-path and
+budget regressions, independently of model capability claims.
+
 ## Outstanding F2 work
 
 Claude Code, Cursor, Goose, Cline/Roo/Kilo, Continue, OpenHands, Crush, Qwen Code,
@@ -140,6 +158,7 @@ their rows from opened primary sources, not remembered feature lists.
 The mandate's primary-literature list (agent interfaces; benchmark contamination;
 constrained decoding; long context; speculative decoding/prefix cache/KV
 quantization/roofline; selection/verification; statistical estimators; MCP/ACP
-and AGENTS.md) is **PLANNED verification work**. No unverified paper assertion
+and AGENTS.md) remains **PLANNED verification work** beyond the opened long-context
+sources above. No unverified paper assertion
 is imported here. The preexisting Semantic Decision Layer proposal remains a
 hypothesis; its citations still require independent verification before reuse.

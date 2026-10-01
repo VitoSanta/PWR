@@ -69,6 +69,7 @@ impl Scripted {
 /// A backend that refuses the first request as too large and records every
 /// window it was asked to serve.
 struct Cramped {
+    prepare_fails: bool,
     refusals: Mutex<usize>,
     prepared: Mutex<Vec<u32>>,
     inner: Scripted,
@@ -88,6 +89,11 @@ impl ModelProvider for Cramped {
         context_tokens: u32,
     ) -> Result<u32, ProviderError> {
         self.prepared.lock().unwrap().push(context_tokens);
+        if self.prepare_fails {
+            return Err(ProviderError::Unavailable {
+                safe_context: "could not prepare the window".into(),
+            });
+        }
         Ok(context_tokens)
     }
     async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
@@ -359,6 +365,7 @@ struct ChatOutcome {
     report: converse::TurnReport,
     steps: Vec<String>,
     requests: Vec<ModelRequest>,
+    events: Vec<pwr_store::EventRecord>,
 }
 
 /// A provider a fixture can ask what it was sent.
@@ -456,6 +463,7 @@ fn drive_chat_full<P: Recording>(
     let tools = pwr_compat::render_tools(&catalog);
     let mut messages = vec![ChatMessage::text("user", "do the thing")];
     let mut steps = Vec::new();
+    let conversation_id = pwr_domain::new_id();
     let report = tokio::runtime::Runtime::new()
         .unwrap()
         .block_on(converse::take_turn(
@@ -463,7 +471,7 @@ fn drive_chat_full<P: Recording>(
             adapter.as_ref(),
             &deployment(),
             &store,
-            pwr_domain::new_id(),
+            conversation_id,
             &policy,
             &mut messages,
             8192,
@@ -501,6 +509,7 @@ fn drive_chat_full<P: Recording>(
         report,
         steps,
         requests: provider.requests(),
+        events: store.events_for_run(conversation_id).unwrap(),
     }
 }
 
@@ -1377,6 +1386,7 @@ fn a_backend_that_stays_down_stops_the_turn_and_says_it_was_the_server() {
 fn a_refused_prompt_drops_to_a_measured_window_before_it_spends_the_conversation() {
     let dir = workspace();
     let provider = Cramped {
+        prepare_fails: false,
         refusals: Mutex::new(1),
         prepared: Mutex::new(Vec::new()),
         inner: Scripted::new(vec![says("That fits now.")]),
@@ -1413,6 +1423,7 @@ fn a_refused_prompt_drops_to_a_measured_window_before_it_spends_the_conversation
 fn without_measured_tiers_a_refused_prompt_is_compacted_instead() {
     let dir = workspace();
     let provider = Cramped {
+        prepare_fails: false,
         refusals: Mutex::new(1),
         prepared: Mutex::new(Vec::new()),
         inner: Scripted::new(vec![says("Smaller now.")]),
@@ -1962,7 +1973,7 @@ fn every_stop_reason_has_a_terminal_class() {
     for reason in [
         StopReason::Interrupted,
         StopReason::ContextFull,
-        StopReason::Looping,
+        StopReason::CompactionBudget,
         StopReason::Silent,
         StopReason::ToolCallInReasoning,
         StopReason::Unparseable,
@@ -4114,4 +4125,458 @@ fn a_turn_that_keeps_being_cut_off_between_small_calls_stops_instead_of_repeatin
     // Three replies were lost to it; the two calls between them were made.
     assert_eq!(outcome.requests.len(), 2);
     assert_eq!(outcome.report.actions, 2);
+}
+
+#[test]
+fn a_failed_chat_window_preparation_keeps_the_previous_observed_window() {
+    let provider = Cramped {
+        prepare_fails: true,
+        refusals: Mutex::new(0),
+        prepared: Mutex::new(Vec::new()),
+        inner: Scripted::new(vec![]),
+    };
+    let mut config = crate::ChatConfig {
+        context_tokens: 8192,
+        context_setting: Some(4096),
+        ..Default::default()
+    };
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(crate::prepare_chat_window(
+            &provider,
+            &deployment(),
+            &mut config,
+            4096,
+        ));
+    assert!(
+        result.is_err(),
+        "a failed preparation became a granted window"
+    );
+    assert_eq!(config.context_tokens, 8192);
+    assert_eq!(provider.prepared.lock().unwrap().as_slice(), &[4096]);
+}
+
+#[test]
+fn a_failed_context_tier_preparation_stops_before_another_generation() {
+    let dir = workspace();
+    let provider = Cramped {
+        prepare_fails: true,
+        refusals: Mutex::new(1),
+        prepared: Mutex::new(Vec::new()),
+        inner: Scripted::new(vec![says("This grant was invented.")]),
+    };
+    let outcome = drive_chat_with(dir.path(), provider, &[2048, 4096]);
+    assert_eq!(
+        outcome.report.stopped,
+        Some(converse::StopReason::BackendFailing)
+    );
+    assert!(
+        outcome.requests.is_empty(),
+        "a generation used an unacknowledged context tier"
+    );
+    assert!(
+        outcome
+            .steps
+            .iter()
+            .any(|step| step.contains("could not prepare"))
+    );
+}
+
+/// Context regressions drive the same take_turn path as the product.
+fn context_turn<P: Recording>(
+    root: &std::path::Path,
+    provider: P,
+    mut messages: Vec<ChatMessage>,
+    window: u32,
+    continuity: converse::Continuity,
+) -> ChatOutcome {
+    let adapter = pwr_compat::adapter_for(None, "fake");
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let mut policy = policy_for(root);
+    policy.output_limit = 64 * 1024;
+    let mut steps = Vec::new();
+    let conversation_id = pwr_domain::new_id();
+    let report = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(converse::take_turn(
+            &provider,
+            adapter.as_ref(),
+            &deployment(),
+            &store,
+            conversation_id,
+            &policy,
+            &mut messages,
+            window,
+            &[],
+            Default::default(),
+            pwr_compat::render_tools(&converse::chat_tool_catalog()),
+            &std::sync::atomic::AtomicBool::new(false),
+            &continuity,
+            &pwr_orchestrator::DenyWithoutAsking,
+            |step| match step {
+                converse::TurnStep::Compacted(note) => steps.push(format!("compacted {note}")),
+                converse::TurnStep::Note(note) | converse::TurnStep::Refused(note) => {
+                    steps.push(note)
+                }
+                _ => {}
+            },
+        ))
+        .unwrap();
+    ChatOutcome {
+        report,
+        steps,
+        requests: provider.requests(),
+        events: store.events_for_run(conversation_id).unwrap(),
+    }
+}
+
+#[test]
+fn an_objective_above_the_compaction_trigger_can_fit_the_physical_window() {
+    let dir = workspace();
+    let objective = "x".repeat(6000);
+    let continuity = converse::Continuity {
+        compact_ceiling_tokens: Some(1024),
+        ..Default::default()
+    };
+    continuity
+        .checkpoint
+        .lock()
+        .unwrap()
+        .objectives
+        .push(objective.clone());
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![says("The objective fits.")]),
+        vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", &objective),
+        ],
+        8192,
+        continuity,
+    );
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?}",
+        outcome.report.stopped
+    );
+    assert_eq!(outcome.requests.len(), 1);
+    assert!(
+        outcome.requests[0]
+            .messages
+            .iter()
+            .any(|message| message.content.contains(&objective))
+    );
+}
+
+#[test]
+fn actual_prompt_overflow_stops_before_generation() {
+    let dir = workspace();
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![says("Never requested.")]),
+        vec![
+            ChatMessage::text("system", "x".repeat(30000)),
+            ChatMessage::text("user", "Keep the system instruction."),
+        ],
+        8192,
+        Default::default(),
+    );
+    assert_eq!(
+        outcome.report.stopped,
+        Some(converse::StopReason::ContextFull)
+    );
+    assert!(outcome.requests.is_empty());
+}
+
+#[test]
+fn compaction_invalidates_a_measurement_of_the_previous_history() {
+    let dir = workspace();
+    std::fs::write(dir.path().join("one.txt"), "short").unwrap();
+    let mut chunk = calls("read_file", serde_json::json!({"path":"one.txt"}));
+    chunk.metrics = Some(pwr_domain::GenerationMetrics {
+        prompt_tokens: Some(7000),
+        ..Default::default()
+    });
+    let provider = Scripted::new(vec![chunk, says("Read it.")]);
+    let outcome = context_turn(
+        dir.path(),
+        provider,
+        vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", "Earlier question."),
+            ChatMessage::text("assistant", "x".repeat(20000)),
+            ChatMessage::text("user", "Read one.txt."),
+        ],
+        8192,
+        Default::default(),
+    );
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?}",
+        outcome.report.stopped
+    );
+    assert_eq!(outcome.requests.len(), 2);
+    assert!(
+        outcome.requests[1].sampling["max_tokens"].as_u64().unwrap() > 4096,
+        "a compacted short history kept the old 7000-token measurement: {:?}",
+        outcome.requests[1].sampling
+    );
+}
+
+#[test]
+fn productive_compactions_exhaust_a_budget_without_claiming_a_loop() {
+    let dir = workspace();
+    let mut script = Vec::new();
+    for n in 0..8 {
+        let path = format!("part{n}.txt");
+        std::fs::write(
+            dir.path().join(&path),
+            format!("{}\n", "x".repeat(79)).repeat(100),
+        )
+        .unwrap();
+        script.push(calls("read_file", serde_json::json!({"path":path})));
+    }
+    script.push(says("Finished reading."));
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(script),
+        vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", "Read each distinct part."),
+        ],
+        16384,
+        converse::Continuity {
+            compact_ceiling_tokens: Some(4096),
+            ..Default::default()
+        },
+    );
+    let reason = outcome
+        .report
+        .stopped
+        .expect("the unchanged per-turn compaction budget should be exhausted");
+    assert_eq!(
+        reason.terminal_class(),
+        pwr_domain::TerminalClass::Budget,
+        "productive reads were labelled as looping: {reason:?}"
+    );
+    assert!(outcome.report.actions >= 3);
+    assert_eq!(
+        outcome.report.outcome.terminal,
+        pwr_domain::TurnTerminal::BudgetExhausted
+    );
+}
+
+#[test]
+fn a_large_write_call_reduces_the_next_generations_output_budget() {
+    let dir = workspace();
+    let mut chunk = calls(
+        "write_file",
+        serde_json::json!({"path":"large.txt", "content":"x".repeat(40 * 1024)}),
+    );
+    chunk.metrics = Some(pwr_domain::GenerationMetrics {
+        prompt_tokens: Some(100),
+        ..Default::default()
+    });
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![chunk, says("Written.")]),
+        vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", "Write large.txt."),
+        ],
+        20000,
+        Default::default(),
+    );
+    assert_eq!(outcome.requests.len(), 2, "{:?}", outcome.report.stopped);
+    let next = outcome.requests[1].sampling["max_tokens"].as_u64().unwrap();
+    assert!(
+        next < 6000,
+        "40 KiB of unmeasured call arguments were treated as free: {next}"
+    );
+    assert_eq!(
+        std::fs::metadata(dir.path().join("large.txt"))
+            .unwrap()
+            .len(),
+        40 * 1024
+    );
+}
+
+#[test]
+fn context_preparation_failure_does_not_invent_a_generation() {
+    let dir = workspace();
+    let provider = Cramped {
+        prepare_fails: true,
+        refusals: Mutex::new(1),
+        prepared: Mutex::new(Vec::new()),
+        inner: Scripted::new(vec![]),
+    };
+    let outcome = drive_chat_with(dir.path(), provider, &[2048, 4096]);
+    assert_eq!(
+        outcome
+            .events
+            .iter()
+            .filter(|event| event.event_type == "turn.failed")
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcome
+            .events
+            .iter()
+            .filter(|event| event.event_type == "context.preparation_failed")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_compacted_prompt_keeps_the_observed_fixed_overhead() {
+    let dir = workspace();
+    std::fs::write(dir.path().join("one.txt"), "short").unwrap();
+    let mut chunk = calls("read_file", serde_json::json!({"path":"one.txt"}));
+    chunk.metrics = Some(pwr_domain::GenerationMetrics {
+        prompt_tokens: Some(6000),
+        ..Default::default()
+    });
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![chunk, says("Read it.")]),
+        vec![
+            ChatMessage::text("system", "System."),
+            ChatMessage::text("user", "Earlier question."),
+            ChatMessage::text("assistant", "x".repeat(400)),
+            ChatMessage::text("user", "Read one.txt."),
+        ],
+        8192,
+        converse::Continuity {
+            compact_ceiling_tokens: Some(256),
+            ..Default::default()
+        },
+    );
+    assert_eq!(outcome.requests.len(), 2, "{:?}", outcome.report.stopped);
+    assert!(
+        outcome
+            .steps
+            .iter()
+            .any(|step| step.starts_with("compacted"))
+    );
+    assert!(
+        outcome.requests[1].sampling["max_tokens"].as_u64().unwrap() < 2200,
+        "the fixed schema/template cost vanished after compaction"
+    );
+}
+
+#[test]
+fn physical_answer_exhaustion_compacts_before_the_policy_trigger() {
+    let dir = workspace();
+    let mut call = ChatMessage::text("assistant", "");
+    call.tool_calls.push(pwr_domain::ToolCall {
+        name: "read_file".into(),
+        arguments: serde_json::json!({"path":"large.txt"}),
+        id: Some("read-1".into()),
+    });
+    let mut result = ChatMessage::text("tool", "x".repeat(14000));
+    result.tool_call_id = Some("read-1".into());
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![says("The compacted prompt fits.")]),
+        vec![
+            ChatMessage::text("system", "System."),
+            ChatMessage::text("user", "The objective."),
+            ChatMessage::text("assistant", "x".repeat(9000)),
+            ChatMessage::text("user", "Read large.txt."),
+            call,
+            result,
+        ],
+        8192,
+        converse::Continuity {
+            compact_at_percent: Some(90),
+            ..Default::default()
+        },
+    );
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?}",
+        outcome.report.stopped
+    );
+    assert!(
+        outcome
+            .steps
+            .iter()
+            .any(|step| step.starts_with("compacted"))
+    );
+    assert_eq!(outcome.requests.len(), 1);
+}
+
+#[test]
+fn model_settings_do_not_save_a_window_after_failed_model_inspection() {
+    let dir = workspace();
+    let config = crate::ChatConfig {
+        model: Some("../pwr-invalid-model".into()),
+        context_tokens: 8192,
+        ..Default::default()
+    };
+    crate::save_chat_config(dir.path(), &config)
+        .unwrap_or_else(|error| panic!("{}", error.context));
+    let runner = crate::ConsoleTurns {
+        runtime: pwr_runtime::RuntimeFactory::local(pwr_runtime::BackendKind::Mlx),
+    };
+    let result =
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(crate::serve::TurnRunner::settings(
+                &runner,
+                dir.path(),
+                crate::serve::SettingsRequest::Models {
+                    selected: None,
+                    context_tokens: Some(4096),
+                    reasoning_effort: None,
+                    acknowledge_provisional: false,
+                },
+            ));
+    assert!(result.is_err(), "metadata failure was silently accepted");
+    let saved =
+        crate::load_chat_config(dir.path()).unwrap_or_else(|error| panic!("{}", error.context));
+    assert_eq!(saved.context_tokens, 8192);
+    assert!(saved.context_setting.is_none());
+}
+
+#[test]
+fn model_inventory_remains_available_when_the_saved_model_cannot_be_inspected() {
+    let dir = workspace();
+    let config = crate::ChatConfig {
+        model: Some("../pwr-invalid-model".into()),
+        context_tokens: 8192,
+        ..Default::default()
+    };
+    crate::save_chat_config(dir.path(), &config)
+        .unwrap_or_else(|error| panic!("{}", error.context));
+    let runner = crate::ConsoleTurns {
+        runtime: pwr_runtime::RuntimeFactory::local(pwr_runtime::BackendKind::Mlx),
+    };
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(crate::serve::TurnRunner::settings(
+            &runner,
+            dir.path(),
+            crate::serve::SettingsRequest::Models {
+                selected: None,
+                context_tokens: None,
+                reasoning_effort: None,
+                acknowledge_provisional: false,
+            },
+        ))
+        .expect("an unavailable saved model must not prevent choosing a replacement");
+    assert!(result["installed"].is_array());
+    assert_eq!(result["contextTokens"], 8192);
+    assert_eq!(result["contextDecision"]["computed"], false);
+    assert!(
+        result["contextDecision"]["rationale"]
+            .as_str()
+            .unwrap()
+            .contains("leaves the models folder")
+    );
+    let saved =
+        crate::load_chat_config(dir.path()).unwrap_or_else(|error| panic!("{}", error.context));
+    assert_eq!(saved.context_tokens, 8192);
 }

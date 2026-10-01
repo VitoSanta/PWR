@@ -13,6 +13,33 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-01 — F1 context correctness (measurement-changing)
+
+**IMPLEMENTED; MEASURED deterministic regressions, no model experiment.**
+Parent `b9db2eab`, product conversation executor, fake providers plus real
+Settings dispatch. A01–A04 and adjacent count/no-op/audit defects were reproduced
+before their respective fixes. Preparation errors no longer become grants;
+physical fit differs from the policy trigger; productive compactions exhaust a
+harness budget; serialized tool arguments count toward the next prompt.
+Compaction invalidates old history counts while retaining learned fixed costs.
+Read-only model inventory remains usable when the saved model is unavailable.
+
+**Decision: keep as correctness fixes.** Control is the same path without each
+fix; the error-path invariant is no invented grant, unsafe generation or
+fictitious generation attempt. Policy/physical regressions retain objectives
+and reject true overflow. No task-capability or speed improvement is claimed.
+The cap of two compactions, 32,768 ceiling, 100 actions, sampling defaults and
+Goal continuation policy are unchanged. Exact preflight and eval parity remain
+PLANNED. No inference, heldout inspection, download or push.
+
+**MEASURED final checks:** Rust exit 0, 1,386 reported passed / 5 ignored,
+one Docker socket skip; Clippy with denied warnings, fmt, desktop 107 tests /
+13 files and build, sidecar 41 tests, milestone agreement and diff checks pass.
+The overflow regression also passed after a lint-only fixture edit. Hosted CI,
+clean npm installation and the Docker case remain unverified. Evidence/notes:
+`/Users/vitosantanelli/Desktop/pwr-evidence/logs/mission-20261001-f1-context/`;
+[context audit follow-up](reviews/2026-10-01-audit.md#f1-context-follow-up--after-f0-adoption).
+
 ## 2026-10-01 — Adopt the local harness mission
 
 **Decision, not a capability result.** The owner approved F0 and continuation

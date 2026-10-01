@@ -3209,8 +3209,8 @@ pub fn stop_reason(report: &TurnReport) -> (&'static str, Option<pwr_domain::Ter
         Some(reason) => (
             match reason {
                 StopReason::Interrupted => "cancelled",
-                StopReason::BudgetSpent => "max_turn_requests",
-                StopReason::ContextFull | StopReason::Looping => "max_tokens",
+                StopReason::BudgetSpent | StopReason::CompactionBudget => "max_turn_requests",
+                StopReason::ContextFull => "max_tokens",
                 StopReason::Silent
                 | StopReason::ToolCallInReasoning
                 | StopReason::Unparseable
@@ -6298,7 +6298,10 @@ mod tests {
         assert_eq!(ended(Some(StopReason::Interrupted)), "cancelled");
         assert_eq!(ended(Some(StopReason::BudgetSpent)), "max_turn_requests");
         assert_eq!(ended(Some(StopReason::ContextFull)), "max_tokens");
-        assert_eq!(ended(Some(StopReason::Looping)), "max_tokens");
+        assert_eq!(
+            ended(Some(StopReason::CompactionBudget)),
+            "max_turn_requests"
+        );
         assert_eq!(ended(Some(StopReason::Silent)), "end_turn");
         assert_eq!(ended(Some(StopReason::BackendFailing)), "end_turn");
         assert_eq!(tool_kind("apply_patch"), "edit");

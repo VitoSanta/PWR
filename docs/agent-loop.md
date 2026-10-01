@@ -1,6 +1,6 @@
 # The agent loop
 
-**Checked against `develop` at `bff93062`, 2026-10-01** (the baseline was `0776ff4f`; every behaviour changed since is in this page). How a turn, a goal
+**IMPLEMENTED, reviewed in the 2026-10-01 F1 context cycle.** How a turn, a goal
 and a scripted run proceed, every limit that bounds them, and the defects the
 plan fixes. Three loops exist; see [architecture.md](architecture.md#three-execution-semantics)
 for why that matters.
@@ -15,24 +15,29 @@ Each step of the loop:
 
 1. **Steering.** Messages the person sent with *Send now* (`_pwr/steer`) are
    appended as user messages and recorded as a new objective revision
-   (`conversation::record_steering`). Only the revision number is kept in the
-   checkpoint, not its text (plan W4.1).
+   (`conversation::record_steering`). The checkpoint keeps the revision number
+   and the full objective text (W4.1 implemented).
 2. **Room.** If the prompt estimate reaches the compaction threshold, the
    history is compacted (see [context.md](context.md#compaction)). The
    threshold is 75 % of the window (50–90 % per workspace) **under a ceiling of
    32,768 tokens** unless the person set a window (`context_tokens`) or a
    threshold (`compact_at_percent`) — a hypothesis, see
    [D-2026-09-30-7](decisions.md). At most two compactions per turn; a third
-   need stops the turn as looping. If there is nothing left to fold, the turn
-   stops with *context full*. Separately, after **two replies in a row that fell
-   apart** (a loop, or the engine's repetition stop) **and the prompt is over
+   need stops the turn as *CompactionBudget*, a harness budget rather than a
+   claim of model looping. The physical answer envelope also triggers compaction
+   when estimates leave no answer room. If nothing can be folded, physical fit
+   decides whether generation proceeds or stops as *context full*. Separately,
+   after **two replies in a row that fell apart** (a loop, or the engine's repetition stop) **and the prompt is over
    20,000 tokens**, the history is compacted to an 8,192-token room and the work
    goes on from there (twice per turn at most; see *Replies that fall apart*
    below).
 3. **Envelope.** The generation's budget is planned: prompt tokens (the
-   engine's last count plus an estimate for what was appended), the answer
-   allowance (16,384 tokens unless sampling names one), and the reasoning
-   budget for the chosen Reasoning Effort (see [models.md](models.md#reasoning-effort)).
+   engine's last count plus an estimate for what was appended, including tool
+   arguments). After compaction, estimates retain learned fixed overhead rather
+   than reusing the old whole-history count. With no room after the safety
+   margin, the turn stops before generation. The plan also bounds the answer
+   allowance (16,384 tokens unless sampling names one) and reasoning for the
+   chosen Reasoning Effort (see [models.md](models.md#reasoning-effort)).
 4. **Generation** through the provider, streamed to the app: reasoning and
    answer on separate channels.
 5. **Parsing.** Tool calls in the family's convention are normalised to
@@ -111,7 +116,7 @@ effect yet:
 
 ### Stop reasons
 
-`StopReason`: `Interrupted`, `ContextFull`, `Looping`,
+`StopReason`: `Interrupted`, `ContextFull`, `CompactionBudget`,
 `Silent`, `ToolCallInReasoning`, `Unparseable`, `BudgetSpent`,
 `BackendFailing`, `NoProgress`, `ReasoningUnfinished`. How they reach the app
 is in [pwr-serve.md](pwr-serve.md#stop-reasons).
