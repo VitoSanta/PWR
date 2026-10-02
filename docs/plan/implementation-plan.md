@@ -1116,8 +1116,12 @@ but keep Full access as the actual selected policy, expose its switch and
 identify it in the composer. Store and DOM regressions exercise Full → Auto →
 Ask and Full → Ask. Unverified Goal replies and changed acceptance contracts
 retain their evidence and no longer show generic Finished summaries; two
-additional red/green regressions cover these. Native walk pending. This does not close the turn-header
-work below.
+additional red/green regressions cover these. The native `7d024539` walk
+confirms these controls against saved core policy. Follow-up compatibility
+repairs preserve proposal origin, typed verification/confinement evidence,
+terminal reading and safe asynchronous startup, acceptance review and prefill
+progress; 103 frontend tests pass. The newest frontend native walk remains
+pending. This does not close the per-turn header/history work below.
 
 - **Change.** A turn that ran any command unconfined (Full access, or an
   `outside_sandbox` grant) says so in its header, from `TurnOutcome.confinement`.

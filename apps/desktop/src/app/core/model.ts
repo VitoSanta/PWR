@@ -366,6 +366,8 @@ export interface MemoryList {
 
 /** A fact the model proposed to remember, waiting for the person. */
 export interface MemoryProposal {
+  /** Workspace at proposal time; accepting must never use the current folder. */
+  cwd: string;
   key: string;
   sessionId: string | null;
   text: string;

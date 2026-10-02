@@ -20,6 +20,12 @@ import { RunOutcome, TraceVisibility, runOutcome } from './trace';
 
 const VISIBILITY_KEY = 'pwr:trace-visibility';
 
+export interface TerminalSnapshot {
+  title: string;
+  running: boolean;
+  text: string;
+}
+
 type Pending = { resolve: (value: any) => void; reject: (error: Error) => void };
 
 /**
@@ -91,9 +97,11 @@ export class AgentStore {
   readonly timeline = signal<Entry[]>([]);
   readonly turnActive = signal(false);
   readonly lastEventAt = signal(Date.now());
+  readonly prefill = signal<{ processed: number; total: number; at: number } | null>(null);
   readonly outcome = signal('');
   /** How the last run ended, and whether it can be retried or continued. */
   readonly runOutcome = signal<RunOutcome | null>(null);
+  readonly reviewingAcceptance = signal(false);
   /** Presentation only: changing this never changes the model's work. */
   readonly traceVisibility = signal<TraceVisibility>(readVisibility());
   readonly changes = signal<FileDiff[]>([]);
@@ -101,6 +109,8 @@ export class AgentStore {
   /** The Evidence command that is running, if any. */
   readonly commandRunning = signal<string | null>(null);
   readonly permission = signal<PermissionRequest | null>(null);
+  /** Recent terminal output, exposed only after core permission approval. */
+  terminalReader: ((lines: number) => TerminalSnapshot[]) | null = null;
   /**
    * Tokens the conversation occupies and the window: the engine's count after
    * a reply, or -- `estimated` -- the core's estimate of the prompt it is about
@@ -312,7 +322,7 @@ export class AgentStore {
       this.corePath.set(started.core);
       const hello = await this.request('initialize', {
         protocolVersion: 1,
-        clientCapabilities: {},
+        clientCapabilities: inTauri() ? { _meta: { pwr: { readTerminal: true } } } : {},
         clientInfo: { name: 'pwr-desktop', version: '0.1.0' },
       });
       this.chatHome.set(hello?._meta?.pwr?.chatHome ?? '');
@@ -660,6 +670,7 @@ export class AgentStore {
       at: Date.now(),
     });
     this.segment += 1;
+    this.prefill.set(null);
     this.turnActive.set(true);
     this.outcome.set('');
     this.runOutcome.set(null);
@@ -688,10 +699,23 @@ export class AgentStore {
     }
   }
 
-  /**
-   * Picks the work up where the core stopped it: offered only once the core's
-   * own automatic retries are spent, or a turn paused at its action budget.
-   */
+  /** Requests owner approval for each named acceptance artifact before resuming. */
+  async reviewAcceptanceChanges(): Promise<void> {
+    const sessionId = this.sessionId();
+    const outcome = this.runOutcome();
+    if (!sessionId || this.turnActive() || this.reviewingAcceptance() || !outcome?.acceptanceChanges?.length) return;
+    this.reviewingAcceptance.set(true);
+    try {
+      for (const path of outcome.acceptanceChanges) {
+        const reply = await this.request('_pwr/acceptance_authorize', { sessionId, path });
+        if (this.sessionId() !== sessionId || !reply.allowed) return;
+      }
+      this.runOutcome.set({ ...outcome, acceptanceChanges: [], text: 'Acceptance changes authorized. Continue to run verification again.', action: 'continue', tone: 'paused' });
+    } catch (error) { this.notice('Acceptance authorization failed', String(error), 'error'); }
+    finally { this.reviewingAcceptance.set(false); }
+  }
+
+  /** Picks up a paused turn once the core's own automatic retries are spent. */
   continueRun(): Promise<void> {
     const outcome = this.runOutcome();
     if (!outcome?.action || this.turnActive()) return Promise.resolve();
@@ -893,6 +917,19 @@ export class AgentStore {
       }
       return;
     }
+    if (message.method === '_pwr/model_progress') {
+      const { sessionId, prefill } = message.params ?? {};
+      const { processed, total } = prefill ?? {};
+      if (
+        (sessionId === undefined || sessionId === this.sessionId()) &&
+        typeof processed === 'number' &&
+        typeof total === 'number' &&
+        total > 0
+      ) {
+        this.prefill.set({ processed: Math.min(processed, total), total, at: Date.now() });
+      }
+      return;
+    }
     if (message.method === '_pwr/compacted') {
       this.onCompacted(message.params ?? {});
       return;
@@ -931,6 +968,14 @@ export class AgentStore {
   }
 
   private serverRequest(message: any): void {
+    // Asked only after the person allowed it in the permission dialog.
+    if (message.method === '_pwr/terminal/read') {
+      const lines = Math.max(1, Math.min(1000, Number(message.params?.lines) || 200));
+      const terminals = message.params?.sessionId === this.sessionId() ? this.terminalReader?.(lines) ?? [] : [];
+      void bridge.send({ jsonrpc: '2.0', id: message.id, result: { terminals } });
+      return;
+    }
+
     if (message.method === 'session/request_permission') {
       this.permission.set({
         id: message.id,
@@ -1086,7 +1131,13 @@ export class AgentStore {
     }
     const entries = this.timeline();
     const live = [...entries].reverse().find((entry) => entry.kind === 'reply' && entry.status === 'live');
-    if (live && live.text.trim() === text.trim()) {
+    if (live) {
+      // The final core message is authoritative. It can include a check
+      // verdict added after the streamed model answer, so keeping both would
+      // show the answer twice (once inside the work phase).
+      this.timeline.update((current) => current.map((entry) => entry.key === live.key
+        ? { ...entry, text, status: 'done', raw: update ? [...(entry.raw ?? []), update] : entry.raw }
+        : entry));
       this.settleLive();
       return;
     }
@@ -1095,6 +1146,7 @@ export class AgentStore {
   }
 
   private finish(reply: any): void {
+    this.prefill.set(null);
     const outcome = runOutcome(reply, false);
     // The core ends the answer with its own reason for stopping. It becomes
     // the run's stop state -- the phases say it in their own words, the steps

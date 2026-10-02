@@ -13,6 +13,60 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — Preserve the core contract after the Stage frontend rollback
+
+**IMPLEMENTED frontend compatibility repairs; diagnostic battery in progress.**
+Comparing the restored frontend with the pre-rollback `167bf7f7` identified
+functional regressions beyond the visual changes. Stage's CSS, layout, assets
+and dependencies remain intact. Memory proposals now retain their originating
+workspace and scope, show that origin, reject unknown workspace origins and
+never populate another workspace's memory view. Two restored regressions fail
+before and pass after repair.
+
+The frontend again reads typed verification/confinement evidence, distinguishes
+unavailable, zero-test and failed checks, retains terminal retry/continue
+controls and marks an undeclared acceptance contract as unverified. Named
+acceptance changes offer the core's human authorization dialog; a refusal
+keeps them blocked. Repeated review clicks do not queue duplicate dialogs, and
+a response from an old session cannot populate a new session. Streamed replies
+are replaced by the authoritative final reply with its verification verdict.
+Core prefill progress appears within Stage's existing working indicator.
+
+The current Stage terminal stays a single shell. Its bounded plain-text buffer
+is again available through the native client's read-only terminal capability,
+only after the core's explicit TerminalRead approval (including in Full).
+Requests from other sessions and buffers from other workspaces return empty.
+Closing while shell startup is pending invalidates that startup and closes a
+late-created shell. These behaviors are covered by protocol/buffer and
+controlled asynchronous regressions; they do not establish native timing
+coverage. The first imported memory regression referenced a type absent on
+Stage; its test-only cast allowed the actual behavioral red run, and the type
+fixture failure is retained separately.
+
+Frontend validation: **103 tests in 15 files pass**, with the behavioral red
+logs retained. Production build and `git diff --check` pass. There is no core,
+sidecar or sampling change in this repair, so the real-model battery remains
+pinned to `7d024539`. Frontend builds/tests overlap the diagnostic trials;
+latency comparisons are not claimed. A native walk of `7d024539` already
+confirmed Goal and Full → Auto → Ask / Full → Ask against the saved core
+configuration, using empty model roots and a disposable workspace. The app
+quit cleanly and personal last-workspace/trust files were restored. The new
+frontend bundle still needs its native walk.
+
+First corrected observations: all three fresh Quick Calibrations pass their
+agent-critical checks. Qwen3.5-9B's owner-acceptance ledger trial passes the
+independent verifier in 19.4 minutes, 40 actions and eight failed/refused
+attempts, but **Goal is unverified**: two added test files changed the frozen
+acceptance contract and require human review. Gemma 4 12B fails the same trial
+in 2.8 minutes with two actions and protocol/repetition termination. The 30B
+trial is still running. These are single unseeded development observations,
+not model rankings or an isolated before/after improvement claim; the owner
+acceptance declaration differs from the earlier ledger fixture.
+
+Raw logs, native walk, source/model manifests and trial records:
+`~/Desktop/pwr-evidence/batteries/20261002-stage-frontend/` and
+`~/Desktop/pwr-evidence/runs/battery-20261002-fixed-*/`.
+
 ## 2026-10-02 — Ask before a dependency installer writes its protected tree
 
 **IMPLEMENTED; real-model follow-up pending.** During the pre-fix 9B React

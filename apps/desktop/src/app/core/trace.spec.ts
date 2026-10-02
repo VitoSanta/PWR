@@ -15,6 +15,48 @@ const tool = (toolKind: string, text: string, extra: Partial<Entry> = {}) =>
   entry('tool', { toolKind, text, title: `${toolKind === 'execute' ? 'run_command' : 'read_file ' + text}`, ...extra });
 
 describe('the execution trace', () => {
+  it('keeps a goal without an owner acceptance contract paused', () => {
+    const outcome = runOutcome({ _meta: { pwr: { goal: { enabled: true, needsAcceptance: true }, outcome: { checks: { status: 'passed' }, acceptance: { status: 'not_declared' } } } } }, false);
+    expect(outcome.tone).toBe('paused');
+    expect(outcome.text).toContain('no acceptance contract');
+  });
+  it('shows zero-test evidence even when a legacy goal requests acceptance', () => {
+    const outcome = runOutcome({ _meta: { pwr: { goal: { enabled: true, needsAcceptance: true }, outcome: { checks: { status: 'ran_zero_tests' }, acceptance: { status: 'not_declared' } } } } }, false);
+    expect(outcome.tone).toBe('paused');
+    expect(outcome.text).toContain('zero tests');
+  });
+
+  it('keeps retry and continuation available when the terminal cause also has failed checks', () => {
+    for (const terminal of ['protocol', 'provider', 'budget']) {
+      const outcome = runOutcome({ _meta: { pwr: { terminal, outcome: { checks: { status: 'failed' }, acceptance: { status: 'not_declared' } } } } }, false);
+      expect(outcome.action).toBe(terminal === 'budget' ? 'continue' : 'retry');
+    }
+  });
+
+  it('does not infer work delivery from unavailable checks', () => {
+    for (const delivered of [false, true, undefined]) {
+      const result = runOutcome({ _meta: { pwr: { outcome: { delivered, checks: { status: 'unavailable', why: 'no checks' } } } } }, false);
+      expect(result.text).not.toContain('Work delivered');
+      expect(result.text).toContain('unavailable');
+    }
+  });
+
+  it('uses typed verification evidence and exposes unconfined execution', () => {
+    const reply = { _meta: { pwr: { goal: { verified: true }, outcome: { checks: { status: 'ran_zero_tests' }, acceptance: { status: 'not_declared' }, confinement: { status: 'unconfined' } } } } };
+    expect(runOutcome(reply, false)).toMatchObject({ tone: 'paused', action: null, confinement: 'Unconfined: commands run with your full rights' });
+    expect(runOutcome(reply, false).text).toContain('zero tests');
+  });
+
+  it('never labels changed acceptance evidence as verified', () => {
+    expect(runOutcome({ _meta: { pwr: { terminal: 'contract_changed', goal: { verified: true, contractChanged: ['tests/acceptance.rs'] } } } }, false)).toMatchObject({ tone: 'failed', detail: 'tests/acceptance.rs', action: null });
+  });
+  it('shows which goal budget stopped the run', () => {
+    const outcome = runOutcome({ _meta: { pwr: { terminal: 'budget', totalActions: 5, goal: { guardReached: true, reason: 'Goal mode paused after 60 minutes.' } } } }, false);
+    expect(outcome.detail).toBe('Goal mode paused after 60 minutes.');
+    expect(outcome.tone).toBe('paused');
+    expect(outcome.action).toBe('continue');
+  });
+
   beforeEach(() => (clock = 0));
 
   it('names phases by what the work did', () => {

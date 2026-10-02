@@ -2,7 +2,7 @@ import { Injectable, OnDestroy, effect, inject, signal } from '@angular/core';
 import { ThemeService } from './theme';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
-import { AgentStore } from './agent.store';
+import { AgentStore, TerminalSnapshot } from './agent.store';
 import { bridge, inTauri } from './bridge';
 
 /**
@@ -17,6 +17,7 @@ export class TerminalService implements OnDestroy {
   private fit?: FitAddon;
   private id: number | null = null;
   private workspace = '';
+  private startup = 0;
   private unlisten: Array<() => void> = [];
   /** The element xterm draws into, moved between hosts. */
   private readonly element = document.createElement('div');
@@ -24,6 +25,7 @@ export class TerminalService implements OnDestroy {
   readonly error = signal('');
 
   constructor() {
+    this.agent.terminalReader = (lines) => this.read(lines);
     // The terminal's colours follow the app's theme, read once it is applied.
     const theme = inject(ThemeService);
     effect(() => {
@@ -70,6 +72,7 @@ export class TerminalService implements OnDestroy {
 
   /** Ends the shell; the next attach starts a new one. */
   close(): void {
+    this.startup++;
     if (this.id !== null) void bridge.termClose(this.id);
     for (const stop of this.unlisten) stop();
     this.unlisten = [];
@@ -88,15 +91,34 @@ export class TerminalService implements OnDestroy {
     if (host) await this.attach(host);
   }
 
+  /** Current workspace terminal buffer as text, preserving wrapped rows. */
+  read(lines: number): TerminalSnapshot[] {
+    if (!this.term || this.workspace !== this.agent.workspace()) return [];
+    const count = Math.floor(Math.max(1, Math.min(1000, Number(lines) || 200)));
+    const buffer = this.term.buffer.active;
+    const rows: string[] = [];
+    for (let row = Math.max(0, buffer.length - count); row < buffer.length; row++) {
+      const line = buffer.getLine(row);
+      const text = line?.translateToString(true) ?? '';
+      if (line?.isWrapped && rows.length) rows[rows.length - 1] += text;
+      else rows.push(text);
+    }
+    while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
+    return [{ title: 'Terminal', running: this.state() === 'running', text: rows.join('\n') }];
+  }
+
   ngOnDestroy(): void {
+    this.agent.terminalReader = null;
     this.close();
   }
 
   private async start(workspace: string): Promise<void> {
+    const startup = ++this.startup;
     this.state.set('starting');
     this.error.set('');
     this.workspace = workspace;
     const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
+    if (startup !== this.startup) return;
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: token('--mono', 'ui-monospace, Menlo, monospace'),
@@ -117,22 +139,32 @@ export class TerminalService implements OnDestroy {
     }
     try {
       const id = await bridge.termOpen(workspace, term.cols || 80, term.rows || 24);
+      if (startup !== this.startup) {
+        await bridge.termClose(id);
+        return;
+      }
       this.id = id;
       term.onData((data) => void bridge.termWrite(id, data));
-      this.unlisten.push(
+      const listeners = [
         await bridge.onTermOutput((output) => {
-          if (output.id === id) term.write(output.data);
+          if (output.id === id && startup === this.startup) term.write(output.data);
         }),
         await bridge.onTermExit((exited) => {
-          if (exited !== id) return;
+          if (exited !== id || startup !== this.startup) return;
           this.id = null;
           this.state.set('exited');
           term.write('\r\n\x1b[2m[shell ended]\x1b[0m\r\n');
         }),
-      );
+      ];
+      if (startup !== this.startup) {
+        for (const stop of listeners) stop();
+        return;
+      }
+      this.unlisten.push(...listeners);
       this.state.set('running');
       term.focus();
     } catch (error) {
+      if (startup !== this.startup) return;
       this.state.set('exited');
       this.error.set(String(error).replace(/^Error: /, ''));
     }

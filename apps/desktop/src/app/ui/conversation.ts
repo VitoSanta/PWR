@@ -186,6 +186,8 @@ type Item =
           <div [class]="'outcome tone-' + outcome.tone" role="status">
             <pa-icon [name]="outcomeIcon(outcome.tone)" [size]="14" />
             <span>{{ outcome.text }}</span>
+            @if (outcome.confinement) { <span class="t-meta">{{ outcome.confinement }}</span> }
+            @if (outcome.acceptanceChanges?.length) { <button class="btn btn-sm" (click)="store.reviewAcceptanceChanges()" [disabled]="store.reviewingAcceptance() || store.turnActive()">Review acceptance changes</button> }
             @if (outcome.action) {
               <button class="btn btn-sm" (click)="store.continueRun()">
                 <pa-icon [name]="outcome.action === 'retry' ? 'refresh' : 'arrow-right'" [size]="14" />
@@ -244,6 +246,11 @@ export class Conversation {
   protected readonly workingLabel = computed(() => {
     const quiet = Math.floor((this.now() - this.store.lastEventAt()) / 1000);
     const chat = this.store.chatMode();
+    const reading = this.store.prefill();
+    if (reading && this.now() - reading.at < 60_000) {
+      const percent = Math.min(99, Math.floor((reading.processed / reading.total) * 100));
+      return `Reading the conversation · ${percent}% (${reading.processed.toLocaleString('en-US')} of ${reading.total.toLocaleString('en-US')} tokens)`;
+    }
     if (quiet < 5) return chat ? 'Thinking' : 'Working';
     const minutes = Math.floor(quiet / 60);
     const seconds = String(quiet % 60).padStart(2, '0');
