@@ -1304,3 +1304,81 @@ async fn a_command_cannot_print_the_sandbox_error_to_escape_confinement() {
         assert!(!result.sandboxed);
     }
 }
+
+/// A command that starts something in the background and returns must not leave
+/// it running: the process would be owned by nothing and hold its port for as
+/// long as the machine is up (an `ng serve` was found 26 minutes later).
+#[test]
+fn a_command_does_not_leave_a_background_process_behind() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands = vec!["sh".into()];
+    let started = std::time::Instant::now();
+    let output = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(run_command(
+            &policy,
+            "sh",
+            &["-c".into(), "sleep 300 & echo $!".into()],
+        ))
+        .unwrap();
+    // It returned at once: the background job does not hold the command open.
+    assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    let pid = output.stdout.trim().to_owned();
+    assert!(
+        pid.chars().all(|c| c.is_ascii_digit()) && !pid.is_empty(),
+        "{pid:?}"
+    );
+    // The kill is a signal: give the system a moment to act on it.
+    let mut alive = true;
+    for _ in 0..40 {
+        alive = std::process::Command::new("/bin/kill")
+            .args(["-0", &pid])
+            .output()
+            .map(|result| result.status.success())
+            .unwrap_or(false);
+        if !alive {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(!alive, "process {pid} outlived the command that started it");
+}
+
+/// Measured 2026-10-01: in Full access an agent ran `pkill -f 'ng serve'` and
+/// killed the dev server of PWR's own window.
+#[test]
+fn killing_by_name_is_refused_where_no_sandbox_stops_it() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands = vec!["sh".into(), "pkill".into(), "killall".into()];
+    policy.sandbox = SandboxPolicy::FullAccess;
+    let run = |program: &str, args: &[&str]| {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(run_command(
+                &policy,
+                program,
+                &args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>(),
+            ))
+    };
+    for (program, args) in [
+        ("pkill", vec!["-f", "ng serve"]),
+        ("/usr/bin/killall", vec!["node"]),
+        (
+            "sh",
+            vec!["-c", "pkill -f 'ng serve' 2>/dev/null; sleep 1; echo done"],
+        ),
+        ("sh", vec!["-c", "echo a && /usr/bin/pkill node"]),
+    ] {
+        let refused = run(program, &args);
+        assert!(
+            matches!(&refused, Err(ToolError::Denied(why)) if why.contains("stop_service")),
+            "{program} {args:?}: {refused:?}"
+        );
+    }
+    // A shell that does not kill by name still runs, and so does a name that
+    // only contains the word.
+    assert!(run("sh", &["-c", "echo pkillfoo is not a command"]).is_ok());
+    assert!(run("sh", &["-c", "echo done"]).is_ok());
+}

@@ -2412,7 +2412,7 @@ impl ToolPolicy {
             r#"(allow file-write* (regex #"{MSBUILD_NODE_SOCKET}"))"#
         ));
         Some(format!(
-            "(version 1)(allow default)(deny file-write*)(allow file-write* (subpath \"{root}\")){runtime_writes}{harness_state_writes}(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\")){reads}{secrets}{network}"
+            "(version 1)(allow default)(deny signal)(allow signal (target same-sandbox))(deny file-write*)(allow file-write* (subpath \"{root}\")){runtime_writes}{harness_state_writes}(allow file-write-data (literal \"/dev/null\") (literal \"/dev/stdout\") (literal \"/dev/stderr\")){reads}{secrets}{network}"
         ))
     }
     /// Whether a command will actually be sandboxed, refusing if it must be
@@ -6513,6 +6513,26 @@ fn runs_until_stopped(executable: &str, args: &[String]) -> bool {
     }
 }
 
+/// Whether a command kills processes by name: `pkill` or `killall` as the
+/// program, or inside the script of a shell given with `-c`.
+fn kills_by_name(executable: &str, args: &[String]) -> bool {
+    let word = |text: &str| {
+        text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/'))
+            .any(|token| {
+                let name = token.rsplit('/').next().unwrap_or(token);
+                matches!(name, "pkill" | "killall")
+            })
+    };
+    let program = executable.rsplit('/').next().unwrap_or(executable);
+    if matches!(program, "pkill" | "killall") {
+        return true;
+    }
+    matches!(program, "sh" | "bash" | "zsh" | "dash")
+        && args
+            .windows(2)
+            .any(|pair| pair[0] == "-c" && word(&pair[1]))
+}
+
 /// The same, run from a workspace-relative directory.
 pub async fn run_command_in(
     policy: &ToolPolicy,
@@ -6523,6 +6543,25 @@ pub async fn run_command_in(
 ) -> Result<ToolResult, ToolError> {
     if let Some(refusal) = shell_syntax_refusal(executable, args) {
         return Err(ToolError::Denied(refusal));
+    }
+    // Without a sandbox, nothing stops a command from killing what it matches
+    // by name -- the engineer's own dev server, or PWR's. Measured 2026-10-01:
+    // an agent in Full access ran `pkill -f 'ng serve'` to free a port and killed
+    // the server of PWR's own window, which then showed the site it was building.
+    // (Inside the sandbox the profile denies signalling any process it did not
+    // start.)
+    if matches!(
+        policy.sandbox,
+        SandboxPolicy::FullAccess | SandboxPolicy::Disabled
+    ) && kills_by_name(executable, args)
+    {
+        return Err(ToolError::Denied(
+            "PWR does not kill processes by name (`pkill`, `killall`): the match can be the \
+             engineer's own server, or PWR's own window. Stop what you started with \
+             stop_service; if a port is taken, pass another port to the program, or tell the \
+             engineer which process holds it."
+                .to_owned(),
+        ));
     }
     if runs_until_stopped(executable, args) {
         return Err(ToolError::Denied(format!(
@@ -6844,7 +6883,14 @@ async fn run_command_once(
             )));
         }
     };
-    process_group.disarm();
+    // Whatever the command left running in its group is stopped with it. A
+    // command that starts a server with `&` and returns leaves that server
+    // behind, owned by nothing, holding a port nobody can see: measured
+    // 2026-10-01, an `ng serve --port 4300` still running 26 minutes after the
+    // command that started it. A server is started with start_service, which
+    // has an owner and a stop. Done before the pipes are read, too: a
+    // background process holding them open made that wait forever.
+    process_group.terminate();
     let removed = git_config.settle();
     let stdout_capture = stdout_task
         .await
@@ -7078,10 +7124,6 @@ struct ProcessGroupGuard {
 impl ProcessGroupGuard {
     fn new(pid: Option<u32>) -> Self {
         Self { pid }
-    }
-
-    fn disarm(&mut self) {
-        self.pid = None;
     }
 
     fn terminate(&mut self) {
