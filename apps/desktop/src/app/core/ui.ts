@@ -32,8 +32,6 @@ export const SHORTCUTS = {
 export class UiStore {
   readonly settingsOpen = signal(false);
   readonly paletteOpen = signal(false);
-  /** The conversation switcher, in the shells that have no sidebar (⌘B opens it). */
-  readonly sessionsOpen = signal(false);
   /** Goal mode and the permissions mode, open beside the control that asked for them. */
   readonly runControls = signal<HTMLElement | null>(null);
 }

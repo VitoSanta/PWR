@@ -296,31 +296,58 @@ whether a 4-bit model stays coherent near 196k tokens is **unmeasured**.
 
 ---
 
-## D-2026-10-02-4 — A project generated into a new folder of an empty workspace moves into its root
+## D-2026-10-02-4 — The first folder that becomes a project in an empty workspace is its root
 
 **Decision (owner's requirement, 2026-10-02: "se io apro la folder Libra lì
 dentro deve creare il progetto").** In PWR's conversation harness (not the
-W8.3 minimal control), after a command that succeeded, when the workspace held
-no project before it (no manifest at the root or in a folder directly under
-it), the command created exactly one new folder, that folder holds a manifest,
-none of its names exists at the root, and the person's request does not name
-the folder, PWR moves the folder's contents into the root, removes it, records
-`workspace.moved_to_root` and tells the model. Later paths written under the
-moved folder, relative or absolute, are read as the root's for the rest of the
-conversation (persisted in the checkpoint).
+W8.3 minimal control), while the workspace holds no project (no manifest at the
+root or in a folder directly under it), the first folder directly under the
+root that becomes one is taken as the root: after a successful command that
+leaves a manifest in exactly one such folder, or before a manifest is written
+in one (`shop/package.json`). What it holds moves into the root and the folder
+goes -- not when the person's request names the folder, when two folders became
+projects at once, or when a name in it already exists at the root. The move is
+recorded as `workspace.moved_to_root` and kept in the checkpoint; later paths
+under the folder -- relative, absolute, `cwd`, and in a `sh -c` script (`cd
+./shop && ...`, `ls shop/src`) -- are read as the root's, and the model is told.
 
-**Evidence.** Prompt-only guidance (2026-10-01) did not hold: in Libra the
-model ran `npm exec npm create next-app@latest libro-ecommerce` and wrote every
-file under `libro-ecommerce/`. Pointing a generator at `.` is not a reliable
-alternative in a PWR workspace: create-next-app refuses a folder holding
-`.pwr/` and a folder whose name is not a valid npm name (`Libra`). Regressions:
-`scaffold` unit tests and the two-loops Libra replay (project in the root,
-absolute and `cwd` paths redirected, audit event; the minimal control unchanged).
+**Evidence.** Prompt-only guidance (2026-10-01) did not hold. First Libra run:
+the model ran `npm exec npm create next-app@latest libro-ecommerce`; pointing a
+generator at `.` is not a reliable alternative in a PWR workspace
+(create-next-app refuses `.pwr/` and the npm-invalid name `Libra`). Second run,
+in a fresh empty folder, on the first version of this rule (generators only):
+`make_directory libro-ecommerce`, `mkdir -p ./libro-ecommerce/...`, 13 files
+written under it and `cd ./libro-ecommerce && npm install` -- no generator, so
+nothing moved. Regressions: `scaffold` unit tests and two-loops replays of both
+runs (project in the root, paths and scripts redirected, audit event; the
+minimal control unchanged).
 
-**Not covered.** A subfolder built by hand (`make_directory` then writes), a
-generator writing beside existing files with the same names (nothing is moved),
-and rewinding the move. Model-side effect on real runs is **UNKNOWN** until the
-owner repeats the manual task.
+**Not covered.** A project that never gets a manifest (a static site in
+`website/`), a manifest deeper than one folder (`shop/web/package.json`),
+rewinding the move. Model-side effect on real runs is **UNKNOWN** until the
+owner repeats the task.
+
+---
+
+## D-2026-10-02-5 — The model may read the person's terminal, once they allow it
+
+**Decision (owner, 2026-10-02).** A conversation in the desktop offers
+`read_terminal`: the last lines of each of the person's terminal tabs, read from
+xterm's buffer (no colour codes), redacted like command output, read-only -- it
+cannot type there. The person is asked the first time in a conversation
+(`terminal_read`, with *Allow for this session*); no permission mode grants it,
+Full access included, because the terminal is their own shell. Offered only
+when the client says in `initialize` it can answer (`_meta.pwr.readTerminal`);
+the core asks with `_pwr/terminal/read` and waits at most 10 seconds.
+
+**Why.** Testing a Next.js site the model had built, the owner's dev server
+in the app's Terminal card showed `Module not found: Can't resolve
+'./globals.css'`; the model had no way to see it ("se gli dicessi ho un errore
+di build lui può controllare il terminale?"). Options offered: a tool asked
+once per conversation (chosen), a tool always allowed, or a manual "send to the
+model" button.
+
+**Reversible by** the owner. Model use of the tool is unmeasured.
 
 ---
 

@@ -40,7 +40,7 @@ comes from.
 The first message is the **system prompt**, rebuilt each turn
 (`compose_chat_turn`, `crates/pwr-cli/src/main.rs`) from:
 
-- PWR's instructions and harness rules (`chat_system_prompt_for`), including that a new project goes directly in the repository root and not in a new subfolder, unless asked (added 2026-10-01: every model scaffolded `ng new <name>` into a subfolder), and that a generator insisting on its own folder is moved into the root by PWR while the workspace holds no project ([D-2026-10-02-4](decisions.md), `crates/pwr-orchestrator/src/scaffold.rs`), including the workspace's reference folders;
+- PWR's instructions and harness rules (`chat_system_prompt_for`), including that a new project goes directly in the repository root and not in a new subfolder, unless asked (added 2026-10-01: every model scaffolded `ng new <name>` into a subfolder), and that, while the workspace holds no project, the first folder that becomes one is taken as the root by PWR ([D-2026-10-02-4](decisions.md), `crates/pwr-orchestrator/src/scaffold.rs`), including the workspace's reference folders;
 - the deployment's own suffix from its profile (a required section: a model
   switched mid-conversation gets its own suffix);
 - the personal block (`personal::prompt_block`, bounded to 8,000 bytes):

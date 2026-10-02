@@ -43,7 +43,8 @@ itself — a revert asks the core.
 - **Permission questions**: allow once, for the session, or reject, with the
   exact command.
 - **Workbench cards**: *Review* (per-file diffs, Revert one or all), *Terminal*
-  (several shells as tabs), *Web preview* (the app this machine serves on
+  (several shells as tabs; the model can read their recent output with
+  `read_terminal` once you allow it, never type in them), *Web preview* (the app this machine serves on
   localhost), *Files*, *Knowledge* (the project graph in 3D, with what was
   done), *Plan & checks* (Verify, Report, Diagnose), *Activity* (background
   work and the core log).

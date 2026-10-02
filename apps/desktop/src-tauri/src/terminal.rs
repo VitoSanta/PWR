@@ -3,8 +3,11 @@
 //!
 //! This is the person's shell with the person's rights, like any terminal
 //! app -- not the model's `run_command`, which goes through the core's policy
-//! and sandbox. The model has no way to reach it: these commands are called
-//! only by the interface, and nothing the core sends is written to it.
+//! and sandbox. The model cannot type in it: these commands are called only
+//! by the interface, and nothing the core sends is written to it. What it
+//! printed can be read back to the model (`read_terminal`), from xterm's
+//! buffer in the interface, only once the person allows it in the permission
+//! dialog.
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;

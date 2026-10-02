@@ -23,6 +23,13 @@ const VISIBILITY_KEY = 'pwr:trace-visibility';
 
 type Pending = { resolve: (value: any) => void; reject: (error: Error) => void };
 
+/** One terminal tab as the model may read it: its last lines, as text. */
+export interface TerminalSnapshot {
+  title: string;
+  running: boolean;
+  text: string;
+}
+
 /**
  * The app's whole state, as signals, fed by `pwr serve --stdio`.
  *
@@ -106,6 +113,11 @@ export class AgentStore {
   /** The Evidence command that is running, if any. */
   readonly commandRunning = signal<string | null>(null);
   readonly permission = signal<PermissionRequest | null>(null);
+  /**
+   * The person's terminal tabs, for `_pwr/terminal/read`: set by the terminal
+   * service, which holds them. Unset while no Terminal card was opened.
+   */
+  terminalReader: ((lines: number) => TerminalSnapshot[]) | null = null;
   /**
    * Tokens the conversation occupies and the window: the engine's count after
    * a reply, or -- `estimated` -- the core's estimate of the prompt it is about
@@ -320,7 +332,9 @@ export class AgentStore {
       this.corePath.set(started.core);
       const hello = await this.request('initialize', {
         protocolVersion: 1,
-        clientCapabilities: {},
+        // The app can read its terminal tabs back to the model, once the
+        // person allows it; outside the app there are none.
+        clientCapabilities: inTauri() ? { _meta: { pwr: { readTerminal: true } } } : {},
         clientInfo: { name: 'pwr-desktop', version: '0.1.0' },
       });
       this.chatHome.set(hello?._meta?.pwr?.chatHome ?? '');
@@ -978,6 +992,13 @@ export class AgentStore {
   }
 
   private serverRequest(message: any): void {
+    // Asked only after the person allowed it in the permission dialog.
+    if (message.method === '_pwr/terminal/read') {
+      const lines = Math.max(1, Math.min(1000, Number(message.params?.lines) || 200));
+      const terminals = this.terminalReader?.(lines) ?? [];
+      void bridge.send({ jsonrpc: '2.0', id: message.id, result: { terminals } });
+      return;
+    }
     if (message.method === 'session/request_permission') {
       this.permission.set({
         id: message.id,

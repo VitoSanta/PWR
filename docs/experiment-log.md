@@ -769,3 +769,28 @@ a name collides; later paths under it (relative, absolute, `cwd`) are read as
 the root's and the model is told. Unit tests and a two-loops replay of the Libra
 sequence; the minimal control is unchanged. Real-model effect **UNKNOWN** until
 the owner repeats the task.
+
+## 2026-10-02 — The first folder that becomes a project is the root, by hand too (measurement-changing)
+
+**MEASURED** in the owner's third Libra session (a fresh empty folder
+`Libra/libra`, build `2a639ab4`): no generator this time. The model made
+`libro-ecommerce/` (`make_directory`, then `mkdir -p` in `sh -c`), wrote 13
+files under it, ran `cd ./libro-ecommerce && npm install ...` (twice stopped at
+the 120 s command timeout), and the generator-only rule moved nothing; the
+person's dev server then failed on imports the model never wrote. **IMPLEMENTED**
+(D-2026-10-02-4 revised): while the root holds no project, the first folder that
+becomes one -- a manifest left by a command, or about to be written -- is taken
+as the root; `cd ./folder`, `folder/...` and its absolute path inside `sh -c`
+scripts are read as the root's. Two-loops replay of this session. Real-model
+effect **UNKNOWN**.
+
+## 2026-10-02 — `read_terminal`: the person's terminal, read-only (behaviour-changing)
+
+At the owner's request (D-2026-10-02-5), a desktop conversation can read the
+recent output of the person's terminal tabs, after a once-per-conversation
+permission; text from xterm's buffer, redacted, at most 1,000 lines per tab.
+Tests: the person asked once for two reads, secrets redacted, refusal told to
+the model, no tool without a declaring client (two-loops); the round trip
+through `pwr serve` with and without the capability; the desktop's answer and
+its bounds. No model has used it yet: **UNKNOWN** whether models call it when
+told about an error.

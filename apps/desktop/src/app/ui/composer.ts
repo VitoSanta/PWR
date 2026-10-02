@@ -14,24 +14,26 @@ import {
 import { UnlistenFn } from '@tauri-apps/api/event';
 import { AgentStore } from '../core/agent.store';
 import { inTauri } from '../core/bridge';
+import { PERMISSION_MODES } from '../core/model';
 import { UiStore, roveFocus } from '../core/ui';
+import { ContextMeter } from './context-meter';
 import { fileKind } from './conversation';
 import { Icon } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
+import { ModelPicker } from './model-picker';
 
-const MIN_HEIGHT = 36;
+const MIN_HEIGHT = 26;
 const MAX_HEIGHT = 260;
 
 @Component({
   selector: 'pa-composer',
-  imports: [Icon, Tooltip, Popover],
+  imports: [ContextMeter, Icon, ModelPicker, Tooltip, Popover],
   template: `
     <form
       class="composer"
       [class.busy]="store.turnActive()"
       [class.dropping]="dropping()"
-      [class.is-expanded]="expanded() || store.queue().length > 0 || store.attachments().length > 0"
       (submit)="$event.preventDefault(); submit()"
       aria-label="Message"
     >
@@ -154,7 +156,17 @@ const MAX_HEIGHT = 260;
           }
         </div>
       }
-      <div class="composer-attach">
+      <textarea
+        #box
+        class="composer-input"
+        [value]="draft()"
+        (input)="onInput(box)"
+        (keydown.enter)="onEnter($event)"
+        [placeholder]="placeholder()"
+        aria-label="Message"
+        rows="1"
+      ></textarea>
+      <div class="composer-bar">
         <button
           #attachButton
           type="button"
@@ -191,19 +203,30 @@ const MAX_HEIGHT = 260;
             </button>
           </pa-popover>
         }
-      </div>
-      <textarea
-        #box
-        class="composer-input"
-        [value]="draft()"
-        (input)="onInput(box)"
-        (keydown.enter)="onEnter($event)"
-        [placeholder]="placeholder()"
-        aria-label="Message"
-        rows="1"
-      ></textarea>
-      <div class="composer-bar">
         @if (!store.chatMode()) {
+          <!-- How PWR works: Goal mode and the permissions, always in sight. -->
+          <button
+            #goalChip
+            type="button"
+            class="mode-chip goal-chip"
+            [attr.aria-pressed]="store.goalMode()"
+            (click)="ui.runControls.set(ui.runControls() ? null : goalChip)"
+            aria-haspopup="dialog"
+            [paTooltip]="store.goalMode() ? 'Goal mode: keeps working until the goal is verified' : 'Goal mode is off'"
+          >
+            Goal
+          </button>
+          <button
+            #modeChip
+            type="button"
+            class="mode-chip"
+            [class.tone-warning]="store.permissionMode() === 'full'"
+            (click)="ui.runControls.set(ui.runControls() ? null : modeChip)"
+            aria-haspopup="dialog"
+            paTooltip="Permissions"
+          >
+            {{ permissionLabel() }}
+          </button>
           <!-- Full access says so itself; this is for a platform with no sandbox. -->
           @if (!store.sandboxed() && store.permissionMode() !== 'full') {
             <span
@@ -222,47 +245,29 @@ const MAX_HEIGHT = 260;
             <pa-icon name="lock" [size]="12" /> Read-only chat
           </span>
         }
-        @if (!store.chatMode() && (store.goalMode() || store.permissionMode() === 'full')) {
-          <!-- Only while one is on: a state that changes what happens next stays in sight. -->
-          <button
-            #runNote
-            type="button"
-            class="run-note"
-            [class.tone-warning]="store.permissionMode() === 'full'"
-            (click)="ui.runControls.set(ui.runControls() ? null : runNote)"
-            [attr.aria-expanded]="!!ui.runControls()"
-            aria-haspopup="dialog"
-            paTooltip="Goal mode and permissions"
-            animate.enter="anim-pop-in"
-            animate.leave="anim-pop-out"
-          >
-            <pa-icon name="zap" [size]="12" />
-            {{ store.goalMode() && store.permissionMode() === 'full' ? 'Goal · Full access' : store.goalMode() ? 'Goal' : 'Full access' }}
-          </button>
-        }
         <span class="spacer"></span>
-        <span class="composer-hint" aria-hidden="true"
-          ><span class="kbd">↵</span> send <span class="kbd">⇧↵</span> new line</span
-        >
+        <pa-model-picker side="top" align="end" />
+        <pa-context-meter side="top" align="end" />
         @if (store.turnActive()) {
           <button
             type="button"
-            class="icon-btn icon-btn-outline composer-stop"
+            class="composer-send composer-stop"
             (click)="store.cancel()"
             aria-label="Stop"
             paTooltip="Stop this turn"
           >
             <pa-icon name="stop" [size]="16" />
           </button>
-          <button
-            type="submit"
-            class="composer-send"
-            [disabled]="!draft().trim()"
-            aria-label="Queue message"
-            paTooltip="Queue for when this turn ends"
-          >
-            <pa-icon name="list-plus" [size]="16" />
-          </button>
+          @if (draft().trim()) {
+            <button
+              type="submit"
+              class="composer-send"
+              aria-label="Queue message"
+              paTooltip="Queue for when this turn ends"
+            >
+              <pa-icon name="list-plus" [size]="16" />
+            </button>
+          }
         } @else {
           <button
             type="submit"
@@ -283,7 +288,6 @@ export class Composer implements OnInit, OnDestroy {
   protected readonly store = inject(AgentStore);
   protected readonly ui = inject(UiStore);
   protected readonly attachmentMenu = signal(false);
-  protected readonly expanded = signal(false);
 
   protected attach(kind: 'images' | 'files' | 'folder'): void {
     this.attachmentMenu.set(false);
@@ -301,7 +305,11 @@ export class Composer implements OnInit, OnDestroy {
       return 'Write the next message — it is queued until this turn ends…';
     if (this.store.chatMode())
       return 'Ask anything — attach files, folders or images for it to read…';
-    return 'Ask PWR to build, fix or explain something…';
+    return this.store.timeline().length ? 'Reply to PWR…' : 'Ask PWR to build, fix or explain something…';
+  }
+
+  protected permissionLabel(): string {
+    return PERMISSION_MODES.find((option) => option.mode === this.store.permissionMode())?.label ?? 'Permissions';
   }
   protected readonly draft = signal('');
   protected readonly editingQueued = signal<number | null>(null);
@@ -389,23 +397,6 @@ export class Composer implements OnInit, OnDestroy {
     // In a short window the box stops growing sooner, so the conversation
     // above it always keeps room.
     const max = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(window.innerHeight * 0.3)));
-    const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
-    // Once a draft wraps it keeps the tall layout until it is cleared. The
-    // tall layout gives the box the whole width, where the same text fits one
-    // line again; measured there, it flipped back to the pill, whose box is
-    // narrower -- narrower still beside the Goal or Full access note -- and the
-    // second line wrapped out of sight.
-    const was = this.expanded();
-    const tall = wanted > MIN_HEIGHT + 8 || (was && box.value.length > 0);
-    this.expanded.set(tall);
-    box.style.height = `${Math.min(wanted, max)}px`;
-    box.style.overflowY = wanted > max ? 'auto' : 'hidden';
-    // The layout changed the box's width: fit its height to the new one.
-    if (tall !== was) requestAnimationFrame(() => this.fit(box, max));
-  }
-
-  private fit(box: HTMLTextAreaElement, max: number): void {
-    box.style.height = 'auto';
     const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
     box.style.height = `${Math.min(wanted, max)}px`;
     box.style.overflowY = wanted > max ? 'auto' : 'hidden';

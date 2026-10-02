@@ -1385,8 +1385,10 @@ async fn attempt_action(
         ActionProposal::Remember { .. }
         | ActionProposal::RecallProject { .. }
         | ActionProposal::WikiQuery { .. }
-        | ActionProposal::LookAt { .. } => Err(ActionExecutionError::Invalid(
-            "remember, recall_project, wiki_query and look_at are available only in a conversation"
+        | ActionProposal::LookAt { .. }
+        | ActionProposal::ReadTerminal { .. } => Err(ActionExecutionError::Invalid(
+            "remember, recall_project, wiki_query, look_at and read_terminal are available only \
+             in a conversation"
                 .into(),
         )),
         // Reaching here means a person approved it: the approval gate runs
@@ -1830,6 +1832,19 @@ pub enum ApprovalDecision {
 #[async_trait::async_trait]
 pub trait ApprovalPrompt: Send + Sync {
     async fn ask(&self, approval: pwr_tools::Approval, description: &str) -> ApprovalDecision;
+
+    /// Whether whoever answers can also show the person's own terminal tabs
+    /// (the desktop's Terminal card): `read_terminal` is offered only then.
+    fn reads_terminal(&self) -> bool {
+        false
+    }
+
+    /// The last `lines` lines of each of the person's terminal tabs, as
+    /// `{"terminals": [{"title", "text"}]}`, read-only. Asked only after the
+    /// person allowed `TerminalRead`.
+    async fn read_terminal(&self, _lines: usize) -> Result<serde_json::Value, String> {
+        Err("this client has no terminal to read".into())
+    }
 }
 
 /// Refuses everything without asking.
@@ -2301,6 +2316,9 @@ fn action_fingerprint(action: &ActionProposal) -> String {
     match action {
         ActionProposal::Remember { text, .. } => format!("remember:{text}"),
         ActionProposal::LookAt { target, .. } => format!("look_at:{target}"),
+        ActionProposal::ReadTerminal { lines } => {
+            format!("read_terminal:{}", lines.unwrap_or_default())
+        }
         ActionProposal::RecallProject { name } => {
             format!("recall_project:{}", name.as_deref().unwrap_or_default())
         }

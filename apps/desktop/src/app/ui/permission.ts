@@ -66,6 +66,7 @@ export class Permission {
       container_engine: 'Uses Docker — containers run outside the sandbox',
       outside_sandbox: 'Runs a command outside the sandbox, with your full rights',
       outside_workspace: 'Reaches a folder outside the workspace',
+      terminal_read: 'Reads the recent output of your terminal tabs — read-only; it cannot type there',
     };
     return labels[kind] ?? kind.replaceAll('_', ' ');
   }

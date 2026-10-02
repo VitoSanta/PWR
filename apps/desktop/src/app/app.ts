@@ -14,15 +14,15 @@ import { Permission } from './ui/permission';
 import { EngineSetup } from './ui/engine-setup';
 import { Settings } from './ui/settings';
 import { WorkspaceTrust } from './ui/workspace-trust';
-import { FocusShell } from './ui/shells/focus';
+import { Shell } from './ui/shell';
 
 /**
- * The app: shared stores, dialogs and shortcuts under the Focus shell.
+ * The app: shared stores, dialogs and shortcuts around the shell.
  */
 @Component({
   selector: 'app-root',
   imports: [
-    FocusShell,
+    Shell,
     Permission,
     ModelManager,
     WorkspaceTrust,
@@ -104,16 +104,11 @@ export class App implements OnInit {
     else if (this.dialogs.open) handled = false;
     else if (key === 'n' && !event.shiftKey && !event.altKey) this.store.newConversation();
     else if (code === 'KeyB' && event.altKey) this.layout.toggleRight();
-    else if (code === 'KeyB' && !event.shiftKey) this.toggleNavigation();
+    else if (code === 'KeyB' && !event.shiftKey) this.layout.toggleLeft();
     else if (key === ',') this.ui.settingsOpen.set(true);
     else if (code === 'KeyT' && event.shiftKey && !event.altKey) this.work.toggle('browser');
     else if (code === 'KeyP' && !event.shiftKey && !event.altKey) this.work.toggle('files');
     else handled = false;
     if (handled) event.preventDefault();
-  }
-
-  /** ⌘B opens the conversation switcher in Focus. */
-  private toggleNavigation(): void {
-    this.ui.sessionsOpen.update((open) => !open);
   }
 }

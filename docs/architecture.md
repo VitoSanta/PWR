@@ -76,8 +76,9 @@ workspace-wide.
    with itself as the executor's host (`SessionHost`): the model turn, the
    verification, the review, what to say and the messages to keep.
 3. The host's turn (`run_chat_turn` in `main.rs`) builds the catalogue (the
-   conversation catalogue, the chat-only one without a workspace, or with
-   `look_at` for a vision model), then calls `converse::take_turn`.
+   conversation catalogue, the chat-only one without a workspace, with
+   `look_at` for a vision model, and with `read_terminal` when the client
+   reads its terminal tabs back), then calls `converse::take_turn`.
 4. `take_turn` loops: compact if the prompt nears the threshold, generate
    through the provider, parse and normalise tool calls (`pwr-compat`), check
    each against policy, execute it (`pwr-tools`), append its result, until the
@@ -103,7 +104,7 @@ architecture's main problem (review §2, §3.2; plan W2).
 | Verification | `executor::close_turn` after the turn; the turn is already over | full verification on each `complete`, acceptance contract, one review round | inside the loop: baseline, checks on completion, recovery cycle |
 | Completion | `complete` held if unseen results, held once if nothing done or a built program never ran (all three on every path) | verified only with a declared, unchanged acceptance check | `verified: false` allowed when no verifier exists |
 | Compaction | mechanical record (`compaction.rs`) | same | ledger compaction; optional `recency-fill` / `evidence-state` policies |
-| Catalogue | no `record_progress`, `propose_verifier`; adds `remember`, `recall_project`, `wiki_query`, `look_at` | same | the full action catalogue |
+| Catalogue | no `record_progress`, `propose_verifier`; adds `remember`, `recall_project`, `wiki_query`, `look_at`, `read_terminal` | same | the full action catalogue |
 | Used by | the app, `pwr chat` | the app | the command line and every campaign |
 
 Every campaign so far measured the third column; the app ships the first two.

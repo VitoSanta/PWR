@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { AgentStore } from './agent.store';
+import { bridge } from './bridge';
 
 describe('AgentStore context', () => {
   let store: AgentStore;
@@ -163,6 +164,26 @@ describe('AgentStore context', () => {
       status: 'done',
       text: 'Wrote result.txt.\n\nIndependent verification unavailable: this workspace declares no automated checks.',
     });
+  });
+
+  it('reads the terminal tabs back to the core, within its bounds', () => {
+    const send = vi.spyOn(bridge, 'send').mockResolvedValue(undefined as any);
+    const asked: number[] = [];
+    store.terminalReader = (lines) => {
+      asked.push(lines);
+      return [{ title: 'Terminal 1', running: true, text: "Module not found: Can't resolve './globals.css'" }];
+    };
+    store.receive({ jsonrpc: '2.0', id: 9, method: '_pwr/terminal/read', params: { sessionId: 's1', lines: 50_000 } });
+    expect(asked).toEqual([1000]);
+    expect(send).toHaveBeenCalledWith({
+      jsonrpc: '2.0',
+      id: 9,
+      result: { terminals: [{ title: 'Terminal 1', running: true, text: "Module not found: Can't resolve './globals.css'" }] },
+    });
+    store.terminalReader = null;
+    store.receive({ jsonrpc: '2.0', id: 10, method: '_pwr/terminal/read', params: { sessionId: 's1' } });
+    expect(send).toHaveBeenLastCalledWith({ jsonrpc: '2.0', id: 10, result: { terminals: [] } });
+    send.mockRestore();
   });
 
   it('routes extension notifications to their listeners only', () => {
