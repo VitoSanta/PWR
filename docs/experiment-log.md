@@ -818,3 +818,16 @@ layout with current palettes and system fonts. Added diagnostic composer
 requests to Terminal and Preview, preserving existing drafts. Browser UI check
 confirmed URL insertion, retained draft and focus return. No real-model
 recovery claim is made.
+
+### 2026-10-02: discard the engine after a Metal command-buffer fault
+
+The owner's e2e-test journal records a backend fault with `[METAL] Command
+buffer execution failed: Impacting Interactivity`. The stream previously
+cleared only the pending request and reused the same loaded sidecar on retry.
+For this specific GPU execution failure it now drops the process, returning
+an unavailable error with the original diagnostic. The existing bounded retry
+loads a fresh engine, preserving the conversation and file edits. Transport
+read failures also discard the broken process. A simulated JSON-lines engine
+regression checks an error on the first process, an empty engine slot after
+failure, and a successful reload in a second process. This does not establish
+the cause of the GPU fault or demonstrate recovery under real-model GPU load.

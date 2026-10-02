@@ -598,7 +598,10 @@ impl MlxProvider {
                             .min(remaining);
                         let event = match tokio::time::timeout(wait, sidecar.event()).await {
                             Ok(Ok(event)) => event,
-                            Ok(Err(error)) => return Some((Err(error), None)),
+                            Ok(Err(error)) => {
+                                *guard = None;
+                                return Some((Err(error), None));
+                            }
                             Err(_) => {
                                 // A content-free chunk keeps the reply collector
                                 // informed without exposing partial tool arguments.
@@ -643,6 +646,22 @@ impl MlxProvider {
                             }
                             Step::Finish(item) => {
                                 sidecar.pending = None;
+                                if gpu_execution_failed(&event) {
+                                    // A failed Metal command buffer can leave
+                                    // deferred GPU work and the prompt cache in
+                                    // an unusable state. The next retry must load
+                                    // a fresh process, not reuse this engine.
+                                    *guard = None;
+                                    return Some((
+                                        Err(unavailable(format!(
+                                            "{}; the engine was discarded and will reload on retry",
+                                            event["message"]
+                                                .as_str()
+                                                .unwrap_or("MLX GPU command failed"),
+                                        ))),
+                                        None,
+                                    ));
+                                }
                                 return Some((item.map(|chunk| live.finish(chunk)), None));
                             }
                             Step::Skip => {}
@@ -1381,6 +1400,13 @@ enum Step {
 /// calls are written inside it and have to be taken out before any of it is
 /// shown -- otherwise a call would reach the caller twice, once as the
 /// structured call and once as the text it was written in.
+fn gpu_execution_failed(event: &serde_json::Value) -> bool {
+    event["event"] == "error"
+        && event["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("[METAL] Command buffer execution failed"))
+}
+
 fn step_of(
     event: &serde_json::Value,
     answer: &str,
@@ -1883,6 +1909,70 @@ impl MlxProvider {
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test]
+    async fn a_metal_failure_reloads_a_fresh_engine_on_retry() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("m")).unwrap();
+        std::fs::write(root.path().join("m/config.json"), "{}").unwrap();
+        let script = root.path().join("engine.py");
+        std::fs::write(&script, r#"import sys,json,pathlib
+marker=pathlib.Path(__file__).with_suffix('.boots')
+boot=int(marker.read_text())+1 if marker.exists() else 1
+marker.write_text(str(boot))
+for line in sys.stdin:
+    r=json.loads(line)
+    if r['op']=='load': e={'event':'loaded'}
+    elif boot==1: e={'event':'error','message':'RuntimeError: [METAL] Command buffer execution failed: Impacting Interactivity'}
+    else: e={'event':'done','finish_reason':'stop','usage':{'prompt_tokens':1,'completion_tokens':0},'timings':{}}
+    print(json.dumps(dict(e,id=r['id'])),flush=True)
+"#).unwrap();
+        let provider = MlxProvider {
+            config: MlxConfig {
+                python: "/usr/bin/python3".into(),
+                sidecar: script.clone(),
+                models_root: root.path().into(),
+            },
+            sidecar: Arc::new(Mutex::new(None)),
+            version: Arc::new(tokio::sync::OnceCell::new()),
+        };
+        let request = || ModelRequest {
+            deployment: DeploymentDescriptor {
+                schema_version: 1,
+                id: pwr_domain::new_id(),
+                provider: "mlx".into(),
+                endpoint: String::new(),
+                model_ref: "m".into(),
+                backend_options: Default::default(),
+                auth_ref: None,
+            },
+            messages: vec![ChatMessage::text("user", "hello")],
+            context_tokens: 4096,
+            tools: None,
+            seed: None,
+            sampling: Default::default(),
+        };
+        let (stream, _, _, _) = provider.reply(request()).await.unwrap();
+        let error = pwr_provider::collect_reply(stream).await.unwrap_err();
+        assert!(error.to_string().contains("engine was discarded"));
+        assert!(provider.sidecar.lock().await.is_none());
+        let (stream, _, _, _) = provider.reply(request()).await.unwrap();
+        pwr_provider::collect_reply(stream).await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(script.with_extension("boots")).unwrap(),
+            "2"
+        );
+        assert!(
+            provider
+                .sidecar
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .loaded
+                .is_some()
+        );
+    }
 
     fn stream_of(pieces: &[&str]) -> (String, String, Live) {
         let mut live = Live {
