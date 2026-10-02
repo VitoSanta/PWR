@@ -94,11 +94,31 @@ cannot re-check them yet (plan W8.5).
 | Stack matrix c4 (pinned `pwr-d313acd9`), recorded 2026-09-28 | app path, goal mode | 7 of 9 tasks passed; 5 of 6 held-out | One run per task; the verdict is the runner's final one, which may follow nudges; not a corpus score |
 | Small apps, 2026-09-29/30 (`corpus/small-apps-v1.json`, 4 tasks) | scripted | gpt-oss-20b 3/4 → 4/4; Qwen3-14B 2/4 → 3/4; Ornith-1.5-9B 1/4 → 3/4; Qwen2.5-Coder-14B 0/4 → 1/4 (first vs last campaign) | Development runs, one trial each, harness changing between them; Qwen3-14B answered the same prompt four ways across four runs |
 
+**2026-10-01, development, app path, hidden tests, one trial per task** (raw
+runs under `~/Desktop/pwr-evidence/runs/`, the discarded ones under
+`runs-contaminated/`):
+
+| Run | Model | Result | Conditions |
+|---|---|---|---|
+| `fix2` → `fix3` (before and after the review round also ran without a declared acceptance check) | Qwen3.6-35B-A3B | 3/8 → 6/8 on 8 `dev` tasks (bash-rotate, go-logstat, java-ratelimit, php-cart, py-sheet, rust-semver, sql-analytics, ts-ledger) | Two engines ran in parallel (two models); same pass/fail validity, times not comparable. One trial: a signal, not a result |
+| `fix1`, `base` | Qwen3.5-9B | `bash-rotate` fails with greedy and with the card's sampling | Reasoning loops; the 9B was too slow to take further |
+| `dev9`–`dev11`, `serial1` | Qwen3-Coder-30B-A3B | `bash-rotate` fails in all clean runs (up to 130 actions in 60 min); the model rewrites one script about seventy times | The other tasks were not finished before the campaign was stopped |
+| calibration sweep | all 22 installed models | every model passes the critical checks of Quick Calibration (`quick-calibration-6`) after the adapter, template and probe fixes of the day | Compatibility, **not** capability; before the fixes seven models were Limited |
+
+No `heldout` task has been run on the current harness, and no result here
+supports the question above: that is the confirmatory campaign (plan W8.4).
+
 Campaigns recorded before 2026-09-03 are void (their tool-failure rate was
 never measured and a workspace with no checks scored as resolved; see
 [thresholds.md](thresholds.md) and the archived experiment log).
 
 ## Rules for a claim
+
+The proposed [Semantic Decision Layer study](research/semantic-decision-layer.md)
+applies these rules to candidate ranking, with same-size vanilla,
+multi-candidate no-semantic controls and larger vanilla agents. It is an
+unmeasured hypothesis, not an implemented evaluation arm or a change to the
+decisive campaign above.
 
 - Per deployment, never pooled across deployments.
 - Paired by task and seed; absolute difference in percentage points with an
