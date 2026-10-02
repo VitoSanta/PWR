@@ -1568,6 +1568,46 @@ pub fn names_a_url(action: &ActionProposal, policy: &ToolPolicy) -> Option<(Appr
     })
 }
 
+/// An install that will run in the offline sandbox, and the network it needs.
+///
+/// A build may or may not reach the network, so it runs first and is asked
+/// only if the sandbox's refusal shows (`withheld`). An install that changes
+/// the dependency tree always fetches: measured 2026-10-02 (react-datatable,
+/// gemma-4-12B), `npm install` was approved as a dependency change, then ran
+/// offline for its whole 120 s, failed, and only then was the network asked
+/// for -- two minutes and a failed action for an answer known beforehand.
+pub fn install_needs_network(
+    action: &ActionProposal,
+    policy: &ToolPolicy,
+) -> Option<(Approval, String)> {
+    // Outside the sandbox nothing withholds the network.
+    let (executable, args) = match action {
+        ActionProposal::RunCommand {
+            executable,
+            args,
+            outside_sandbox: false,
+            ..
+        }
+        | ActionProposal::StartService {
+            executable, args, ..
+        } => (executable, args),
+        _ => return None,
+    };
+    (!policy.network_allowed()
+        && policy.will_sandbox().unwrap_or(false)
+        && command_approval(executable, args) == Some(Approval::DependencyChange)
+        && fetches_dependencies(executable, args))
+    .then(|| {
+        (
+            Approval::NetworkAccess,
+            format!(
+                "let `{}` reach the network to download what it installs",
+                command_line(executable, args)
+            ),
+        )
+    })
+}
+
 /// A command that drives the container engine, and the grant it needs.
 pub fn drives_containers(
     action: &ActionProposal,

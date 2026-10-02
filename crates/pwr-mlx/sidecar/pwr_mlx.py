@@ -192,6 +192,88 @@ def looping(text: str) -> bool:
     return text[-period * REPEAT_LIMIT:] == text[-period:] * REPEAT_LIMIT
 
 
+# What may follow a closed call in the XML call format (`<function=NAME>`):
+# the wrapper's own close, or the next call.
+CALL_CLOSES = ("</function>", "</tool_call>")
+CALL_FOLLOWERS = ("</tool_call>", "<tool_call>", "<function=")
+
+
+def strayed_after_call(answer: str) -> bool:
+    """Whether the answer closed a call and went on with something that is
+    neither the wrapper's close nor another call.
+
+    Measured 2026-10-02: Qwen3-Coder-30B-A3B wrote `</function>`, skipped
+    `</tool_call>` and the turn end, and went on writing prose until the
+    length limit -- 52k and 55k characters, 11 and 12 minutes of one
+    30-minute task. The call before the stray text is whole, and PWR's
+    adapter reads it without its `</tool_call>`, so the reply can end there.
+    A close inside a parameter value (a file that holds such text) is not a
+    close: the parameter it is in is still open. Only the last call is
+    read, so the check stays short however long the reply."""
+    start = max(answer.rfind("<tool_call>"), answer.rfind("<function="), 0)
+    answer = answer[start:]
+    if answer.count("<parameter=") > answer.count("</parameter>"):
+        return False
+    end = max((answer.rfind(close) + len(close)
+               for close in CALL_CLOSES if close in answer), default=-1)
+    if end < 0:
+        return False
+    rest = answer[end:].lstrip()
+    if not rest:
+        return False
+    return not any(rest.startswith(follower) or follower.startswith(rest)
+                   for follower in CALL_FOLLOWERS)
+
+
+
+class OneThought:
+    """A logits processor that lets a reply open one thought channel at most.
+
+    Gemma 4 writes its reasoning as `<|channel>thought ... <channel|>`, one
+    block before the answer. Measured 2026-10-02 (goal-ledger, gemma-4-12B):
+    after a tool result, where the template adds no generation prompt, the
+    model wrote `<|channel>thought\n<channel|>` and opened the channel again,
+    hundreds of times, until the loop guard cut the reply -- three replies
+    of that and the task was given up at its second action. Once the
+    channel has been opened or closed in this reply (or the generation
+    prompt closed it, as with thinking off), it cannot be opened again."""
+
+    def __init__(self, open_id: int, close_id: int):
+        self.open_id, self.close_id = open_id, close_id
+        self.seen = 0
+        self.shut = False
+
+    def __call__(self, tokens, logits):
+        if not self.shut:
+            if tokens.size < self.seen:
+                self.seen = 0
+            fresh = tokens[self.seen:].tolist() if tokens.size > self.seen else []
+            self.seen = tokens.size
+            self.shut = self.open_id in fresh or self.close_id in fresh
+        if self.shut:
+            logits[..., self.open_id] = -float("inf")
+        return logits
+
+
+def one_thought(tokenizer, template: str):
+    """The processor for templates with Gemma 4's thought channel, when both
+    of its markers are single tokens; otherwise None."""
+    if "<|channel>" not in template:
+        return None
+    convert = getattr(tokenizer, "convert_tokens_to_ids", None)
+    if convert is None:
+        return None
+    ids = []
+    for marker in ("<|channel>", "<channel|>"):
+        try:
+            token = convert(marker)
+        except Exception:
+            return None
+        if not isinstance(token, int) or token < 0 or token == getattr(tokenizer, "unk_token_id", None):
+            return None
+        ids.append(token)
+    return OneThought(*ids)
+
 
 # Markers that end a turn in every template that has them, whatever the
 # model's config names as its end. Measured 2026-09-29: Qwen2.5-Coder-14B
@@ -909,6 +991,9 @@ class Engine:
             presence_context_size=int(request.get("presence_context_size") or 20),
             repetition_penalty=request.get("repetition_penalty"),
         )
+        thought = one_thought(self.tokenizer, template)
+        if thought is not None:
+            logits_processors = [*(logits_processors or []), thought]
 
         started = time.perf_counter()
         full, images = self.render(messages, tools, thinking, True, budget, effort)
@@ -959,9 +1044,14 @@ class Engine:
         written = []          # everything generated, both channels, for the loop check
         written_len = 0
         repetition = RepetitionSignals()
+        # The XML call format (`<function=NAME>`): its replies end at a call
+        # that closes and is followed by anything but another call.
+        xml_calls = "<function=" in template
+        answer = ""
+        closed = False
 
         def stream(prompt_tokens, limit):
-            nonlocal generated, finish, written_len
+            nonlocal generated, finish, written_len, answer, closed
             for response in stream_generate(
                 self.model, self.tokenizer, mx.array(prompt_tokens), max_tokens=limit,
                 sampler=sampler, logits_processors=logits_processors,
@@ -989,6 +1079,12 @@ class Engine:
                                 else "answer", text)
                 for channel, piece in pieces:
                     reply({"event": "delta", "channel": channel, "text": piece})
+                    if channel == "content" and xml_calls:
+                        answer += piece
+                        closed = closed or any(c in answer[-40:] for c in CALL_CLOSES)
+                if closed and strayed_after_call(answer):
+                    finish = "stop"
+                    return finish
                 # Gemma 4's template closes a tool call or a turn with these
                 # tokens. mlx-lm may keep generating after them (observed:
                 # repeated empty tool responses), so end at the first close.

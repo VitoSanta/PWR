@@ -70,6 +70,7 @@ pub async fn gate(
     for requirement in [
         pwr_tools::unlisted_program(action, policy),
         pwr_tools::dependency_install_approval(action),
+        pwr_tools::install_needs_network(action, policy),
         pwr_tools::required_approval(action),
         pwr_tools::names_a_url(action, policy),
         pwr_tools::drives_containers(action, policy),
@@ -638,6 +639,27 @@ mod tests {
             }
         );
         assert_eq!(prompt.asked.lock().unwrap()[0].0, Approval::NetworkAccess);
+    }
+
+    #[tokio::test]
+    async fn an_install_in_the_offline_sandbox_asks_for_the_network_before_it_runs() {
+        let prompt = Answer::with(&[ApprovalDecision::AllowForRun, ApprovalDecision::AllowOnce]);
+        let mut policy = policy(&["npm"]);
+        let sandboxed = policy.will_sandbox().unwrap_or(false);
+        through(&command("npm", &["install"]), &mut policy, &prompt).await;
+        let asked: Vec<Approval> = prompt.asked.lock().unwrap().iter().map(|a| a.0).collect();
+        if sandboxed {
+            assert_eq!(
+                asked,
+                vec![Approval::DependencyChange, Approval::NetworkAccess]
+            );
+        } else {
+            assert_eq!(asked, vec![Approval::DependencyChange]);
+        }
+        // A build that may or may not fetch still runs first.
+        let prompt = Answer::with(&[]);
+        through(&command("npm", &["test"]), &mut policy, &prompt).await;
+        assert!(prompt.asked.lock().unwrap().is_empty());
     }
 
     fn failed_offline(

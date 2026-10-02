@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from pwr_mlx import (REPEAT_LIMIT, add_turn_ends, REPEAT_SPAN, ReasoningStream, RepetitionSignals, fused_attention, looping,
-                        think_delimiters)
+                        one_thought, strayed_after_call, think_delimiters)
 
 HERE = pathlib.Path(__file__).resolve()
 ROOT = HERE.parents[3]
@@ -633,6 +633,90 @@ class Chat(unittest.TestCase):
         kwargs = self.engine.tokenizer.kwargs
         self.assertEqual(kwargs["thinking_budget"], 1024)
         self.assertEqual(kwargs["reasoning_effort"], "high")
+
+
+CALL = "<tool_call>\n<function=read_file>\n<parameter=path>\nsrc/a.ts\n</parameter>\n</function>\n"
+
+
+class StrayAfterCall(unittest.TestCase):
+    """Qwen3-Coder-30B wrote `</function>` and went on with prose (2026-10-02)."""
+
+    def test_prose_after_a_closed_call_is_stray(self):
+        self.assertTrue(strayed_after_call(CALL + "ocks\n\nLet me focus on the dates"))
+        self.assertTrue(strayed_after_call(CALL + "</tool_call>\nNow I will"))
+
+    def test_the_wrappers_close_and_the_next_call_are_not(self):
+        for tail in ("", "\n", "</tool", "</tool_call>\n", "</tool_call>\n<tool_call>\n<function=re",
+                     "</tool_call>\n<tool_call>\n<function=read_file>\n<parameter=path>\nb</paramet"):
+            self.assertFalse(strayed_after_call(CALL + tail), tail)
+
+    def test_a_close_inside_a_parameter_value_is_not_a_close(self):
+        content = ("<tool_call>\n<function=write_file>\n<parameter=content>\n"
+                   "example: </function></tool_call> and more text")
+        self.assertFalse(strayed_after_call(content))
+
+    def test_text_without_a_call_is_not(self):
+        self.assertFalse(strayed_after_call("The answer is 42."))
+
+
+class XmlCallEndsTheReply(Chat):
+    """The whole path: a reply in the XML call format ends where it strays."""
+
+    def setUp(self):
+        super().setUp()
+        self.engine.tokenizer.chat_template = "{{ enable_thinking }} <think> </think> <function="
+
+    def test_generation_stops_after_the_stray_text_begins(self):
+        script = list(CALL) + list("ocks and a long ramble that never ends") + ["x"] * 500
+        done, _, content, _ = self.chat(scripted(script), thinking=False)
+        self.assertEqual(done["finish_reason"], "stop")
+        self.assertTrue(content.startswith(CALL))
+        self.assertLess(done["usage"]["completion_tokens"], len(CALL) + 10)
+
+    def test_two_calls_in_one_reply_both_arrive(self):
+        two = CALL + "</tool_call>\n" + CALL + "</tool_call>"
+        done, _, content, _ = self.chat(scripted(list(two)), thinking=False)
+        self.assertEqual(content, two)
+
+    def test_other_templates_are_left_alone(self):
+        self.engine.tokenizer.chat_template = "{{ enable_thinking }} <think> </think>"
+        script = list(CALL) + list("ocks and more")
+        done, _, content, _ = self.chat(scripted(script), thinking=False)
+        self.assertEqual(content, CALL + "ocks and more")
+
+
+class OneThoughtPerReply(unittest.TestCase):
+    """Gemma 4 reopened an empty thought channel until the loop guard (2026-10-02)."""
+
+    class Tokenizer:
+        unk_token_id = 3
+        vocabulary = {"<|channel>": 100, "<channel|>": 101}
+
+        def convert_tokens_to_ids(self, token):
+            return self.vocabulary.get(token, self.unk_token_id)
+
+    def step(self, processor, tokens):
+        import mlx.core as mx
+        logits = processor(mx.array(tokens), mx.zeros((1, 128)))
+        return logits[0, 100].item()
+
+    def test_the_channel_opens_once_and_never_again(self):
+        processor = one_thought(self.Tokenizer(), "... <|channel>thought ...")
+        self.assertEqual(self.step(processor, [7, 8]), 0.0)
+        self.assertEqual(self.step(processor, [7, 8, 100]), float("-inf"))
+        self.assertEqual(self.step(processor, [7, 8, 100, 9, 101, 10]), float("-inf"))
+
+    def test_a_prompt_that_closed_it_already_shuts_it(self):
+        processor = one_thought(self.Tokenizer(), "<|channel>")
+        self.assertEqual(self.step(processor, [100, 9, 101]), float("-inf"))
+
+    def test_templates_without_the_channel_get_nothing(self):
+        self.assertIsNone(one_thought(self.Tokenizer(), "<think></think>"))
+
+    def test_a_vocabulary_without_the_markers_gets_nothing(self):
+        tokenizer = self.Tokenizer()
+        tokenizer.vocabulary = {}
+        self.assertIsNone(one_thought(tokenizer, "<|channel>"))
 
 
 class TurnEndsStopGeneration(unittest.TestCase):
