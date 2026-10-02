@@ -57,6 +57,15 @@ describe('AgentStore context', () => {
     expect(store.timeline().length).toBe(0);
   });
 
+  it('shows one notice for repeated identical rewind failures', async () => {
+    vi.spyOn(store as any, 'request').mockRejectedValue(new Error('message compacted'));
+    const entry = { key: 'u1', kind: 'user', text: 'build', turn: 1, at: 1 } as any;
+    await store.rewind(entry, { restoreFiles: false });
+    await store.rewind(entry, { restoreFiles: false });
+    expect(store.timeline().filter((item) => item.title === 'Rewind failed')).toHaveLength(1);
+    expect(store.rewinding()).toBe(false);
+  });
+
   it('keeps the engine count for the context indicator', () => {
     store.receive({
       jsonrpc: '2.0',

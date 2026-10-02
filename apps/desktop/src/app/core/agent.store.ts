@@ -789,7 +789,7 @@ export class AgentStore {
     options: { restoreFiles: boolean; force?: boolean; edit?: boolean },
   ): Promise<{ conflicts: string[] }> {
     const sessionId = this.sessionId();
-    if (!sessionId || entry.turn === undefined || this.turnActive()) return { conflicts: [] };
+    if (!sessionId || entry.turn === undefined || this.turnActive() || this.rewinding()) return { conflicts: [] };
     this.rewinding.set(true);
     try {
       const reply = await this.request('_pwr/rewind', {
@@ -814,7 +814,10 @@ export class AgentStore {
       if (this.contextInfo()) void this.refreshContext();
       return { conflicts: [] };
     } catch (error) {
-      this.notice('Rewind failed', String(error).replace(/^Error: /, ''), 'error');
+      const text = String(error).replace(/^Error: /, '');
+      if (!this.timeline().some((item) => item.kind === 'notice' && item.title === 'Rewind failed' && item.text === text)) {
+        this.notice('Rewind failed', text, 'error');
+      }
       return { conflicts: [] };
     } finally {
       this.rewinding.set(false);
