@@ -278,6 +278,8 @@ export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
     return { ...base, text: 'Technical checks passed; no acceptance contract was declared, so the goal is not verified.', action: null, tone: 'done' };
   if (cancelled || reply?.stopReason === 'cancelled' || terminal === 'interrupted') return { ...base, text: 'Stopped.', action: null, tone: 'stopped' };
   switch (terminal) {
+    case 'contract_changed':
+      return { ...base, text: 'Goal stopped: acceptance checks changed.', detail: goal?.verification ?? detail, action: null, tone: 'failed' };
     case 'budget':
       return { ...base, text: `Paused after ${plural(actions)} to check in. Nothing was discarded.`, action: 'continue', tone: 'paused' };
     case 'protocol':
@@ -289,6 +291,8 @@ export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
     case 'declined':
       return { ...base, text: 'The model declined the task.', action: null, tone: 'stopped' };
     default:
+      if (goal?.enabled)
+        return { ...base, text: `Goal ended after ${plural(actions)} without a verified completion.`, detail: goal.verification ?? detail, action: 'continue', tone: 'paused' };
       return { ...base, text: `Finished after ${plural(actions)}.`, action: null, tone: 'done' };
   }
 }

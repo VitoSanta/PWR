@@ -48,9 +48,22 @@ import { Popover } from '../kit/popover';
             <strong>Auto-approve</strong>
             <small>{{
               store.permissionMode() === 'auto'
-                ? 'Permissions are granted automatically.'
-                : 'PWR asks before sensitive actions.'
+                ? 'Routine permissions are granted automatically inside the sandbox.'
+                : store.permissionMode() === 'full'
+                  ? 'Switch to automatic permissions inside the sandbox.'
+                  : 'PWR asks before sensitive actions.'
             }}</small>
+          </span>
+          <span class="switch" aria-hidden="true"></span>
+        </button>
+        <button
+          class="focus-run-option tone-warning"
+          [attr.aria-pressed]="store.permissionMode() === 'full'"
+          (click)="store.setPermissionMode(store.permissionMode() === 'full' ? 'ask' : 'full')"
+        >
+          <span class="focus-run-copy">
+            <strong>Full access</strong>
+            <small>Approve all permissions and run commands without the sandbox.</small>
           </span>
           <span class="switch" aria-hidden="true"></span>
         </button>

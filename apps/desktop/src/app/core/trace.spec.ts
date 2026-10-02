@@ -94,3 +94,28 @@ describe('the execution trace', () => {
     expect(runMetrics(entries.slice(0, 2), 0, false).generationTps).toBe(50);
   });
 });
+
+describe('Goal completion evidence', () => {
+  it('does not show a completed model reply as a verified goal when checks fail', () => {
+    const outcome = runOutcome({ stopReason: 'end_turn', _meta: { pwr: {
+      totalActions: 53, terminal: null,
+      goal: { enabled: true, completed: true, verified: false, technicalPassed: false,
+        verification: '0 of 1 full check(s) passing: npm test' },
+    } } }, false);
+    expect(outcome.text).toContain('without a verified completion');
+    expect(outcome.tone).toBe('paused');
+    expect(outcome.action).toBe('continue');
+    expect(outcome.detail).toContain('0 of 1');
+  });
+
+  it('shows a changed acceptance contract as a stopped goal', () => {
+    const outcome = runOutcome({ stopReason: 'end_turn', _meta: { pwr: {
+      totalActions: 4, terminal: 'contract_changed',
+      goal: { enabled: true, completed: true, verified: false, contractChanged: ['test/acceptance.ts'],
+        verification: 'Acceptance artifact changed: test/acceptance.ts' },
+    } } }, false);
+    expect(outcome.text).toContain('acceptance checks changed');
+    expect(outcome.tone).toBe('failed');
+    expect(outcome.detail).toContain('test/acceptance.ts');
+  });
+});

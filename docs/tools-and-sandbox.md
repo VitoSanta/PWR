@@ -145,6 +145,20 @@ In Protected mode, local services and adopting a proposed check are granted.
 Each question is answered *once*, *for the session* or *no*; session answers
 also apply to the checks that close a turn or a goal.
 
+Explicit dependency operations in npm, pnpm, Yarn, Bun and Composer (install,
+add, update or remove) request `dependency-change` before execution. A plain
+`npm install` does not need to edit a manifest first to trigger that question.
+An installer requested outside the sandbox needs both grants; builds and tests
+retain their usual policy. Unrecognised command forms still face the installed
+tree's write protection.
+
+The Stage frontend restoration retains its layout and styles and restores a
+Full access switch in Run controls. Full access remains selected when reopened
+and the composer identifies it explicitly. Auto and Ask re-enable confinement;
+the core's reported policy is authoritative. Goal summaries preserve an
+unverified or changed acceptance result instead of displaying a generic
+Finished state.
+
 Scripted runs (`pwr run`) grant only what `--approve` names:
 `dependency-change`, `history-rewrite`, `publish`, `network-access`,
 `local-service`, `toolchain-install`, `container-engine`,

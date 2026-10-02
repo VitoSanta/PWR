@@ -207,10 +207,12 @@ const MAX_HEIGHT = 260;
           @if (!store.sandboxed()) {
             <span
               class="composer-warning"
-              paTooltip="This platform has no sandbox adapter: commands the model runs are not confined to the workspace."
+              [paTooltip]="store.permissionMode() === 'full'
+                ? 'Full access: commands run with your rights and are not confined to the workspace.'
+                : 'This platform has no sandbox adapter: commands the model runs are not confined to the workspace.'"
               tabindex="0"
             >
-              <pa-icon name="alert" [size]="14" /> Not sandboxed
+              <pa-icon name="alert" [size]="14" /> {{ store.permissionMode() === 'full' ? 'Full access' : 'Not sandboxed' }}
             </span>
           }
         } @else {

@@ -1402,7 +1402,60 @@ pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
             return Some(Approval::HistoryRewrite);
         }
     }
-    None
+    // The installed tree is read-only without this grant. A plain install
+    // need not edit a manifest first: the rollback battery's `npm install`
+    // reached EPERM on node_modules without ever asking the owner about it.
+    // Builds and tests keep their normal policy; this is the explicit package
+    // operation, not every command that might fetch a dependency.
+    let first = args.first().map(String::as_str).unwrap_or_default();
+    let dependency_change = match name.as_str() {
+        "npm" | "pnpm" | "yarn" | "bun" => {
+            (name == "yarn" && first.is_empty())
+                || matches!(
+                    first,
+                    "install"
+                        | "i"
+                        | "ci"
+                        | "add"
+                        | "update"
+                        | "upgrade"
+                        | "up"
+                        | "uninstall"
+                        | "remove"
+                        | "rm"
+                        | "dedupe"
+                        | "prune"
+                        | "rebuild"
+                )
+        }
+        "composer" => matches!(first, "install" | "update" | "require" | "remove"),
+        _ => false,
+    };
+    dependency_change.then_some(Approval::DependencyChange)
+}
+
+/// Kept separate from `required_approval` so an installer explicitly outside
+/// the sandbox asks for both rights. An outside-sandbox grant alone does not
+/// authorize changes to the dependency tree.
+pub fn dependency_install_approval(action: &ActionProposal) -> Option<(Approval, String)> {
+    let (ActionProposal::RunCommand {
+        executable, args, ..
+    }
+    | ActionProposal::StartService {
+        executable, args, ..
+    }) = action
+    else {
+        return None;
+    };
+    (command_approval(executable, args) == Some(Approval::DependencyChange)).then(|| {
+        (
+            Approval::DependencyChange,
+            format!(
+                "install or change dependencies with `{}`",
+                command_line(executable, args)
+            ),
+        )
+    })
 }
 
 /// A command that names a URL, and the network grant it will need.

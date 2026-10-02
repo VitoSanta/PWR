@@ -13,6 +13,54 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — Ask before a dependency installer writes its protected tree
+
+**IMPLEMENTED; real-model follow-up pending.** During the pre-fix 9B React
+trial on `8b3b33dd`, `npm install` first timed out offline, then failed with
+EPERM on node_modules after network permission was granted. No dependency
+question was offered. The model tried shell commands and another package
+manager, then hit repeat guards. A real offline local npm install reproduced
+the missing gate; the command-classification and outside-sandbox gate
+regressions also failed before repair.
+
+Explicit npm/pnpm/Yarn/Bun/Composer install/add/update/remove operations now
+require DependencyChange before execution. An outside-sandbox installer asks
+for both rights. Builds and tests are unchanged; no sandbox boundary is widened
+and unrecognised forms still face installed-tree protection. The actual local
+install is denied without the grant and passes inside Seatbelt with it. Four
+focused tools tests and all twelve orchestrator approval tests pass. This
+advances W1.3. Broad Cargo validation reports 1492 passes, 0 failures and five
+ignored. One Docker probe skipped when its daemon did not answer; the isolated
+rerun exercised the actual permission boundary and passed without a skip.
+Clippy with warnings denied passes. Corrected model trials are pending.
+
+**IMPLEMENTED Stage/frontend compatibility repair (W7.4).** The restored
+frontend mapped Full to Ask and offered no Full switch, although its composer
+did report an unconfined sandbox. Preserve Stage's layout, CSS, assets and
+dependencies, but retain Full in the store, restore its control using the
+existing option style and distinguish it from a platform without a sandbox in
+the composer. Two regressions failed on Stage: reported Full became Ask, and
+the DOM had no Full option. All 82 frontend tests in 13 files now pass, including
+Full → Auto → Ask and Full → Ask. The first DOM test wait did not track the
+demo responder's delayed timer; polling the state resolved this test-fixture
+issue, retained in `frontend-full-first-green-failed.log`. The baseline 30B Goal reply also exposed a completed-but-unverified summary
+rendered as Finished; unverified goals now show a paused state with their
+verification evidence, and changed acceptance contracts show a failure. Two
+additional regressions failed before these repairs. The production frontend
+build passes. Native walk remains pending. The initial rollback `8b3b33dd` remains an exact
+frontend copy; the repaired version has these small functional differences.
+
+Separately, 28 checks through the corrected `7943ce79` ACP binary passed:
+file preview bounds and escape refusals, profile persistence, memory CRUD and
+workspace isolation, wiki/project management and reported Ask/Auto/Full policy.
+These use disposable homes/workspaces and no inference.
+
+Campaign amendment: keep the three pre-fix ledger trials and the 9B React trial
+already in flight; subsequent model trials use the corrected binary, fresh
+calibration and unchanged frozen fixtures. A first continuation correctly
+refused an occupied engine lease and did no inference. All intermediate logs
+are retained under `~/Desktop/pwr-evidence/batteries/20261002-stage-frontend/`.
+
 ## 2026-10-02 — Repairs found during the desktop rollback battery
 
 **IMPLEMENTED correctness repairs; model effectiveness still UNKNOWN.**

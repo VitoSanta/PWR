@@ -1926,3 +1926,88 @@ fn a_browser_check_reports_a_local_server_error() {
         assert!(result.bytes > 0 && result.image.is_file());
     }
 }
+
+/// The desktop rollback battery tried `npm install` without a manifest edit.
+/// The sandbox refused node_modules, but the owner never got the dependency
+/// question that could authorize it. Grant dependency writes before installing.
+#[test]
+fn dependency_installers_need_the_dependency_grant() {
+    for (program, args) in [
+        ("npm", vec!["install"]),
+        ("/opt/homebrew/bin/npm", vec!["ci", "--offline"]),
+        ("pnpm", vec!["add", "local-package"]),
+        ("yarn", vec![]),
+        ("bun", vec!["remove", "local-package"]),
+        ("composer", vec!["install"]),
+    ] {
+        let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+        assert_eq!(
+            command_approval(program, &args),
+            Some(Approval::DependencyChange)
+        );
+    }
+    for (program, args) in [
+        ("npm", vec!["test"]),
+        ("npm", vec!["run", "build"]),
+        ("yarn", vec!["test"]),
+        ("npm", vec!["--version"]),
+        ("cargo", vec!["test"]),
+    ] {
+        let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+        assert_eq!(command_approval(program, &args), None);
+    }
+}
+
+#[test]
+fn a_local_npm_install_is_denied_then_runs_with_approval_in_the_sandbox() {
+    if !cfg!(target_os = "macos") {
+        common::skip("this installation probe requires the macOS sandbox");
+        return;
+    }
+    if std::process::Command::new("npm")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        common::skip("npm is unavailable");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("package.json"), r#"{"name":"approval-probe","version":"1.0.0","dependencies":{"local-package":"file:./local-package"}}"#).unwrap();
+    fs::create_dir(root.path().join("local-package")).unwrap();
+    fs::write(
+        root.path().join("local-package/package.json"),
+        r#"{"name":"local-package","version":"1.0.0","main":"index.js"}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("local-package/index.js"),
+        "module.exports = 42;\n",
+    )
+    .unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands.push("npm".into());
+    let args = [
+        "install",
+        "--offline",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+    ]
+    .map(str::to_owned);
+    let denied = block_on(run_command(&policy, "npm", &args));
+    assert!(
+        matches!(denied, Err(ToolError::Denied(ref why)) if why.contains("DependencyChange")),
+        "{denied:?}"
+    );
+    assert!(!root.path().join("node_modules").exists());
+    policy.approvals.push(Approval::DependencyChange);
+    let installed = block_on(run_command(&policy, "npm", &args)).unwrap();
+    assert_eq!(installed.exit_code, Some(0), "{installed:?}");
+    assert!(installed.sandboxed, "{installed:?}");
+    assert!(
+        root.path()
+            .join("node_modules/local-package/index.js")
+            .is_file()
+    );
+}

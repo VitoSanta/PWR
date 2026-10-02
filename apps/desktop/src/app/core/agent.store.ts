@@ -126,7 +126,7 @@ export class AgentStore {
   // server twice until the timeout, 2026-09-22).
   readonly goalMode = signal(false);
   /** Ask before what leaves the workspace, or run with every permission. */
-  readonly permissionMode = signal<'ask' | 'auto'>('ask');
+  readonly permissionMode = signal<'ask' | 'auto' | 'full'>('ask');
   /** What the core actually asks about in the current mode. */
   readonly asking = signal<string[]>([]);
   /** False where the platform gives no sandbox: commands then run unconfined. */
@@ -420,13 +420,13 @@ export class AgentStore {
 
   async refreshPermissions(params: Record<string, unknown> = {}): Promise<void> {
     const reply = await this.request('_pwr/approvals', { cwd: this.workspace(), ...params });
-    this.permissionMode.set(reply.mode === 'auto' ? 'auto' : 'ask');
+    this.permissionMode.set(reply.mode === 'full' ? 'full' : reply.mode === 'auto' ? 'auto' : 'ask');
     this.asking.set(reply.asking ?? []);
     this.sandboxed.set(reply.sandboxed !== false);
   }
 
-  /** Switches between asking and running with every permission; saved in the workspace. */
-  setPermissionMode(mode: 'ask' | 'auto'): Promise<void> {
+  /** Saved in the workspace; Full access also disables command confinement. */
+  setPermissionMode(mode: 'ask' | 'auto' | 'full'): Promise<void> {
     return this.refreshPermissions({ mode });
   }
 

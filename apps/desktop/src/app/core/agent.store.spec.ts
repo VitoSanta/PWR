@@ -185,3 +185,14 @@ describe('AgentStore turn events', () => {
     expect(store.runOutcome()?.action).toBe('retry');
   });
 });
+
+describe('AgentStore permission policy', () => {
+  it('keeps Full access selected when the core reports unconfined execution', async () => {
+    TestBed.configureTestingModule({});
+    const store = TestBed.inject(AgentStore);
+    store.useDemo(() => ({ mode: 'full', sandboxed: false, asking: [] }));
+    await store.refreshPermissions();
+    expect(store.permissionMode()).toBe('full');
+    expect(store.sandboxed()).toBe(false);
+  });
+});

@@ -427,6 +427,13 @@ the person's work or report a boundary it does not have.
 
 **Status:** NOW · M
 
+**2026-10-02 installer correction:** the rollback battery found `npm install`
+blocked on node_modules without a dependency question. Explicit npm/pnpm/Yarn/
+Bun/Composer dependency operations now ask before execution, including both
+dependency and outside-sandbox grants when applicable. Red/green regressions
+include a real offline local npm install in Seatbelt. Other command forms and
+platform coverage remain bounded by the protections below.
+
 - **Problem.** Protected paths (`.pwr/protected.json`) and installed dependency
   trees are refused to the file tools but writable by any command the agent
   runs, and by the checks (verification 8.1). In Full access mode nothing at
@@ -1103,6 +1110,14 @@ longer exist, cap the file.
 ### W7.4 Confinement on every turn
 
 **Status:** NOW · S
+
+**2026-10-02 Stage compatibility repair:** preserve the restored layout/styles,
+but keep Full access as the actual selected policy, expose its switch and
+identify it in the composer. Store and DOM regressions exercise Full → Auto →
+Ask and Full → Ask. Unverified Goal replies and changed acceptance contracts
+retain their evidence and no longer show generic Finished summaries; two
+additional red/green regressions cover these. Native walk pending. This does not close the turn-header
+work below.
 
 - **Change.** A turn that ran any command unconfined (Full access, or an
   `outside_sandbox` grant) says so in its header, from `TurnOutcome.confinement`.

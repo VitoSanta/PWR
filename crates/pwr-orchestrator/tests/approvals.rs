@@ -313,3 +313,56 @@ async fn nobody_attached_means_no_verifier_is_adopted() {
         .await;
     assert_eq!(decision, ApprovalDecision::Deny);
 }
+
+#[tokio::test]
+async fn installing_dependencies_outside_the_sandbox_needs_both_grants() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(":memory:").unwrap();
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let prompt = ScriptedPrompt {
+        answers: Mutex::new(vec![ApprovalDecision::AllowOnce; 2]),
+        asked: asked.clone(),
+    };
+    let mut policy = ToolPolicy {
+        root: root.path().to_path_buf(),
+        extra_readable: Vec::new(),
+        protected: Vec::new(),
+        allow_commands: vec!["npm".into()],
+        output_limit: 8192,
+        timeout: Duration::from_secs(5),
+        sandbox: SandboxPolicy::Preferred,
+        approvals: Vec::new(),
+    };
+    let action = ActionProposal::RunCommand {
+        executable: "npm".into(),
+        args: vec!["install".into()],
+        stdin: None,
+        cwd: None,
+        outside_sandbox: true,
+    };
+    let gate = pwr_orchestrator::session::gate(
+        &store,
+        pwr_domain::new_id(),
+        1,
+        &action,
+        "install",
+        &mut policy,
+        &prompt,
+        &mut pwr_orchestrator::repetition::RefusalStreak::new(),
+        None,
+    )
+    .await
+    .unwrap();
+    let pwr_orchestrator::session::Gate::Proceed { granted_once } = gate else {
+        panic!("{gate:?}");
+    };
+    assert!(granted_once.contains(&Approval::OutsideSandbox));
+    assert!(granted_once.contains(&Approval::DependencyChange));
+    let questions = asked.lock().unwrap();
+    assert_eq!(questions.len(), 2);
+    assert!(
+        questions
+            .iter()
+            .all(|(_, text)| text.contains("npm install"))
+    );
+}

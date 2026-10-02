@@ -69,6 +69,7 @@ pub async fn gate(
     let mut needed: Vec<(Approval, String)> = Vec::new();
     for requirement in [
         pwr_tools::unlisted_program(action, policy),
+        pwr_tools::dependency_install_approval(action),
         pwr_tools::required_approval(action),
         pwr_tools::names_a_url(action, policy),
         pwr_tools::drives_containers(action, policy),
