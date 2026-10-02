@@ -3017,7 +3017,6 @@ fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value
                                 "not_completed",
                                 "not_run",
                                 "reason",
-                                "stderr",
                             ]
                             .iter()
                             .find_map(|key| {
@@ -3026,8 +3025,22 @@ fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value
                                     .and_then(Value::as_str)
                                     .filter(|text| !text.trim().is_empty())
                             })
+                            .map(str::to_owned)
+                            .or_else(|| {
+                                pwr_orchestrator::converse::command_failure_output(
+                                    value,
+                                    Some(&message.content),
+                                )
+                            })
+                            .or_else(|| {
+                                value
+                                    .get("stderr")
+                                    .and_then(Value::as_str)
+                                    .filter(|text| !text.trim().is_empty())
+                                    .map(str::to_owned)
+                            })
                         })
-                        .unwrap_or("This saved call did not complete successfully.")
+                        .unwrap_or_else(|| "This saved call did not complete successfully.".into())
                 });
                 let content: Vec<Value> = failure_text
                     .into_iter()
@@ -6265,6 +6278,44 @@ mod tests {
             "The file is correct.\n\nIndependent verification unavailable: this workspace declares no automated checks"
         );
         assert_eq!(shown[3]["_meta"]["pwr"]["replay"], true);
+    }
+
+    #[test]
+    fn replay_keeps_command_failures_from_stdout_and_stderr() {
+        for stderr in ["", "npm notice test"] {
+            for verbatim in [false, true] {
+                let mut call = ChatMessage::text("assistant", "");
+                call.tool_calls.push(pwr_domain::ToolCall {
+                    name: "run_command".into(),
+                    arguments: json!({"executable": "npm", "args": ["test"]}),
+                    id: Some("command".into()),
+                });
+                let mut answer = ChatMessage::text(
+                    "tool",
+                    json!({"result": {
+                        "exit_code": 1, "stdout": "AssertionError: billing total", "stderr": stderr,
+                    }})
+                    .to_string(),
+                );
+                if verbatim {
+                    let outcome =
+                        serde_json::from_str::<Value>(&answer.content).unwrap()["result"].clone();
+                    answer = pwr_orchestrator::tool_result_message(
+                        outcome,
+                        None,
+                        Some("command".into()),
+                    );
+                }
+                answer.tool_call_id = Some("command".into());
+                let shown = replay(&[call, answer], &[]);
+                assert_eq!(shown[1]["status"], "failed");
+                let text = shown[1]["content"][0]["content"]["text"].as_str().unwrap();
+                assert!(text.contains("AssertionError: billing total"), "{text}");
+                if !stderr.is_empty() {
+                    assert!(text.contains(stderr), "{text}");
+                }
+            }
+        }
     }
 
     #[test]

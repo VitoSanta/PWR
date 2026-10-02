@@ -2922,6 +2922,14 @@ async fn take_turn_inner<P: ModelProvider>(
                     })
                 })
                 .flatten();
+            let creates_directory = matches!(&action, ActionProposal::MakeDirectory { path }
+                if policy.resolve(std::path::Path::new(path)).is_ok_and(|path| !path.exists()));
+            let changes_existing_path = matches!(
+                &action,
+                ActionProposal::DeletePath { .. }
+                    | ActionProposal::MovePath { .. }
+                    | ActionProposal::RestoreFile { .. }
+            );
             let before = match &kept {
                 Some(Before::Content(bytes)) => String::from_utf8(bytes.clone()).ok(),
                 Some(Before::NotKept) => path
@@ -3137,6 +3145,28 @@ async fn take_turn_inner<P: ModelProvider>(
                     successful_file_change |= edits_a_file
                         && !crate::repetition::failed(&value)
                         && value.get("denied").is_none();
+                    let changed_input = if edits_a_file {
+                        value
+                            .get("new_hash")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|hash| {
+                                before
+                                    .as_ref()
+                                    .map(|text| pwr_domain::hash_bytes(text.as_bytes()))
+                                    .as_deref()
+                                    != Some(hash)
+                            })
+                    } else {
+                        creates_directory || changes_existing_path
+                    };
+                    if full
+                        && changed_input
+                        && !crate::repetition::failed(&value)
+                        && value.get("denied").is_none()
+                    {
+                        echoes.inputs_changed();
+                        failed_runs.inputs_changed();
+                    }
                     // Reads are left to `ReadHistory`, which already names a
                     // re-read of an unchanged file.
                     if full
@@ -3279,14 +3309,16 @@ async fn take_turn_inner<P: ModelProvider>(
                         detail: detail.clone(),
                         path: path.clone(),
                         phase: if crate::repetition::failed(&value) {
-                            ToolPhase::Failed(
-                                value
-                                    .get("stderr")
-                                    .and_then(serde_json::Value::as_str)
-                                    .filter(|text| !text.trim().is_empty())
-                                    .unwrap_or("tool returned a failure result")
-                                    .to_owned(),
-                            )
+                            ToolPhase::Failed(command_failure_output(&value, None).unwrap_or_else(
+                                || {
+                                    value
+                                        .get("stderr")
+                                        .and_then(serde_json::Value::as_str)
+                                        .filter(|text| !text.trim().is_empty())
+                                        .unwrap_or("tool returned a failure result")
+                                        .to_owned()
+                                },
+                            ))
                         } else {
                             ToolPhase::Completed
                         },
@@ -3852,6 +3884,48 @@ fn what_was_sent(call: &pwr_domain::ToolCall, catalog: &ToolCatalog) -> String {
     } else {
         format!(". {hint}")
     }
+}
+
+/// A failed command can report its diagnostics on either stream. Keep both
+/// visible in live tool cards and when a saved conversation is replayed.
+pub fn command_failure_output(value: &serde_json::Value, saved: Option<&str>) -> Option<String> {
+    let code = value.get("exit_code")?.as_i64()?;
+    if code == 0 {
+        return None;
+    }
+    // Saved results put nonempty streams after the JSON envelope. Consume
+    // whole blocks in serialization order so a tag in stdout cannot be
+    // mistaken for the separate stderr block.
+    let mut tail = saved.unwrap_or("");
+    let mut streams = Vec::new();
+    for key in ["stdout", "stderr"] {
+        let Some(raw) = value.get(key).and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let text = if raw == format!("<{key}> below") && saved.is_some() {
+            let open = format!("\n\n<{key}>\n");
+            let close = format!("\n</{key}>");
+            if let Some((_, body)) = tail.split_once(&open)
+                && let Some((text, rest)) = body.split_once(&close)
+            {
+                tail = rest;
+                text
+            } else {
+                raw
+            }
+        } else {
+            raw
+        };
+        if !text.trim().is_empty() {
+            streams.push(text.trim());
+        }
+    }
+    let output = streams.join("\n");
+    Some(if output.is_empty() {
+        format!("Command exited with status {code}.")
+    } else {
+        output
+    })
 }
 
 /// One outcome, in the shape both loops send.
@@ -4677,11 +4751,11 @@ mod tests {
         // And this one distinguishes a deployment that cannot form a call from
         // a backend that is down, because the remedies are different.
         assert!(
-            StopReason::Unparseable.said().contains("valid JSON"),
+            StopReason::Unparseable.said().contains("tool calls"),
             "the reason does not say what was wrong with the calls"
         );
         assert!(
-            StopReason::Unparseable.said().contains("cut off"),
+            StopReason::Unparseable.said().contains("truncated"),
             "the reason does not cover a reply that ran away, which ends a turn the same way"
         );
         // A check-in is not a failure, and the sentence has to read like one:

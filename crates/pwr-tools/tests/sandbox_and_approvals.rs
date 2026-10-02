@@ -1894,18 +1894,35 @@ fn a_browser_check_reports_a_local_server_error() {
     // A missing local-service grant is refused before any browser is started.
     assert!(block_on(look_at(&policy, &target, None, None)).is_err());
     policy.approvals.push(Approval::LocalService);
+    let full_root = tempfile::tempdir().unwrap();
+    let mut full = policy.clone();
+    full.root = full_root.path().to_path_buf();
+    full.sandbox = SandboxPolicy::FullAccess;
+    let full_result = block_on(look_at(&full, &target, None, None));
+    let clean_root = tempfile::tempdir().unwrap();
+    let mut clean = policy.clone();
+    clean.root = clean_root.path().to_path_buf();
+    clean.sandbox = SandboxPolicy::Disabled;
+    let clean_result = block_on(look_at(&clean, &target, None, None));
     let result = block_on(look_at(&policy, &target, None, None));
     done.store(true, Ordering::Relaxed);
     server.join().unwrap();
-    let result = result.unwrap();
-    assert_eq!(result.status, Some(500));
-    assert!(result.text.contains("Module not found"), "{:?}", result);
-    assert!(
-        result
-            .console
-            .iter()
-            .any(|line| line.contains("Missing globals.css")),
-        "{:?}",
-        result.console
-    );
+    for (mode, result) in [
+        ("full", full_result),
+        ("clean", clean_result),
+        ("sandbox", result),
+    ] {
+        let result = result.unwrap();
+        assert_eq!(result.status, Some(500), "{mode}: {result:?}");
+        assert!(result.text.contains("Module not found"), "{:?}", result);
+        assert!(
+            result
+                .console
+                .iter()
+                .any(|line| line.contains("Missing globals.css")),
+            "{:?}",
+            result.console
+        );
+        assert!(result.bytes > 0 && result.image.is_file());
+    }
 }

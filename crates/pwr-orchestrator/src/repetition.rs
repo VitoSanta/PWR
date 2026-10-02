@@ -123,6 +123,10 @@ pub struct Echoes {
 }
 
 impl Echoes {
+    /// Failures before a real file change cannot predict its next check.
+    pub fn inputs_changed(&mut self) {
+        self.recent.retain(|(_, _, failed)| !failed);
+    }
     /// Records a result; returns how many times it has now been seen, when
     /// that is the limit or more.
     pub fn observe(&mut self, fingerprint: &str, outcome: &serde_json::Value) -> Option<usize> {
@@ -200,6 +204,11 @@ pub struct FailedRuns {
 }
 
 impl FailedRuns {
+    /// A successful file change starts another repair/check cycle.
+    pub fn inputs_changed(&mut self) {
+        self.streak = 0;
+        self.handed_over = false;
+    }
     /// Records a run; returns the hand-over notice the first time the
     /// streak reaches the limit in a turn that has changed files.
     pub fn observe(&mut self, failed: bool, edited: bool) -> Option<String> {
@@ -207,7 +216,7 @@ impl FailedRuns {
         (edited && !self.handed_over && self.streak >= FAILED_RUN_LIMIT).then(|| {
             self.handed_over = true;
             format!(
-                "Stop running things now: the last {FAILED_RUN_LIMIT} runs all failed. Any possible \
+                "Stop running things now: the last {FAILED_RUN_LIMIT} runs all failed without a successful file change. Any possible \
                  filesystem effects are kept. Inspect what exists and answer the engineer: say what was produced, what \
                  you tried to run and why it failed, and the exact commands they can run \
                  themselves. Further commands this turn will not be run."

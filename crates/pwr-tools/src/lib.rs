@@ -4346,11 +4346,18 @@ fn decode_entities(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The browser `look_at` drives: `PWR_BROWSER`, else Chrome, Chromium or Edge
-/// where they are usually installed, else one on PATH.
+/// The browser `look_at` drives: `PWR_BROWSER`, else an installed Playwright
+/// headless Chromium on macOS, then Chrome, Chromium or Edge and PATH.
 pub fn browser_executable() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("PWR_BROWSER") {
         return Some(PathBuf::from(path));
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME")
+        && let Some(browser) =
+            playwright_headless_browser(&PathBuf::from(home).join("Library/Caches/ms-playwright"))
+    {
+        return Some(browser);
     }
     let known = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -4374,6 +4381,39 @@ pub fn browser_executable() -> Option<PathBuf> {
             .map(|directory| directory.join(name))
             .find(|candidate| candidate.is_file())
     })
+}
+
+/// Full Chrome's display initialization can fail in a confined macOS child.
+/// Headless shell needs no desktop display or personal browser profile. Use
+/// an existing installation only; never download a browser during a tool call.
+#[cfg(target_os = "macos")]
+fn playwright_headless_browser(cache: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let platform = if cfg!(target_arch = "aarch64") {
+        "mac-arm64"
+    } else {
+        "mac-x64"
+    };
+    std::fs::read_dir(cache)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let revision = entry
+                .file_name()
+                .to_str()?
+                .strip_prefix("chromium_headless_shell-")?
+                .parse::<u32>()
+                .ok()?;
+            let binary = entry.path().join(format!(
+                "chrome-headless-shell-{platform}/chrome-headless-shell"
+            ));
+            binary
+                .metadata()
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+                .then_some((revision, binary))
+        })
+        .max_by_key(|(revision, _)| *revision)
+        .map(|(_, binary)| binary)
 }
 
 /// The directory a browser's files live in: its `.app` bundle on macOS, its
@@ -4564,9 +4604,13 @@ pub async fn look_at(
         let diagnostic =
             std::fs::read_to_string(scratch.join("browser-stderr.log")).unwrap_or_default();
         let diagnostic = diagnostic.chars().take(2_000).collect::<String>();
+        let hint = if diagnostic.contains("CVDisplayLinkCreateWithCGDisplay failed") {
+            "macOS display initialization failed (CVDisplayLink). Use an installed Chromium headless shell via PWR_BROWSER; this capture failure does not establish that the local server failed."
+        } else {
+            "If it is a local server, is it running (start_service) and on that port?"
+        };
         return Err(ToolError::Denied(format!(
-            "the page at {url} could not be captured: the browser wrote no screenshot. If it is \
-             a local server, is it running (start_service) and on that port? {diagnostic}"
+            "the page at {url} could not be captured: the browser wrote no screenshot. {hint} {diagnostic}"
         )));
     }
     let log = std::fs::read_to_string(scratch.join("browser-stderr.log")).unwrap_or_default();
@@ -7433,6 +7477,43 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn headless_browser_selection_uses_the_newest_runnable_installation() {
+        use std::os::unix::fs::PermissionsExt;
+        let cache = tempfile::tempdir().unwrap();
+        assert!(super::playwright_headless_browser(cache.path()).is_none());
+        let platform = if cfg!(target_arch = "aarch64") {
+            "mac-arm64"
+        } else {
+            "mac-x64"
+        };
+        let install = |revision: &str, executable: bool| {
+            let binary = cache.path().join(format!("chromium_headless_shell-{revision}/chrome-headless-shell-{platform}/chrome-headless-shell"));
+            std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+            std::fs::write(&binary, b"fixture").unwrap();
+            std::fs::set_permissions(
+                &binary,
+                std::fs::Permissions::from_mode(if executable { 0o755 } else { 0o644 }),
+            )
+            .unwrap();
+            binary
+        };
+        let older = install("2", true);
+        let newer = install("10", true);
+        install("20", false);
+        install("invalid", true);
+        assert_eq!(
+            super::playwright_headless_browser(cache.path()),
+            Some(newer.clone())
+        );
+        std::fs::remove_file(newer).unwrap();
+        assert_eq!(
+            super::playwright_headless_browser(cache.path()),
+            Some(older)
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_browser_symlink_opens_its_real_bundle_to_the_sandbox() {

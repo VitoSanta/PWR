@@ -446,12 +446,17 @@ ARMS = {
 }
 
 
-def run_task(task, run_id, attempt, turns_override=None, campaign=None, arm="pwr"):
+def run_task(task, run_id, attempt, turns_override=None, campaign=None, arm="pwr", permission_mode="ask"):
     label = task["id"] if attempt == 1 else f"{task['id']}~{attempt}"
     out = RESULTS / run_id / label
     if (out / "result.json").exists():
+        recorded = json.loads((out / "result.json").read_text())
+        # Older results always requested Ask; never relabel a completed task
+        # as Full access merely because its run id was reused.
+        if recorded.get("permission_mode", "ask") != permission_mode:
+            raise RuntimeError(f"{label}: existing result used another permission mode; use a new run id")
         say(f"{label}: already done")
-        return json.loads((out / "result.json").read_text())
+        return recorded
     if out.exists():
         shutil.rmtree(out)
     workspace = out / "workspace"
@@ -469,6 +474,7 @@ def run_task(task, run_id, attempt, turns_override=None, campaign=None, arm="pwr
         "task": task["id"], "title": task["title"], "stacks": task["stacks"],
         "category": task["category"], "split": task.get("split"), "attempt": attempt,
         "arm": arm,
+        "permission_mode": permission_mode,
         "run": run_id, "model": MODEL, "binary": PWR_BIN,
         "revision": binary_revision(),
         "protocol": PROTOCOL,
@@ -521,7 +527,14 @@ def run_task(task, run_id, attempt, turns_override=None, campaign=None, arm="pwr
             result["provenance"]["sampling"] = provenance.sampling_from(sampling)
         except Exception as error:  # recorded as unknown, not guessed
             result["provenance"]["sampling"] = {"error": repr(error)}
-        core.request("_pwr/approvals", {"cwd": str(workspace), "mode": "ask"}, timeout=60)
+        permissions = core.request("_pwr/approvals", {"cwd": str(workspace), "mode": permission_mode}, timeout=60)
+        result["provenance"]["permissions"] = permissions
+        if permissions.get("mode") != permission_mode:
+            raise RuntimeError(f"asked for permission mode {permission_mode}, the core reported {permissions.get('mode')}")
+        if permission_mode == "full" and permissions.get("sandboxed") is not False:
+            raise RuntimeError("Full access was requested but the core did not report sandboxed=false")
+        if permission_mode != "full" and permissions.get("sandboxed") is not True:
+            raise RuntimeError(f"{permission_mode} was requested but the core did not report sandboxed=true")
         session = core.request("session/new", {"cwd": str(workspace), "mcpServers": []},
                                on_message=person, timeout=900)["sessionId"]
         stopped_for_time = threading.Event()
@@ -625,7 +638,7 @@ def cmd_run(args):
                     sys.exit(3)
                 try:
                     result = run_task(task, args.run, attempt, args.turns,
-                                      dict(campaign, engines_at_start=engines), args.arm)
+                                      dict(campaign, engines_at_start=engines), args.arm, args.permission_mode)
                 except VerifierDown as down:
                     say(f"--- stopped: Docker stopped answering during {task['id']}; "
                         f"its result is not recorded.\n{down}")
@@ -666,6 +679,8 @@ def main():
     run.add_argument("--turns", type=int)
     run.add_argument("--arm", choices=sorted(ARMS), default="pwr",
                      help="pwr (the product) or minimal (the W8.3 control); one arm per run")
+    run.add_argument("--permission-mode", choices=("ask", "auto", "full"), default="ask",
+                     help="ask/auto use the platform sandbox; full runs without it. Recorded with actual confinement.")
     run.add_argument("--allow-unfrozen", action="store_true",
                      help="run tasks that do not match the frozen manifest (recorded)")
     run.add_argument("--allow-busy-machine", action="store_true",

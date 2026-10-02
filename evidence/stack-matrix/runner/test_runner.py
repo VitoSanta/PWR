@@ -13,6 +13,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -33,6 +34,9 @@ FAKE_CORE = textwrap.dedent('''\
             result = {"fields": [{"name": "temperature", "value": 0.6, "source": {"kind": "declared_profile"}}]}
         elif method == "session/new":
             result = {"sessionId": "s1"}
+        elif method == "_pwr/approvals":
+            result = {"mode": params["mode"], "sandboxed": params["mode"] != "full"}
+            pathlib.Path(cwd).parent.joinpath("permissions.json").write_text(json.dumps(params))
         elif method == "session/prompt":
             pathlib.Path(cwd, "done.txt").write_text("done")
             with open(pathlib.Path(cwd).parent / "prompts.jsonl", "a") as log:
@@ -60,6 +64,57 @@ def make_task(root):
 
 
 class Runner(unittest.TestCase):
+    def test_permission_modes_reach_the_core_and_record_actual_confinement(self):
+        sys.path.insert(0, str(HERE))
+        import run
+        for mode in ("ask", "auto", "full"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                root = pathlib.Path(folder)
+                make_task(root)
+                binary = root / "pwr-fake"
+                binary.write_text(FAKE_CORE)
+                binary.chmod(0o755)
+                task = json.loads((root / "tasks/smoke-done/task.json").read_text())
+                task["dir"] = root / "tasks/smoke-done"
+                with mock.patch.object(run, "PWR_BIN", str(binary)), mock.patch.object(run, "RESULTS", root / "runs"):
+                    result = run.run_task(task, "policy", 1, permission_mode=mode)
+                sent = json.loads((root / "runs/policy/smoke-done/permissions.json").read_text())
+                self.assertEqual(sent["mode"], mode)
+                self.assertEqual(result["permission_mode"], mode)
+                self.assertEqual(result["provenance"]["permissions"]["sandboxed"], mode != "full")
+                self.assertTrue(result["passed"], result)
+
+    def test_a_completed_sandbox_trial_cannot_be_reused_as_full_access(self):
+        sys.path.insert(0, str(HERE))
+        import run
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            result = root / "runs/reused/smoke-done/result.json"
+            result.parent.mkdir(parents=True)
+            # A legacy result has no policy field and always ran in Ask.
+            result.write_text(json.dumps({"passed": True}))
+            with mock.patch.object(run, "RESULTS", root / "runs"):
+                with self.assertRaisesRegex(RuntimeError, "another permission mode"):
+                    run.run_task({"id": "smoke-done"}, "reused", 1, permission_mode="full")
+
+    def test_wrong_confinement_stops_before_prompting_the_model(self):
+        sys.path.insert(0, str(HERE))
+        import run
+        for mode in ("ask", "auto", "full"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                root = pathlib.Path(folder)
+                make_task(root)
+                binary = root / "pwr-fake"
+                binary.write_text(FAKE_CORE.replace('params["mode"] != "full"', 'params["mode"] == "full"'))
+                binary.chmod(0o755)
+                task = json.loads((root / "tasks/smoke-done/task.json").read_text())
+                task["dir"] = root / "tasks/smoke-done"
+                with mock.patch.object(run, "PWR_BIN", str(binary)), mock.patch.object(run, "RESULTS", root / "runs"):
+                    result = run.run_task(task, "wrong-policy", 1, permission_mode=mode)
+                self.assertFalse(result["passed"])
+                self.assertIn("sandboxed=", result["error"])
+                self.assertFalse((root / "runs/wrong-policy/smoke-done/prompts.jsonl").exists())
+
     def runner(self, root, *arguments):
         core = root / "pwr-fake"
         core.write_text(FAKE_CORE)

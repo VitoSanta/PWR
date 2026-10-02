@@ -33,6 +33,13 @@ solution it passes.
     python3 runner/run.py reference
     python3 runner/run.py run --run <id> [--arm pwr|minimal] [--split dev] [TASK ...]
 
+`--permission-mode ask|auto|full` selects the workspace's permission policy
+(`ask` by default). Ask and Auto use the platform sandbox; Full access runs
+without it. Every result records the requested mode and the core's actual
+`sandboxed` state under `provenance.permissions`; a run refuses a mismatched
+mode or Full access that is not reported as unconfined. Use separate run ids
+for the two policies, so completed trials cannot be reused across them.
+
 `runner/pin.sh` builds the release binary and pins it with the MLX sidecar
 it reads (`~/Desktop/pwr-evidence/bin/pwr-<rev>` and `sidecar-<rev>/`), so a
 rebuild or an edit during a campaign does not change what is measured.

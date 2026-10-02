@@ -22,7 +22,7 @@ Docker case remain unverified; no live-model measurement.
 | Suite | Run with | Where |
 |---|---|---|
 | Rust (every crate: unit, integration, property tests; **1,405 reported passed, 5 ignored; one Docker skip** on 2026-10-01) | `cargo test --workspace` | `crates/*/src` (`#[cfg(test)]`), `crates/*/tests/` |
-| Desktop unit tests (107 in 13 spec files, 2026-10-01) | `npm test -- --watch=false` in `apps/desktop` | `apps/desktop/src/app/**/*.spec.ts` |
+| Desktop unit tests (78 in 12 spec files after the Stage frontend rollback, 2026-10-02) | `npm test -- --watch=false` in `apps/desktop` | `apps/desktop/src/app/**/*.spec.ts` |
 | MLX sidecar (41, 2026-10-01) | `python -m unittest discover -s crates/pwr-mlx/sidecar` with the engine's interpreter | `crates/pwr-mlx/sidecar/test_pwr_mlx.py` |
 | Protocol transcripts | part of the Rust suite | `crates/pwr-cli/tests/fixtures/acp/` |
 | Conversation fixtures through a real `take_turn` | part of the Rust suite | `crates/pwr-cli/src/two_loops.rs` |

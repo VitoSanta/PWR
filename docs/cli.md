@@ -67,7 +67,7 @@ Slash commands inside `pwr chat` and the app: `/changes`, `/verify`,
 | `PWR_HF_BASE_URL`, `HF_TOKEN` | Hugging Face endpoint and token |
 | `PWR_ALLOW_UNCONFINED=1` | Run commands unconfined where no sandbox can be built (recorded `sandboxed: false`) |
 | `PWR_SEMANTIC_RETRIEVAL=1` | Experimental semantic ranking (`PWR_EMBED_PYTHON`, `PWR_EMBED_SIDECAR` for its encoder) |
-| `PWR_BROWSER` | The browser `look_at` drives |
+| `PWR_BROWSER` | Explicit browser for `look_at`; on macOS the default prefers an installed Playwright Chromium headless shell, then Chrome/Chromium/Edge |
 | `PWR_MLX_TRACE` | Engine request tracing: every request's last messages and the model's raw output, appended as JSON lines (holds model text; never published) |
 | `PWR_EMBED_MODEL`, `PWR_EMBED_POOLING` | The embedding model and pooling for semantic retrieval |
 | `PWR_HARNESS_REV` | The harness revision a campaign records (declared by the runner) |

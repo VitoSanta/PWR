@@ -13,6 +13,83 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — Repairs found during the desktop rollback battery
+
+**IMPLEMENTED correctness repairs; model effectiveness still UNKNOWN.**
+The live baseline remains pinned to `8b3b33dd`. The first 9B billing task
+ended at the 60-minute Goal guard, unverified: 83 actions, 21 failed/refused,
+and a failing independent verifier. This is a diagnostic observation, not a
+model ranking. It exposed two core defects reproduced before repair:
+
+- A failed command's live card showed stderr alone; saved cards also ignored
+  stdout and its verbatim block after the JSON envelope. Live and replay now
+  retain both streams. Regression cases use the actual result serializer.
+- Repetition and failed-run guards refused new checks even after real input
+  repairs. A successful file change now renews the command attempts; denied
+  edits and existing-directory no-ops do not. The existing action, time and
+  no-progress bounds remain. Real-tool regressions exercise identical failures,
+  five distinct failures, edits, deletes, moves, directories and restoration.
+
+The workspace baseline reported 1483 passes, 2 failures and 5 ignored. One
+failure was a stale assertion on the Unparseable stop message; its check now
+matches the supported tool-call formats. The other was the page-capture path
+with desktop Chrome 154 on macOS 27.0.1. Controlled probes found full Chrome
+works in Full access, while the installed Chromium headless shell captures the
+same HTTP 500, DOM and console under all three tested execution environments.
+macOS now prefers an already installed Playwright headless shell; an explicit
+`PWR_BROWSER` still wins, and full-browser fallback remains where no helper is
+installed. No sandbox permission is widened and no browser is downloaded.
+Fresh workspace validation reports 1489 passes, 0 failures and 5 ignored;
+Clippy with warnings denied, formatting, 43 MLX-sidecar tests and the three
+runner policy regressions pass. Host-dependent skips were not collected for
+the full Cargo run, so its reported pass count is not an exhaustive coverage
+claim. Corrected-model follow-up is still pending. One earlier parallel
+browser trial captured the page but lost its separate HTTP-status probe;
+the isolated default-browser rerun and fresh full suite pass. This transient
+is retained in `tools-final-green.log` despite that log's historical name.
+
+Raw red/green regressions, compatibility probes and baseline task results:
+`~/Desktop/pwr-evidence/batteries/20261002-stage-frontend/` and
+`~/Desktop/pwr-evidence/runs/battery-20261002-stage-q35-9b/ts-ledger/`.
+
+## 2026-10-02 — Desktop rollback battery, sandbox and Full access
+
+**IMPLEMENTED measurement procedure; live battery in progress, effectiveness
+UNKNOWN.** At the owner's request, the Angular frontend was restored exactly
+from `stage` (`c44e1dce`) on `develop` (`8b3b33dd`), retaining the Rust core.
+The product-path evaluator now accepts `--permission-mode ask|auto|full` and
+records the core's actual policy and confinement in `provenance.permissions`.
+It refuses policy mismatches and reuse of a completed trial under another
+policy. Ask remains the default. Regression checks exercise all three policies
+against a stand-in core, refuse wrong reported confinement before prompting
+and refuse relabelling a legacy Ask result as Full.
+
+The diagnostic battery pins the binary and sidecar at `8b3b33dd`, uses existing
+local MLX artifacts Qwen3.5-9B 4-bit, Gemma 4 12B 4-bit and Qwen3-Coder-30B-A3B
+4-bit, and MLX 0.32.3 / mlx-lm 0.31.3 on the maintainer's M2 Max, 64 GB.
+All three fresh Quick Calibrations pass the agent-critical checks. Four frozen
+development tasks cover debugging, React, Python and Rust; two external
+development tasks start without application code and have owner acceptance
+tests and separate hidden verifiers (Python todo CLI, Node HTTP notes API).
+All six seed/reference pairs were validated: seed fails, reference passes.
+Goal mode runs one unattended cycle per task, without oracle nudges or fixed
+sampling seeds. The expanded matrix pairs debugging under Ask/Full and a new HTTP API under
+Auto/Full, and probes session lifecycle under Ask/Full. Auto grants the
+loopback network permission needed by the HTTP acceptance tests while keeping
+the sandbox active; Full automatically grants permission and disables it. No heldout task
+is read for tuning and no statistical model-ranking claim is planned.
+
+The first trial predates the runner's additional policy metadata; its explicit
+Ask request is preserved in its transcript. Later runner digests name the
+metadata extension. Native bundle and runner preparation plus workspace tests
+overlap the first diagnostic trial; latency comparisons are not claimed.
+Raw artifacts and the battery manifest:
+`/Users/vitosantanelli/Desktop/pwr-evidence/batteries/20261002-stage-frontend/`;
+task results: `~/Desktop/pwr-evidence/runs/battery-20261002-stage-*/`.
+New native bundle:
+`~/Desktop/pwr-evidence/builds/stage-frontend-20261002/PWR.app`.
+The restored Stage frontend exposes Ask/Auto; Full is tested through ACP.
+
 ## 2026-10-02 — Core effects, parsing, memory and real MLX context bounds
 
 **IMPLEMENTED correctness repair; capability and performance effects UNKNOWN.**

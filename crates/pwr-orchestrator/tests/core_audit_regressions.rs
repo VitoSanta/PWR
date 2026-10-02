@@ -517,7 +517,7 @@ async fn command_failure_is_visible_and_is_not_delivery() {
             vec![call(
                 "run_command",
                 "failure",
-                serde_json::json!({"executable":"sh","args":["-c","printf failed >&2; exit 1"]}),
+                serde_json::json!({"executable":"sh","args":["-c","printf 'AssertionError: billing total\n'; printf 'npm notice test\n' >&2; exit 1"]}),
             )],
             vec![call(
                 "complete",
@@ -541,6 +541,7 @@ async fn command_failure_is_visible_and_is_not_delivery() {
         ChatMessage::text("user", "work"),
     ];
     let mut failed = false;
+    let mut failure_detail = String::new();
     let report = converse::take_turn(
         &fake,
         &pwr_compat::GenericAdapter,
@@ -557,8 +558,11 @@ async fn command_failure_is_visible_and_is_not_delivery() {
         &converse::Continuity::default(),
         &DenyWithoutAsking,
         |step| {
-            if let converse::TurnStep::ToolCall(call) = step {
-                failed |= matches!(call.phase, converse::ToolPhase::Failed(_));
+            if let converse::TurnStep::ToolCall(call) = step
+                && let converse::ToolPhase::Failed(why) = call.phase
+            {
+                failed = true;
+                failure_detail = why;
             }
         },
     )
@@ -569,10 +573,228 @@ async fn command_failure_is_visible_and_is_not_delivery() {
         "nonzero exit must be visible as failed in the live trace"
     );
     assert!(
+        failure_detail.contains("AssertionError: billing total"),
+        "stdout diagnostic was hidden: {failure_detail}"
+    );
+    assert!(
+        failure_detail.contains("npm notice test"),
+        "stderr was lost: {failure_detail}"
+    );
+    assert!(
         report.edited,
         "possible command effects still require checks"
     );
     assert!(!report.outcome.delivered);
+}
+
+#[tokio::test]
+async fn repaired_inputs_allow_checks_after_repeated_failures() {
+    for varying_diagnostics in [false, true] {
+        for changed in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::write(root.path().join("unchanged.txt"), "stable").unwrap();
+            let mut policy = PolicyProfile::Safe.build(root.path().to_owned());
+            policy.allow_commands.push("sh".into());
+            let attempts = if varying_diagnostics { 6 } else { 3 };
+            let last = char::from(b'a' + attempts - 1);
+            let diagnostic = if varying_diagnostics {
+                "ls attempt-*"
+            } else {
+                "printf 'still failing\\n'"
+            };
+            let script = format!("{diagnostic}; test -f attempt-{last}.txt");
+            let mut replies = VecDeque::new();
+            for n in 0..attempts {
+                let letter = char::from(b'a' + n);
+                let edit_path = if changed {
+                    format!("attempt-{letter}.txt")
+                } else {
+                    "unchanged.txt".into()
+                };
+                replies.push_back(vec![call(
+                    "write_file",
+                    &format!("edit-{letter}"),
+                    serde_json::json!({"path":edit_path, "content":"repair"}),
+                )]);
+                replies.push_back(vec![call(
+                    "run_command",
+                    &format!("check-{letter}"),
+                    serde_json::json!({"executable":"sh", "args":["-c",script]}),
+                )]);
+            }
+            let fake = Fake {
+                replies: Mutex::new(replies),
+            };
+            let store = pwr_store::Store::open(":memory:").unwrap();
+            let mut messages = vec![
+                ChatMessage::text("system", "s"),
+                ChatMessage::text("user", "repair and check"),
+            ];
+            turn(
+                &fake,
+                &store,
+                pwr_domain::new_id(),
+                &policy,
+                &mut messages,
+                &AtomicBool::new(false),
+                &converse::Continuity {
+                    action_limit: Some(usize::from(attempts) * 2),
+                    ..Default::default()
+                },
+            )
+            .await;
+            let outcomes: Vec<_> = messages
+                .iter()
+                .filter(|m| m.role == "tool")
+                .filter_map(|m| {
+                    serde_json::from_str::<serde_json::Value>(
+                        m.content.lines().next().unwrap_or(""),
+                    )
+                    .ok()
+                })
+                .filter_map(|v| v.get("result").cloned())
+                .filter(|v| v.get("exit_code").is_some())
+                .collect();
+            if changed {
+                assert_eq!(
+                    outcomes.len(),
+                    usize::from(attempts),
+                    "a real file repair must permit another check: {messages:?}"
+                );
+                assert_eq!(outcomes.last().unwrap()["exit_code"], 0);
+            } else {
+                assert_eq!(
+                    outcomes.len(),
+                    2,
+                    "refused edits must not renew failed command attempts"
+                );
+                assert!(outcomes.iter().all(|v| v["exit_code"] != 0));
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn path_repairs_renew_checks_but_directory_noops_do_not() {
+    for kind in [
+        "delete",
+        "move",
+        "mkdir",
+        "restore",
+        "mkdir-noop",
+        "restore-noop",
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("source.txt"), "good").unwrap();
+        if kind == "mkdir-noop" {
+            std::fs::create_dir(root.path().join("created")).unwrap();
+        }
+        let mut policy = PolicyProfile::Safe.build(root.path().to_owned());
+        policy.allow_commands.push("sh".into());
+        let mut replies = VecDeque::new();
+        if kind.starts_with("restore") {
+            replies.push_back(vec![call(
+                "read_file",
+                "original",
+                serde_json::json!({"path":"source.txt"}),
+            )]);
+        }
+        if kind == "restore" {
+            replies.push_back(vec![call("replace_text", "break", serde_json::json!({"path":"source.txt", "expected_hash":pwr_domain::hash_bytes(b"good"), "find":"good", "replace":"bad"}))]);
+        }
+        let (script, repair) = match kind {
+            "delete" => (
+                "test ! -f source.txt",
+                call(
+                    "delete_path",
+                    "repair",
+                    serde_json::json!({"path":"source.txt", "expected_hash":pwr_domain::hash_bytes(b"good")}),
+                ),
+            ),
+            "move" => (
+                "test -f moved.txt",
+                call(
+                    "move_path",
+                    "repair",
+                    serde_json::json!({"from":"source.txt", "to":"moved.txt"}),
+                ),
+            ),
+            "mkdir" => (
+                "test -d created",
+                call(
+                    "make_directory",
+                    "repair",
+                    serde_json::json!({"path":"created"}),
+                ),
+            ),
+            "restore" => (
+                "grep -q good source.txt",
+                call(
+                    "restore_file",
+                    "repair",
+                    serde_json::json!({"path":"source.txt"}),
+                ),
+            ),
+            "mkdir-noop" => (
+                "exit 1",
+                call(
+                    "make_directory",
+                    "repair",
+                    serde_json::json!({"path":"created"}),
+                ),
+            ),
+            _ => (
+                "exit 1",
+                call(
+                    "restore_file",
+                    "repair",
+                    serde_json::json!({"path":"source.txt"}),
+                ),
+            ),
+        };
+        let check = |id: &str| {
+            call(
+                "run_command",
+                id,
+                serde_json::json!({"executable":"sh", "args":["-c",script]}),
+            )
+        };
+        replies.extend([
+            vec![check("check1")],
+            vec![check("check2")],
+            vec![repair],
+            vec![check("check3")],
+        ]);
+        let fake = Fake {
+            replies: Mutex::new(replies),
+        };
+        let store = pwr_store::Store::open(":memory:").unwrap();
+        let mut messages = vec![
+            ChatMessage::text("system", "s"),
+            ChatMessage::text("user", "repair"),
+        ];
+        turn(
+            &fake,
+            &store,
+            pwr_domain::new_id(),
+            &policy,
+            &mut messages,
+            &AtomicBool::new(false),
+            &converse::Continuity::default(),
+        )
+        .await;
+        let codes: Vec<_> = messages
+            .iter()
+            .filter(|m| m.role == "tool")
+            .filter_map(|m| pwr_orchestrator::tool_result_json(&m.content))
+            .filter_map(|v| v["result"]["exit_code"].as_i64())
+            .collect();
+        if kind.ends_with("noop") {
+            assert_eq!(codes, [1, 1], "{kind}: {messages:?}");
+        } else {
+            assert_eq!(codes, [1, 1, 0], "{kind}: {messages:?}");
+        }
+    }
 }
 
 #[tokio::test]
