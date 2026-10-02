@@ -424,6 +424,20 @@ struct RewindPoint {
     text: String,
 }
 
+fn rewind_message_index(messages: &[ChatMessage], point: &RewindPoint) -> Option<usize> {
+    let matches =
+        |message: &ChatMessage| message.role == "user" && message.content.starts_with(&point.text);
+    if messages.get(point.at).is_some_and(matches) {
+        return Some(point.at);
+    }
+    let mut found = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, message)| matches(message));
+    let index = found.next()?.0;
+    found.next().is_none().then_some(index)
+}
+
 impl Session {
     fn new(
         root: PathBuf,
@@ -2159,18 +2173,17 @@ impl<R: TurnRunner + 'static> Server<R> {
                 "this message was sent before the conversation was opened here, so it cannot be rewound to",
             ));
         };
-        let point = session.rewind_points[position].clone();
+        let mut point = session.rewind_points[position].clone();
         // Starts with, not equals: a goal appends the checks already failing
         // to the message it answers.
-        if !session.messages.get(point.at).is_some_and(|message| {
-            message.role == "user" && message.content.starts_with(&point.text)
-        }) {
+        let Some(at) = rewind_message_index(&session.messages, &point) else {
             return self.send(error_response(
                 id,
                 -32000,
                 "the conversation was compacted after this message, so it can no longer be rewound to",
             ));
-        }
+        };
+        point.at = at;
         let mut restored = Vec::new();
         let mut failed = Vec::new();
         if restore {
@@ -3753,6 +3766,22 @@ fn memory_request(id: Value, params: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rewind_finds_a_preserved_message_after_indices_shift() {
+        let point = super::RewindPoint {
+            turn: 2,
+            at: 4,
+            text: "build the app".into(),
+        };
+        let messages = vec![
+            pwr_domain::ChatMessage::text("system", "summary"),
+            pwr_domain::ChatMessage::text("user", "build the app"),
+        ];
+        assert_eq!(super::rewind_message_index(&messages, &point), Some(1));
+        assert_eq!(super::rewind_message_index(&messages[..1], &point), None);
+        let repeated = vec![messages[1].clone(), messages[1].clone()];
+        assert_eq!(super::rewind_message_index(&repeated, &point), None);
+    }
     use super::*;
     use pwr_orchestrator::executor::GOAL_REVIEW;
 
