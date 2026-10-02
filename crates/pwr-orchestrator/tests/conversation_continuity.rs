@@ -111,6 +111,7 @@ fn what_changed_while_the_conversation_was_away_is_found() {
             changed_files: changed,
             revision: 0,
             next_intent: 3,
+            moved_to_root: Vec::new(),
         },
     )
     .unwrap();

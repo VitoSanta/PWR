@@ -2635,11 +2635,13 @@ fn a_turn_that_outgrows_its_window_compacts_itself_and_audits_it() {
     assert!(record.content.contains("part0.rs"), "{}", record.content);
 }
 
-/// A window of a million tokens does not let a conversation grow to three
-/// quarters of it: the default ceiling compacts first, and a person's own
-/// setting lifts it.
+/// A conversation compacts at three quarters of the window it was granted,
+/// not at a fixed number of tokens; a workspace's own ceiling still lowers it.
+/// Measured 2026-10-02 (the owner's Libra conversation, Nemotron 3.5
+/// Lightning 30B, 262,144 tokens granted): the old default ceiling compacted
+/// it at 34,039 tokens while the app said "compact at 75 %".
 #[test]
-fn a_huge_window_still_compacts_at_the_ceiling() {
+fn a_conversation_compacts_at_three_quarters_of_its_window() {
     let run = |ceiling: Option<usize>| {
         let dir = workspace();
         let names: Vec<String> = (0..6).map(|n| format!("part{n}.rs")).collect();
@@ -2690,8 +2692,16 @@ fn a_huge_window_still_compacts_at_the_ceiling() {
             .expect("the turn returned an error");
         compactions
     };
-    assert!(run(Some(4096)) > 0, "a 4k ceiling did not compact");
-    assert_eq!(run(None), 0, "no ceiling, and a 1M window filled to 3/4?");
+    assert!(
+        run(Some(4096)) > 0,
+        "a workspace's 4k ceiling did not compact"
+    );
+    assert_eq!(run(None), 0, "a 1M window compacted far below 3/4");
+    assert_eq!(
+        converse::Continuity::default().compaction_room(262_144),
+        196_608,
+        "the Libra window"
+    );
     assert_eq!(
         converse::Continuity {
             compact_ceiling_tokens: Some(65_536),
@@ -4398,6 +4408,113 @@ fn a_compaction_that_cannot_get_under_the_trigger_is_not_repeated() {
         "{:?}",
         outcome.steps
     );
+}
+
+/// A generator run in an empty workspace makes the project's folder; the
+/// project lands in the workspace root all the same, and the paths the model
+/// keeps writing under that folder follow it. Measured 2026-10-02 (Nemotron
+/// 3.5 Lightning 30B, the owner's Libra workspace): `npm exec npm create
+/// next-app@latest libro-ecommerce`, then every file written under
+/// `/Users/.../Libra/libro-ecommerce/`, although the system prompt said a new
+/// project goes in the root.
+fn generate_in_a_subfolder(harness: converse::Harness) -> (tempfile::TempDir, ChatOutcome) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".pwr")).unwrap();
+    let request = "Voglio creare un e-commerce di libri con Next.js.";
+    let continuity = converse::Continuity {
+        harness,
+        ..Default::default()
+    };
+    let absolute = dir.path().join("libro-ecommerce/app/api/books/route.ts");
+    let script = vec![
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": ["-c",
+                "mkdir -p libro-ecommerce/app && printf '{}' > libro-ecommerce/package.json \
+                 && printf 'export default 1;' > libro-ecommerce/app/page.tsx"]}),
+        ),
+        calls(
+            "write_file",
+            serde_json::json!({"path": absolute.to_string_lossy(), "content": "export {}\n"}),
+        ),
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": ["-c", "test -f package.json"],
+                "cwd": "libro-ecommerce"}),
+        ),
+        says("Fatto."),
+    ];
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(script),
+        vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", request),
+        ],
+        32_768,
+        continuity,
+    );
+    (dir, outcome)
+}
+
+#[test]
+fn a_project_generated_in_a_subfolder_of_an_empty_workspace_lands_in_its_root() {
+    let (dir, outcome) = generate_in_a_subfolder(converse::Harness::Full);
+    let root = dir.path();
+    assert!(root.join("package.json").is_file(), "{:?}", outcome.steps);
+    assert!(root.join("app/page.tsx").is_file());
+    assert!(root.join("app/api/books/route.ts").is_file());
+    assert!(
+        !root.join("libro-ecommerce").exists(),
+        "{:?}",
+        outcome.steps
+    );
+    let told = |index: usize| {
+        outcome.requests[index]
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == "tool")
+            .map(|message| message.content.clone())
+            .unwrap_or_default()
+    };
+    assert!(
+        told(1).contains("moved everything the command created in `libro-ecommerce/`"),
+        "{}",
+        told(1)
+    );
+    assert!(
+        told(2).contains("was read as `app/api/books/route.ts`"),
+        "{}",
+        told(2)
+    );
+    assert!(
+        told(3).contains("\"exit_code\":0"),
+        "the old cwd did not run in the root: {}",
+        told(3)
+    );
+    assert!(
+        outcome
+            .steps
+            .iter()
+            .any(|step| step.contains("moved into the workspace root"))
+    );
+    assert!(
+        outcome
+            .events
+            .iter()
+            .any(|event| event.event_type == "workspace.moved_to_root"),
+        "the move is not in the audit"
+    );
+}
+
+/// The W8.3 minimal control is the simple loop it is measured against: it
+/// moves nothing.
+#[test]
+fn the_minimal_control_leaves_a_generated_subfolder_where_it_is() {
+    let (dir, _) = generate_in_a_subfolder(converse::Harness::Minimal);
+    assert!(dir.path().join("libro-ecommerce/package.json").is_file());
+    assert!(!dir.path().join("package.json").exists());
 }
 
 #[test]

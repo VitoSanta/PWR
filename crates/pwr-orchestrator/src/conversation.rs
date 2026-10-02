@@ -65,6 +65,11 @@ pub struct Checkpoint {
     /// The sequence the next announced action will carry.
     #[serde(default)]
     pub next_intent: u64,
+    /// Folders a generator created whose contents PWR moved into the root,
+    /// so a path still written under one is read as the root's (see
+    /// [`crate::scaffold`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moved_to_root: Vec<String>,
 }
 
 /// An action announced before it ran.

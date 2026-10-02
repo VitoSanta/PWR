@@ -1604,6 +1604,18 @@ impl<R: TurnRunner + 'static> Server<R> {
             .get("compactAtPercent")
             .and_then(Value::as_u64)
             .unwrap_or(75);
+        // The turn's own rule, so the number shown is the one that triggers:
+        // until 2026-10-02 this said 75 % of the window while a default
+        // ceiling compacted at 32,768 tokens.
+        let threshold = converse::Continuity {
+            compact_at_percent: u8::try_from(percent).ok(),
+            compact_ceiling_tokens: settings
+                .get("compactCeilingTokens")
+                .and_then(Value::as_u64)
+                .and_then(|tokens| usize::try_from(tokens).ok()),
+            ..Default::default()
+        }
+        .compaction_room(u32::try_from(window).unwrap_or(u32::MAX));
         let estimated = composition.total() as u64;
         let (used, source) = match reported {
             Some((used, _)) => (used, "engine"),
@@ -1622,7 +1634,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 "autoCompact": {
                     "enabled": true,
                     "thresholdPercent": percent,
-                    "thresholdTokens": window * percent / 100,
+                    "thresholdTokens": threshold,
                     "bounds": [converse::COMPACT_AT_BOUNDS.0, converse::COMPACT_AT_BOUNDS.1],
                     "custom": settings.get("compactAtCustom"),
                 },

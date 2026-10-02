@@ -11,6 +11,7 @@ pub mod personal;
 pub mod plan;
 pub mod repetition;
 mod run_state;
+pub mod scaffold;
 pub mod session;
 pub mod stall;
 pub mod wiki;

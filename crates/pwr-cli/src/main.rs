@@ -1137,6 +1137,20 @@ struct ChatConfig {
     /// compacts itself; `None` for the default (75).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     compact_at_percent: Option<u8>,
+    /// A ceiling in tokens under that share, for a model that degrades
+    /// before its window is three quarters full. Set by hand in
+    /// `.pwr/chat-config.json`; `None`, the default, is no ceiling
+    /// (D-2026-10-02-3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    compact_ceiling_tokens: Option<usize>,
+}
+
+/// The workspace's auto-compaction threshold and ceiling, if it chose them:
+/// otherwise three quarters of the granted window, with no ceiling
+/// (D-2026-10-02-3).
+fn compaction_settings(config: &ChatConfig, continuity: &mut converse::Continuity) {
+    continuity.compact_at_percent = config.compact_at_percent;
+    continuity.compact_ceiling_tokens = config.compact_ceiling_tokens;
 }
 
 /// How much a conversation may do without asking. Decided 2026-09-23 with the
@@ -1309,6 +1323,7 @@ impl Default for ChatConfig {
             ask_before: asked_before_by_default(),
             permission_mode: Some(PermissionMode::Ask),
             compact_at_percent: None,
+            compact_ceiling_tokens: None,
         }
     }
 }
@@ -3353,6 +3368,7 @@ impl serve::TurnRunner for ConsoleTurns {
                         .compact_at_percent
                         .unwrap_or((converse::COMPACT_AT * 100.0) as u8),
                     "compactAtCustom": config.compact_at_percent.is_some(),
+                    "compactCeilingTokens": config.compact_ceiling_tokens,
                 }))
             }
             serve::SettingsRequest::Approvals { ask_before, mode } => {
@@ -4858,12 +4874,7 @@ async fn chat_turn(
         pwr_orchestrator::conversation::record_checkpoint(&store, conversation_id, &checkpoint)?;
     }
     let model = config.model.clone().ok_or("no model is selected")?;
-    // The workspace's auto-compaction threshold, if it chose one.
-    continuity.compact_at_percent = config.compact_at_percent;
-    // Nobody chose a window or a threshold: the default ceiling applies.
-    continuity.compact_ceiling_tokens = (config.compact_at_percent.is_none()
-        && config.context_setting.is_none())
-    .then_some(pwr_orchestrator::converse::DEFAULT_COMPACTION_CEILING_TOKENS);
+    compaction_settings(&config, &mut continuity);
     let selection = runtime
         .select(model.clone(), Duration::from_secs(config.timeout_secs))
         .map_err(|error| error.to_string())?;
@@ -13351,6 +13362,34 @@ mod tests {
         assert_eq!(messages[1], note);
     }
 
+    /// The owner's Libra configuration of 2026-10-02, as saved: a window the
+    /// app computed (262,144) and no threshold chosen. A default ceiling
+    /// compacted that conversation at 34,039 tokens, 13 % of the window,
+    /// while the app said 75 %.
+    #[test]
+    fn a_computed_window_compacts_at_three_quarters_of_it() {
+        let saved: ChatConfig = serde_json::from_str(
+            r#"{"background_summaries": false, "backend": null,
+                "model": "mlx-community/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-4bit",
+                "reasoning_effort": "medium", "actions_per_turn": 100,
+                "acknowledged_provisional": [], "profile": null,
+                "prepared_for_model": "mlx-community/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-4bit",
+                "require_probe": true, "prepared_without_calibration": true,
+                "context_tokens": 262144, "timeout_secs": 900, "plan": false,
+                "permission_mode": "full"}"#,
+        )
+        .unwrap();
+        let mut continuity = converse::Continuity::default();
+        compaction_settings(&saved, &mut continuity);
+        assert_eq!(continuity.compaction_room(saved.context_tokens), 196_608);
+        let ceiling = ChatConfig {
+            compact_ceiling_tokens: Some(65_536),
+            ..saved
+        };
+        compaction_settings(&ceiling, &mut continuity);
+        assert_eq!(continuity.compaction_room(ceiling.context_tokens), 65_536);
+    }
+
     #[test]
     fn attachment_paths_with_spaces_and_shell_escaping_are_accepted() {
         let workspace = tempfile::tempdir().unwrap();
@@ -13377,6 +13416,7 @@ mod tests {
             ask_before: vec![pwr_tools::Approval::NetworkAccess],
             permission_mode: Some(PermissionMode::Ask),
             compact_at_percent: Some(60),
+            compact_ceiling_tokens: None,
         };
         save_chat_config(workspace.path(), &config)
             .unwrap_or_else(|error| panic!("{}", error.context));

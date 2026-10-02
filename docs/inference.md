@@ -100,7 +100,7 @@ Read, not tested; none is proven to be the cause of anything PWR saw.
 
 | Finding | Source | Consequence here |
 |---|---|---|
-| A **silent KV-cache corruption on natural-language prompts of about 60k tokens and more**: generation collapses into token id 0 (`!`), probabilistically, dense and MoE alike, on `mlx 0.32.0` / `mlx-lm 0.31.3` / `mlx-vlm 0.6.3` (the report predates the bump) | [jundot/omlx#3777](https://github.com/jundot/omlx/issues/3777) | The compaction ceiling is 32,768 tokens by default. PWR saw a similar collapse at 27k tokens of failing-and-retrying history (Qwen3-Coder-30B), which a synthetic 40-turn chain to 32k and a fresh 30k prompt did not reproduce |
+| A **silent KV-cache corruption on natural-language prompts of about 60k tokens and more**: generation collapses into token id 0 (`!`), probabilistically, dense and MoE alike, on `mlx 0.32.0` / `mlx-lm 0.31.3` / `mlx-vlm 0.6.3` (the report predates the bump) | [jundot/omlx#3777](https://github.com/jundot/omlx/issues/3777) | A default compaction ceiling of 32,768 tokens guarded against it until 2026-10-02; the owner withdrew it ([D-2026-10-02-3](decisions.md)), so conversations now reach 75 % of the granted window and a workspace that sees this collapse sets `compact_ceiling_tokens`. PWR saw a similar collapse at 27k tokens of failing-and-retrying history (Qwen3-Coder-30B), which a synthetic 40-turn chain to 32k and a fresh 30k prompt did not reproduce |
 | mlx-lm's **presence and repetition penalties look at the last 20 tokens** (`*_context_size=20`) | `mlx_lm/sample_utils.py` | A vendor's presence penalty is not what the engine applies; the anti-loop path widens it |
 | mlx-lm sets the **wired limit only around `stream_generate`** (`wired_limit`), not around PWR's own chunked prefill; without wiring the first GPU command after an idle gap stalls about 0.9 s | `mlx_lm/generate.py`; [jundot/omlx#4040](https://github.com/jundot/omlx/issues/4040) | A fraction of a second per turn; not acted on |
 | **Quantizing the KV cache** (`kv_bits`) has reported silent corruption of the prefilled context in `mlx-vlm` 0.6.1, and `quantized_kv_start` defaults differ between `generate_step` (0) and the CLI (5000) | [Blaizzy/mlx-vlm#1310](https://github.com/Blaizzy/mlx-vlm/issues/1310), [ml-explore/mlx-lm#1651](https://github.com/ml-explore/mlx-lm/issues/1651) | PWR does not use it |
@@ -149,8 +149,8 @@ This is the window *theoretically allocatable* (262,144 tokens for a 35B on
 the maintainer's Mac). It is not the window that is stable under load, the one
 that is effective for a task, or the one that stays interactive; maximising the
 first does not maximise the others (review §12). **A conversation compacts at
-32,768 tokens by default** whatever the window, unless the person set a window
-or a threshold ([context.md](context.md#compaction)). The fit rating in the
+75 % of the granted window** (196,608 of 262,144 tokens), unless the workspace
+set a threshold or a ceiling ([context.md](context.md#compaction)). The fit rating in the
 Model Manager uses the same arithmetic ([models.md](models.md#fit)). The GPU's
 own limit (`max_recommended_working_set_size`) is not read: on a 64 GB Mac the
 reserve rule is the tighter of the two (48 GB against 55.7 GB).

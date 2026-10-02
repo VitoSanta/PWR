@@ -10,8 +10,10 @@ comes from.
   live in the persisted checkpoint, independent of the compressible history,
   and every compaction carries them verbatim; if they cannot fit the input
   allowance, generation ends as *context full* (plan W4.1).
-- **The compaction threshold has a ceiling** of 32,768 tokens unless the person
-  chose a window or a threshold, and a **clean-start compaction** runs after
+- **The compaction threshold is 75 % of the granted window**, with no ceiling
+  in tokens unless the workspace sets one (`compact_ceiling_tokens`); the
+  default ceiling of 32,768 tokens was withdrawn on 2026-10-02
+  ([D-2026-10-02-3](decisions.md)). A **clean-start compaction** runs after
   two replies in a row that fell apart on a prompt over 20,000 tokens ([agent-loop.md](agent-loop.md#replies-that-fall-apart)).
 - **Embedding** startup and each reply have a 30-second deadline; a timeout kills
   the sidecar, disables semantic requests for that ranker and falls back to the
@@ -38,7 +40,7 @@ comes from.
 The first message is the **system prompt**, rebuilt each turn
 (`compose_chat_turn`, `crates/pwr-cli/src/main.rs`) from:
 
-- PWR's instructions and harness rules (`chat_system_prompt_for`), including that a new project goes directly in the repository root and not in a new subfolder, unless asked (added 2026-10-01: every model scaffolded `ng new <name>` into a subfolder), including the workspace's reference folders;
+- PWR's instructions and harness rules (`chat_system_prompt_for`), including that a new project goes directly in the repository root and not in a new subfolder, unless asked (added 2026-10-01: every model scaffolded `ng new <name>` into a subfolder), and that a generator insisting on its own folder is moved into the root by PWR while the workspace holds no project ([D-2026-10-02-4](decisions.md), `crates/pwr-orchestrator/src/scaffold.rs`), including the workspace's reference folders;
 - the deployment's own suffix from its profile (a required section: a model
   switched mid-conversation gets its own suffix);
 - the personal block (`personal::prompt_block`, bounded to 8,000 bytes):
@@ -93,9 +95,9 @@ of the real rendered prompt before a generation. Plan W4.2 fixes both.
 
 `compaction::compact` (`crates/pwr-orchestrator/src/compaction.rs`) is the
 only conversation compaction. The turn calls it when the prompt reaches the
-threshold (75 % of the window by default, under a ceiling of 32,768 tokens
-unless the person chose a window or a threshold; 50–90 % per workspace, saved as
-`compact_at_percent` in `.pwr/chat-config.json`), and, with a smaller room, after two
+threshold (75 % of the granted window by default; 50–90 % per workspace, saved
+as `compact_at_percent` in `.pwr/chat-config.json`, and an optional ceiling in
+tokens, `compact_ceiling_tokens`, set by hand), and, with a smaller room, after two
 replies in a row that fell apart; **Compact now**
 (`_pwr/compact`) calls the same function between turns.
 
@@ -226,8 +228,11 @@ only, never to scripted runs.
 ## What the app shows
 
 `_pwr/context` returns the window, the used tokens (engine count or estimate,
-labelled), the composition by kind (estimate), the compaction threshold and
-the last compaction; the app's context indicator and panel show them
+labelled), the composition by kind (estimate), the compaction threshold --
+computed by the turn's own rule (`Continuity::compaction_room`), so a workspace
+ceiling shows; until 2026-10-02 it showed 75 % of the window while a default
+ceiling compacted at 32,768 tokens -- and the last compaction; the percentage
+is set from the context meter's popover (*Auto-compact at*, 50–90 %); the app's context indicator and panel show them
 ([desktop.md](desktop.md)).
 
 ## Known defects
@@ -241,4 +246,4 @@ the last compaction; the app's context indicator and panel show them
 | Retrieval errors outside the embedding path are silent | W4.6 | partial |
 | The embedding cache has no eviction | W6.5 | open |
 | No evidence yet that this context system beats recent history plus reads on request | W4.7, W8 | open |
-| The compaction ceiling (32,768) and the clean-start compaction are hypotheses | [D-2026-09-30-7](decisions.md) | unmeasured |
+| Whether a 4-bit model stays coherent up to 75 % of a large window (196,608 of 262,144 tokens), and the clean-start compaction, are unmeasured | [D-2026-10-02-3](decisions.md) | unmeasured |
