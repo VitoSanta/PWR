@@ -22,14 +22,14 @@ import { TraceCompact, TraceRaw, TraceSteps } from './trace';
 /** One row of the conversation: the person's message, or the whole reply to it. */
 type Item =
   | { type: 'user'; key: string; entry: Entry }
-  | { type: 'turn'; key: string; entries: Entry[]; steps: Step[]; live: boolean; startedAt: number; endedAt: number; modelName: string }
+  | { type: 'turn'; key: string; entries: Entry[]; steps: Step[]; live: boolean; startedAt: number; endedAt: number }
   | { type: 'notice'; key: string; entry: Entry };
 
 @Component({
   selector: 'pa-conversation',
   imports: [BrandMark, Icon, Popover, Tooltip, TraceCompact, TraceSteps, TraceRaw],
   template: `
-    <section class="conversation" #scroller (wheel)="onWheel($event)" (scroll)="onScroll()">
+    <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
         <div class="welcome">
           <pa-brand-mark class="welcome-mark" />
@@ -134,13 +134,10 @@ type Item =
                 <header class="turn-head">
                   <pa-brand-mark class="turn-avatar" />
                   <strong>PWR</strong>
-                  <span class="turn-meta truncate">{{ item.modelName }}</span>
-                  <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }}@if (duration(item); as elapsed) { · {{ elapsed }} }</span>
+                  <span class="turn-meta truncate">{{ store.modelName() }}</span>
+                  <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }}</span>
                 </header>
                 <div class="turn-body">
-                  @if (item.entries.some(replayedTool)) {
-                    <div class="trace-replay-note" role="note">Restored action summary · detailed output, diffs and timings were not saved.</div>
-                  }
                   @switch (store.traceVisibility()) {
                     @case ('compact') {
                       <pa-trace-compact [entries]="item.entries" [live]="item.live" />
@@ -175,7 +172,7 @@ type Item =
             <header class="turn-head">
               <pa-brand-mark class="turn-avatar" />
               <strong>PWR</strong>
-              <span class="turn-meta truncate">{{ store.modelName() }} · {{ store.chatMode() ? 'thinking' : 'working' }} · {{ pendingDuration() }}</span>
+              <span class="turn-meta truncate">{{ store.modelName() }} · {{ store.chatMode() ? 'thinking' : 'working' }}</span>
             </header>
             <div class="turn-body">
               <div class="step working" role="status">
@@ -189,8 +186,6 @@ type Item =
           <div [class]="'outcome tone-' + outcome.tone" role="status">
             <pa-icon [name]="outcomeIcon(outcome.tone)" [size]="14" />
             <span>{{ outcome.text }}</span>
-            @if (outcome.confinement) { <span class="t-meta">{{ outcome.confinement }}</span> }
-            @if (outcome.acceptanceChanges?.length) { <button class="btn btn-sm" (click)="store.reviewAcceptanceChanges()">Review acceptance changes</button> }
             @if (outcome.action) {
               <button class="btn btn-sm" (click)="store.continueRun()">
                 <pa-icon [name]="outcome.action === 'retry' ? 'refresh' : 'arrow-right'" [size]="14" />
@@ -207,11 +202,9 @@ type Item =
 export class Conversation {
   protected readonly store = inject(AgentStore);
   protected readonly models = inject(ModelsStore);
-  protected readonly replayedTool = (entry: Entry) => entry.kind === 'tool' && entry.replayed === true;
   private readonly scroller = viewChild.required<ElementRef<HTMLElement>>('scroller');
   private readonly now = signal(Date.now());
   private pinned = true;
-  private lastScrollTop = 0;
 
   /**
    * Everything the model does between two messages of the person is one
@@ -221,12 +214,8 @@ export class Conversation {
   protected readonly items = computed<Item[]>(() => {
     const items: Item[] = [];
     const entries = this.store.timeline();
-    let modelName = 'model not saved';
-    let userAt = 0;
     for (const entry of entries) {
       if (entry.kind === 'user') {
-        modelName = entry.modelName ?? (entry.replayed ? 'model not saved' : this.store.modelName());
-        userAt = entry.at;
         items.push({ type: 'user', key: entry.key, entry });
         continue;
       }
@@ -236,7 +225,7 @@ export class Conversation {
       }
       let turn = items[items.length - 1];
       if (turn?.type !== 'turn') {
-        turn = { type: 'turn', key: `turn-${entry.key}`, entries: [], steps: [], live: false, startedAt: userAt || entry.at, endedAt: entry.at, modelName };
+        turn = { type: 'turn', key: `turn-${entry.key}`, entries: [], steps: [], live: false, startedAt: entry.at, endedAt: entry.at };
         items.push(turn);
       }
       turn.endedAt = Math.max(turn.endedAt, entry.at);
@@ -255,13 +244,6 @@ export class Conversation {
   protected readonly workingLabel = computed(() => {
     const quiet = Math.floor((this.now() - this.store.lastEventAt()) / 1000);
     const chat = this.store.chatMode();
-    // The engine reads the whole prompt before its first word; on a cold cache
-    // that is minutes, and it says how far along it is.
-    const reading = this.store.prefill();
-    if (reading && this.now() - reading.at < 60_000) {
-      const percent = Math.min(99, Math.floor((reading.processed / reading.total) * 100));
-      return `Reading the conversation · ${percent}% (${reading.processed.toLocaleString('en-US')} of ${reading.total.toLocaleString('en-US')} tokens)`;
-    }
     if (quiet < 5) return chat ? 'Thinking' : 'Working';
     const minutes = Math.floor(quiet / 60);
     const seconds = String(quiet % 60).padStart(2, '0');
@@ -276,34 +258,21 @@ export class Conversation {
       if (this.store.turnActive()) this.now.set(Date.now());
     }, 1000);
     // Follow the newest entry while the person is at the bottom; leave them
-    // where they are when they have scrolled up to read. A trace view change
-    // can replace a large subtree and change its height without a new entry.
+    // where they are when they have scrolled up to read.
     effect(() => {
       this.store.timeline();
       this.store.turnActive();
-      this.store.traceVisibility();
       if (!this.pinned) return;
       requestAnimationFrame(() => {
         const element = this.scroller().nativeElement;
-        element.scrollTop = element.scrollHeight;
+        element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
       });
     });
   }
 
-  protected onWheel(event: WheelEvent): void {
-    if (event.deltaY < 0) this.pinned = false;
-  }
-
   protected onScroll(): void {
     const element = this.scroller().nativeElement;
-    const top = element.scrollTop;
-    const nearBottom = element.scrollHeight - top - element.clientHeight < 120;
-    // A phase can shrink when streaming content settles. That clamps the
-    // scroll position and emits a scroll event near the bottom without any
-    // user intent to follow. Re-pin only after a downward scroll.
-    if (!nearBottom) this.pinned = false;
-    else if (top > this.lastScrollTop + 1) this.pinned = true;
-    this.lastScrollTop = top;
+    this.pinned = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
   }
 
   private readonly confirm = inject(ConfirmService);
@@ -360,19 +329,9 @@ export class Conversation {
     return items[items.length - 1]?.type === 'user';
   }
 
-  protected duration(item: { entries: Entry[]; startedAt: number; endedAt: number; live: boolean }): string {
-    if (item.entries.every((entry) => entry.replayed)) return '';
+  protected duration(item: { startedAt: number; endedAt: number; live: boolean }): string {
     const end = item.live ? this.now() : item.endedAt;
-    return this.formatDuration(end - item.startedAt);
-  }
-
-  protected pendingDuration(): string {
-    const last = this.store.timeline().at(-1);
-    return last?.kind === 'user' ? this.formatDuration(this.now() - last.at) : '';
-  }
-
-  private formatDuration(milliseconds: number): string {
-    const seconds = Math.max(0, Math.round(milliseconds / 1000));
+    const seconds = Math.max(0, Math.round((end - item.startedAt) / 1000));
     return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
   }
 

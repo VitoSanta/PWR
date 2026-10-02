@@ -17,31 +17,6 @@ export type EntryKind =
   | 'generation'
   | 'note'
   | 'stop';
-/**
- * How much the model's commands may do in a workspace: Protected (`ask`),
- * Standard (`auto`), Full access (`full`) -- the core's names.
- */
-export type PermissionMode = 'ask' | 'auto' | 'full';
-
-/** Each mode in words, for every place that offers or shows it. */
-export const PERMISSION_MODES: { mode: PermissionMode; label: string; summary: string }[] = [
-  {
-    mode: 'ask',
-    label: 'Protected',
-    summary: 'Sandboxed and offline. Asks before the network, dependencies, new programs and anything outside the workspace.',
-  },
-  {
-    mode: 'auto',
-    label: 'Standard',
-    summary: 'Sandboxed, with the network. Asks only before publishing, rewriting history, Docker or leaving the sandbox.',
-  },
-  {
-    mode: 'full',
-    label: 'Full access',
-    summary: 'No sandbox: commands run with your full rights, as in your terminal. For projects you trust.',
-  },
-];
-
 export type EntryStatus = 'live' | 'pending' | 'running' | 'done' | 'failed' | 'sent' | 'info' | 'error';
 
 export interface FileDiff {
@@ -68,10 +43,6 @@ export interface Entry {
   raw?: unknown[];
   /** For the person's message: its number in this session, when it can be rewound to. */
   turn?: number;
-  /** Loaded from saved conversation text; original event timing is unavailable. */
-  replayed?: boolean;
-  /** Model selected when this prompt was sent; older snapshots do not record it. */
-  modelName?: string;
   at: number;
 }
 
@@ -395,8 +366,6 @@ export interface MemoryList {
 
 /** A fact the model proposed to remember, waiting for the person. */
 export interface MemoryProposal {
-  /** Workspace at proposal time; accepting must never use the current folder. */
-  cwd: string;
   key: string;
   sessionId: string | null;
   text: string;

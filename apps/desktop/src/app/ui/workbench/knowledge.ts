@@ -244,7 +244,7 @@ export class Graph3d implements AfterViewInit, OnDestroy {
   }
 }
 
-type View = 'outline' | 'graph' | 'modules' | 'work' | 'overview';
+type View = 'graph' | 'modules' | 'work' | 'overview';
 
 /** Knowledge: the project as a graph, its modules, the work done, its overview. */
 @Component({
@@ -293,23 +293,6 @@ type View = 'outline' | 'graph' | 'modules' | 'work' | 'overview';
       </p>
     } @else if (wiki(); as data) {
       @switch (view()) {
-        @case ('outline') {
-          <div class="knowledge-view">
-            <div class="card-toolbar">
-              <input #outlineSearch class="input input-sm" placeholder="Find files, symbols or imports" aria-label="Search repository outline" (input)="outlineQuery.set(outlineSearch.value)" />
-            </div>
-            <div class="card-scroll card-pad knowledge-list">
-              @for (node of outlineNodes(); track node.id) {
-                <article class="knowledge-item">
-                  <strong class="knowledge-name mono">{{ node.label }}</strong>
-                  <span class="t-meta"> · {{ node.kind }}</span>
-                  @if (node.summary) { <p>{{ node.summary }} <span class="t-meta">(model summary, unverified)</span></p> }
-                  @for (relationship of outlineRelations().get(node.id) || []; track relationship) { <p class="t-meta">{{ relationship }}</p> }
-                </article>
-              } @empty { <p class="card-empty">No matching repository entries.</p> }
-            </div>
-          </div>
-        }
         @case ('graph') {
           @if (data.graph.nodes.length < 2) {
             <!-- Only the project so far: no search, legend or lone dot, just what will be here. -->
@@ -460,30 +443,12 @@ export class KnowledgeCard {
   protected readonly wiki = signal<WikiView | null>(null);
   protected readonly loading = signal(false);
   protected readonly error = signal('');
-  protected readonly view = signal<View>('outline');
-  protected readonly outlineQuery = signal('');
-  protected readonly outlineRelations = computed(() => {
-    const graph = this.wiki()?.graph;
-    const labels = new Map((graph?.nodes ?? []).map(node => [node.id, node.label]));
-    const relations = new Map<string, string[]>();
-    for (const edge of graph?.edges ?? []) {
-      if (edge.kind !== 'imports' && edge.kind !== 'tests' && edge.kind !== 'changed_in') continue;
-      const lines = relations.get(edge.from) ?? [];
-      lines.push(`${VERB[edge.kind][0]} ${labels.get(edge.to) ?? edge.to}${HOW[edge.certainty] ? ' (' + HOW[edge.certainty] + ')' : ''}`);
-      relations.set(edge.from, lines);
-    }
-    return relations;
-  });
-  protected readonly outlineNodes = computed(() => {
-    const query = this.outlineQuery().toLowerCase().trim();
-    return (this.wiki()?.graph.nodes ?? []).filter(node => !node.builtin && (!query || `${node.label} ${(this.outlineRelations().get(node.id) ?? []).join(' ')}`.toLowerCase().includes(query)));
-  });
+  protected readonly view = signal<View>('graph');
   protected readonly selected = signal<string | null>(null);
   protected readonly symbols = signal(false);
   protected readonly builtins = signal(false);
   protected readonly views: { id: View; label: string }[] = [
-    { id: 'outline', label: 'Outline' },
-    { id: 'graph', label: 'Experimental 3D' },
+    { id: 'graph', label: 'Graph' },
     { id: 'modules', label: 'Modules' },
     { id: 'work', label: 'Work' },
     { id: 'overview', label: 'Overview' },

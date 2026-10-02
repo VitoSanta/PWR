@@ -30,12 +30,7 @@ export const CARDS: CardInfo[] = [
 interface OpenCard {
   id: CardId;
   collapsed: boolean;
-  /** Across the whole column in Focus, rather than one of its two. */
-  wide?: boolean;
 }
-
-/** Between two cards side by side, as between two above each other. */
-export const CARD_GAP = 14;
 
 interface Saved {
   open: OpenCard[];
@@ -43,8 +38,7 @@ interface Saved {
 }
 
 const KEY = 'pwr:workbench';
-const GRID_KEY = 'pwr:grid-width';
-const SPLITS_KEY = 'pwr:card-splits';
+const WIDTHS_KEY = 'pwr:card-widths';
 
 /**
  * The right-hand column: tools as cards, stacked, each collapsible,
@@ -63,12 +57,10 @@ export class WorkbenchStore {
   /** Focus presents tools as standalone cards without the Workbench frame. */
   readonly focusMode = signal(false);
   /**
-   * Focus lays the tools out as widgets on a grid as wide as this: every row
-   * takes it all, a pair shares it. Dragged from a card's outer edge.
+   * In Focus each card has a width of its own, dragged from its left edge;
+   * a card never resized has the one the column had before cards had theirs.
    */
-  readonly gridWidth = signal(loadGrid(this.layout.rightWidth()));
-  /** Where each pair divides its row: the left card's share, by its id. */
-  readonly splits = signal<Partial<Record<CardId, number>>>(loadSplits());
+  readonly widths = signal<Partial<Record<CardId, number>>>(loadWidths(this.open(), this.layout.rightWidth()));
   /** The file the Files card should show, when another card asks for one. */
   readonly fileRequest = signal<string | null>(null);
 
@@ -98,62 +90,36 @@ export class WorkbenchStore {
       : this.layout.right() !== 'hidden',
   );
 
-  /** The grid as it shows: never so wide the conversation loses its least width. */
-  readonly columnWidth = computed(() => Math.round(Math.max(RIGHT.min, Math.min(this.gridWidth(), this.maxWidth()))));
-
-  /**
-   * The cards in rows. In Focus two cards sit side by side when both are
-   * one column's worth -- not wide, not collapsed -- and the grid is wide
-   * enough for two at a card's least; otherwise each has a row of its own.
-   * Elsewhere, and while one is maximised, one card per row.
-   */
-  readonly rows = computed<CardId[][]>(() => {
-    const cards = this.visible();
-    const pairs = this.focusMode() && !this.focused() && this.columnWidth() - CARD_GAP >= 2 * RIGHT.min;
-    const half = (card: OpenCard | undefined): card is OpenCard => !!card && !card.collapsed && !card.wide;
-    const rows: CardId[][] = [];
-    for (let index = 0; index < cards.length; index++) {
-      const card = cards[index];
-      const next = cards[index + 1];
-      if (pairs && half(card) && half(next)) {
-        rows.push([card.id, next.id]);
-        index++;
-      } else rows.push([card.id]);
-    }
-    return rows;
-  });
+  /** The column the cards need: as wide as its widest card. */
+  readonly columnWidth = computed(() => Math.max(RIGHT.min, ...this.visible().map((card) => this.widthOf(card.id))));
 
   constructor() {
-    // Focus docks the column at the grid's width, so the conversation keeps
-    // the rest of the window, centred in it. In a narrower window the grid
-    // gives way first, down to a card's least; only then do the tools take
-    // the page.
+    // Focus docks the column by its widest card, so the conversation keeps
+    // the rest of the window, centred in it. In a narrower window the wide
+    // cards give way first, down to the least a card takes; only then do
+    // the tools take the page.
     effect(() => {
       if (!this.focusMode()) return;
-      const width = this.columnWidth();
+      const width = Math.min(this.columnWidth(), this.maxWidth());
       untracked(() => this.layout.rightWidth.set(width));
     });
   }
 
-  /** The card beside this one in its row, if any. */
-  partner(id: CardId): CardId | null {
-    const row = this.rows().find((ids) => ids.includes(id));
-    return row && row.length > 1 ? (row[0] === id ? row[1] : row[0]) : null;
-  }
-
-  isWide(id: CardId): boolean {
-    return !!this.open().find((card) => card.id === id)?.wide;
-  }
-
-  /** How wide a card shows: the grid's width, or its share of a pair's. */
+  /**
+   * A card's width: its own once resized; until then the widest a person
+   * gave the cards beside it, so only a card made narrower stands out.
+   */
   widthOf(id: CardId): number {
-    const row = this.rows().find((ids) => ids.includes(id));
-    const grid = this.columnWidth();
-    if (!row || row.length === 1) return grid;
-    const room = grid - CARD_GAP;
-    const left = Math.round(Math.max(RIGHT.min, Math.min(room - RIGHT.min, room * (this.splits()[row[0]] ?? 0.5))));
-    return row[0] === id ? left : room - left;
+    return this.widths()[id] ?? this.followWidth();
   }
+
+  private readonly followWidth = computed(() => {
+    const widths = this.widths();
+    const set = this.visible()
+      .map((card) => widths[card.id])
+      .filter((width): width is number => width !== undefined);
+    return set.length ? Math.max(...set) : RIGHT.initial;
+  });
 
   /** The widest a card may be: the conversation keeps its least width beside it. */
   maxWidth(): number {
@@ -161,64 +127,22 @@ export class WorkbenchStore {
     return Math.max(RIGHT.min, this.layout.viewport() - left - MAIN_MIN);
   }
 
-  /** How far a card's edge can go: a pair's inner edge until the other card is at its least. */
-  maxWidthOf(id: CardId): number {
-    const row = this.rows().find((ids) => ids.includes(id));
-    if (row?.length === 2 && row[1] === id) return this.columnWidth() - CARD_GAP - RIGHT.min;
-    if (row?.length === 2) return this.maxWidth() - CARD_GAP - this.widthOf(row[1]);
-    return this.maxWidth();
-  }
-
   /**
-   * A card's left edge dragged, as with widgets. Between two cards side by
-   * side it moves the line between them: one grows as the other shrinks,
-   * and the grid stays. Anywhere else it is the grid's outer edge: the
-   * whole grid grows or shrinks, and every row with it, each pair keeping
-   * its right card's width while the left one takes the difference.
+   * Resizes one card and only that one: the cards beside it that were still
+   * following the column keep the width they show now, instead of following
+   * the one being dragged.
    */
-  resize(id: CardId, width: number): void {
-    const row = this.rows().find((ids) => ids.includes(id));
-    if (row?.length === 2 && row[1] === id) {
-      const room = this.columnWidth() - CARD_GAP;
-      const right = Math.max(RIGHT.min, Math.min(room - RIGHT.min, width));
-      this.splits.update((splits) => ({ ...splits, [row[0]]: (room - right) / room }));
-      this.save(SPLITS_KEY, this.splits());
-      return;
-    }
-    const grid = row?.length === 2 ? width + CARD_GAP + this.widthOf(row[1]) : width;
-    this.setGrid(grid);
-  }
-
-  /** The grid's width; each pair keeps its right card as it is, where it can. */
-  setGrid(width: number): void {
+  setWidth(id: CardId, width: number): void {
     const next = Math.round(Math.max(RIGHT.min, Math.min(this.maxWidth(), width)));
-    const splits = { ...this.splits() };
-    for (const row of this.rows()) {
-      if (row.length !== 2) continue;
-      const room = next - CARD_GAP;
-      if (room < 2 * RIGHT.min) continue;
-      const right = Math.max(RIGHT.min, Math.min(room - RIGHT.min, this.widthOf(row[1])));
-      splits[row[0]] = (room - right) / room;
-    }
-    this.splits.set(splits);
-    this.gridWidth.set(next);
-    this.save(SPLITS_KEY, splits);
-    this.save(GRID_KEY, next);
-  }
-
-  /** One column, or across both. */
-  toggleWide(id: CardId): void {
-    this.animate(() => {
-      this.open.update((open) => open.map((card) => (card.id === id ? { ...card, wide: !card.wide || undefined } : card)));
-      this.persist();
-    });
-  }
-
-  private save(key: string, value: unknown): void {
+    const widths = { ...this.widths() };
+    for (const card of this.visible())
+      if (card.id !== id && widths[card.id] === undefined) widths[card.id] = this.widthOf(card.id);
+    widths[id] = next;
+    this.widths.set(widths);
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      localStorage.setItem(WIDTHS_KEY, JSON.stringify(this.widths()));
     } catch {
-      // Storage unavailable: the layout holds until the app closes.
+      // Storage unavailable: the width holds until the app closes.
     }
   }
 
@@ -237,7 +161,6 @@ export class WorkbenchStore {
   }
 
   private showNow(id: CardId): void {
-    this.fitBeside(id);
     this.open.update((open) =>
       open.some((card) => card.id === id)
         ? open.map((card) => (card.id === id ? { ...card, collapsed: false } : card))
@@ -246,21 +169,6 @@ export class WorkbenchStore {
     if (this.maximized() && this.maximized() !== id) this.maximized.set(null);
     if (!this.panelVisible()) this.layout.toggleRight();
     this.persist();
-  }
-
-  /**
-   * A card opening after one that has its row to itself goes beside it:
-   * if the grid is too narrow for two, it widens to two cards' width, as
-   * far as the window allows. Where it cannot, the new card goes below.
-   */
-  private fitBeside(id: CardId): void {
-    if (!this.focusMode() || this.open().some((card) => card.id === id)) return;
-    const last = this.visible().at(-1);
-    if (!last || last.collapsed || last.wide || this.partner(last.id)) return;
-    const two = 2 * RIGHT.min + CARD_GAP;
-    if (this.columnWidth() >= two || this.maxWidth() < two) return;
-    this.gridWidth.set(Math.min(this.maxWidth(), 2 * RIGHT.initial + CARD_GAP));
-    this.save(GRID_KEY, this.gridWidth());
   }
 
   /** A shortcut's toggle: shows a card, or closes it when it is showing. */
@@ -356,32 +264,25 @@ export class WorkbenchStore {
 }
 
 /**
- * The grid's saved width; the first time, the widest a card had been given
- * when each had its own, or the column's width, so nothing jumps.
+ * The saved widths; the first time, the cards already open take the width
+ * the whole column had, so nothing moves.
  */
-function loadGrid(column: number): number {
-  try {
-    const grid = Number(JSON.parse(localStorage.getItem(GRID_KEY) ?? 'null'));
-    if (Number.isFinite(grid) && grid >= RIGHT.min) return grid;
-    const old = JSON.parse(localStorage.getItem('pwr:card-widths') ?? '{}') as Record<string, unknown>;
-    const widths = Object.values(old).filter((width): width is number => typeof width === 'number' && width >= RIGHT.min);
-    if (widths.length) return Math.max(...widths);
-  } catch {
-    // Unreadable: the column's width.
-  }
-  return Math.max(RIGHT.min, column);
-}
-
-function loadSplits(): Partial<Record<CardId, number>> {
+function loadWidths(open: OpenCard[], column: number): Partial<Record<CardId, number>> {
   const known = new Set<string>(CARDS.map((card) => card.id));
   try {
-    const saved = JSON.parse(localStorage.getItem(SPLITS_KEY) ?? '{}') as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(saved).filter(([id, share]) => known.has(id) && typeof share === 'number' && share > 0 && share < 1),
-    ) as Partial<Record<CardId, number>>;
+    const raw = localStorage.getItem(WIDTHS_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw) as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(saved).filter(
+          ([id, width]) => known.has(id) && typeof width === 'number' && Number.isFinite(width) && width >= RIGHT.min,
+        ),
+      ) as Partial<Record<CardId, number>>;
+    }
   } catch {
-    return {};
+    // Unreadable: every card starts at the default width.
   }
+  return column === RIGHT.initial ? {} : Object.fromEntries(open.map((card) => [card.id, column]));
 }
 
 function load(): Saved {

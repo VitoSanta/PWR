@@ -15,17 +15,14 @@ the app never writes to a workspace itself. It is the supported desktop client.
   folders attached as read-only references.
 - A **message queue**: what you write while a turn runs is queued and sent
   when it ends, or delivered into it with "Send now" (`_pwr/steer`).
-- **Workbench cards** beside the conversation, laid out on a grid: *Review*
-  (per-file diffs with +/- counts, Revert), *Terminal* (several shells as
-  tabs), *Web preview* (the app this machine serves on localhost), *Files*,
-  *Knowledge* (the project graph), *Plan & checks* (Verify, Report,
-  Diagnose), *Activity* (background work and the core log).
+- **Changes**, **Evidence** and **Core log** panels: per-file diffs with +/-
+  counts, the latest file open.
 - **Model and context in the top bar**: the model chip switches between the
   models the engine found, changes the working window and opens the **Model
   Manager**; the context indicator (`Context 42% · 54k / 128k`) opens the
   context panel -- what fills the window (estimated), the auto-compaction
   threshold, the last compaction and **Compact now**
-  ([`docs/context.md`](../../docs/context.md)).
+  ([`docs/models-and-context.md`](../../docs/models-and-context.md)).
 - **Model Manager**: this machine's memory, GPU, disk and engine; a search of
   Hugging Face for MLX models, with further pages available through
   **Load more models**; each variant is rated for this machine
@@ -34,17 +31,15 @@ the app never writes to a workspace itself. It is the supported desktop client.
   with delete. GGUF search appears only when the core runs llama.cpp, which a
   release build on macOS never does.
 - **Run controls** in the floating tools bar: **Goal** mode keeps working
-  across check-ins until verified or paused; the permission mode --
-  **Protected**, **Standard** or **Full access** (no sandbox, shown in
-  warning colours) -- see [`SECURITY.md`](../../SECURITY.md). The composer
-  warns when commands are not sandboxed.
+  across check-ins until verified; **Auto-approve** is off for Ask and amber
+  when automatic. The composer still warns when commands are not sandboxed.
 - **Chat mode**: "Chat without a workspace" talks to the model with no
   project open; it reads only the files, folders and images attached, and
   cannot edit or run anything (C.26). "Open a workspace" goes back.
 - **Images** for models that see: an image file dropped or attached reaches
   the model (the picker marks them "sees images"); with any other model the
   composer warns and the core refuses the message.
-- **Revert** a changed file, or all of them, from the Review card. The
+- **Revert** a changed file, or all of them, from the Changes panel. The
   core does it (`_pwr/revert`): it refuses when the file no longer holds what
   the model wrote, so a later manual edit is never overwritten, and it records
   the revert in the conversation's log.
@@ -54,22 +49,21 @@ the app never writes to a workspace itself. It is the supported desktop client.
 ## Layout
 
 ```text
-src-tauri/src/           lib.rs (finds and starts the core, relays ACP, trust), engine.rs (the engine
-                         installer), terminal.rs (terminal tabs), titlebar.rs, main.rs
-src/app/core/            bridge.ts (the only way to the native side), agent.store.ts (conversation state),
-                         models.store.ts, personal.store.ts, workbench.ts (cards), trace.ts (trace views),
-                         run.ts (a run's stages), activity.ts, terminal.ts, compatibility.ts, layout.ts,
-                         navigation.ts, theme.ts, palettes.ts, format.ts, model.ts, ui.ts, demo.ts
-src/app/ui/              conversation, composer, trace, diff, markdown, permission, context-meter,
-                         model-picker, model-manager, run-metrics, settings, personal, sidebar,
-                         inspector, command-palette, engine-setup, workspace-trust
-src/app/ui/shells/       focus.ts, the only shell
-src/app/ui/parts/        run-controls, session-switcher, tool-strip, diagnostic-export
-src/app/ui/workbench/    cards.ts, knowledge.ts (the graph view)
-src/app/ui/kit/          icon, dialog, popover, select, tooltip, resize-handle, overlays, follow,
-                         brand-mark
-src/styles/              the design system, in layers: tokens, base, primitives, shell, conversation,
-                         panels, parts, focus
+src-tauri/src/lib.rs     the shell: finds and starts the core, relays ACP, remembers the workspace
+src/app/core/            bridge.ts (Tauri IPC), agent.store.ts (state, signals), models.store.ts (Model Manager),
+                         format.ts, model.ts, demo.ts; theme.ts (System/Light/Dark),
+                         layout.ts (panel docking and sizes), navigation.ts (mode, workspace,
+                         conversations, window), run.ts (the latest run as the loop's stages),
+                         ui.ts (shortcuts, dialog stack, toasts, confirmations)
+src/app/ui/              conversation, composer, sidebar (and rail), inspector, diff, markdown, permission,
+                         context-meter (indicator and panel), model-picker, model-manager, settings,
+                         command-palette
+src/app/ui/shells/       Focus, the main application shell
+src/app/ui/parts/        session switcher, tool dock, diagnostic export
+src/app/ui/kit/          the shared primitives: icon, dialog, popover, select, tooltip, resize-handle,
+                         toasts and the confirmation dialog
+src/styles/              the design system, in layers: tokens, base, primitives, shell, conversation, panels,
+                         parts, focus (the shell's tokens and arrangement)
 ```
 
 ### Content Security Policy
@@ -113,8 +107,8 @@ they do not cover the chat.
 The run's stages come from the same reading of the timeline the
 conversation uses (`compactTurn`). ⌘B opens the conversation switcher.
 
-The tool dock keeps the available cards one click away. Goal mode and the
-permission mode live together in Run controls, anchored beside their dock button.
+The tool dock keeps the available cards one click away. Goal mode and
+Auto-approve live together in Run controls, anchored beside their dock button.
 
 **Keyboard**: ⌘K / Ctrl+K opens the command palette, ⌘N a new conversation,
 ⌘B the conversation switcher, ⌥⌘B the inspector, Esc closes the innermost dialog, popover
@@ -151,7 +145,7 @@ Model Manager for a first model. Deleting that folder brings the setup back.
 On first launch PWR opens **Chat**, which has no project workspace. To
 enter Agent mode, choose a folder; the first open asks you to trust that exact
 folder before starting the core. Trust is remembered per folder, and does not
-change the permission mode. The desktop bundle includes the `pwr`
+change the Ask/Auto-approve setting. The desktop bundle includes the `pwr`
 core executable, the MLX engine's two Python scripts, and `uv`, which
 `scripts/bundle-uv.sh` copies from `PATH` at build time (`brew install uv`;
 the binary is not committed). The bundle is ad-hoc signed
@@ -180,10 +174,7 @@ to regenerate the platform icons before building.
 formatting, the store's handling of compaction and extension notifications,
 the Model Manager's download states, theme resolution, the panel layout at
 each window width (`src/app/core/*.spec.ts`), and the keyboard, ARIA and focus
-behaviour of the select and the dialog (`src/app/ui/kit/kit.spec.ts`), and
-more (94 tests in 12 spec files on 2026-09-30). CI's `desktop` job runs them
-and the production build on every push. The rest of the interface is reviewed
-by hand on a built bundle, recorded in `docs/release/`, and in a browser with
-`?demo`; there is no screenshot testing and no end-to-end test of first
-launch, engine install or shutdown (plan W7.6).
+behaviour of the select and the dialog (`src/app/ui/kit/kit.spec.ts`). The
+rest of the interface is reviewed in a browser with `?demo`; there is no
+screenshot testing, and the app is not in CI (backlog R.8).
 `npx ng build` is the minimum check before committing a change here.

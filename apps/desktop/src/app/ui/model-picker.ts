@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import {
   capabilityResult,
@@ -62,22 +62,10 @@ import { Tooltip } from './kit/tooltip';
             </div>
           }
 
-          <section class="popover-section model-section" aria-labelledby="model-list-label">
-            @if (store.models().length > 5) {
-              <input
-                class="input input-sm model-filter"
-                type="search"
-                placeholder="Filter…"
-                aria-label="Filter models"
-                [value]="query()"
-                (input)="query.set($any($event.target).value)"
-                spellcheck="false"
-                autocomplete="off"
-              />
-            }
+          <section class="popover-section" aria-labelledby="model-list-label">
             <h3 class="section-label" id="model-list-label">On this machine</h3>
             <div class="model-list" role="radiogroup" aria-labelledby="model-list-label" (keydown)="listKeys($event)">
-              @for (ref of shown(); track ref) {
+              @for (ref of store.models(); track ref) {
                 <button
                   class="model-option"
                   role="radio"
@@ -88,16 +76,13 @@ import { Tooltip } from './kit/tooltip';
                   [attr.title]="ref"
                 >
                   <span class="radio" aria-hidden="true"></span>
-                  <span class="model-text">
-                    <span class="model-name truncate">{{ label(ref) }}</span>
-                    <span class="model-meta truncate">{{ org(ref) }}</span>
-                  </span>
+                  <span class="model-name truncate">{{ label(ref) }}</span>
                   @if (store.visionModels().includes(ref)) {
-                    <span class="model-extra">sees images</span>
+                    <span class="badge badge-info"><pa-icon name="eye" [size]="12" /> sees images</span>
                   }
                 </button>
               } @empty {
-                <p class="fine">{{ store.models().length ? 'No model matches.' : 'No models on this machine yet. Find one in the Model Manager.' }}</p>
+                <p class="fine">No models on this machine yet. Find one in the Model Manager.</p>
               }
             </div>
           </section>
@@ -179,54 +164,56 @@ import { Tooltip } from './kit/tooltip';
               }
             </section>
           }
-        </div>
-        <footer class="popover-foot model-foot" aria-label="Generation settings">
-          @if (store.context(); as context) {
-            <div class="field-row">
-              <span class="field-label" id="window-label">Working context</span>
-              <div class="stepper" role="group" aria-labelledby="window-label">
-                <button class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(-1)" [disabled]="store.turnActive()" aria-label="Smaller window">
-                  <pa-icon name="minus" [size]="14" />
-                </button>
-                <strong class="num" aria-live="polite">{{ t(context.tokens) }}</strong>
-                <button class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(1)" [disabled]="store.turnActive()" aria-label="Larger window">
-                  <pa-icon name="plus" [size]="14" />
-                </button>
+
+          <section class="popover-section" aria-label="Generation settings">
+            @if (store.context(); as context) {
+              <div class="field-row">
+                <span class="field-label" id="window-label">Working context</span>
+                <div class="stepper" role="group" aria-labelledby="window-label">
+                  <button class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(-1)" [disabled]="store.turnActive()" aria-label="Smaller window">
+                    <pa-icon name="minus" [size]="14" />
+                  </button>
+                  <strong class="num" aria-live="polite">{{ t(context.tokens) }}</strong>
+                  <button class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(1)" [disabled]="store.turnActive()" aria-label="Larger window">
+                    <pa-icon name="plus" [size]="14" />
+                  </button>
+                </div>
               </div>
-            </div>
-            <p class="fine">
-              {{ context.setting ? 'Your setting, capped by what this machine holds.' : 'Computed for this machine.' }}
-              @if (context.rationale) {
-                {{ sentence(context.rationale) }}
-              }
-            </p>
-          }
-          <div class="field-row">
-            <span
-              class="field-label"
-              id="effort-label"
-              paTooltip="How much of a reply the model may spend thinking before it must answer or act. Not the number of steps or tool calls."
-              >Reasoning effort</span
-            >
-            <span class="effort-select">
-              <select
-                aria-labelledby="effort-label"
-                [value]="store.reasoningEffort()"
-                (change)="setEffort($any($event.target).value)"
-                [disabled]="store.turnActive() || !store.reasoning()?.applies"
-              >
-                @for (option of effortOptions; track option.value) {
-                  <option [value]="option.value" [selected]="option.value === store.reasoningEffort()">{{ option.label }}</option>
+              <p class="fine">
+                {{ context.setting ? 'Your setting, capped by what this machine holds.' : 'Computed for this machine.' }}
+                @if (context.rationale) {
+                  {{ sentence(context.rationale) }}
                 }
-              </select>
-              <pa-icon name="chevron-down" [size]="16" aria-hidden="true" />
-            </span>
-          </div>
-          <p class="fine">{{ reasoningHelp(store.reasoning()) }}</p>
-          <div class="foot-line">
-            <span class="fine">{{ store.models().length }} local model{{ store.models().length === 1 ? '' : 's' }}</span>
-            <button class="link-btn" (click)="manage()">Manage →</button>
-          </div>
+              </p>
+            }
+            <div class="field-row">
+              <span
+                class="field-label"
+                id="effort-label"
+                paTooltip="How much of a reply the model may spend thinking before it must answer or act. Not the number of steps or tool calls."
+                >Reasoning effort</span
+              >
+              <span class="effort-select">
+                <select
+                  aria-labelledby="effort-label"
+                  [value]="store.reasoningEffort()"
+                  (change)="setEffort($any($event.target).value)"
+                  [disabled]="store.turnActive() || !store.reasoning()?.applies"
+                >
+                  @for (option of effortOptions; track option.value) {
+                    <option [value]="option.value" [selected]="option.value === store.reasoningEffort()">{{ option.label }}</option>
+                  }
+                </select>
+                <pa-icon name="chevron-down" [size]="16" aria-hidden="true" />
+              </span>
+            </div>
+            <p class="fine">{{ reasoningHelp(store.reasoning()) }}</p>
+          </section>
+        </div>
+        <footer class="popover-foot">
+          <button class="btn btn-block" (click)="manage()">
+            <pa-icon name="box" [size]="16" /> Manage models…
+          </button>
         </footer>
       </pa-popover>
     }
@@ -240,20 +227,7 @@ export class ModelPicker {
   protected readonly store = inject(AgentStore);
   private readonly models = inject(ModelsStore);
   protected readonly open = signal(false);
-  protected readonly query = signal('');
   protected readonly label = modelLabel;
-
-  /** The models on this machine, as the filter leaves them. */
-  protected readonly shown = computed(() => {
-    const words = this.query().toLowerCase().split(/\s+/).filter(Boolean);
-    return this.store.models().filter((ref) => words.every((word) => ref.toLowerCase().includes(word)));
-  });
-
-  /** Who published it: "lmstudio-community" of "lmstudio-community/Qwen3…". */
-  protected org(ref: string): string {
-    const slash = ref.indexOf('/');
-    return slash > 0 ? ref.slice(0, slash) : 'local';
-  }
   protected readonly t = tokens;
 
   protected sentence(text: string): string {

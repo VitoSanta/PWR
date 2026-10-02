@@ -72,11 +72,6 @@ export class Popover implements AfterViewInit, OnDestroy {
   protected readonly grouped = computed(() => !!this.group());
   private readonly group = computed(() => this.anchor().closest<HTMLElement>('[data-popover-group]'));
 
-  constructor() {
-    document.addEventListener('pointerdown', this.press, true);
-    document.addEventListener('mousedown', this.press, true);
-  }
-
   ngAfterViewInit(): void {
     if (this.grouped()) groupPanels(+1);
     this.place();
@@ -88,8 +83,6 @@ export class Popover implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    document.removeEventListener('pointerdown', this.press, true);
-    document.removeEventListener('mousedown', this.press, true);
     if (this.grouped()) groupPanels(-1);
     const group = this.group();
     if (group) joinGroup(this, group, false, false, true);
@@ -167,38 +160,12 @@ export class Popover implements AfterViewInit, OnDestroy {
     }
   }
 
-  /**
-   * A press anywhere else closes it. Heard as the press goes down, before
-   * anything on the page can stop it, and as a mouse press too: in the
-   * app's window WebKit does not always send the pointer event -- over the
-   * title bar, where macOS takes the press to drag the window.
-   */
-  private readonly press = (event: Event): void => {
-    const target = event.target as Node | null;
-    if (!this.open || !target) return;
+  @HostListener('document:pointerdown', ['$event'])
+  protected outside(event: PointerEvent): void {
+    const target = event.target as Node;
     if (this.host.nativeElement.contains(target) || this.anchor().contains(target)) return;
     // A select's list inside this popover is rendered in place, so this also
     // leaves clicks on it alone.
-    this.dismiss();
-  };
-
-  /**
-   * The window let go of: a click in another app, on the desktop, or in a
-   * web preview's page, none of which the page hears as a press. Otherwise
-   * the panel is still open on the way back -- and on macOS the click that
-   * brings the window back only activates it, so it looked stuck.
-   */
-  @HostListener('window:blur')
-  protected windowLeft(): void {
-    // A dialog this panel opened (a file picker) takes focus too; that is the
-    // panel's own doing, and closing it then is what its choice does anyway.
-    this.dismiss();
-  }
-
-  private open = true;
-  private dismiss(): void {
-    if (!this.open) return;
-    this.open = false;
     this.closed.emit();
   }
 
@@ -210,7 +177,7 @@ export class Popover implements AfterViewInit, OnDestroy {
     if (this.dialogs.open && !this.host.nativeElement.closest('pa-dialog')) return;
     event.preventDefault();
     this.anchor().focus({ preventScroll: true });
-    this.dismiss();
+    this.closed.emit();
   }
 }
 

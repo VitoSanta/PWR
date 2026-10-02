@@ -27,8 +27,9 @@ import { Tooltip } from './kit/tooltip';
         animate.leave="is-leaving"
       >
         <header class="dialog-header mm-head">
+          <span class="dialog-icon tone-accent"><pa-icon name="box" [size]="18" /></span>
           <div class="dialog-header-text">
-            <h2 class="dialog-title" id="mm-title">Models</h2>
+            <h2 class="dialog-title" id="mm-title">Model Manager</h2>
             <p class="dialog-description" id="mm-description">Open-weight models from Hugging Face, rated for this machine.</p>
           </div>
           <button class="icon-btn" (click)="models.close()" aria-label="Close Model Manager" paTooltip="Close">
@@ -577,16 +578,16 @@ import { Tooltip } from './kit/tooltip';
                   <span class="model-sampling-label">{{ samplingLabel(field.name) }}</span>
                   <input
                     class="input input-sm"
-                    type="text"
-                    [attr.inputmode]="field.name === 'top_k' ? 'numeric' : 'decimal'"
-                    autocomplete="off"
-                    spellcheck="false"
+                    type="number"
+                    [min]="samplingMin(field.name)"
+                    [max]="samplingMax(field.name)"
+                    [step]="field.name === 'top_k' ? 1 : 'any'"
                     [value]="models.profileDraft()[field.name] ?? ''"
                     [placeholder]="field.automatic === null ? 'off' : field.automatic.toString()"
                     (input)="models.setProfileValue(field.name, $any($event.target).value)"
                     [attr.aria-label]="samplingLabel(field.name) + ' override'"
                   />
-                  <small class="t-caption">Automatic: {{ samplingAutomatic(field.name, field.automatic) }} · {{ samplingSource(field.automaticSource) }}</small>
+                  <small class="t-caption">Automatic: {{ field.automatic === null ? 'off' : field.automatic }} · {{ samplingSource(field.automaticSource) }}</small>
                   @if (samplingUrl(field.automaticSource); as url) {
                     <a class="t-caption" [href]="url" target="_blank" rel="noopener">Source</a>
                   }
@@ -685,16 +686,16 @@ export class ModelManager {
   });
 
 
-  /** What the engine will do with a value: 0 is not "zero" for temperature (greedy decoding) or for a truncation (off). */
-  protected samplingAutomatic(name: string, value: number | null): string {
-    if (value === null) return 'off';
-    if (value === 0 && name === 'temperature') return '0 (greedy: always the likeliest token)';
-    if (value === 0 && (name === 'top_k' || name === 'top_p')) return 'off';
-    return String(value);
-  }
-
   protected samplingLabel(name: string): string {
     return name.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase());
+  }
+
+  protected samplingMin(name: string): number {
+    return name === 'repetition_penalty' ? 0.01 : name === 'presence_penalty' ? -2 : 0;
+  }
+
+  protected samplingMax(name: string): number | null {
+    return name === 'top_p' || name === 'min_p' ? 1 : name === 'presence_penalty' ? 2 : null;
   }
 
   protected samplingSource(source: string | { kind: string; url?: string }): string {
@@ -706,7 +707,6 @@ export class ModelManager {
       artifact_do_sample_false: 'generation_config.json',
       declared_profile: 'PWR profile',
       mlx_sidecar_default: 'engine default',
-      pwr_sampling_floor: 'PWR default (nothing declared)',
       unset: 'not applied',
     } as Record<string, string>)[kind] ?? kind.replaceAll('_', ' ');
   }

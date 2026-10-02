@@ -94,7 +94,7 @@ const NATIVE_MENU =
           #toolsButton
           class="icon-btn focus-tools"
           [class.has-goal]="store.goalMode() && !store.chatMode()"
-          [class.has-auto]="store.permissionMode() === 'full' && !store.chatMode()"
+          [class.has-auto]="store.permissionMode() === 'auto' && !store.chatMode()"
           (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
           [attr.aria-expanded]="strip() === 'bar'"
           aria-haspopup="menu"

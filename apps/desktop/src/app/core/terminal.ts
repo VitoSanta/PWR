@@ -1,205 +1,101 @@
-import { Injectable, OnDestroy, WritableSignal, computed, effect, inject, signal } from '@angular/core';
+import { Injectable, OnDestroy, effect, inject, signal } from '@angular/core';
 import { ThemeService } from './theme';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
-import { AgentStore, TerminalSnapshot } from './agent.store';
+import { AgentStore } from './agent.store';
 import { bridge, inTauri } from './bridge';
 
-export type ShellState = 'starting' | 'running' | 'exited';
-
-/** One shell: its xterm, drawn into an element the card lends a place. */
-interface Session {
-  key: number;
-  title: string;
-  readonly state: WritableSignal<ShellState>;
-  readonly error: WritableSignal<string>;
-  element: HTMLDivElement;
-  term?: Terminal;
-  fit?: FitAddon;
-  id: number | null;
-  unlisten: Array<() => void>;
-}
-
 /**
- * The person's shells in the workspace, as tabs -- several at once, as in
- * VS Code -- kept alive while the card is collapsed, moved or closed: each
- * xterm lives here, and the card only lends the chosen one a place on the
- * page. Closing a tab ends its shell.
+ * The person's shell in the workspace, kept alive while its card is collapsed
+ * or moved: the xterm instance lives here, and the card only lends it a place
+ * on the page. Closing the card ends the shell.
  */
 @Injectable({ providedIn: 'root' })
 export class TerminalService implements OnDestroy {
   private readonly agent = inject(AgentStore);
+  private term?: Terminal;
+  private fit?: FitAddon;
+  private id: number | null = null;
   private workspace = '';
-  private host: HTMLElement | null = null;
-  private counter = 0;
-  /** Outside the app there is no shell to start. */
-  readonly unavailable = signal(false);
-  readonly sessions = signal<Session[]>([]);
-  readonly active = signal<number | null>(null);
-  readonly current = computed(() => this.sessions().find((session) => session.key === this.active()) ?? null);
-  /** The shown shell's state and error, for the card. */
-  readonly state = computed(() => this.current()?.state() ?? null);
-  readonly error = computed(() => this.current()?.error() ?? '');
+  private unlisten: Array<() => void> = [];
+  /** The element xterm draws into, moved between hosts. */
+  private readonly element = document.createElement('div');
+  readonly state = signal<'idle' | 'starting' | 'running' | 'exited' | 'unavailable'>('idle');
+  readonly error = signal('');
 
   constructor() {
-    // What the model may read, when the person allows it: these tabs' text.
-    this.agent.terminalReader = (lines) => this.read(lines);
-    // The terminals' colours follow the app's theme, read once it is applied.
+    // The terminal's colours follow the app's theme, read once it is applied.
     const theme = inject(ThemeService);
     effect(() => {
       theme.theme();
       theme.palette();
-      theme.accent();
-      theme.codeFont();
       requestAnimationFrame(() => {
-        for (const session of this.sessions()) {
-          if (!session.term) continue;
-          session.term.options.theme = palette();
-          session.term.options.fontFamily = token('--mono', 'ui-monospace, Menlo, monospace');
-          session.fit?.fit();
-        }
+        if (this.term) this.term.options.theme = palette();
       });
     });
   }
 
-  /** Shows the chosen shell inside `host`, starting the first one the first time. */
+  /** Shows the terminal inside `host`, starting the shell the first time. */
   async attach(host: HTMLElement): Promise<void> {
-    this.host = host;
+    this.element.className = 'terminal-surface';
+    host.appendChild(this.element);
     if (!inTauri()) {
-      this.unavailable.set(true);
+      this.state.set('unavailable');
       return;
     }
     const workspace = this.agent.workspace();
-    // Another workspace: the shells of the last one end, a new one starts here.
-    if (this.sessions().length && this.workspace !== workspace) this.closeAll();
-    this.workspace = workspace;
-    if (!this.sessions().length) {
-      await this.add();
-      return;
-    }
-    this.show();
+    if (this.term && this.workspace !== workspace) this.close();
+    if (!this.term) await this.start(workspace);
+    this.resize();
   }
 
   detach(): void {
-    this.current()?.element.remove();
-    this.host = null;
+    this.element.remove();
   }
 
-  /** A new shell, in a tab of its own, shown. */
-  async add(): Promise<void> {
-    if (!inTauri()) return;
-    const session: Session = {
-      key: ++this.counter,
-      title: `Terminal ${this.counter}`,
-      state: signal<ShellState>('starting'),
-      error: signal(''),
-      element: document.createElement('div'),
-      id: null,
-      unlisten: [],
-    };
-    session.element.className = 'terminal-surface';
-    this.sessions.update((sessions) => [...sessions, session]);
-    this.select(session.key);
-    await this.start(session);
-  }
-
-  select(key: number): void {
-    if (!this.sessions().some((session) => session.key === key)) return;
-    this.current()?.element.remove();
-    this.active.set(key);
-    this.show();
-  }
-
-  /** Ends one shell and its tab; the one beside it is shown. */
-  close(key: number): void {
-    const sessions = this.sessions();
-    const index = sessions.findIndex((session) => session.key === key);
-    if (index < 0) return;
-    const session = sessions[index];
-    end(session);
-    session.element.remove();
-    const rest = sessions.filter((item) => item.key !== key);
-    this.sessions.set(rest);
-    if (this.active() === key) {
-      const next = rest[Math.min(index, rest.length - 1)];
-      this.active.set(next?.key ?? null);
-      this.show();
-    }
-  }
-
-  /** A fresh shell in the shown tab, after its last one exited. */
-  async restart(): Promise<void> {
-    const session = this.current();
-    if (!session) return this.add();
-    end(session);
-    session.error.set('');
-    session.state.set('starting');
-    await this.start(session);
-  }
-
-  /** Fits the shown terminal to its host and tells the shell its new size. */
+  /** Fits the terminal to its host and tells the shell its new size. */
   resize(): void {
-    const session = this.current();
-    if (!session?.term || !session.fit || !session.element.isConnected) return;
+    if (!this.term || !this.fit || !this.element.isConnected) return;
     try {
-      session.fit.fit();
+      this.fit.fit();
     } catch {
       return;
     }
-    if (session.id !== null) void bridge.termResize(session.id, session.term.cols, session.term.rows);
+    if (this.id !== null) void bridge.termResize(this.id, this.term.cols, this.term.rows);
   }
 
   focus(): void {
-    this.current()?.term?.focus();
+    this.term?.focus();
   }
 
-  /**
-   * The last `lines` rows of each tab, as plain text -- xterm's buffer, so no
-   * colour codes -- with a line the terminal wrapped joined back to one.
-   */
-  read(lines: number): TerminalSnapshot[] {
-    return this.sessions()
-      .filter((session) => session.term)
-      .map((session) => {
-        const buffer = session.term!.buffer.active;
-        const rows: string[] = [];
-        for (let row = Math.max(0, buffer.length - lines); row < buffer.length; row++) {
-          const line = buffer.getLine(row);
-          const text = line?.translateToString(true) ?? '';
-          if (line?.isWrapped && rows.length) rows[rows.length - 1] += text;
-          else rows.push(text);
-        }
-        while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
-        return { title: session.title, running: session.state() === 'running', text: rows.join('\n') };
-      });
+  /** Ends the shell; the next attach starts a new one. */
+  close(): void {
+    if (this.id !== null) void bridge.termClose(this.id);
+    for (const stop of this.unlisten) stop();
+    this.unlisten = [];
+    this.term?.dispose();
+    this.term = undefined;
+    this.fit = undefined;
+    this.id = null;
+    this.element.replaceChildren();
+    this.state.set('idle');
+  }
+
+  /** A fresh shell after the last one exited. */
+  async restart(): Promise<void> {
+    const host = this.element.parentElement;
+    this.close();
+    if (host) await this.attach(host);
   }
 
   ngOnDestroy(): void {
-    if (this.agent.terminalReader) this.agent.terminalReader = null;
-    this.closeAll();
+    this.close();
   }
 
-  private closeAll(): void {
-    for (const session of this.sessions()) {
-      end(session);
-      session.element.remove();
-    }
-    this.sessions.set([]);
-    this.active.set(null);
-  }
-
-  /** Puts the chosen shell in the card, sized to it. */
-  private show(): void {
-    const session = this.current();
-    if (!session || !this.host) return;
-    if (session.element.parentElement !== this.host) this.host.appendChild(session.element);
-    requestAnimationFrame(() => {
-      this.resize();
-      this.focus();
-    });
-  }
-
-  private async start(session: Session): Promise<void> {
+  private async start(workspace: string): Promise<void> {
+    this.state.set('starting');
+    this.error.set('');
+    this.workspace = workspace;
     const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
     const term = new Terminal({
       cursorBlink: true,
@@ -211,56 +107,36 @@ export class TerminalService implements OnDestroy {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(session.element);
-    session.term = term;
-    session.fit = fit;
+    term.open(this.element);
+    this.term = term;
+    this.fit = fit;
     try {
       fit.fit();
     } catch {
       // Not laid out yet: fitted on the next resize.
     }
     try {
-      const id = await bridge.termOpen(this.workspace, term.cols || 80, term.rows || 24);
-      // Closed while it was starting.
-      if (!this.sessions().includes(session)) {
-        void bridge.termClose(id);
-        return;
-      }
-      session.id = id;
+      const id = await bridge.termOpen(workspace, term.cols || 80, term.rows || 24);
+      this.id = id;
       term.onData((data) => void bridge.termWrite(id, data));
-      session.unlisten.push(
+      this.unlisten.push(
         await bridge.onTermOutput((output) => {
           if (output.id === id) term.write(output.data);
         }),
         await bridge.onTermExit((exited) => {
           if (exited !== id) return;
-          session.id = null;
-          session.state.set('exited');
+          this.id = null;
+          this.state.set('exited');
           term.write('\r\n\x1b[2m[shell ended]\x1b[0m\r\n');
         }),
       );
-      session.state.set('running');
-      if (this.active() === session.key) {
-        this.resize();
-        term.focus();
-      }
+      this.state.set('running');
+      term.focus();
     } catch (error) {
-      session.state.set('exited');
-      session.error.set(String(error).replace(/^Error: /, ''));
+      this.state.set('exited');
+      this.error.set(String(error).replace(/^Error: /, ''));
     }
   }
-}
-
-/** Ends a session's shell and lets its xterm go. */
-function end(session: Session): void {
-  if (session.id !== null) void bridge.termClose(session.id);
-  for (const stop of session.unlisten) stop();
-  session.unlisten = [];
-  session.term?.dispose();
-  session.term = undefined;
-  session.fit = undefined;
-  session.id = null;
-  session.element.replaceChildren();
 }
 
 function token(name: string, fallback: string): string {

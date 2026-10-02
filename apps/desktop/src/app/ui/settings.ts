@@ -1,14 +1,14 @@
-import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { EngineStatus } from '../core/model';
-import { ACCENTS, LAYOUT_PALETTE, Theme, ThemeMode, ThemeService } from '../core/theme';
+import { LAYOUT_PALETTE, Theme, ThemeMode, ThemeService } from '../core/theme';
 import { LAYOUT_SWATCHES, PALETTES, Swatch } from '../core/palettes';
 import { SHORTCUTS, UiStore, roveFocus, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
 import { MemorySettings, ProfileSettings, ProjectsSettings } from './personal';
 
-type Page = 'workspace' | 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
+type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
 
 /** Preferences, one page at a time: kept out of the main screen. */
 @Component({
@@ -32,7 +32,7 @@ type Page = 'workspace' | 'profile' | 'memory' | 'projects' | 'appearance' | 'sh
                 (click)="page.set(item.id)"
                 [attr.data-autofocus]="page() === item.id ? '' : null"
               >
-                {{ item.label }}
+                <pa-icon [name]="item.icon" [size]="16" /> {{ item.label }}
               </button>
             }
           </nav>
@@ -45,31 +45,6 @@ type Page = 'workspace' | 'profile' | 'memory' | 'projects' | 'appearance' | 'sh
               <pa-icon name="x" />
             </button>
             @switch (page()) {
-              @case ('workspace') {
-                <div class="settings-page">
-                  <header class="settings-page-head">
-                    <h3 class="settings-page-title">Workspace</h3>
-                    <p class="fine">Preferences for the current project.</p>
-                  </header>
-                  @if (store.chatMode()) {
-                    <p class="fine">Open a workspace to change its preferences.</p>
-                  } @else {
-                    <label class="settings-row">
-                      <input
-                        type="checkbox"
-                        [checked]="store.backgroundSummaries()"
-                        [disabled]="store.wikiSettingsBusy()"
-                        (change)="store.refreshWikiSettings($any($event.target).checked)"
-                      />
-                      <span>Background module summaries</span>
-                    </label>
-                    <p class="fine">
-                      Off by default. Uses the local model while idle; a new prompt interrupts it.
-                      Generated summaries are unverified.
-                    </p>
-                  }
-                </div>
-              }
               @case ('profile') {
                 <pa-profile-settings animate.enter="anim-fade-in" />
               }
@@ -114,74 +89,6 @@ type Page = 'workspace' | 'profile' | 'memory' | 'projects' | 'appearance' | 'sh
                         >
                       </button>
                     }
-                  </div>
-                  <section class="appearance-accent">
-                    <h4 class="settings-subtitle">Accent</h4>
-                    <div
-                      class="accent-options"
-                      role="radiogroup"
-                      aria-label="Accent"
-                      (keydown)="themeKeys($event)"
-                    >
-                      @for (accent of accents; track accent.id) {
-                        <button
-                          class="accent-option"
-                          role="radio"
-                          [attr.aria-label]="accent.label"
-                          [attr.title]="accent.label"
-                          [attr.aria-checked]="theme.accent() === accent.id"
-                          [attr.tabindex]="theme.accent() === accent.id ? 0 : -1"
-                          [style.--swatch]="accent.color"
-                          (click)="theme.accent.set(accent.id)"
-                        ></button>
-                      }
-                    </div>
-                    @if (theme.palette() !== layoutPalette) {
-                      <p class="fine">Choose Paper or Night below to use this accent.</p>
-                    }
-                  </section>
-                  <div class="appearance-type">
-                    <div class="settings-row">
-                      <span class="settings-row-title">Serif headings</span>
-                      <button
-                        class="switch-button"
-                        role="switch"
-                        aria-label="Serif headings"
-                        [attr.aria-checked]="theme.serif()"
-                        (click)="theme.serif.set(!theme.serif())"
-                      >
-                        <span class="switch" aria-hidden="true"></span>
-                      </button>
-                    </div>
-                    <label class="settings-row">
-                      <span class="settings-row-title">Chat text size</span>
-                      <select
-                        class="appearance-select"
-                        [value]="theme.chatSize()"
-                        (change)="theme.chatSize.set(+$any($event.target).value)"
-                      >
-                        @for (size of [14, 16, 18, 20]; track size) {
-                          <option [value]="size" [selected]="theme.chatSize() === size">
-                            {{ size }} px
-                          </option>
-                        }
-                      </select>
-                    </label>
-                    <label class="settings-row">
-                      <span class="settings-row-title">Code font</span>
-                      <select
-                        class="appearance-select mono"
-                        [value]="theme.codeFont()"
-                        (change)="theme.codeFont.set($any($event.target).value)"
-                      >
-                        <option value="geist" [selected]="theme.codeFont() === 'geist'">
-                          Geist Mono
-                        </option>
-                        <option value="system" [selected]="theme.codeFont() === 'system'">
-                          System mono
-                        </option>
-                      </select>
-                    </label>
                   </div>
                   <header class="settings-page-head settings-subhead">
                     <h4 class="settings-row-title">Colour theme</h4>
@@ -275,28 +182,18 @@ export class Settings {
   protected readonly theme = inject(ThemeService);
   protected readonly store = inject(AgentStore);
   protected readonly shortcut = shortcut;
-  protected readonly accents = ACCENTS;
-  protected readonly layoutPalette = LAYOUT_PALETTE;
   protected readonly page = signal<Page>('profile');
   protected readonly pages: { id: Page; label: string; icon: IconName }[] = [
     { id: 'profile', label: 'Profile', icon: 'heart' },
     { id: 'memory', label: 'Memory', icon: 'history' },
     { id: 'projects', label: 'Projects', icon: 'folder' },
-    { id: 'workspace', label: 'Workspace', icon: 'folder' },
     { id: 'appearance', label: 'Appearance', icon: 'sun' },
     { id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
   ];
-  constructor() {
-    effect(() => {
-      const cwd = this.store.workspace();
-      if (cwd && this.ui.settingsOpen() && this.page() === 'workspace' && !this.store.chatMode())
-        void this.store.refreshWikiSettings();
-    });
-  }
   protected readonly themes: { value: ThemeMode; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
-    { value: 'light', label: 'Paper', icon: 'sun' },
-    { value: 'dark', label: 'Night', icon: 'moon' },
+    { value: 'light', label: 'Light', icon: 'sun' },
+    { value: 'dark', label: 'Dark', icon: 'moon' },
   ];
   protected readonly shortcuts = [
     { label: 'Command palette', keys: SHORTCUTS.palette },
@@ -317,13 +214,13 @@ export class Settings {
     { id: 'light', label: 'When light', icon: 'sun' },
   ];
 
-  /** PWR colours first, then every palette of the scheme. */
+  /** Focus colours first, then every palette of the scheme. */
   protected palettesFor(scheme: Theme): { id: string; label: string; description: string }[] {
     return [
       {
         id: LAYOUT_PALETTE,
-        label: scheme === 'dark' ? 'Night' : 'Paper',
-        description: 'PWR editorial colours',
+        label: 'Focus colours',
+        description: "Focus's own colours",
       },
       ...PALETTES.filter((palette) => palette.scheme === scheme),
     ];
@@ -333,10 +230,10 @@ export class Settings {
     return scheme === 'dark' ? this.theme.darkPalette() : this.theme.lightPalette();
   }
 
-  /** What a scheme looks like in one of its palettes, or in PWR's own colours. */
+  /** What a scheme looks like in one of its palettes, or in Focus's own colours. */
   private swatchFor(scheme: Theme, id: string): Swatch {
     const palette = PALETTES.find((item) => item.id === id && item.scheme === scheme);
-    return palette?.swatch ?? LAYOUT_SWATCHES['pwr'][scheme];
+    return palette?.swatch ?? LAYOUT_SWATCHES['focus'][scheme];
   }
 
   protected paletteSwatch(scheme: Theme, id: string): Record<string, string> {

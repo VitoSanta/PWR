@@ -23,16 +23,7 @@
       var palette = asked;
       try { palette = palette || localStorage.getItem(dark ? 'pwr:palette-dark' : 'pwr:palette-light'); } catch (e) {}
       if (palette) document.documentElement.setAttribute('data-palette', palette);
-      // Appearance: the accent and the headings' face (ThemeService keeps them).
-      var accent = null, headings = null;
-      try { accent = localStorage.getItem('pwr:accent'); headings = localStorage.getItem('pwr:headings'); } catch (e) {}
-      if (accent) document.documentElement.setAttribute('data-accent', accent);
-      if (headings === 'sans') document.documentElement.setAttribute('data-headings', 'sans');
-      try {
-        var chatSize = Number(localStorage.getItem('pwr:chat-size'));
-        if ([14, 16, 18, 20].indexOf(chatSize) !== -1) document.documentElement.style.setProperty('--fs-chat', chatSize + 'px');
-        if (localStorage.getItem('pwr:code-font') === 'system') document.documentElement.setAttribute('data-code-font', 'system');
-      } catch (e) {}
+      document.documentElement.setAttribute('data-variant', 'focus');
     })();
   </script>
 </head>

@@ -204,8 +204,7 @@ const MAX_HEIGHT = 260;
       ></textarea>
       <div class="composer-bar">
         @if (!store.chatMode()) {
-          <!-- Full access says so itself; this is for a platform with no sandbox. -->
-          @if (!store.sandboxed() && store.permissionMode() !== 'full') {
+          @if (!store.sandboxed()) {
             <span
               class="composer-warning"
               paTooltip="This platform has no sandbox adapter: commands the model runs are not confined to the workspace."
@@ -222,22 +221,22 @@ const MAX_HEIGHT = 260;
             <pa-icon name="lock" [size]="12" /> Read-only chat
           </span>
         }
-        @if (!store.chatMode() && (store.goalMode() || store.permissionMode() === 'full')) {
+        @if (!store.chatMode() && (store.goalMode() || store.permissionMode() === 'auto')) {
           <!-- Only while one is on: a state that changes what happens next stays in sight. -->
           <button
             #runNote
             type="button"
             class="run-note"
-            [class.tone-warning]="store.permissionMode() === 'full'"
+            [class.tone-warning]="store.permissionMode() === 'auto'"
             (click)="ui.runControls.set(ui.runControls() ? null : runNote)"
             [attr.aria-expanded]="!!ui.runControls()"
             aria-haspopup="dialog"
-            paTooltip="Goal mode and permissions"
+            paTooltip="Goal mode and approvals"
             animate.enter="anim-pop-in"
             animate.leave="anim-pop-out"
           >
             <pa-icon name="zap" [size]="12" />
-            {{ store.goalMode() && store.permissionMode() === 'full' ? 'Goal · Full access' : store.goalMode() ? 'Goal' : 'Full access' }}
+            {{ store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal' : 'Auto-approve' }}
           </button>
         }
         <span class="spacer"></span>
@@ -316,19 +315,6 @@ export class Composer implements OnInit, OnDestroy {
   private unlisten?: UnlistenFn;
 
   constructor() {
-    effect(() => {
-      const request = this.store.composerContext();
-      if (request === null) return;
-      untracked(() => {
-        this.store.composerContext.set(null);
-        const text = this.draft().trim() ? `${this.draft()}\n\n${request}` : request;
-        this.draft.set(text);
-        const box = this.box().nativeElement;
-        box.value = text;
-        this.grow(box);
-        box.focus();
-      });
-    });
     // A message being edited arrives here to be changed and sent again.
     effect(() => {
       const text = this.store.composerDraft();
@@ -403,23 +389,7 @@ export class Composer implements OnInit, OnDestroy {
     // above it always keeps room.
     const max = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(window.innerHeight * 0.3)));
     const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
-    // Once a draft wraps it keeps the tall layout until it is cleared. The
-    // tall layout gives the box the whole width, where the same text fits one
-    // line again; measured there, it flipped back to the pill, whose box is
-    // narrower -- narrower still beside the Goal or Full access note -- and the
-    // second line wrapped out of sight.
-    const was = this.expanded();
-    const tall = wanted > MIN_HEIGHT + 8 || (was && box.value.length > 0);
-    this.expanded.set(tall);
-    box.style.height = `${Math.min(wanted, max)}px`;
-    box.style.overflowY = wanted > max ? 'auto' : 'hidden';
-    // The layout changed the box's width: fit its height to the new one.
-    if (tall !== was) requestAnimationFrame(() => this.fit(box, max));
-  }
-
-  private fit(box: HTMLTextAreaElement, max: number): void {
-    box.style.height = 'auto';
-    const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
+    this.expanded.set(wanted > MIN_HEIGHT + 8);
     box.style.height = `${Math.min(wanted, max)}px`;
     box.style.overflowY = wanted > max ? 'auto' : 'hidden';
   }

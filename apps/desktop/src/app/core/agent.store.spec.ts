@@ -1,7 +1,5 @@
-import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { AgentStore } from './agent.store';
-import { bridge } from './bridge';
 
 describe('AgentStore context', () => {
   let store: AgentStore;
@@ -10,25 +8,6 @@ describe('AgentStore context', () => {
     TestBed.configureTestingModule({});
     store = TestBed.inject(AgentStore);
     store.sessionId.set('s1');
-  });
-
-  it('requires authorization for each named acceptance artifact before offering continuation', async () => {
-    store.runOutcome.set({ terminal: 'contract_changed', text: 'Review required', detail: null, action: null, tone: 'failed', acceptanceChanges: ['tests/a.rs', 'tests/b.rs'] });
-    const request = vi.spyOn(store as any, 'request').mockResolvedValue({ allowed: true });
-    await store.reviewAcceptanceChanges();
-    expect(request.mock.calls).toEqual([
-      ['_pwr/acceptance_authorize', { sessionId: 's1', path: 'tests/a.rs' }],
-      ['_pwr/acceptance_authorize', { sessionId: 's1', path: 'tests/b.rs' }],
-    ]);
-    expect(store.runOutcome()?.action).toBe('continue');
-  });
-
-  it('keeps changed acceptance evidence blocked after a refusal', async () => {
-    store.runOutcome.set({ terminal: 'contract_changed', text: 'Review required', detail: null, action: null, tone: 'failed', acceptanceChanges: ['tests/a.rs'] });
-    vi.spyOn(store as any, 'request').mockResolvedValue({ allowed: false });
-    await store.reviewAcceptanceChanges();
-    expect(store.runOutcome()?.tone).toBe('failed');
-    expect(store.runOutcome()?.action).toBeNull();
   });
 
   it('shows an automatic compaction in the conversation', () => {
@@ -57,15 +36,6 @@ describe('AgentStore context', () => {
     expect(store.timeline().length).toBe(0);
   });
 
-  it('shows one notice for repeated identical rewind failures', async () => {
-    vi.spyOn(store as any, 'request').mockRejectedValue(new Error('message compacted'));
-    const entry = { key: 'u1', kind: 'user', text: 'build', turn: 1, at: 1 } as any;
-    await store.rewind(entry, { restoreFiles: false });
-    await store.rewind(entry, { restoreFiles: false });
-    expect(store.timeline().filter((item) => item.title === 'Rewind failed')).toHaveLength(1);
-    expect(store.rewinding()).toBe(false);
-  });
-
   it('keeps the engine count for the context indicator', () => {
     store.receive({
       jsonrpc: '2.0',
@@ -77,23 +47,6 @@ describe('AgentStore context', () => {
     expect(store.usage()).toEqual({ used: 54_000, window: 128_000, estimated: false });
   });
 
-  it('keeps how far the engine has read the prompt, for this session only', () => {
-    store.sessionId.set('s1');
-    store.receive({
-      jsonrpc: '2.0',
-      method: '_pwr/model_progress',
-      params: { sessionId: 's1', prefill: { processed: 4_096, total: 20_000 } },
-    });
-    expect(store.prefill()).toMatchObject({ processed: 4_096, total: 20_000 });
-    store.receive({
-      jsonrpc: '2.0',
-      method: '_pwr/model_progress',
-      params: { sessionId: 'other', prefill: { processed: 9, total: 10 } },
-    });
-    store.receive({ jsonrpc: '2.0', method: '_pwr/model_progress', params: { sessionId: 's1' } });
-    expect(store.prefill()).toMatchObject({ processed: 4_096, total: 20_000 });
-  });
-
   it("numbers the person's message with the turn the core started for it", () => {
     store.sessionId.set('s1');
     store.timeline.set([{ key: 'u1', kind: 'user', title: 'You', text: 'build it', status: 'sent', at: 1 }]);
@@ -103,28 +56,6 @@ describe('AgentStore context', () => {
     store.timeline.set([{ key: 'u2', kind: 'user', title: 'You', text: 'x', status: 'sent', at: 2 }]);
     store.receive({ jsonrpc: '2.0', method: '_pwr/turn_started', params: { sessionId: 'other', turn: 4 } });
     expect(store.timeline()[0].turn).toBeUndefined();
-  });
-
-  it('marks restored messages so the UI does not invent a turn duration', () => {
-    for (const [kind, content] of [
-      ['user_message_chunk', 'a saved request'],
-      ['agent_message_chunk', 'a saved reply'],
-    ]) {
-      store.receive({
-        jsonrpc: '2.0',
-        method: 'session/update',
-        params: { update: { sessionUpdate: kind, content: { type: 'text', text: content }, _meta: { pwr: { replay: true } } } },
-      });
-    }
-    expect(store.timeline().map((entry) => entry.replayed)).toEqual([true, true]);
-  });
-
-  it('keeps the model recovered for a restored turn', () => {
-    store.receive({
-      jsonrpc: '2.0', method: 'session/update',
-      params: { update: { sessionUpdate: 'user_message_chunk', content: { text: 'saved request' }, _meta: { pwr: { replay: true, model: 'gemma-4' } } } },
-    });
-    expect(store.timeline()[0].modelName).toBe('gemma 4');
   });
 
   it('edits, reorders and drops queued messages before they are sent', () => {
@@ -159,40 +90,6 @@ describe('AgentStore context', () => {
     store.receive({ jsonrpc: '2.0', method: '_pwr/usage', params: { used: 20_190, window: 262_144 } });
     expect(store.streamedTokens()).toBe(0);
     expect(store.usage()).toEqual({ used: 20_190, window: 262_144, estimated: false });
-  });
-
-  it('replaces a streamed answer with the final answer and its check verdict', () => {
-    const message = (text: string, live: boolean) => store.receive({
-      jsonrpc: '2.0', method: 'session/update',
-      params: { update: { sessionUpdate: 'agent_message_chunk', content: { text }, ...(live ? { _meta: { pwr: { live: true } } } : {}) } },
-    });
-    message('Wrote result.txt.', true);
-    message('Wrote result.txt.\n\nIndependent verification unavailable: this workspace declares no automated checks.', false);
-    expect(store.timeline().filter((entry) => entry.kind === 'reply')).toHaveLength(1);
-    expect(store.timeline()[0]).toMatchObject({
-      status: 'done',
-      text: 'Wrote result.txt.\n\nIndependent verification unavailable: this workspace declares no automated checks.',
-    });
-  });
-
-  it('reads the terminal tabs back to the core, within its bounds', () => {
-    const send = vi.spyOn(bridge, 'send').mockResolvedValue(undefined as any);
-    const asked: number[] = [];
-    store.terminalReader = (lines) => {
-      asked.push(lines);
-      return [{ title: 'Terminal 1', running: true, text: "Module not found: Can't resolve './globals.css'" }];
-    };
-    store.receive({ jsonrpc: '2.0', id: 9, method: '_pwr/terminal/read', params: { sessionId: 's1', lines: 50_000 } });
-    expect(asked).toEqual([1000]);
-    expect(send).toHaveBeenCalledWith({
-      jsonrpc: '2.0',
-      id: 9,
-      result: { terminals: [{ title: 'Terminal 1', running: true, text: "Module not found: Can't resolve './globals.css'" }] },
-    });
-    store.terminalReader = null;
-    store.receive({ jsonrpc: '2.0', id: 10, method: '_pwr/terminal/read', params: { sessionId: 's1' } });
-    expect(send).toHaveBeenLastCalledWith({ jsonrpc: '2.0', id: 10, result: { terminals: [] } });
-    send.mockRestore();
   });
 
   it('routes extension notifications to their listeners only', () => {

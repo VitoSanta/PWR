@@ -12,7 +12,6 @@ import {
   ReasoningInfo,
   Entry,
   FileDiff,
-  PermissionMode,
   PermissionRequest,
   SessionSummary,
   modelLabel,
@@ -22,13 +21,6 @@ import { RunOutcome, TraceVisibility, runOutcome } from './trace';
 const VISIBILITY_KEY = 'pwr:trace-visibility';
 
 type Pending = { resolve: (value: any) => void; reject: (error: Error) => void };
-
-/** One terminal tab as the model may read it: its last lines, as text. */
-export interface TerminalSnapshot {
-  title: string;
-  running: boolean;
-  text: string;
-}
 
 /**
  * The app's whole state, as signals, fed by `pwr serve --stdio`.
@@ -99,10 +91,6 @@ export class AgentStore {
   readonly timeline = signal<Entry[]>([]);
   readonly turnActive = signal(false);
   readonly lastEventAt = signal(Date.now());
-  /** How far the engine has read the prompt it must process before it can
-   *  answer, and when that was last reported. A long conversation on a cold
-   *  cache (after a model switch) takes minutes to read. */
-  readonly prefill = signal<{ processed: number; total: number; at: number } | null>(null);
   readonly outcome = signal('');
   /** How the last run ended, and whether it can be retried or continued. */
   readonly runOutcome = signal<RunOutcome | null>(null);
@@ -113,11 +101,6 @@ export class AgentStore {
   /** The Evidence command that is running, if any. */
   readonly commandRunning = signal<string | null>(null);
   readonly permission = signal<PermissionRequest | null>(null);
-  /**
-   * The person's terminal tabs, for `_pwr/terminal/read`: set by the terminal
-   * service, which holds them. Unset while no Terminal card was opened.
-   */
-  terminalReader: ((lines: number) => TerminalSnapshot[]) | null = null;
   /**
    * Tokens the conversation occupies and the window: the engine's count after
    * a reply, or -- `estimated` -- the core's estimate of the prompt it is about
@@ -143,10 +126,7 @@ export class AgentStore {
   // server twice until the timeout, 2026-09-22).
   readonly goalMode = signal(false);
   /** Ask before what leaves the workspace, or run with every permission. */
-  /** Protected (`ask`), Standard (`auto`) or Full access (`full`): the core's names. */
-  readonly permissionMode = signal<PermissionMode>('ask');
-  readonly backgroundSummaries = signal(false);
-  readonly wikiSettingsBusy = signal(false);
+  readonly permissionMode = signal<'ask' | 'auto'>('ask');
   /** What the core actually asks about in the current mode. */
   readonly asking = signal<string[]>([]);
   /** False where the platform gives no sandbox: commands then run unconfined. */
@@ -155,8 +135,6 @@ export class AgentStore {
   readonly queue = signal<string[]>([]);
   /** Text for the composer to take up, such as a message being edited. */
   readonly composerDraft = signal<string | null>(null);
-  /** A diagnostic request to append without replacing the person's draft. */
-  readonly composerContext = signal<string | null>(null);
   readonly rewinding = signal(false);
 
   readonly modelName = computed(() => {
@@ -334,9 +312,7 @@ export class AgentStore {
       this.corePath.set(started.core);
       const hello = await this.request('initialize', {
         protocolVersion: 1,
-        // The app can read its terminal tabs back to the model, once the
-        // person allows it; outside the app there are none.
-        clientCapabilities: inTauri() ? { _meta: { pwr: { readTerminal: true } } } : {},
+        clientCapabilities: {},
         clientInfo: { name: 'pwr-desktop', version: '0.1.0' },
       });
       this.chatHome.set(hello?._meta?.pwr?.chatHome ?? '');
@@ -442,27 +418,15 @@ export class AgentStore {
 
   // ----------------------------------------------------------- permissions
 
-  async refreshWikiSettings(enabled?: boolean): Promise<void> {
-    const cwd = this.workspace();
-    if (!cwd || this.chatMode()) return;
-    this.wikiSettingsBusy.set(true);
-    try {
-      const reply = await this.request('_pwr/wiki_settings', { cwd, ...(enabled === undefined ? {} : { enabled }) });
-      if (cwd === this.workspace()) this.backgroundSummaries.set(reply.enabled === true);
-    } catch (error) {
-      this.notice('Workspace settings unavailable', String(error), 'error');
-    } finally { this.wikiSettingsBusy.set(false); }
-  }
-
   async refreshPermissions(params: Record<string, unknown> = {}): Promise<void> {
     const reply = await this.request('_pwr/approvals', { cwd: this.workspace(), ...params });
-    this.permissionMode.set(reply.mode === 'auto' || reply.mode === 'full' ? reply.mode : 'ask');
+    this.permissionMode.set(reply.mode === 'auto' ? 'auto' : 'ask');
     this.asking.set(reply.asking ?? []);
     this.sandboxed.set(reply.sandboxed !== false);
   }
 
-  /** Chooses how much the model's commands may do; saved in the workspace. */
-  setPermissionMode(mode: PermissionMode): Promise<void> {
+  /** Switches between asking and running with every permission; saved in the workspace. */
+  setPermissionMode(mode: 'ask' | 'auto'): Promise<void> {
     return this.refreshPermissions({ mode });
   }
 
@@ -693,7 +657,6 @@ export class AgentStore {
       text: prompt,
       status: 'sent',
       attachments,
-      modelName: this.modelName(),
       at: Date.now(),
     });
     this.segment += 1;
@@ -729,19 +692,6 @@ export class AgentStore {
    * Picks the work up where the core stopped it: offered only once the core's
    * own automatic retries are spent, or a turn paused at its action budget.
    */
-  async reviewAcceptanceChanges(): Promise<void> {
-    const sessionId = this.sessionId();
-    const outcome = this.runOutcome();
-    if (!sessionId || this.turnActive() || !outcome?.acceptanceChanges?.length) return;
-    try {
-      for (const path of outcome.acceptanceChanges) {
-        const reply = await this.request('_pwr/acceptance_authorize', { sessionId, path });
-        if (!reply.allowed) return;
-      }
-      this.runOutcome.set({ ...outcome, acceptanceChanges: [], text: 'Acceptance changes authorized. Continue to run verification again.', action: 'continue', tone: 'paused' });
-    } catch (error) { this.notice('Acceptance authorization failed', String(error), 'error'); }
-  }
-
   continueRun(): Promise<void> {
     const outcome = this.runOutcome();
     if (!outcome?.action || this.turnActive()) return Promise.resolve();
@@ -789,7 +739,7 @@ export class AgentStore {
     options: { restoreFiles: boolean; force?: boolean; edit?: boolean },
   ): Promise<{ conflicts: string[] }> {
     const sessionId = this.sessionId();
-    if (!sessionId || entry.turn === undefined || this.turnActive() || this.rewinding()) return { conflicts: [] };
+    if (!sessionId || entry.turn === undefined || this.turnActive()) return { conflicts: [] };
     this.rewinding.set(true);
     try {
       const reply = await this.request('_pwr/rewind', {
@@ -814,10 +764,7 @@ export class AgentStore {
       if (this.contextInfo()) void this.refreshContext();
       return { conflicts: [] };
     } catch (error) {
-      const text = String(error).replace(/^Error: /, '');
-      if (!this.timeline().some((item) => item.kind === 'notice' && item.title === 'Rewind failed' && item.text === text)) {
-        this.notice('Rewind failed', text, 'error');
-      }
+      this.notice('Rewind failed', String(error).replace(/^Error: /, ''), 'error');
       return { conflicts: [] };
     } finally {
       this.rewinding.set(false);
@@ -834,7 +781,7 @@ export class AgentStore {
     const sessionId = this.sessionId();
     if (text === undefined || !sessionId || !this.turnActive()) return;
     this.unqueue(index);
-    this.push({ key: `user-${Date.now()}`, kind: 'user', title: 'You', text, status: 'sent', modelName: this.modelName(), at: Date.now() });
+    this.push({ key: `user-${Date.now()}`, kind: 'user', title: 'You', text, status: 'sent', at: Date.now() });
     this.segment += 1;
     try {
       await this.request('_pwr/steer', { sessionId, text });
@@ -946,19 +893,6 @@ export class AgentStore {
       }
       return;
     }
-    if (message.method === '_pwr/model_progress') {
-      const { sessionId, prefill } = message.params ?? {};
-      const { processed, total } = prefill ?? {};
-      if (
-        (sessionId === undefined || sessionId === this.sessionId()) &&
-        typeof processed === 'number' &&
-        typeof total === 'number' &&
-        total > 0
-      ) {
-        this.prefill.set({ processed: Math.min(processed, total), total, at: Date.now() });
-      }
-      return;
-    }
     if (message.method === '_pwr/compacted') {
       this.onCompacted(message.params ?? {});
       return;
@@ -997,13 +931,6 @@ export class AgentStore {
   }
 
   private serverRequest(message: any): void {
-    // Asked only after the person allowed it in the permission dialog.
-    if (message.method === '_pwr/terminal/read') {
-      const lines = Math.max(1, Math.min(1000, Number(message.params?.lines) || 200));
-      const terminals = this.terminalReader?.(lines) ?? [];
-      void bridge.send({ jsonrpc: '2.0', id: message.id, result: { terminals } });
-      return;
-    }
     if (message.method === 'session/request_permission') {
       this.permission.set({
         id: message.id,
@@ -1075,7 +1002,7 @@ export class AgentStore {
       case 'user_message_chunk':
         // A replayed prompt carries what the core appended to it (goal-mode
         // instructions, attachments); the person's own words come first.
-        this.push({ key: `user-${Date.now()}-${Math.random()}`, kind: 'user', title: 'You', text: ownWords(text), status: 'sent', replayed: update._meta?.pwr?.replay === true, modelName: typeof update._meta?.pwr?.model === 'string' ? modelLabel(update._meta.pwr.model) : undefined, at: Date.now() });
+        this.push({ key: `user-${Date.now()}-${Math.random()}`, kind: 'user', title: 'You', text: ownWords(text), status: 'sent', at: Date.now() });
         this.segment += 1;
         return;
       case 'tool_call':
@@ -1124,7 +1051,6 @@ export class AgentStore {
         title: update.title ?? previous?.title ?? 'Action',
         text: failure ? explain(failure) : detail ?? previous?.text ?? '',
         status: toolStatus(status),
-        replayed: update._meta?.pwr?.replay === true || previous?.replayed,
         toolKind: update.kind ?? previous?.toolKind,
         diff: diff ?? previous?.diff,
         data: { ...previous?.data, ...(path ? { path } : {}) },
@@ -1160,18 +1086,12 @@ export class AgentStore {
     }
     const entries = this.timeline();
     const live = [...entries].reverse().find((entry) => entry.kind === 'reply' && entry.status === 'live');
-    if (live) {
-      // The final core message is authoritative. It can include a check
-      // verdict added after the streamed model answer, so keeping both would
-      // show the answer twice (once inside the work phase).
-      this.timeline.update((current) => current.map((entry) => entry.key === live.key
-        ? { ...entry, text, status: 'done', raw: update ? [...(entry.raw ?? []), update] : entry.raw }
-        : entry));
+    if (live && live.text.trim() === text.trim()) {
       this.settleLive();
       return;
     }
     this.settleLive();
-    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', replayed: (update as any)?._meta?.pwr?.replay === true, raw: update ? [update] : undefined, at: Date.now() });
+    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', raw: update ? [update] : undefined, at: Date.now() });
   }
 
   private finish(reply: any): void {

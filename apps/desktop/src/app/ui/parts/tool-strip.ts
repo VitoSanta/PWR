@@ -43,7 +43,7 @@ const SHORT: Partial<Record<CardId, string>> = { browser: 'Preview', plan: 'Chec
           class="tool-strip-item"
           role="menuitem"
           [class.has-goal]="store.goalMode()"
-          [class.has-auto]="store.permissionMode() === 'full'"
+          [class.has-auto]="store.permissionMode() === 'auto'"
           (click)="run.emit()"
           [paTooltip]="vertical() ? null : 'Goal mode and approvals'"
         >

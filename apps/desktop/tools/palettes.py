@@ -267,12 +267,19 @@ def declarations(block):
 
 
 def layout_swatches():
-    """PWR's own colours in each scheme -- Night and Paper -- as previewed in Settings."""
+    """Focus colours in each scheme, as previewed in Settings."""
     tokens_css = (HERE / 'src/styles/tokens.css').read_text()
-    found = {'pwr': {}}
-    for scheme in ('dark', 'light'):
-        own = declarations(tokens_css.split(f":root[data-theme='{scheme}'] {{", 1)[1].split('}', 1)[0])
-        found['pwr'][scheme] = {k: own[t] for k, t in SWATCH_TOKENS.items()}
+    base = {
+        scheme: declarations(tokens_css.split(f":root[data-theme='{scheme}'] {{", 1)[1].split('}', 1)[0])
+        for scheme in ('dark', 'light')
+    }
+    found = {}
+    variants_css = (HERE / 'src/styles/focus.css').read_text()
+    for layout, scheme, block in re.findall(
+        r":root\[data-variant='(\w+)'\]\[data-theme='(\w+)'\] \{(.*?)\n\}", variants_css, re.S
+    ):
+        own = {**base[scheme], **declarations(block)}
+        found.setdefault(layout, {})[scheme] = {k: own[t] for k, t in SWATCH_TOKENS.items()}
     for layout, schemes in found.items():
         for scheme, swatch in schemes.items():
             for key, value in swatch.items():
@@ -348,7 +355,7 @@ export const PALETTES: PaletteInfo[] = [
 {chr(10).join(entries)}
 ];
 
-/** PWR's own colours, Night and Paper, drawn for the default palette choice. */
+/** Focus colours, drawn for the default palette choice. */
 export const LAYOUT_SWATCHES: Record<string, Record<Scheme, Swatch>> = {{
 {chr(10).join(f"  {layout}: {{ dark: {swatch_ts(sw['dark'])}, light: {swatch_ts(sw['light'])} }}," for layout, sw in layouts.items())}
 }};

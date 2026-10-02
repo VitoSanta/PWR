@@ -35,28 +35,6 @@ export function settle(text: string): string {
   return text.slice(0, start) + line + tail;
 }
 
-/**
- * The end of text that is still streaming in, for a window that shows only
- * its end: `size` characters, from the start of a line, so the window stays
- * full and still and the work per streamed piece stays the same however long
- * the text grows. A cut inside a code block reopens it, or the rest would
- * read inside out.
- *
- * Live reasoning showed its last three paragraphs until 2026-09-29: a new
- * paragraph dropped the oldest, the window shrank and grew again and moved
- * everything below it, and a model that writes no blank lines -- Gemma 4 --
- * had its whole reasoning parsed and redrawn for every few characters.
- */
-export function streamTail(text: string, size: number): string {
-  const whole = text.trimEnd();
-  if (whole.length <= size) return whole;
-  let start = whole.length - size;
-  const line = whole.indexOf('\n', start);
-  if (line >= 0 && line < whole.length - size / 4) start = line + 1;
-  const fences = whole.slice(0, start).match(/^\s*(```|~~~)/gm)?.length ?? 0;
-  return (fences % 2 ? '```\n' : '') + whole.slice(start);
-}
-
 /** Markdown, rendered as it streams in, sanitised before it reaches the DOM. */
 @Component({
   selector: 'pa-markdown',

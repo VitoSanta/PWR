@@ -18,7 +18,6 @@ import { bridge } from '../../core/bridge';
 import { bytes, percent } from '../../core/format';
 import { DownloadView, FileDiff } from '../../core/model';
 import { TerminalService } from '../../core/terminal';
-import { LayoutService } from '../../core/layout';
 import { ConfirmService, ToastService } from '../../core/ui';
 import { WorkbenchStore } from '../../core/workbench';
 import { Diff, diffStats } from '../diff';
@@ -40,18 +39,21 @@ async function copyText(toast: ToastService, text: string): Promise<void> {
   imports: [Diff, Icon, Tooltip],
   template: `
     @if (store.changes().length) {
-      <div class="review-head">
-        <span class="review-count num">{{ store.changes().length }} file{{ store.changes().length === 1 ? '' : 's' }}</span>
-        <span class="delta review-delta"><span class="add">+{{ totals().added }}</span><span class="del">−{{ totals().removed }}</span></span>
+      <div class="card-toolbar">
+        <span class="num">{{ store.changes().length }} file{{ store.changes().length === 1 ? '' : 's' }}</span>
+        <span class="num text-success">+{{ totals().added }}</span>
+        <span class="num text-danger">−{{ totals().removed }}</span>
         <span class="spacer"></span>
-        <button class="btn btn-sm btn-ghost" (click)="revertAll()" [disabled]="store.turnActive()">Revert all</button>
+        <button class="btn btn-sm btn-ghost" (click)="revertAll()" [disabled]="store.turnActive()">
+          <pa-icon name="undo" [size]="14" /> Revert all
+        </button>
       </div>
-      <div class="card-scroll">
+      <div class="card-scroll card-pad">
         @for (change of store.changes(); track change.path; let first = $first) {
           <details class="change" [open]="first">
             <summary>
               <pa-icon class="chevron" name="chevron-right" [size]="14" />
-              <span class="change-path truncate" [attr.title]="change.path"><span class="change-dir">{{ dir(change.path) }}</span>{{ base(change.path) }}</span>
+              <span class="change-path truncate" [attr.title]="change.path">{{ change.path }}</span>
               <span class="delta">
                 <span class="add">+{{ stats(change).added }}</span>
                 <span class="del">−{{ stats(change).removed }}</span>
@@ -102,16 +104,6 @@ export class ReviewCard {
 
   protected stats(change: { oldText: string; newText: string }) {
     return diffStats(change.oldText, change.newText);
-  }
-
-  /** "src/app/" of "src/app/app.routes.ts": shown quieter than the name. */
-  protected dir(path: string): string {
-    const slash = path.lastIndexOf('/');
-    return slash < 0 ? '' : path.slice(0, slash + 1);
-  }
-
-  protected base(path: string): string {
-    return path.slice(path.lastIndexOf('/') + 1);
   }
 
   protected async revert(change: FileDiff): Promise<void> {
@@ -424,40 +416,14 @@ export class FilesCard {
   }
 }
 
-/** Terminal: the person's shells in the workspace, as tabs. */
+/** Terminal: the person's shell in the workspace. */
 @Component({
   selector: 'pa-terminal-card',
-  imports: [Icon, Tooltip],
+  imports: [Icon],
   template: `
-    @if (terminal.unavailable()) {
+    @if (terminal.state() === 'unavailable') {
       <p class="card-empty">The terminal runs in the PWR app, not in a browser preview.</p>
     } @else {
-      <div class="terminal-tabs" role="tablist" aria-label="Terminals" (keydown)="tabKeys($event)">
-        @for (session of terminal.sessions(); track session.key) {
-          <div class="terminal-tab" [class.is-active]="session.key === terminal.active()" [class.is-exited]="session.state() === 'exited'">
-            <button
-              class="terminal-tab-label"
-              role="tab"
-              [attr.aria-selected]="session.key === terminal.active()"
-              [attr.tabindex]="session.key === terminal.active() ? 0 : -1"
-              (click)="terminal.select(session.key)"
-              (auxclick)="$event.button === 1 && terminal.close(session.key)"
-            >
-              <pa-icon name="terminal" [size]="13" />
-              <span class="truncate">{{ session.title }}</span>
-            </button>
-            <button class="terminal-tab-close" (click)="terminal.close(session.key)" [attr.aria-label]="'Close ' + session.title" paTooltip="Close · ends the shell">
-              <pa-icon name="x" [size]="12" />
-            </button>
-          </div>
-        }
-        <button class="icon-btn icon-btn-sm terminal-tab-add" (click)="terminal.add()" aria-label="New terminal" paTooltip="New terminal">
-          <pa-icon name="plus" [size]="14" />
-        </button>
-      </div>
-      <div class="card-toolbar">
-        <button class="btn btn-sm" [disabled]="!terminal.sessions().length" (click)="analyze()" paTooltip="Prepare a message asking PWR to read the terminal. Review it before sending.">Analyze terminal</button>
-      </div>
       @if (terminal.error()) {
         <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ terminal.error() }}</p>
       }
@@ -468,29 +434,13 @@ export class FilesCard {
           <button class="btn btn-sm" (click)="terminal.restart()"><pa-icon name="refresh" [size]="14" /> New shell</button>
         </div>
       }
-      @if (!terminal.sessions().length) {
-        <div class="card-empty">
-          <p>No terminal is open.</p>
-          <button class="btn btn-sm" (click)="terminal.add()"><pa-icon name="plus" [size]="14" /> New terminal</button>
-        </div>
-      }
-      <div #host class="terminal-host" [hidden]="!terminal.sessions().length" (click)="terminal.focus()"></div>
+      <div #host class="terminal-host" (click)="terminal.focus()"></div>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TerminalCard implements AfterViewInit, OnDestroy {
   protected readonly terminal = inject(TerminalService);
-  private readonly agent = inject(AgentStore);
-  private readonly layout = inject(LayoutService);
-  protected analyze(): void {
-    const request = 'Read the terminal with read_terminal, inspect the build or runtime errors, and fix their cause. Verify the fix with the relevant checks.';
-    this.agent.composerContext.set(request);
-    if (this.layout.right() !== 'docked') {
-      this.layout.rightOpen.set(false);
-      this.layout.rightPeek.set(false);
-    }
-  }
   private readonly host = viewChild<ElementRef<HTMLElement>>('host');
   private observer?: ResizeObserver;
 
@@ -510,20 +460,6 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
     this.observer?.disconnect();
     this.terminal.detach();
   }
-
-  /** Left and right move along the tabs, as in any tab list. */
-  protected tabKeys(event: KeyboardEvent): void {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    const sessions = this.terminal.sessions();
-    const index = sessions.findIndex((session) => session.key === this.terminal.active());
-    const next = sessions[(index + (event.key === 'ArrowRight' ? 1 : -1) + sessions.length) % sessions.length];
-    if (!next) return;
-    event.preventDefault();
-    this.terminal.select(next.key);
-    queueMicrotask(() =>
-      (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus(),
-    );
-  }
 }
 
 /** Web preview: the app the workspace serves on this machine. */
@@ -536,7 +472,6 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
         <pa-icon name="refresh" [size]="14" />
       </button>
       <input #address class="input input-sm browser-address" [value]="url()" placeholder="localhost:4200" aria-label="Address" spellcheck="false" />
-      <button type="button" class="btn btn-sm" [disabled]="!url()" (click)="analyze()" paTooltip="Prepare a message to check this URL in PWR’s browser, including console errors.">Analyze page</button>
       <button type="button" class="icon-btn icon-btn-sm" (click)="external()" [disabled]="!url()" aria-label="Open in your browser" paTooltip="Open in your browser">
         <pa-icon name="external-link" [size]="14" />
       </button>
@@ -563,21 +498,11 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
 })
 export class BrowserCard {
   private readonly agent = inject(AgentStore);
-  private readonly layout = inject(LayoutService);
   private readonly sanitizer = inject(DomSanitizer);
   protected readonly url = signal('');
   protected readonly frame = signal<SafeResourceUrl | null>(null);
   protected readonly error = signal('');
   private nonce = 0;
-  protected analyze(): void {
-    if (!this.url()) return;
-    const request = `Check ${this.url()} with check_page, or look_at if you can inspect images. Read the rendered page and browser console errors, fix any errors, and verify the result. This check opens the URL separately from the embedded preview.`;
-    this.agent.composerContext.set(request);
-    if (this.layout.right() !== 'docked') {
-      this.layout.rightOpen.set(false);
-      this.layout.rightPeek.set(false);
-    }
-  }
 
   /** Addresses on this machine the conversation mentioned, newest first. */
   protected readonly suggestions = computed(() => {
@@ -644,3 +569,4 @@ export function normalize(raw: string, own: string = globalThis.location?.origin
 function message(error: unknown): string {
   return String(error).replace(/^Error: /, '');
 }
+

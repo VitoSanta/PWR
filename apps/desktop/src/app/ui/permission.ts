@@ -55,18 +55,14 @@ export class Permission {
   /** The core's approval kind (`pwr_tools::Approval`, snake case), in words. */
   protected approvalLabel(kind: string): string {
     const labels: Record<string, string> = {
-      acceptance_change: 'Allows edits to this named acceptance artifact for this session; it changes the evidence that decides whether the goal passes',
       dependency_change: 'Changes a dependency manifest or lockfile',
       verifier_proposal: "Adopts a command as this workspace's check",
       history_rewrite: 'Rewrites version-control history',
       publish: 'Publishes a package or pushes to a remote',
-      network_access: 'Allows network access to all destinations; it is not restricted to one host',
-      local_service: 'Allows access to local addresses and services; it is not restricted to one port',
+      network_access: 'Reaches the network',
+      local_service: 'Starts a service on this machine',
       toolchain_install: 'Runs a program this workspace does not list',
       container_engine: 'Uses Docker — containers run outside the sandbox',
-      outside_sandbox: 'Runs a command outside the sandbox, with your full rights',
-      outside_workspace: 'Reaches a folder outside the workspace',
-      terminal_read: 'Reads the recent output of your terminal tabs — read-only; it cannot type there',
     };
     return labels[kind] ?? kind.replaceAll('_', ' ');
   }

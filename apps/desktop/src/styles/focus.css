@@ -179,7 +179,7 @@
   border-radius: var(--radius-pill);
 }
 
-/* Tools: lit dots while Goal mode (accent) or Full access (warning) is on,
+/* Tools: lit dots while Goal mode (accent) or Auto-approve (warning) is on,
    so neither goes unnoticed with the row closed. */
 .focus-tools {
   position: relative;
@@ -292,41 +292,6 @@
   background: var(--warning);
 }
 
-/* The permissions mode: one of three, a radio beside each. */
-.focus-run-modes {
-  padding-top: 0;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.focus-run-heading {
-  padding: var(--space-2) var(--space-3) 0;
-  color: var(--text-muted);
-  font-size: var(--fs-caption);
-  font-weight: var(--fw-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.focus-run-radio {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  border: 1.5px solid var(--border-strong);
-  border-radius: 50%;
-  transition:
-    border-color var(--dur) var(--ease),
-    border-width var(--dur) var(--ease);
-}
-
-.focus-run-option[aria-checked='true'] > .focus-run-radio {
-  border-width: 5px;
-  border-color: var(--accent-primary);
-}
-
-.focus-run-option.tone-warning[aria-checked='true'] > .focus-run-radio {
-  border-color: var(--warning);
-}
-
 .focus-run-copy {
   display: grid;
   gap: 3px;
@@ -352,14 +317,10 @@
   background: transparent;
 }
 
-/* A grid of rows: each card has its own width, against the right edge, and
-   two one-column cards can share a row side by side; a wide card spans the
-   column, which is as wide as the widest row. Rows' heights are set by
-   the template, with a line between two to drag. */
+/* Each card has its own width, against the right edge; the column is as
+   wide as the widest. */
 .focus-workbench .workbench-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-content: stretch;
+  align-items: flex-end;
   gap: 0;
   padding: 0;
   background: transparent;
@@ -368,58 +329,11 @@
 .focus-workbench .wb-card,
 .focus-workbench .wb-splitter {
   position: relative;
-  grid-column: 1;
-  justify-self: end;
   width: min(100%, var(--card-w, 100%));
 }
 
-.focus-workbench .wb-card.collapsed {
-  align-self: start;
-}
-
-.focus-workbench .wb-card.is-wide {
-  justify-self: stretch;
-  width: auto;
-}
-
-/* The left one of a pair keeps clear of the right one: its width and the gap. */
-.focus-workbench .wb-card.is-left {
-  margin-right: var(--card-shift, 0);
-}
-
-/* The line between two cards side by side: the gap itself, with a pill
-   like the one between rows. */
-.focus-workbench .wb-divider {
-  position: relative;
-  grid-column: 1;
-  justify-self: end;
+.focus-workbench .wb-card-gap {
   align-self: stretch;
-  width: 14px;
-  margin-right: var(--card-shift, 0);
-}
-
-.focus-workbench .wb-divider::after {
-  top: 34%;
-  bottom: 34%;
-  left: 6px;
-  width: 2px;
-  border-radius: var(--radius-pill);
-  background: var(--border-strong);
-  opacity: 0;
-  transition: opacity var(--dur) var(--ease);
-}
-
-.focus-workbench .wb-divider:hover::after,
-.focus-workbench .wb-divider:focus-visible::after,
-.focus-workbench .wb-divider.is-dragging::after {
-  left: 6px;
-  width: 2px;
-  background: var(--border-strong);
-  opacity: 1;
-}
-
-.focus-workbench .wb-divider.is-dragging::after {
-  background: var(--accent-primary);
 }
 
 /* A card's left edge resizes it, clear of its rounded corners. */
@@ -444,11 +358,14 @@
 
 .focus-workbench .wb-splitter {
   position: relative;
-  height: 14px;
+  flex: 0 0 14px;
   cursor: row-resize;
   touch-action: none;
 }
 
+.focus-workbench .wb-card-gap {
+  flex: 0 0 14px;
+}
 
 .focus-workbench .wb-splitter::after {
   content: '';
@@ -503,16 +420,6 @@
 .shell-focus.tool-page .focus-workbench .wb-card,
 .shell-focus.tool-page .focus-workbench .wb-splitter {
   width: 100%;
-}
-
-/* Two side by side there share it. */
-.shell-focus.tool-page .focus-workbench .wb-card.is-left,
-.shell-focus.tool-page .focus-workbench .wb-card.is-right {
-  width: calc(50% - 7px);
-}
-
-.shell-focus.tool-page .focus-workbench .wb-card.is-left {
-  margin-right: calc(50% + 7px);
 }
 
 /* One-line message entry becomes a taller writing surface as text wraps. */

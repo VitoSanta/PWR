@@ -7,7 +7,6 @@ import {
   readPalette,
   readThemeMode,
   resolveTheme,
-  readAppearance,
 } from './theme';
 
 describe('theme', () => {
@@ -58,9 +57,9 @@ describe('palettes', () => {
       for (const colour of Object.values(palette.swatch)) expect(colour).toMatch(/^#[0-9a-f]{6}$/);
   });
 
-  it('has PWR colours in both schemes', () => {
+  it('has Focus colours in both schemes', () => {
     for (const scheme of ['dark', 'light'] as const)
-      for (const colour of Object.values(LAYOUT_SWATCHES['pwr'][scheme]))
+      for (const colour of Object.values(LAYOUT_SWATCHES['focus'][scheme]))
         expect(colour).toMatch(/^#[0-9a-f]{6}$/);
   });
 
@@ -96,35 +95,5 @@ describe('palettes', () => {
     const storage = { getItem: () => 'ember' };
     expect(readPalette(storage, 'dark', '?demo&palette=arctic')).toBe('arctic');
     expect(readPalette(storage, 'dark', '?palette=solar')).toBe('ember');
-  });
-});
-
-describe('editorial appearance', () => {
-  it('uses safe defaults for missing, invalid or unreadable preferences', () => {
-    const defaults = { accent: 'terracotta', serif: true, chatSize: 16, codeFont: 'geist' };
-    expect(readAppearance(undefined)).toEqual(defaults);
-    expect(readAppearance({ getItem: () => 'invalid' })).toEqual(defaults);
-    expect(
-      readAppearance({
-        getItem: () => {
-          throw new Error('denied');
-        },
-      }),
-    ).toEqual(defaults);
-  });
-
-  it('restores the chosen accent and typography', () => {
-    const saved: Record<string, string> = {
-      'pwr:accent': 'sage',
-      'pwr:headings': 'sans',
-      'pwr:chat-size': '18',
-      'pwr:code-font': 'system',
-    };
-    expect(readAppearance({ getItem: (key) => saved[key] ?? null })).toEqual({
-      accent: 'sage',
-      serif: false,
-      chatSize: 18,
-      codeFont: 'system',
-    });
   });
 });

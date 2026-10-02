@@ -21,7 +21,7 @@ import { Follow } from './kit/follow';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
-import { Markdown, streamTail } from './markdown';
+import { Markdown } from './markdown';
 
 const TOOL_ICONS: Record<string, IconName> = {
   read: 'eye',
@@ -43,9 +43,6 @@ const PHASE_ICONS: Record<PhaseName, IconName> = {
   Fixing: 'refresh',
   Finalizing: 'check',
 };
-
-/** How much of live reasoning its window is given: more than it shows. */
-const THOUGHT_TAIL = 900;
 
 /** Open state that the person chose, else open only for the live group. */
 abstract class Foldable {
@@ -89,7 +86,7 @@ abstract class Foldable {
               <span class="badge">{{ retried }} retried</span>
             }
             @if (refused(step.entries); as failed) {
-              <span class="badge badge-danger">{{ failed }} failed</span>
+              <span class="badge badge-danger">{{ failed }} refused</span>
             }
             <pa-icon class="chevron" [class.open]="isOpen(step.key, step.last)" name="chevron-right" [size]="16" />
           </button>
@@ -244,9 +241,8 @@ export class TraceSteps extends Foldable {
   }
 
   /** The last paragraphs of the reasoning, enough to fill its window. */
-  /** The end of live reasoning, for the window that shows it (see `streamTail`). */
   protected tail(text: string): string {
-    return streamTail(text, THOUGHT_TAIL);
+    return text.trimEnd().split(/\n{2,}/).slice(-3).join('\n\n');
   }
 
   /** A one-line summary: the reasoning's first sentence. */
@@ -334,7 +330,7 @@ export class TraceCompact extends Foldable {
         if (summary.edited) parts.push(`${summary.edited} edited`);
         if (summary.commands) parts.push(`${summary.commands} command${summary.commands === 1 ? '' : 's'}`);
         if (summary.checks) parts.push(`${summary.checks} check${summary.checks === 1 ? '' : 's'}`);
-        if (summary.refused) parts.push(`${summary.refused} failed`);
+        if (summary.refused) parts.push(`${summary.refused} refused`);
         if (!parts.length && summary.reasoned) parts.push('thinking');
         const lastRetry = summary.retries[summary.retries.length - 1];
         let retry: { text: string; tone: 'ok' | 'warn' | 'bad' } | null = null;
