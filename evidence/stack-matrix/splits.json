@@ -1,0 +1,131 @@
+{
+ "frozen": "2026-10-02T08:07:43",
+ "history": [],
+ "note": "Split and digest of every task, as run.py's task_digest computes it. A campaign runs only tasks that match; a changed task is listed in README.md under Revisions and the manifest frozen again with a reason.",
+ "tasks": {
+  "angular-todos": {
+   "digest": "554736095d63",
+   "split": "heldout"
+  },
+  "bash-rotate": {
+   "digest": "5a2ed68eb4fc",
+   "split": "dev"
+  },
+  "c-ringbuf": {
+   "digest": "4ab34023c258",
+   "split": "heldout"
+  },
+  "compose-redis-hits": {
+   "digest": "acba0805b2fb",
+   "split": "heldout"
+  },
+  "cpp-ini": {
+   "digest": "0ee0fd00458b",
+   "split": "dev"
+  },
+  "cs-docker": {
+   "digest": "e6cb0824e33d",
+   "split": "dev"
+  },
+  "cs-inventory": {
+   "digest": "2e82f397cfe8",
+   "split": "dev"
+  },
+  "dart-cron": {
+   "digest": "9e1d4474657b",
+   "split": "dev"
+  },
+  "django-rooms": {
+   "digest": "2b051f860676",
+   "split": "heldout"
+  },
+  "elixir-stock": {
+   "digest": "eca4dcf1a9c5",
+   "split": "dev"
+  },
+  "flutter-tips": {
+   "digest": "73776bffe857",
+   "split": "heldout"
+  },
+  "go-logstat": {
+   "digest": "12711361011d",
+   "split": "dev"
+  },
+  "go-shortener": {
+   "digest": "02b62ed239ae",
+   "split": "heldout"
+  },
+  "java-ratelimit": {
+   "digest": "6c3769ba4bbc",
+   "split": "dev"
+  },
+  "kotlin-rules": {
+   "digest": "508961c63c84",
+   "split": "dev"
+  },
+  "lua-template": {
+   "digest": "deef4dd85c59",
+   "split": "heldout"
+  },
+  "node-fastify-tasks": {
+   "digest": "86e788762500",
+   "split": "dev"
+  },
+  "pg-ledger": {
+   "digest": "ab6e2ef5ecfa",
+   "split": "dev"
+  },
+  "php-cart": {
+   "digest": "221b79f9a600",
+   "split": "dev"
+  },
+  "py-fastapi-bookmarks": {
+   "digest": "0abe9115b497",
+   "split": "dev"
+  },
+  "py-sheet": {
+   "digest": "af6d917944be",
+   "split": "dev"
+  },
+  "react-datatable": {
+   "digest": "53fee1694fa9",
+   "split": "dev"
+  },
+  "ruby-tablefmt": {
+   "digest": "007350b44b06",
+   "split": "heldout"
+  },
+  "rust-semver": {
+   "digest": "f814e40dfa62",
+   "split": "dev"
+  },
+  "spring-library": {
+   "digest": "aa16f170a4a7",
+   "split": "dev"
+  },
+  "sql-analytics": {
+   "digest": "a7d2a26197a3",
+   "split": "dev"
+  },
+  "swift-lru": {
+   "digest": "b68b24309011",
+   "split": "dev"
+  },
+  "terraform-subnets": {
+   "digest": "a6b3c9f37eb6",
+   "split": "heldout"
+  },
+  "ts-ledger": {
+   "digest": "b537710a26e3",
+   "split": "dev"
+  },
+  "vue-signup": {
+   "digest": "83ef694cbd00",
+   "split": "heldout"
+  },
+  "zig-duration": {
+   "digest": "d0db332cf434",
+   "split": "heldout"
+  }
+ }
+}

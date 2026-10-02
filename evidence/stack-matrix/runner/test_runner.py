@@ -55,7 +55,7 @@ def make_task(root):
 
 
 class Runner(unittest.TestCase):
-    def run_campaign(self, root, *extra, lease=None):
+    def runner(self, root, *arguments):
         core = root / "pwr-fake"
         core.write_text(FAKE_CORE)
         core.chmod(0o755)
@@ -63,16 +63,23 @@ class Runner(unittest.TestCase):
                    PWR_BIN=str(core),
                    PWR_EVIDENCE_TASKS=str(root / "tasks"),
                    PWR_EVIDENCE_RESULTS=str(root / "runs"),
-                   PWR_EVIDENCE_LEASE=str(lease or root / "engine.lock"),
+                   PWR_EVIDENCE_LEASE=str(root / "engine.lock"),
+                   PWR_EVIDENCE_SPLITS=str(root / "splits.json"),
                    PWR_MLX_MODELS=str(root / "models"),
                    PWR_EVIDENCE_MODEL="owner/model")
-        return subprocess.run([sys.executable, str(HERE / "run.py"), "run", "smoke-done", "--run", "t1", *extra],
+        # Only the stand-in task: the repository's own tasks are left out.
+        env["PWR_EVIDENCE_ONLY_EXTRA"] = "1"
+        return subprocess.run([sys.executable, str(HERE / "run.py"), *arguments],
                               env=env, capture_output=True, text=True, timeout=300)
+
+    def run_campaign(self, root, *extra):
+        return self.runner(root, "run", "smoke-done", "--run", "t1", *extra)
 
     def test_a_run_records_its_verdict_and_provenance(self):
         with tempfile.TemporaryDirectory() as folder:
             root = pathlib.Path(folder)
             make_task(root)
+            self.assertEqual(self.runner(root, "freeze").returncode, 0)
             done = self.run_campaign(root)
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
             result = json.loads((root / "runs/t1/smoke-done/result.json").read_text())
@@ -87,6 +94,36 @@ class Runner(unittest.TestCase):
         self.assertEqual(prov["engines_at_start"], [])
         self.assertEqual(set(prov["runner_digest"]), {"run.py", "acp.py", "provenance.py"})
         self.assertIsNone(prov["seed"])
+        self.assertEqual(prov["splits"]["unfrozen"], [])
+        self.assertEqual(len(prov["splits"]["manifest_digest"]), 12)
+
+    def test_a_task_changed_after_the_freeze_is_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            make_task(root)
+            self.assertEqual(self.runner(root, "freeze").returncode, 0)
+            (root / "tasks/smoke-done/brief.md").write_text("Create done.txt, and more.")
+            refused = self.run_campaign(root)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("changed since the manifest was frozen", refused.stderr)
+            self.assertFalse((root / "runs/t1/smoke-done/result.json").exists())
+            allowed = self.run_campaign(root, "--allow-unfrozen")
+            self.assertEqual(allowed.returncode, 0, allowed.stdout + allowed.stderr)
+            result = json.loads((root / "runs/t1/smoke-done/result.json").read_text())
+            self.assertEqual(result["provenance"]["splits"]["unfrozen"],
+                             ["smoke-done: changed since the manifest was frozen"])
+
+    def test_a_new_freeze_needs_a_reason_and_keeps_history(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            make_task(root)
+            self.assertEqual(self.runner(root, "freeze").returncode, 0)
+            (root / "tasks/smoke-done/brief.md").write_text("Revised brief.")
+            self.assertNotEqual(self.runner(root, "freeze").returncode, 0)
+            self.assertEqual(self.runner(root, "freeze", "--reason", "brief revised").returncode, 0)
+            manifest = json.loads((root / "splits.json").read_text())
+        self.assertEqual(manifest["history"][0]["reason_replaced"], "brief revised")
+        self.assertEqual(manifest["history"][0]["changed"], ["smoke-done"])
 
     def test_a_campaign_is_refused_while_another_holds_the_engine(self):
         sys.path.insert(0, str(HERE))
@@ -94,6 +131,7 @@ class Runner(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = pathlib.Path(folder)
             make_task(root)
+            self.assertEqual(self.runner(root, "freeze").returncode, 0)
             with provenance.Lease(root / "engine.lock", "the other campaign"):
                 done = self.run_campaign(root)
             self.assertNotEqual(done.returncode, 0)

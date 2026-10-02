@@ -28,8 +28,8 @@ follows from this status.
   audit's review section and the experiment log.
 - **D-2026-10-02-1 (owner's choice):** the stack-matrix runner is the
   product-path evaluator; the planned `EvalHost` is not built. Runner engine
-  lease and provenance IMPLEMENTED with tests; split manifest, analysis,
-  minimal-control arm and competitors next (W2.4 progress note).
+  lease, provenance and frozen split manifest IMPLEMENTED with tests;
+  analysis, minimal-control arm and competitors next (W2.4 progress note).
 - **IMPLEMENTED F2 research artifact, partial:** competitors.md now includes
   opened Lost in the Middle/RULER, pinned Qwen3.6 mode and mlx-lm renderer
   sources. PWR effects remain unknown; full survey/audit remain PLANNED.
@@ -99,8 +99,7 @@ and recorded provenance before timing; machine is not certified idle.
 
 1. Continue the remaining F1 audit, tests first for demonstrated defects;
    no default tuning. (Goal-deadline transcript: IMPLEMENTED 2026-10-02.)
-2. Runner (W2.4 by D-2026-10-02-1): frozen split manifest, paired analysis
-   with power, W8.3 minimal control as an arm, competitors (owner approves
+2. Runner (W2.4 by D-2026-10-02-1): paired analysis with power, W8.3 minimal control as an arm, competitors (owner approves
    installs); then W5.6 per-generation selection; continue the F2 survey.
 3. Arrange Docker and a serial idle/night slot for S/M/L/XL baselines.
 4. Propose exit thresholds from baseline; owner approval before F6.
