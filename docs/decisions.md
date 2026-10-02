@@ -140,6 +140,9 @@ actions, 32-minute prefills. Evidence and A/B in
 **Reversible by** a new entry with campaign evidence; the compaction ceiling in
 particular is to be tested against the window it replaces (plan W4).
 
+**Item 3 withdrawn** by [D-2026-10-02-3](#d-2026-10-02-3--a-conversation-compacts-at-three-quarters-of-its-granted-window)
+(owner, 2026-10-02): no default ceiling; a workspace may set one.
+
 ## D-2026-09-30-6 — Dispositions for converging the scripted loop
 
 **Decision.** The maintainer accepted, on 2026-09-30, the dispositions
@@ -263,6 +266,61 @@ regressions reproduced the evidence errors. See [repair review](reviews/2026-10-
 A once-per-turn failed-write completion hold and workspace anchor are implemented
 recovery interventions; their model effectiveness remains UNKNOWN pending a fresh
 manual run. Safety boundaries and declared verification remain unchanged.
+
+---
+
+## D-2026-10-02-3 — A conversation compacts at three quarters of its granted window
+
+**Decision (owner, 2026-10-02).** The default compaction trigger is 75 % of the
+window the deployment was granted, with no ceiling in tokens. The 32,768-token
+default ceiling of [D-2026-09-30-7](#d-2026-09-30-7--defaults-that-keep-a-local-model-usable)
+(item 3) is withdrawn. A workspace may still set a threshold (50–90 %) or a
+ceiling of its own (`compact_ceiling_tokens` in `.pwr/chat-config.json`).
+
+**Evidence.** The owner's Libra conversation (Nemotron 3.5 Lightning 30B,
+262,144 tokens granted, window computed by the app) compacted at 34,039 engine
+tokens — 13 % of the window — while the app displayed "compact at 75 %"; the
+next turns worked from the mechanical summary and the owner saw context lost.
+The ceiling was a hypothesis never measured (a third-party report of KV-cache
+corruption near 60k tokens on `mlx 0.32.0`, which PWR no longer pins, and one
+collapse at 27k with Qwen3-Coder-30B that two synthetic runs did not
+reproduce). `compaction_settings` regression: the saved Libra configuration
+now compacts at 196,608 tokens and failed at 32,768 before the change.
+
+**Risks kept in view.** Long prompts re-prefill in full after a model switch,
+a restart or a compaction (minutes on a dense or full-attention 30B); the
+two-collapsed-replies clean start remains the guard against degradation;
+whether a 4-bit model stays coherent near 196k tokens is **unmeasured**.
+
+**Reversible by** the owner, or a workspace ceiling where a model degrades.
+
+---
+
+## D-2026-10-02-4 — A project generated into a new folder of an empty workspace moves into its root
+
+**Decision (owner's requirement, 2026-10-02: "se io apro la folder Libra lì
+dentro deve creare il progetto").** In PWR's conversation harness (not the
+W8.3 minimal control), after a command that succeeded, when the workspace held
+no project before it (no manifest at the root or in a folder directly under
+it), the command created exactly one new folder, that folder holds a manifest,
+none of its names exists at the root, and the person's request does not name
+the folder, PWR moves the folder's contents into the root, removes it, records
+`workspace.moved_to_root` and tells the model. Later paths written under the
+moved folder, relative or absolute, are read as the root's for the rest of the
+conversation (persisted in the checkpoint).
+
+**Evidence.** Prompt-only guidance (2026-10-01) did not hold: in Libra the
+model ran `npm exec npm create next-app@latest libro-ecommerce` and wrote every
+file under `libro-ecommerce/`. Pointing a generator at `.` is not a reliable
+alternative in a PWR workspace: create-next-app refuses a folder holding
+`.pwr/` and a folder whose name is not a valid npm name (`Libra`). Regressions:
+`scaffold` unit tests and the two-loops Libra replay (project in the root,
+absolute and `cwd` paths redirected, audit event; the minimal control unchanged).
+
+**Not covered.** A subfolder built by hand (`make_directory` then writes), a
+generator writing beside existing files with the same names (nothing is moved),
+and rewinding the move. Model-side effect on real runs is **UNKNOWN** until the
+owner repeats the manual task.
 
 ---
 

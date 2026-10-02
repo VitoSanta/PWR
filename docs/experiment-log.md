@@ -739,3 +739,33 @@ anchor/recovery instructions. The golden refused-edit turn changes only its
 delivery flag to false. No verifier, sandbox boundary, sampling or investigation
 threshold is relaxed. Real-model recovery effectiveness is **UNKNOWN**; repeat
 the manual test before the battery. No inference/campaign was run by this agent.
+
+## 2026-10-02 — Compaction at 75 % of the granted window, no default ceiling (measurement-changing)
+
+**MEASURED** from the owner's Libra journal (read from a copy): Nemotron 3.5
+Lightning 30B, window 262,144 computed by the app, no threshold chosen. The
+conversation compacted twice, at 34,039 and 31,557 engine tokens (estimates
+24,779 and 24,451), 13 % of the window, while the app showed "compact at 75 %";
+the following turns answered from the summary (the owner's routing complaint was
+restated as "the user reported..." and not fixed). Cause: the 32,768-token
+default ceiling (D-2026-09-30-7, item 3) applied whenever the person had chosen
+neither a window nor a threshold, and a computed window is not a choice.
+**IMPLEMENTED** (owner's decision D-2026-10-02-3): no default ceiling; 75 % of
+the granted window, a workspace ceiling `compact_ceiling_tokens` by hand. The
+Libra configuration regression returns 196,608 and returned 32,768 before.
+Coherence near that size and prefill cost after a switch are **UNKNOWN**.
+
+## 2026-10-02 — A generated project moves into an empty workspace's root (measurement-changing)
+
+**MEASURED** in the same journal: with the 2026-10-01 prompt rule, the model ran
+`npm exec npm create next-app@latest libro-ecommerce` (after `npx create
+next-app@latest ...`, which ran the unrelated package `create`) and wrote every
+later file under `/Users/.../Libra/libro-ecommerce/`. A generator pointed at `.`
+is no reliable alternative: create-next-app refuses `.pwr/` and the npm-invalid
+name `Libra`. **IMPLEMENTED** (D-2026-10-02-4, `scaffold.rs`): in the full
+harness, after a successful command in a workspace with no project, the one new
+folder holding a manifest is moved into the root unless the request names it or
+a name collides; later paths under it (relative, absolute, `cwd`) are read as
+the root's and the model is told. Unit tests and a two-loops replay of the Libra
+sequence; the minimal control is unchanged. Real-model effect **UNKNOWN** until
+the owner repeats the task.

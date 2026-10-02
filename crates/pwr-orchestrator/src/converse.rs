@@ -28,23 +28,22 @@ use std::collections::BTreeMap;
 /// that is too long; compacting before it lets the turn carry on.
 ///
 /// The default; a workspace may set its own within [`COMPACT_AT_BOUNDS`].
-pub const COMPACT_AT: f64 = 0.75;
-
-/// The most a conversation grows before it compacts, in tokens, when the person
-/// chose neither a window nor a threshold. HYPOTHESIS, a stability and
-/// usability decision rather than a quality measurement.
 ///
-/// Why 32,768 (it was 65,536 until 2026-10-01): a model with a 262k window on a
-/// 64 GB Mac has a window far above any size at which a 4-bit model was seen
-/// to stay coherent; every compaction (like a model switch) re-reads the whole
-/// prompt (32 minutes for a 30B at that size); and the engine PWR pins (MLX
-/// 0.32.0, mlx-lm 0.31.3) has a reported silent KV-cache corruption on
-/// natural-language prompts of about 60k tokens and more -- the model emits
-/// token id 0, "!", over and over (jundot/omlx#3777, same versions). PWR saw
-/// the same collapse at 27k tokens of failing-and-retrying history
-/// (Qwen3-Coder-30B, 2026-10-01). Set `context_tokens` or the compaction
-/// percentage to opt out.
-pub const DEFAULT_COMPACTION_CEILING_TOKENS: usize = 32_768;
+/// There is no default ceiling in tokens under it: a conversation compacts at
+/// its share of the window the deployment was granted, which the window
+/// decision already bounds by what this host's memory holds.
+///
+/// A ceiling of 32,768 tokens (65,536 until 2026-10-01) applied whenever the
+/// person had chosen neither a window nor a threshold, as a hypothesis against
+/// long-context collapse on the pinned engine. It was never measured, and on
+/// 2026-10-02 it compacted the owner's Libra conversation (Nemotron 3.5
+/// Lightning 30B, 262,144 tokens granted) at 34,039 tokens -- 13 % of the
+/// window, while the app showed "compact at 75 %" -- and the turns after it
+/// worked from a summary. The owner set the default to three quarters of the
+/// window (D-2026-10-02-3). A workspace can still set its own ceiling
+/// (`compact_ceiling_tokens`), and two collapsed replies on a long prompt
+/// still compact early (see `compaction`).
+pub const COMPACT_AT: f64 = 0.75;
 
 /// The thresholds, in percent of the window, a person may choose. Below half,
 /// a conversation compacts so often it forgets what it just read; above nine
@@ -591,8 +590,8 @@ pub struct Continuity {
     /// percent, when the workspace chose one; [`COMPACT_AT`] otherwise.
     pub compact_at_percent: Option<u8>,
     /// An absolute ceiling on the tokens a conversation holds before it
-    /// compacts, applied under the percentage of the window. `None`: only the
-    /// percentage bounds it (the person chose a window or a threshold).
+    /// compacts, applied under the percentage of the window, when the
+    /// workspace set one. `None`, the default: only the percentage bounds it.
     pub compact_ceiling_tokens: Option<usize>,
     /// Files this conversation wrote, by workspace path, with the hash each
     /// had when it last wrote it. See [`own_overwrite`].
@@ -946,11 +945,12 @@ pub fn chat_system_prompt(root: &std::path::Path) -> String {
          ends your turn and its rationale is what the engineer reads.\n\
          \n\
          The repository is the project. A new project or app goes directly in the repository \
-         root, not in a new subfolder: point the generator at `.` (for example `--directory .` \
-         or `-o .`; read the tool's options) or write the files yourself, unless the engineer \
-         asked for a subfolder or the root already holds a different project. If a generator \
-         refuses a folder that is not empty, say so and use a subfolder rather than clearing \
-         the engineer's files.\n\
+         root, not in a new subfolder, unless the engineer asked for a subfolder or the root \
+         already holds a different project. Point the generator at `.` when it accepts that, or \
+         write the files yourself. A generator that insists on creating its own folder may: \
+         while the repository holds no project yet, PWR moves what it created into the root \
+         and tells you, and from then on every path starts at the root. Never clear the \
+         engineer's files to make room.\n\
          \n\
          {}",
         // Tool paths remain relative; the separate JSON-quoted anchor explains
@@ -2324,7 +2324,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 // dropped half-written.
                 return stopped(actions, edited, StopReason::Interrupted);
             }
-            let action = match decode(call, &catalog) {
+            let mut action = match decode(call, &catalog) {
                 Ok(action) => {
                     malformed_calls = 0;
                     if retrying > 0 {
@@ -2372,6 +2372,18 @@ async fn take_turn_inner<P: ModelProvider>(
                     ));
                     continue;
                 }
+            };
+            // A path still written under a folder whose project PWR moved
+            // into the root is read as the root's (see `scaffold`).
+            let moved_paths = if full {
+                let moved = continuity
+                    .checkpoint
+                    .lock()
+                    .map(|checkpoint| checkpoint.moved_to_root.clone())
+                    .unwrap_or_default();
+                crate::scaffold::redirect_action(&mut action, &policy.root, &moved)
+            } else {
+                Vec::new()
             };
             // A completion sent in the same reply as the calls before it
             // waits for their results to be read. Measured 2026-09-30
@@ -2765,6 +2777,12 @@ async fn take_turn_inner<P: ModelProvider>(
             edited |= interruptible && would_mutate;
             // Kept to run again if the network or the engine is what it lacked.
             let command = interruptible.then(|| action.clone());
+            // A workspace with no project yet, as it was before the command:
+            // a project generated into a new folder of it is moved into the
+            // root afterwards (see `scaffold`).
+            let before_command = (full && interruptible)
+                .then(|| crate::scaffold::entries_without_project(&policy.root))
+                .flatten();
             let performing = crate::session::perform(
                 store,
                 conversation_id,
@@ -2820,6 +2838,76 @@ async fn take_turn_inner<P: ModelProvider>(
             }
             match outcome {
                 Ok(mut value) => {
+                    if let Some(before) = &before_command
+                        && !crate::repetition::failed(&value)
+                    {
+                        let request = continuity
+                            .checkpoint
+                            .lock()
+                            .map(|checkpoint| checkpoint.objectives.clone())
+                            .unwrap_or_default();
+                        let said =
+                            match crate::scaffold::move_to_root(&policy.root, before, &request) {
+                                Ok(Some(moved)) => {
+                                    store
+                                        .append(
+                                            Some(conversation_id),
+                                            "workspace.moved_to_root",
+                                            serde_json::json!({
+                                                "folder": moved.folder,
+                                                "entries": moved.entries,
+                                            }),
+                                        )
+                                        .map_err(|error| error.to_string())?;
+                                    if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
+                                        checkpoint.moved_to_root.push(moved.folder.clone());
+                                        crate::scaffold::rekey(
+                                            &mut checkpoint.changed_files,
+                                            &moved.folder,
+                                        );
+                                        crate::conversation::record_checkpoint(
+                                            store,
+                                            conversation_id,
+                                            &checkpoint,
+                                        )?;
+                                    }
+                                    for files in [&continuity.written, &continuity.known] {
+                                        if let Ok(mut files) = files.lock() {
+                                            crate::scaffold::rekey(&mut files, &moved.folder);
+                                        }
+                                    }
+                                    on_step(TurnStep::Note(format!(
+                                        "The project generated in {}/ was moved into the workspace \
+                                     root",
+                                        moved.folder
+                                    )));
+                                    Some(("moved_to_root", moved.notice()))
+                                }
+                                Ok(None) => None,
+                                Err(why) => Some(("not_moved", why)),
+                            };
+                        if let Some((key, text)) = said
+                            && let Some(object) = value.as_object_mut()
+                        {
+                            object.insert(key.into(), serde_json::Value::String(text));
+                        }
+                    }
+                    if !moved_paths.is_empty()
+                        && let Some(object) = value.as_object_mut()
+                    {
+                        let said: Vec<String> = moved_paths
+                            .iter()
+                            .map(|(written, read)| format!("`{written}` was read as `{read}`"))
+                            .collect();
+                        object.insert(
+                            "path_moved".into(),
+                            serde_json::Value::String(format!(
+                                "{}: the project was moved into the workspace root, so write \
+                                 paths from the root.",
+                                said.join("; ")
+                            )),
+                        );
+                    }
                     successful_file_change |= edits_a_file
                         && !crate::repetition::failed(&value)
                         && value.get("denied").is_none();
@@ -4477,6 +4565,10 @@ mod tests {
         assert!(prompt.contains("not in a new subfolder"), "{prompt}");
         assert!(
             prompt.contains("unless the engineer asked for a subfolder"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("PWR moves what it created into the root"),
             "{prompt}"
         );
     }

@@ -12,6 +12,11 @@ follows from this status.
   exact MLX prefill-window checks and monotonic IDs across clock rollback; [audit](../reviews/2026-10-02-core-audit.md).
   Owner Libra manual test failed delivery; [delivery repair](../reviews/2026-10-02-libra-delivery.md)
   IMPLEMENTED. Repeat manual test before battery; model effectiveness UNKNOWN.
+- **IMPLEMENTED after the second Libra run (owner's decisions):** compaction at
+  75 % of the granted window with no default ceiling (D-2026-10-02-3; it had
+  compacted at 34k of 262k), and a project generated into a new folder of an
+  empty workspace moved into its root, with later paths redirected
+  (D-2026-10-02-4). Model effect UNKNOWN until the owner repeats the task.
 
 - **F0 adopted**, owner approved ("ok procedi"), commit `b9db2eab`.
   MASTER_SPEC and D-2026-10-01-2 are operative; prior contract archived whole.

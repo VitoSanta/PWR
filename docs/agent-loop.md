@@ -19,10 +19,10 @@ Each step of the loop:
    and the full objective text (W4.1 implemented).
 2. **Room.** If the prompt estimate reaches the compaction threshold, the
    history is compacted (see [context.md](context.md#compaction)). The
-   threshold is 75 % of the window (50–90 % per workspace) **under a ceiling of
-   32,768 tokens** unless the person set a window (`context_tokens`) or a
-   threshold (`compact_at_percent`) — a hypothesis, see
-   [D-2026-09-30-7](decisions.md). At most two compactions per turn; a third
+   threshold is 75 % of the granted window (50–90 % per workspace,
+   `compact_at_percent`), with no ceiling in tokens unless the workspace sets
+   `compact_ceiling_tokens` ([D-2026-10-02-3](decisions.md); the 32,768-token
+   default ceiling was withdrawn). At most two compactions per turn; a third
    need stops the turn as *CompactionBudget*, a harness budget rather than a
    claim of model looping. The physical answer envelope also triggers compaction
    when estimates leave no answer room. If nothing can be folded, physical fit
