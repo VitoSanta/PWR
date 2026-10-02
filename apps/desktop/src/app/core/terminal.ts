@@ -49,8 +49,15 @@ export class TerminalService implements OnDestroy {
     effect(() => {
       theme.theme();
       theme.palette();
+      theme.accent();
+      theme.codeFont();
       requestAnimationFrame(() => {
-        for (const session of this.sessions()) if (session.term) session.term.options.theme = palette();
+        for (const session of this.sessions()) {
+          if (!session.term) continue;
+          session.term.options.theme = palette();
+          session.term.options.fontFamily = token('--mono', 'ui-monospace, Menlo, monospace');
+          session.fit?.fit();
+        }
       });
     });
   }

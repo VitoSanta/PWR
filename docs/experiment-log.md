@@ -794,3 +794,27 @@ the model, no tool without a declaring client (two-loops); the round trip
 through `pwr serve` with and without the capability; the desktop's answer and
 its bounds. No model has used it yet: **UNKNOWN** whether models call it when
 told about an error.
+
+## 2026-10-02 — Browser checks for text and vision models
+
+Continued the owner's authorized PWR browser integration: `check_page` reads
+rendered DOM text and console for text models; `look_at` returns the same with
+a screenshot for vision models. Corrected the decoder rejecting `look_at`
+although it had been offered. Tests exercise actual Chrome, generated DOM text,
+console exceptions, redaction, and image delivery only to vision models.
+A separate local HTTP status probe does not follow redirects. The user's
+embedded preview state and interactions are not inspected. Model behavior
+on the owner's task remains unmeasured.
+
+### 2026-10-02: recover the desktop layout and command timeout hint
+
+The owner's Libra journal showed a patch to page.tsx using globals.css's hash;
+its refusal is correct and the file guard remains in place. A separate valid
+run_command was rejected for the extra timeout field. The decoder now drops
+that hint and retains host execution limits, with a regression test; other
+unknown fields remain errors. The unusable-reply stop message is shorter, not
+a promise that model repetition is fixed. Restored the pre-redesign Focus
+layout with current palettes and system fonts. Added diagnostic composer
+requests to Terminal and Preview, preserving existing drafts. Browser UI check
+confirmed URL insertion, retained draft and focus return. No real-model
+recovery claim is made.

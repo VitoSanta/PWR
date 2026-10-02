@@ -27,9 +27,8 @@ import { Tooltip } from './kit/tooltip';
         animate.leave="is-leaving"
       >
         <header class="dialog-header mm-head">
-          <span class="dialog-icon tone-accent"><pa-icon name="box" [size]="18" /></span>
           <div class="dialog-header-text">
-            <h2 class="dialog-title" id="mm-title">Model Manager</h2>
+            <h2 class="dialog-title" id="mm-title">Models</h2>
             <p class="dialog-description" id="mm-description">Open-weight models from Hugging Face, rated for this machine.</p>
           </div>
           <button class="icon-btn" (click)="models.close()" aria-label="Close Model Manager" paTooltip="Close">

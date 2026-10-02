@@ -26,8 +26,11 @@ itself — a revert asks the core.
 
 ## What a person sees
 
-- **Focus**, the only layout: the conversation in the centre, a floating tool
-  bar, and a grid of workbench cards beside it.
+- **Focus workspace**: restored to the layout before the editorial redesign.
+  The conversation fills the window; the top bar opens conversations, model
+  controls and tools. Tools can sit beside the conversation or fill a narrow
+  window. Existing colour palettes are retained; text uses the system sans
+  and code uses the system monospace font.
 - **Conversation**: streamed answers and reasoning; while the engine reads a long prompt the working line says *Reading the conversation · 37 % (12,288 of 33,000 tokens)* (from `_pwr/model_progress`, 2026-10-01); one assistant turn with
   its actions grouped by phase; three trace views — *Compact* (what PWR is
   doing, by phase, and the result), *Detailed* (reasoning, each call, files,
@@ -36,27 +39,33 @@ itself — a revert asks the core.
   labelled as such (the live trace is not saved).
 - **Composer**: attachments (files, folders as read-only references, images
   for models that see), a queue for messages written during a turn, *Send
-  now* to steer the running turn, Stop.
+  now* to steer the running turn, Stop. Goal mode, permissions, the model
+  picker and context usage sit beside the message field.
 - **Run controls**: Goal mode on/off; the permission mode — Protected,
   Standard, Full access (shown in warning colours) — see
   [tools-and-sandbox.md](tools-and-sandbox.md#permission-modes).
 - **Permission questions**: allow once, for the session, or reject, with the
   exact command.
-- **Workbench cards**: *Review* (per-file diffs, Revert one or all), *Terminal*
-  (several shells as tabs; the model can read their recent output with
-  `read_terminal` once you allow it, never type in them), *Web preview* (the app this machine serves on
-  localhost), *Files*, *Knowledge* (the project graph in 3D, with what was
-  done), *Plan & checks* (Verify, Report, Diagnose), *Activity* (background
-  work and the core log).
-- **Top bar**: the model chip (switch model, working window, Model Manager);
-  the context indicator (`Context 42% · 54k / 128k`) and its panel
-  (composition, threshold, last compaction, *Compact now*); runtime metrics;
-  reasoning effort.
+- **Workbench cards**: Review, Terminal, Web preview, Files, Knowledge,
+  Plan & checks, and Activity. Cards can be resized, moved and maximised.
+  **Analyze terminal** and **Analyze page** append a diagnostic request to the
+  composer without replacing its draft. Send the request to ask the model to
+  use `read_terminal` (with permission), `check_page` (rendered text and console)
+  or `look_at` (also a screenshot, for vision models). The browser check loads
+  the URL separately from the embedded preview; it does not share its login
+  state. On narrow windows these buttons return focus to the conversation.
+- **Conversation controls**: Compact, Detailed and Raw Trace plus runtime
+  metrics in the title row. Finished compact turns fold their work under
+  an action summary; file-change notes open the Changes tab.
+- **Model and context panels**: model switching, working window and reasoning
+  effort; context composition, threshold, last compaction and *Compact now*.
 - **Sampling** (in the Model Manager): each value shows where it comes from — your profile, the model card, `generation_config.json`, a PWR profile, or *PWR default (nothing declared)* — and a bare 0 reads *greedy* or *off*.
 - **Model Manager** ([models.md](models.md#the-model-manager)).
 - **Chat without a workspace**: talk to a model with only the attached files;
   nothing can be edited or run.
-- **Settings**: profile, memories, known projects, permissions.
+- **Settings**: Profile, Memory, Projects, Workspace, Appearance and Shortcuts.
+  Appearance remembers the accent, serif headings, chat size and code font;
+  alternate colour palettes remain available for each scheme.
 - **First run**: the engine installer (about 1.2 GB), then workspace trust.
 
 ## What the review asks of it
@@ -82,7 +91,7 @@ diagnostics and the graph are secondary (review §13).
 
 ## Tests
 
-107 unit tests in 13 spec files (2026-10-01; the review counted 94 in 12), run with
+107 unit tests in 14 spec files (2026-10-02), run with
 `npm test -- --watch=false` in `apps/desktop`, and the production build, both
 in CI (`desktop` job). No end-to-end test covers first launch, engine install,
 workspace change or shutdown (plan W7.6). Manual walks are recorded in

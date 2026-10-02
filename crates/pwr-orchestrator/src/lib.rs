@@ -1386,9 +1386,10 @@ async fn attempt_action(
         | ActionProposal::RecallProject { .. }
         | ActionProposal::WikiQuery { .. }
         | ActionProposal::LookAt { .. }
+        | ActionProposal::CheckPage { .. }
         | ActionProposal::ReadTerminal { .. } => Err(ActionExecutionError::Invalid(
-            "remember, recall_project, wiki_query, look_at and read_terminal are available only \
-             in a conversation"
+            "remember, recall_project, wiki_query, look_at, check_page and read_terminal are \
+             available only in a conversation"
                 .into(),
         )),
         // Reaching here means a person approved it: the approval gate runs
@@ -2316,6 +2317,7 @@ fn action_fingerprint(action: &ActionProposal) -> String {
     match action {
         ActionProposal::Remember { text, .. } => format!("remember:{text}"),
         ActionProposal::LookAt { target, .. } => format!("look_at:{target}"),
+        ActionProposal::CheckPage { target } => format!("check_page:{target}"),
         ActionProposal::ReadTerminal { lines } => {
             format!("read_terminal:{}", lines.unwrap_or_default())
         }
@@ -5388,6 +5390,14 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
     // do, and the hash guard, the policy and the sandbox judge the result
     // exactly as they judge a call written right.
     let name = repair_form(&call.name, &mut arguments);
+    // Some deployments supply their command tool's timeout. Execution limits
+    // belong to the host; dropping this hint preserves the requested command
+    // without granting a longer run or changing sandbox policy.
+    if name == "run_command"
+        && let Some(object) = arguments.as_object_mut()
+    {
+        object.remove("timeout");
+    }
     if name == "run_command"
         && let Some(object) = arguments.as_object()
         && let Some(unknown) = object.keys().find(|key| {
@@ -8922,6 +8932,23 @@ mod tests {
             ActionProposal::RunCommand { executable, args, .. }
                 if executable == "cargo" && args == ["test", "--nocapture"]
         ));
+    }
+
+    #[test]
+    fn command_timeout_hint_does_not_discard_the_command() {
+        let call = pwr_domain::ToolCall {
+            name: "run_command".into(),
+            arguments: serde_json::json!({"executable": "npm", "args": ["run", "build"], "timeout": 120000}),
+            id: None,
+        };
+        assert!(matches!(action_from_tool_call(&call).unwrap(),
+            ActionProposal::RunCommand { executable, args, .. }
+                if executable == "npm" && args == ["run", "build"]));
+        let invalid = pwr_domain::ToolCall {
+            arguments: serde_json::json!({"executable": "npm", "args": ["run", "build"], "unexpected": true}),
+            ..call
+        };
+        assert!(action_from_tool_call(&invalid).is_err());
     }
 
     #[test]

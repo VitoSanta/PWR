@@ -106,6 +106,12 @@ pub enum ActionProposal {
         #[serde(default)]
         height: Option<u32>,
     },
+    /// What a page on this machine shows as text and what it logged: its
+    /// HTTP status, title, visible text and console messages -- `look_at`
+    /// without the image, for a model that does not read images.
+    CheckPage {
+        target: String,
+    },
     /// The recent output of the person's own terminal tabs in the app,
     /// read-only: what their dev server, build or tests printed. Answered by
     /// the client, after the person allows it (`TerminalRead`).
@@ -405,6 +411,9 @@ impl ActionProposal {
             }
             Self::LookAt { target, .. } if target.trim().is_empty() => Err(ToolError::Denied(
                 "look_at needs a target: a local server's URL or an HTML file's path".into(),
+            )),
+            Self::CheckPage { target } if target.trim().is_empty() => Err(ToolError::Denied(
+                "check_page needs a target: a local server's URL or an HTML file's path".into(),
             )),
             Self::FetchUrl { url, .. } if url.is_empty() => {
                 Err(ToolError::Denied("url is required".into()))
@@ -4229,6 +4238,112 @@ pub struct LookResult {
     /// The image, under `.pwr/images/`, named by its SHA-256.
     pub image: PathBuf,
     pub bytes: u64,
+    /// The HTTP status of the page itself, for a local server's URL: a 500
+    /// is said even when the page drawn reads like content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The page's visible text once its scripts ran, bounded.
+    #[serde(default)]
+    pub text: String,
+    /// What the page logged to its console, uncaught errors included, in
+    /// order and bounded.
+    #[serde(default)]
+    pub console: Vec<String>,
+}
+
+/// The most visible text and console messages a page check returns.
+const PAGE_TEXT_CHARS: usize = 4_000;
+const PAGE_CONSOLE_MESSAGES: usize = 30;
+const PAGE_CONSOLE_CHARS: usize = 600;
+
+/// A page's console messages, from the browser's log (`--enable-logging`):
+/// `[...:INFO:CONSOLE:3] "message", source: http://... (12)`. Chrome logs
+/// every level the same way, uncaught exceptions and failed resource loads
+/// included.
+fn console_messages(log: &str) -> Vec<String> {
+    log.lines()
+        .filter(|line| line.contains(":CONSOLE"))
+        .filter_map(|line| {
+            let start = line.find("] \"")? + 3;
+            let rest = &line[start..];
+            let (message, source) = match rest.rfind("\", source: ") {
+                Some(at) => (&rest[..at], rest[at + 11..].trim()),
+                None => (rest.trim_end_matches('"'), ""),
+            };
+            let mut said: String = message.chars().take(PAGE_CONSOLE_CHARS).collect();
+            if !source.is_empty() {
+                said.push_str(&format!(" ({source})"));
+            }
+            Some(said)
+        })
+        .take(PAGE_CONSOLE_MESSAGES)
+        .collect()
+}
+
+/// The text a person would read on a page, from its DOM after the scripts
+/// ran: no scripts, styles or markup, entities decoded, blank runs folded.
+/// And its title.
+fn visible_text(dom: &str) -> (Option<String>, String) {
+    // ASCII only, so every index into it is one into `dom`.
+    let lower = dom.to_ascii_lowercase();
+    let title = lower.find("<title").and_then(|open| {
+        let start = open + lower[open..].find('>')? + 1;
+        let end = start + lower[start..].find("</title")?;
+        let title = decode_entities(dom[start..end].trim());
+        (!title.is_empty()).then_some(title)
+    });
+    let mut text = String::new();
+    let mut at = 0;
+    while at < dom.len() {
+        let Some(open) = lower[at..].find('<').map(|found| at + found) else {
+            text.push_str(&dom[at..]);
+            break;
+        };
+        text.push_str(&dom[at..open]);
+        let skipped = ["script", "style", "noscript", "template", "head"]
+            .iter()
+            .find(|tag| {
+                lower[open + 1..].starts_with(*tag)
+                    && lower[open + 1 + tag.len()..]
+                        .starts_with(|c: char| c == '>' || c.is_whitespace())
+            });
+        at = match skipped {
+            Some(tag) => match lower[open..].find(&format!("</{tag}")) {
+                Some(close) => {
+                    let close = open + close;
+                    close
+                        + lower[close..]
+                            .find('>')
+                            .map_or(lower.len() - close, |end| end + 1)
+                }
+                None => dom.len(),
+            },
+            None => match lower[open..].find('>') {
+                Some(end) => open + end + 1,
+                None => dom.len(),
+            },
+        };
+        text.push('\n');
+    }
+    let text = decode_entities(&text);
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect();
+    (title, lines.join("\n"))
+}
+
+fn decode_entities(text: &str) -> String {
+    text.replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'")
+        .replace("&amp;", "&")
 }
 
 /// The browser `look_at` drives: `PWR_BROWSER`, else Chrome, Chromium or Edge
@@ -4372,6 +4487,11 @@ pub async fn look_at(
         format!("--window-size={width},{height}"),
         "--virtual-time-budget=3000".into(),
         format!("--screenshot={}", shot.display()),
+        // What the page logs, and its DOM once its scripts ran, from the
+        // same load as the image.
+        "--enable-logging=stderr".into(),
+        "--v=0".into(),
+        "--dump-dom".into(),
         url.clone(),
     ];
     let browser_path = browser.to_string_lossy().into_owned();
@@ -4392,9 +4512,11 @@ pub async fn look_at(
     // Chromium on macOS takes its temporary directory from here, not TMPDIR.
     command.env("MAC_CHROMIUM_TMPDIR", &temporary);
     let browser_log = std::fs::File::create(scratch.join("browser-stderr.log"))?;
+    let dom_file = scratch.join("dom.html");
+    let dom = std::fs::File::create(&dom_file)?;
     command
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
+        .stdout(dom)
         .stderr(browser_log)
         .kill_on_drop(true);
     #[cfg(unix)]
@@ -4421,6 +4543,18 @@ pub async fn look_at(
             break false;
         }
     };
+    // The DOM is printed with the image; give it a moment to be whole.
+    if taken {
+        let mut last_size = None;
+        for _ in 0..8 {
+            let size = std::fs::metadata(&dom_file).map(|meta| meta.len()).ok();
+            if size.is_some_and(|size| size > 0) && size == last_size {
+                break;
+            }
+            last_size = size;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
     group.terminate();
     let _ = child.kill().await;
     let _ = child.wait().await;
@@ -4435,7 +4569,23 @@ pub async fn look_at(
              a local server, is it running (start_service) and on that port? {diagnostic}"
         )));
     }
+    let log = std::fs::read_to_string(scratch.join("browser-stderr.log")).unwrap_or_default();
     let _ = std::fs::remove_file(scratch.join("browser-stderr.log"));
+    let console: Vec<String> = console_messages(&log)
+        .into_iter()
+        .map(|message| policy.redact(&message).0)
+        .collect();
+    let dom = std::fs::read_to_string(&dom_file).unwrap_or_default();
+    let _ = std::fs::remove_file(&dom_file);
+    let (title, text) = visible_text(&dom);
+    let text = policy.redact(&text).0;
+    let text = if text.chars().count() > PAGE_TEXT_CHARS {
+        let kept: String = text.chars().take(PAGE_TEXT_CHARS).collect();
+        format!("{kept}\n[... the page's text goes on]")
+    } else {
+        text
+    };
+    let status = page_status(&url).await;
     let bytes = std::fs::read(&shot)?;
     let _ = std::fs::remove_file(&shot);
     use sha2::Digest as _;
@@ -4450,7 +4600,32 @@ pub async fn look_at(
         height,
         image,
         bytes: bytes.len() as u64,
+        status,
+        title: title.map(|title| policy.redact(&title).0),
+        text,
+        console,
     })
+}
+
+/// The HTTP status a local server answers a page with, or `None` for a file
+/// or a server that does not answer within ten seconds.
+async fn page_status(url: &str) -> Option<u16> {
+    if !url.starts_with("http") {
+        return None;
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        // The separate status probe must never follow a local redirect off-host.
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .build()
+        .ok()?;
+    client
+        .get(url)
+        .send()
+        .await
+        .ok()
+        .map(|response| response.status().as_u16())
 }
 
 /// Fetches one URL as text.
@@ -7574,6 +7749,33 @@ mod tests {
         };
         assert!(p.resolve(Path::new("../secret")).is_err());
     }
+    #[test]
+    fn a_page_check_reads_the_console_from_the_browser_log() {
+        let log = "[1:2:1002/151700.411471:INFO:CONSOLE:3] \"a log line\", source: http://localhost:3000/ (3)\n\
+                   [1:2:1002/151700.4:WARNING:other.cc(12)] unrelated\n\
+                   [1:2:1002/151700.411604:INFO:CONSOLE(7)] \"Uncaught ReferenceError: x is not defined\", source: http://localhost:3000/_next/app.js (7)\n\
+                   [1:2:1002/151700.5:INFO:CONSOLE:0] \"Failed to load resource: the server responded with a status of 500 (Internal Server Error)\", source: http://localhost:3000/ (0)";
+        assert_eq!(
+            console_messages(log),
+            vec![
+                "a log line (http://localhost:3000/ (3))",
+                "Uncaught ReferenceError: x is not defined (http://localhost:3000/_next/app.js (7))",
+                "Failed to load resource: the server responded with a status of 500 (Internal Server Error) (http://localhost:3000/ (0))",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_page_check_reads_the_text_a_person_would() {
+        let dom = "<!DOCTYPE html><html><head><title>Build Error &amp; more</title>\
+                   <style>h1{color:red}</style></head><body><header>Shop</header>\
+                   <h1>500</h1><p>Internal   Server\nError.</p>\
+                   <script>console.log('hidden')</script><p>Caf\u{e9} &lt;ok&gt;</p></body></html>";
+        let (title, text) = visible_text(dom);
+        assert_eq!(title.as_deref(), Some("Build Error & more"));
+        assert_eq!(text, "Shop\n500\nInternal Server\nError.\nCaf\u{e9} <ok>");
+    }
+
     #[test]
     fn redacts() {
         let p = ToolPolicy {

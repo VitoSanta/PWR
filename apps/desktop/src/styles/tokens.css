@@ -26,12 +26,12 @@
      controls · cards and popovers · panels · modals · pills (badges,
      status, chips only -- never ordinary buttons). */
   --radius-xs: 4px;
-  --radius-inline: 5px;
+  --radius-inline: 6px;
   --radius-control: 10px;
-  --radius-control-inner: 8px;
+  --radius-control-inner: 7px;
   --radius-card: 14px;
   --radius-panel: 16px;
-  --radius-modal: 16px;
+  --radius-modal: 18px;
   --radius-composer: 18px;
   --radius-pill: 999px;
   --radius-brand: 28%;
@@ -46,29 +46,29 @@
 
   --titlebar-h: 52px;
   /* The conversation's measure, and the composer's a little narrower. */
-  --content-max: 700px;
+  --content-max: 820px;
   --composer-max: 620px;
   /* The conversation column's side inset; the composer shares it. A shell
      with a narrow column sets a smaller one on its container. */
-  --column-inset: var(--space-10);
+  --column-inset: var(--space-8);
 
   /* -------------------------------------------------------- typography */
   /* Headings in a serif, text in a sans, code in a mono. Bundled
      (styles.css), so the app looks the same offline. */
-  --serif: 'Newsreader Variable', 'New York', 'Iowan Old Style', Georgia, serif;
-  --font: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
-  --mono: 'Geist Mono Variable', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  --serif: var(--font);
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'SF Mono', ui-monospace, 'JetBrains Mono', 'Cascadia Code', Menlo, Consolas, monospace;
   /* Headings: the serif, or the sans when Appearance turns the serif off. */
   --heading: var(--serif);
 
-  --fs-display: 34px;
-  --fs-title: 22px;
+  --fs-display: 28px;
+  --fs-title: 18px;
   --fs-heading: 15px;
   --fs-body: 14px;
   --fs-body-sm: 13px;
   --fs-label: 12px;
   --fs-caption: 11px;
-  --fs-code: 13px;
+  --fs-code: 12.5px;
   /* What the person and PWR write in the conversation (Appearance). */
   --fs-chat: 16px;
 
@@ -347,4 +347,8 @@
 /* Headings in the sans, when the serif is turned off. */
 :root[data-headings='sans'] {
   --heading: var(--font);
+}
+
+:root[data-code-font='system'] {
+  --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
 }

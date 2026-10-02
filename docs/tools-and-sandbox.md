@@ -47,7 +47,8 @@ The scripted loop offers all of it; a conversation removes two and adds four
 | `remember` | Propose a memory; the person saves it | ✓ | — |
 | `recall_project` | Another project's wiki overview and log | ✓ | — |
 | `wiki_query` | Ask the project graph | ✓ | — |
-| `look_at` | Screenshot a local page or workspace HTML file (**experimental**, vision models only) | ✓ | — |
+| `look_at` | Screenshot, rendered DOM text and browser console of a local page (**experimental**, vision models only) | ✓ | — |
+| `check_page` | Rendered DOM text and browser console of a local page, without an image (text models) | ✓ | — |
 | `read_terminal` | The last lines (200 by default, at most 1,000) of the person's own terminal tabs in the app, read-only and redacted; asked about once per conversation (`terminal_read`, granted by no mode, Full access included); offered only when the client declares it can answer (`_meta.pwr.readTerminal` in `initialize`) | ✓ (desktop) | — |
 
 Chat without a workspace offers only `read_file`, `list_tree`, `remember`,
@@ -201,3 +202,18 @@ and is recorded `sandboxed: false`.
 | Output past the per-result bound is not kept | W4.4 | open |
 | A command can still run arbitrary code inside the sandbox (interpreters, build scripts); the network grant is not per destination; `localhost` is every local address | W1.9 (disclosed) | by design of Seatbelt |
 | macOS only | D-2026-09-30-4 | later |
+
+### Browser diagnostics
+
+Both tools open the target in PWR's separate headless Chrome, using the tool's sandbox policy with the external-network grant removed
+(where sandboxing is enabled). They do not inspect the embedded
+Web preview's current state, cookies or clicks. Console output includes JavaScript
+exceptions and messages Chrome logs during loading; it is bounded and redacted.
+Text is extracted from the rendered DOM, with script/style contents removed;
+it is not an accessibility tree and may include text hidden by CSS. Shadow DOM
+and later interactive errors are not covered.
+
+`status` is a separate unauthenticated HTTP GET to the same local URL, bounded
+to ten seconds and without redirects or proxies. It can differ from the browser
+response; null means unavailable or a file URL. Browser diagnostics are observed
+page data, not proof of all project requirements passing.

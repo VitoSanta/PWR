@@ -5130,7 +5130,8 @@ async fn chat_turn(
         // A model that reads images can look at what it built.
         converse::with_vision(converse::chat_tool_catalog())
     } else {
-        converse::chat_tool_catalog()
+        // One that does not can still read what a page shows and logs.
+        converse::with_page_check(converse::chat_tool_catalog())
     };
     // A client that shows the person's terminal can read it to the model.
     let catalog = if !chat_only && !minimal && approvals.reads_terminal() {

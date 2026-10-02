@@ -1665,7 +1665,7 @@ fn look_at_photographs_a_workspace_page_from_inside_the_sandbox() {
     let root = tempfile::tempdir().unwrap();
     fs::write(
         root.path().join("index.html"),
-        "<!doctype html><body style='background:#123'><h1 style='color:#fff'>Look</h1></body>",
+        "<!doctype html><title>Preview test</title><body><h1>Look</h1><script>document.body.append('Rendered by JS'); console.error('Build error token=private123'); throw new Error('Preview exception');</script></body>",
     )
     .unwrap();
     let mut policy = policy(root.path());
@@ -1678,6 +1678,25 @@ fn look_at_photographs_a_workspace_page_from_inside_the_sandbox() {
         Some(400),
     ))
     .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(result.title.as_deref(), Some("Preview test"));
+    assert!(result.text.contains("Rendered by JS"), "{:?}", result);
+    assert!(
+        result
+            .console
+            .iter()
+            .any(|line| line.contains("Build error") && line.contains("[REDACTED]")),
+        "{:?}",
+        result.console
+    );
+    assert!(
+        result
+            .console
+            .iter()
+            .any(|line| line.contains("Preview exception")),
+        "{:?}",
+        result.console
+    );
+    assert!(!result.console.join("\n").contains("private123"));
     let bytes = fs::read(&result.image).unwrap();
     assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
     assert!(
@@ -1825,4 +1844,68 @@ fn commands_cannot_move_an_ancestor_of_frozen_acceptance_evidence() {
     ))
     .unwrap();
     assert_eq!(sibling.exit_code, Some(0), "{sibling:?}");
+}
+
+/// A real local error page is captured and diagnosed, including HTTP 500.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_browser_check_reports_a_local_server_error() {
+    use std::io::{Read, Write};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    if browser_executable().is_none() {
+        common::skip("no browser");
+        return;
+    }
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let target = format!(
+        "http://127.0.0.1:{}/",
+        listener.local_addr().unwrap().port()
+    );
+    let done = Arc::new(AtomicBool::new(false));
+    let stop = Arc::clone(&done);
+    let server = std::thread::spawn(move || {
+        while !stop.load(Ordering::Relaxed) {
+            if let Ok((mut stream, _)) = listener.accept() {
+                std::thread::spawn(move || {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let _ = stream.read(&mut [0; 4096]);
+                    let body = "<!doctype html><title>Build Error</title><h1>Module not found</h1><script>console.error('Missing globals.css');</script>";
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                });
+            } else {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    });
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.timeout = Duration::from_secs(60);
+    // A missing local-service grant is refused before any browser is started.
+    assert!(block_on(look_at(&policy, &target, None, None)).is_err());
+    policy.approvals.push(Approval::LocalService);
+    let result = block_on(look_at(&policy, &target, None, None));
+    done.store(true, Ordering::Relaxed);
+    server.join().unwrap();
+    let result = result.unwrap();
+    assert_eq!(result.status, Some(500));
+    assert!(result.text.contains("Module not found"), "{:?}", result);
+    assert!(
+        result
+            .console
+            .iter()
+            .any(|line| line.contains("Missing globals.css")),
+        "{:?}",
+        result.console
+    );
 }
