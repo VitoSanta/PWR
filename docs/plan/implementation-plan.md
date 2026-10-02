@@ -668,7 +668,20 @@ the same thing by "complete".
 
 ### W2.4 Converge the scripted runner onto the executor
 
-**Status:** IN PROGRESS · L — dispositions accepted (D-2026-09-30-6); rows 5, 6, 8 and 14 applied locally; the evaluator is not yet on the executor (see *Progress*)
+**Status:** REDIRECTED 2026-10-02 by [D-2026-10-02-1](../decisions.md#d-2026-10-02-1--the-stack-matrix-runner-is-the-product-path-evaluator):
+the product-path evaluator is the stack-matrix runner, which drives `pwr serve`
+as the app does; the `EvalHost` below is not built. What remains of W2.4 is the
+runner's: engine lease and provenance, a frozen split manifest, arms (PWR, the
+W8.3 minimal control, competitors) and the paired analysis. `pwr eval run` and
+`pwr run` stay as the declared scripted research harness. The text below is the
+superseded design, kept for its inventory.
+
+**Runner progress.** (1) Engine lease and provenance: IMPLEMENTED 2026-10-02
+(`provenance.py`, runner tests in CI against a stand-in core). Next: (2) the
+frozen split manifest, (3) the paired analysis, (4) the W8.3 minimal control as
+an arm, (5) competitors against a matched endpoint (installs need the owner).
+
+**Former status:** IN PROGRESS · L — dispositions accepted (D-2026-09-30-6); rows 5, 6, 8 and 14 applied locally; the evaluator is not yet on the executor (see *Progress*)
 
 **Progress (2026-09-30).** Applied: both completion holds on every path (rows 5
 and 6), `record_progress` only with a plan (row 8), reasoning effort Medium by
@@ -1155,6 +1168,9 @@ The review's fourth "build next", and the reason for the order above.
   "complete is a tool". It runs on the executor as a declared policy so that
   the difference between arms is the harness, not the plumbing. B0 in
   `baseline.rs` is the starting point.
+- **Where it runs (D-2026-10-02-1).** Behind `pwr serve`, selected by the
+  stack-matrix runner as an arm, so it shares the engine, template, sampling,
+  tools and sandbox with the PWR arm and only the harness differs.
 
 ### W8.4 The confirmatory campaign
 

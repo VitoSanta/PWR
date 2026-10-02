@@ -13,6 +13,20 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — Stack-matrix runner: engine lease and run provenance
+
+**IMPLEMENTED measurement procedure, no campaign run.** By D-2026-10-02-1 the
+runner is the product-path evaluator. A campaign now takes an exclusive lease
+(`~/Desktop/pwr-evidence/engine.lock`) and, before each task, stops if another
+inference engine is running after a minute's wait (`--allow-busy-machine`
+overrides and is recorded): the two-engine runs of 2026-10-01 were discarded by
+hand, and a lease makes the runner refuse them instead. Each `result.json`
+carries `provenance` (binary and runner digests, artifact revision and
+quantization, engine libraries, effective sampling with sources, granted
+window, machine, load at start and end, engines seen, seed none). Results from
+before this entry lack the block; they are not compared on fields they do not
+carry. Tests: `evidence/stack-matrix/runner/test_*.py` (9), in CI.
+
 ## 2026-10-02 — Goal deadline keeps the history of the turn it ends
 
 **IMPLEMENTED correctness repair, not a capability experiment.** When a goal's

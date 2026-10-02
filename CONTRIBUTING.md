@@ -28,6 +28,10 @@ cd apps/desktop && npm ci && npm test -- --watch=false && npm run build
 PYTHONPATH=crates/pwr-mlx/sidecar "$PWR_MLX_PYTHON" -m unittest discover -s crates/pwr-mlx/sidecar
 ```
 
+```bash
+python3 -m unittest discover -s evidence/stack-matrix/runner
+```
+
 Judge each by its exit code, not by reading its output.
 
 **The Rust suite is not hermetic.** Several tests exercise the macOS sandbox

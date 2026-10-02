@@ -46,6 +46,10 @@ jobs:
         run: python -m pip install 'mlx==0.32.3' 'mlx-lm==0.31.3'
       - name: Sidecar unit tests
         run: python -m unittest crates/pwr-mlx/sidecar/test_pwr_mlx.py
+      - name: Stack-matrix runner tests
+        # The runner against a stand-in core: lease, engine check, provenance
+        # and verdict, with no model and no Docker.
+        run: python -m unittest discover -s evidence/stack-matrix/runner
 
   check:
     # macOS because the sandbox adapter is seatbelt, and its fixtures are the

@@ -23,7 +23,7 @@
       "name": "One execution path",
       "status": "in progress: the app, the console and Goal mode share one executor; the evaluator does not",
       "evidence": "`executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol.",
-      "remaining": "W2.4: `EvalHost` so `eval run` calls the executor, the `legacy` arm for older campaigns, `pwr run` as a thin call; W2.1 for the scripted runner's result; the parity test lists no undeclared difference."
+      "remaining": "By D-2026-10-02-1 the product-path evaluator is the stack-matrix runner (it drives `pwr serve` as the app does); `pwr eval run` / `pwr run` stay as the declared scripted research harness. Remaining: the runner's engine lease and provenance, frozen split manifest, arms (PWR, W8.3 minimal control, competitors) and paired analysis; W2.1 for the scripted runner's result."
     },
     {
       "id": "G3",

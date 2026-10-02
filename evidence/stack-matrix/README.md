@@ -42,6 +42,29 @@ Each task writes, under `~/Desktop/pwr-evidence/runs/<run>/<task>/`, the full
 protocol transcript, the result, the diff against the seed and the verifier's
 output.
 
+Since 2026-10-02 this runner is PWR's product-path evaluator
+([D-2026-10-02-1](../../docs/decisions.md#d-2026-10-02-1--the-stack-matrix-runner-is-the-product-path-evaluator)).
+
+**One engine at a time.** A campaign takes an exclusive lease on
+`~/Desktop/pwr-evidence/engine.lock` (`PWR_EVIDENCE_LEASE`) and is refused
+while another holds it. Before each task it looks for other inference engines
+(a PWR MLX worker, `mlx_lm.server`, `llama-server`, an Ollama runner or a model
+Ollama has loaded), waits up to a minute for the previous task's to exit, and
+stops if one remains: two engines on this Mac overran its GPU working set on
+2026-10-01 and both wrote text without meaning. `--allow-busy-machine` runs
+anyway and is recorded; timings from such a run are not comparable.
+
+**Provenance.** `result.json` carries `provenance`: the binary's and the
+runner's digests, the model artifact (revision, quantization, weights size,
+config and template digests), the engine's Python, MLX and mlx-lm versions,
+the effective sampling with each value's source (`_pwr/model_sampling`), the
+granted window and reasoning effort (`_pwr/models`), the machine, the load and
+free memory at start and end, the engines seen at start, and the seed -- none:
+the core sends none, so repeated trials differ by sampling.
+
+`python3 -m unittest discover -s runner` tests the runner against a stand-in
+core, without a model or Docker.
+
 ## Tasks kept outside the repository
 
 `PWR_EVIDENCE_TASKS` names further task folders (separated by `:`), laid out
