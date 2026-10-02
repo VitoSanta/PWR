@@ -451,6 +451,9 @@ pub fn goal_guidance(text: impl Into<String>) -> ChatMessage {
 pub enum Policy {
     Conversation,
     Goal,
+    /// The W8.3 control: one turn under the goal's action and time budgets,
+    /// with PWR's harness off and nothing verified (`converse::Harness`).
+    Minimal,
 }
 
 /// A prompt to run, and what it runs with.
@@ -580,6 +583,10 @@ async fn drive<H: SessionHost + ?Sized>(
         policy,
     } = request;
     let goal_mode = policy == Policy::Goal;
+    let minimal = policy == Policy::Minimal;
+    // The control spends the same budget a goal would, so the two arms of a
+    // comparison stop at the same limits.
+    let budgeted = goal_mode || minimal;
     let mut last_report: Option<TurnReport> = None;
     // Stop interrupts checks/review here. A turn handles Stop cooperatively so
     // it can return its transcript; dropping that future would lose its history,
@@ -670,7 +677,7 @@ async fn drive<H: SessionHost + ?Sized>(
     loop {
         // Before the turn, on every way round: the limits are not one
         // branch's business.
-        if goal_mode && let Some(reached) = budget.reached() {
+        if budgeted && let Some(reached) = budget.reached() {
             return SessionEnd::OutOfBudget {
                 total_actions,
                 reached,
@@ -678,7 +685,10 @@ async fn drive<H: SessionHost + ?Sized>(
         }
         let base = highest_call.get();
         let mut turn_continuity = continuity.clone();
-        if goal_mode {
+        if minimal {
+            turn_continuity.harness = converse::Harness::Minimal;
+        }
+        if budgeted {
             if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
                 checkpoint.actions = 0;
             }
@@ -712,7 +722,7 @@ async fn drive<H: SessionHost + ?Sized>(
             session_grants: Arc::clone(&session_grants),
             goal_mode,
         });
-        let outcome = if goal_mode {
+        let outcome = if budgeted {
             // The loop checked the limits just before this turn.
             let mut turn = std::pin::pin!(turn);
             let finished = tokio::time::timeout(budget.remaining(), &mut turn).await;
@@ -1934,6 +1944,71 @@ mod tests {
             "{:?}",
             started.elapsed()
         );
+    }
+
+    /// What the W8.3 control's turn is given, and what it is spared.
+    struct Control {
+        seen: Mutex<Vec<(converse::Harness, Option<usize>, bool)>>,
+        verified: std::cell::Cell<usize>,
+    }
+    #[async_trait::async_trait(?Send)]
+    impl SessionHost for Control {
+        async fn run_turn(
+            &self,
+            input: TurnInput,
+        ) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+            self.seen.lock().unwrap().push((
+                input.continuity.harness,
+                input.continuity.action_limit,
+                input.goal_mode,
+            ));
+            let mut done = report(4, true);
+            done.edited = true;
+            Ok((done, input.messages))
+        }
+        async fn verify(
+            &self,
+        ) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+            self.verified.set(self.verified.get() + 1);
+            Ok((Default::default(), Default::default()))
+        }
+        async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+            unreachable!("the control is never reviewed")
+        }
+        fn say(&self, _: &str) {}
+        fn keep_messages(&self, _: &[ChatMessage]) {}
+    }
+    #[test]
+    fn the_minimal_control_runs_one_budgeted_turn_and_verifies_nothing() {
+        let host = Control {
+            seen: Mutex::default(),
+            verified: std::cell::Cell::new(0),
+        };
+        let limits = GoalLimits {
+            actions: 50,
+            ..GoalLimits::default()
+        };
+        let result = run(&host, Policy::Minimal, limits);
+        assert_eq!(
+            host.seen.lock().unwrap().as_slice(),
+            &[(converse::Harness::Minimal, Some(50), false)]
+        );
+        assert_eq!(host.verified.get(), 0, "the control was verified");
+        match result.end {
+            SessionEnd::Reply {
+                report,
+                total_actions,
+                goal,
+                verification,
+            } => {
+                assert!(report.completed);
+                assert_eq!(total_actions, 4);
+                assert!(!goal);
+                assert!(verification.is_none());
+            }
+            _ => panic!("the control did not end on its turn"),
+        }
+        assert_eq!(result.budget.actions, 4);
     }
 
     /// The one check the fixtures declare: green until a `broken` file exists.

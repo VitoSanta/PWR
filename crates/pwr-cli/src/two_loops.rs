@@ -4879,3 +4879,196 @@ async fn stop_releases_an_unanswered_tool_permission_and_preserves_edits() {
         "two\n"
     );
 }
+
+// ------------------------------------------------- the W8.3 minimal control
+
+fn minimal() -> converse::Continuity {
+    converse::Continuity {
+        harness: converse::Harness::Minimal,
+        ..Default::default()
+    }
+}
+
+fn opening(objective: &str) -> Vec<ChatMessage> {
+    vec![
+        ChatMessage::text("system", "You are a coding agent."),
+        ChatMessage::text("user", objective),
+    ]
+}
+
+/// The control carries out `complete` when it is called: nothing done yet,
+/// or behind calls whose results it has not read, are PWR's holds.
+#[test]
+fn the_minimal_control_completes_when_asked_without_holds() {
+    let dir = workspace();
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![calls(
+            "complete",
+            serde_json::json!({"rationale": "done"}),
+        )]),
+        opening("Do the thing."),
+        8192,
+        minimal(),
+    );
+    assert!(outcome.report.completed);
+    assert_eq!(
+        outcome.requests.len(),
+        1,
+        "a completion hold ran in the control"
+    );
+    let dir = workspace();
+    let both = ModelChunk {
+        tool_calls: vec![
+            ToolCall {
+                name: "write_file".into(),
+                arguments: serde_json::json!({"path": "page.html", "content": "<p>bank</p>\n"}),
+                id: Some("w".into()),
+            },
+            ToolCall {
+                name: "complete".into(),
+                arguments: serde_json::json!({"rationale": "written"}),
+                id: Some("c".into()),
+            },
+        ],
+        done: true,
+        ..Default::default()
+    };
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![both]),
+        opening("Write it."),
+        8192,
+        minimal(),
+    );
+    assert!(outcome.report.completed);
+    assert_eq!(outcome.report.actions, 2);
+    assert!(dir.path().join("page.html").exists());
+}
+
+/// A reply the control cannot use is answered with the bare fact, and the
+/// next request is the same request: no presence penalty, no finalization.
+#[test]
+fn the_minimal_control_is_not_helped_to_recover_a_reply() {
+    let dir = workspace();
+    let provider = std::sync::Arc::new(LoopsOnce {
+        looped: Mutex::new(false),
+        seen: Mutex::new(Vec::new()),
+        inner: Scripted::new(vec![says("done")]),
+        error: || ProviderError::Looping {
+            safe_context: "the passage \"the same thought\" came back 4 times".into(),
+        },
+    });
+    let outcome = context_turn(
+        dir.path(),
+        Shared(provider.clone()),
+        opening("Do the thing."),
+        8192,
+        minimal(),
+    );
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?}",
+        outcome.report.stopped
+    );
+    let seen = provider.requests();
+    assert_eq!(seen.len(), 2);
+    assert!(!seen[1].sampling.contains_key("presence_penalty"));
+    let told = &seen[1].messages.last().unwrap().content;
+    assert!(told.contains("the reply could not be used"), "{told}");
+    assert!(
+        !told.contains("repeated"),
+        "the control was told what went wrong: {told}"
+    );
+}
+
+/// A full window: the control drops its oldest exchanges and keeps the
+/// request; it never summarises.
+#[test]
+fn the_minimal_control_drops_its_oldest_exchanges_instead_of_compacting() {
+    let dir = workspace();
+    let mut messages = opening("Keep this objective.");
+    for n in 0..3 {
+        let mut call = ChatMessage::text("assistant", "");
+        call.tool_calls.push(ToolCall {
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": format!("part{n}.txt")}),
+            id: Some(format!("read-{n}")),
+        });
+        let mut result = ChatMessage::text("tool", "x".repeat(9000));
+        result.tool_call_id = Some(format!("read-{n}"));
+        messages.push(call);
+        messages.push(result);
+    }
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![says("Done.")]),
+        messages,
+        8192,
+        minimal(),
+    );
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?}",
+        outcome.report.stopped
+    );
+    assert!(
+        !outcome
+            .steps
+            .iter()
+            .any(|step| step.starts_with("compacted")),
+        "{:?}",
+        outcome.steps
+    );
+    assert!(
+        outcome
+            .steps
+            .iter()
+            .any(|step| step.contains("oldest messages dropped")),
+        "{:?}",
+        outcome.steps
+    );
+    let sent = &outcome.requests[0].messages;
+    assert_eq!(sent[1].content, "Keep this objective.");
+    assert!(
+        sent.len() < 8,
+        "nothing was dropped: {} messages",
+        sent.len()
+    );
+    // No tool result is left without the call it answers.
+    assert_eq!(sent[2].role, "assistant");
+}
+
+/// PWR names an action refused again and again; the control is not told.
+#[test]
+fn the_minimal_control_is_not_told_it_repeats_a_refused_action() {
+    let dir = workspace();
+    let stale = || {
+        calls(
+            "replace_text",
+            serde_json::json!({"path": "code.rs", "expected_hash": "not-the-hash", "find": "one", "replace": "two"}),
+        )
+    };
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![
+            stale(),
+            stale(),
+            stale(),
+            stale(),
+            says("I could not do it."),
+        ]),
+        opening("Change one to two."),
+        16384,
+        minimal(),
+    );
+    assert!(
+        !outcome
+            .requests
+            .iter()
+            .flat_map(|request| &request.messages)
+            .any(|message| message.content.contains("proposed this same action")),
+        "the control was told it repeated itself"
+    );
+    assert_eq!(outcome.requests.len(), 5);
+}

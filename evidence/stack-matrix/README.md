@@ -31,7 +31,7 @@ solution it passes.
 
     python3 runner/run.py list
     python3 runner/run.py reference
-    python3 runner/run.py run --run <id> [--split dev] [TASK ...]
+    python3 runner/run.py run --run <id> [--arm pwr|minimal] [--split dev] [TASK ...]
 
 `runner/pin.sh` builds the release binary and pins it with the MLX sidecar
 it reads (`~/Desktop/pwr-evidence/bin/pwr-<rev>` and `sidecar-<rev>/`), so a
@@ -44,6 +44,12 @@ output.
 
 Since 2026-10-02 this runner is PWR's product-path evaluator
 ([D-2026-10-02-1](../../docs/decisions.md#d-2026-10-02-1--the-stack-matrix-runner-is-the-product-path-evaluator)).
+
+**Arms.** `--arm pwr` (the default) is the product in Goal mode. `--arm
+minimal` is the W8.3 control behind the same `pwr serve`: the same engine,
+sampling, tools, sandbox and budgets with PWR's harness off. One arm per run;
+`result.json` records `arm`, and the runner stops a task whose reply names a
+different harness than the one asked for. Compare runs with `analyze.py`.
 
 **One engine at a time.** A campaign takes an exclusive lease on
 `~/Desktop/pwr-evidence/engine.lock` (`PWR_EVIDENCE_LEASE`) and is refused

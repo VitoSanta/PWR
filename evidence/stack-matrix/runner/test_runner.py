@@ -35,7 +35,12 @@ FAKE_CORE = textwrap.dedent('''\
             result = {"sessionId": "s1"}
         elif method == "session/prompt":
             pathlib.Path(cwd, "done.txt").write_text("done")
-            result = {"stopReason": "end_turn", "_meta": {"pwr": {"terminal": "completed"}}}
+            with open(pathlib.Path(cwd).parent / "prompts.jsonl", "a") as log:
+                log.write(json.dumps(params) + "\\n")
+            meta = {"terminal": "completed"}
+            if params.get("harness") == "minimal":
+                meta["harness"] = "minimal"
+            result = {"stopReason": "end_turn", "_meta": {"pwr": meta}}
         else:
             result = {}
         print(json.dumps({"jsonrpc": "2.0", "id": ident, "result": result}), flush=True)
@@ -96,6 +101,20 @@ class Runner(unittest.TestCase):
         self.assertIsNone(prov["seed"])
         self.assertEqual(prov["splits"]["unfrozen"], [])
         self.assertEqual(len(prov["splits"]["manifest_digest"]), 12)
+
+    def test_each_arm_sends_its_own_parameters_and_is_recorded(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            make_task(root)
+            self.assertEqual(self.runner(root, "freeze").returncode, 0)
+            done = self.run_campaign(root, "--arm", "minimal")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            prompt = json.loads((root / "runs/t1/smoke-done/prompts.jsonl").read_text().splitlines()[0])
+            result = json.loads((root / "runs/t1/smoke-done/result.json").read_text())
+        self.assertEqual(prompt["harness"], "minimal")
+        self.assertFalse(prompt["goalMode"])
+        self.assertEqual(result["arm"], "minimal")
+        self.assertTrue(result["passed"])
 
     def test_a_task_changed_after_the_freeze_is_refused(self):
         with tempfile.TemporaryDirectory() as folder:

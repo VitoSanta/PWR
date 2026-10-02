@@ -512,6 +512,45 @@ pub struct FileDiff {
     pub new_text: String,
 }
 
+/// Which harness a turn runs under.
+///
+/// `Minimal` is the W8.3 control, an experimental arm the stack-matrix runner
+/// selects: the same engine, sampling, reasoning budget, tools, sandbox and
+/// budgets as PWR, without PWR's mechanisms -- its instructions and retrieved
+/// passages, completion holds, repetition and stall guards, reply recoveries,
+/// summarising compaction (the oldest exchanges are dropped instead) and the
+/// checks after a turn. What is left out is listed in the implementation plan
+/// (W8.3); only the bounds that keep a turn finite stay.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Harness {
+    #[default]
+    Full,
+    Minimal,
+}
+
+/// The control's whole instruction: what it is, where, and how it ends.
+pub fn minimal_system_prompt(root: &std::path::Path) -> String {
+    format!(
+        "You are a coding agent working in the repository {}. Use the tools to read, search \
+         and change files and to run commands. Paths are relative to the repository root. \
+         When the task is done, call complete with your final answer.",
+        root.display()
+    )
+}
+
+/// The control's catalogue: the same tools, with `complete` promising nothing
+/// the control does not do.
+pub fn minimal_tool_catalog(mut catalog: ToolCatalog) -> ToolCatalog {
+    if let Some(tool) = catalog
+        .tools
+        .iter_mut()
+        .find(|tool| tool.name == "complete")
+    {
+        tool.description = "Declare the task done with your final answer.".into();
+    }
+    catalog
+}
+
 /// What carries a conversation across turns, restarts and the person typing
 /// while it works.
 ///
@@ -520,6 +559,8 @@ pub struct FileDiff {
 /// not own while that turn runs on another task.
 #[derive(Debug, Clone, Default)]
 pub struct Continuity {
+    /// PWR's harness, or the W8.3 minimal control.
+    pub harness: Harness,
     /// Remaining actions for this turn under a goal-wide budget.
     pub action_limit: Option<usize>,
     /// The person's Reasoning Effort, and what is known about how this
@@ -1207,6 +1248,8 @@ async fn take_turn_inner<P: ModelProvider>(
     // compactions; from then on only the window itself, with no room left for
     // an answer, compacts.
     let mut trigger_unreachable = false;
+    // The W8.3 control leaves out every mechanism gated on this (see `Harness`).
+    let full = continuity.harness == Harness::Full;
     loop {
         if actions >= continuity.action_limit.unwrap_or(DEFAULT_ACTIONS_PER_TURN) {
             return stopped(actions, edited, StopReason::BudgetSpent);
@@ -1259,7 +1302,7 @@ async fn take_turn_inner<P: ModelProvider>(
         }
         .room()
             == 0;
-        if !trigger_unreachable {
+        if full && !trigger_unreachable {
             let objective_tokens = continuity
                 .checkpoint
                 .lock()
@@ -1280,7 +1323,38 @@ async fn take_turn_inner<P: ModelProvider>(
                 )));
             }
         }
-        if (prompt_now >= room && !trigger_unreachable) || no_answer_room {
+        if !full {
+            // The control keeps the most recent history that fits and nothing
+            // else: no summary, no objective carried apart from the history.
+            if no_answer_room {
+                let dropped = drop_oldest_exchanges(messages, |kept| {
+                    pwr_domain::GenerationEnvelope {
+                        context_limit: context_tokens,
+                        input_tokens: u32::try_from(
+                            prompt_overhead.predict(conservative_prompt_tokens(kept, None, 0)),
+                        )
+                        .unwrap_or(u32::MAX),
+                        answer_allowance: ANSWER_ALLOWANCE,
+                    }
+                    .room()
+                        > 0
+                });
+                if dropped > 0 {
+                    measured_prompt = None;
+                    measured_upto = 0;
+                    store
+                        .append(
+                            Some(conversation_id),
+                            "context.truncated",
+                            serde_json::json!({"dropped_messages": dropped, "harness": "minimal"}),
+                        )
+                        .map_err(|error| error.to_string())?;
+                    on_step(TurnStep::Note(format!(
+                        "{dropped} oldest messages dropped to fit the window"
+                    )));
+                }
+            }
+        } else if (prompt_now >= room && !trigger_unreachable) || no_answer_room {
             if compactions >= COMPACTIONS_PER_TURN {
                 return stopped(actions, edited, StopReason::CompactionBudget);
             }
@@ -1318,7 +1392,8 @@ async fn take_turn_inner<P: ModelProvider>(
         // the same model answers a fresh 30,000-token prompt and a synthetic
         // 40-turn chain correctly. After two such replies the history is cut
         // back to what compaction keeps, and the work goes on from there.
-        if degenerate_replies >= DEGENERATE_REPLIES_BEFORE_RESET
+        if full
+            && degenerate_replies >= DEGENERATE_REPLIES_BEFORE_RESET
             && degenerate_resets < DEGENERATE_RESETS_PER_TURN
             && prompt_tokens_now(messages, measured_prompt, measured_upto)
                 > DEGENERATE_RESET_MIN_PROMPT_TOKENS
@@ -1345,7 +1420,7 @@ async fn take_turn_inner<P: ModelProvider>(
             }
         }
         let mut request_sampling = sampling.clone();
-        if anti_loop {
+        if full && anti_loop {
             let current = request_sampling
                 .get("presence_penalty")
                 .and_then(serde_json::Value::as_f64)
@@ -1372,7 +1447,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 }
             }
         }
-        if std::mem::take(&mut runaway_retry) {
+        if std::mem::take(&mut runaway_retry) && full {
             let current = request_sampling
                 .get("max_tokens")
                 .and_then(serde_json::Value::as_u64)
@@ -1409,7 +1484,7 @@ async fn take_turn_inner<P: ModelProvider>(
             )));
             return stopped(actions, edited, StopReason::ContextFull);
         }
-        let finalizing = unfinished_reasoning > 0 || answer_without_thinking;
+        let finalizing = full && (unfinished_reasoning > 0 || answer_without_thinking);
         answer_without_thinking = false;
         let plan = if finalizing {
             pwr_domain::plan_finalization(
@@ -1575,7 +1650,7 @@ async fn take_turn_inner<P: ModelProvider>(
                             content: String::new(),
                         });
                     }
-                }, (deployment.provider == "mlx" && !continuity.chat_only)
+                }, (deployment.provider == "mlx" && !continuity.chat_only && full)
                     .then_some(AGENT_UNSTRUCTURED_REPLY_GUARD)) => outcome,
                 () = pressed(stop) => {
                     cancel.cancel();
@@ -1604,6 +1679,32 @@ async fn take_turn_inner<P: ModelProvider>(
                 backend_faults = 0;
                 unfinished_reasoning = 0;
                 reply
+            }
+            // The control's whole answer to a reply it cannot use: it says so,
+            // asks again, and stops after three in a row.
+            Err(ref error)
+                if !full
+                    && (crate::ReplyFault::of(error).is_some()
+                        || matches!(
+                            error,
+                            pwr_provider::ProviderError::ReasoningUnfinished { .. }
+                        )) =>
+            {
+                let kind = crate::ReplyFault::of(error)
+                    .map_or("reasoning_unfinished", |fault| fault.kind());
+                failed(&mut turn, kind, error.to_string())?;
+                unparseable = unparseable.saturating_add(1);
+                if unparseable >= UNPARSEABLE_CALLS_BEFORE_GIVING_UP {
+                    return stopped(actions, edited, StopReason::Unparseable);
+                }
+                on_step(TurnStep::Refused(format!(
+                    "{error} ({unparseable} of {UNPARSEABLE_CALLS_BEFORE_GIVING_UP})"
+                )));
+                messages.push(ChatMessage::text(
+                    "tool",
+                    serde_json::json!({kind: "the reply could not be used"}).to_string(),
+                ));
+                continue;
             }
             // The engine closed the thinking phase at its budget and no
             // answer followed. Asked once more with thinking off; a second
@@ -1802,6 +1903,20 @@ async fn take_turn_inner<P: ModelProvider>(
                 // work not yet done rather than a thing that cannot be done.
                 // On a backend that cannot be calibrated there is no ladder to
                 // drop down, and compaction is the whole answer.
+                if !full {
+                    // The control drops its oldest exchange and asks again.
+                    let mut first = true;
+                    let dropped = drop_oldest_exchanges(messages, |_| !std::mem::take(&mut first));
+                    if dropped == 0 {
+                        return stopped(actions, edited, StopReason::ContextFull);
+                    }
+                    measured_prompt = None;
+                    measured_upto = 0;
+                    on_step(TurnStep::Note(format!(
+                        "{dropped} oldest messages dropped after the backend refused the prompt"
+                    )));
+                    continue;
+                }
                 if compactions >= COMPACTIONS_PER_TURN {
                     return stopped(actions, edited, StopReason::CompactionBudget);
                 }
@@ -1963,12 +2078,14 @@ async fn take_turn_inner<P: ModelProvider>(
                 limit: UNPARSEABLE_CALLS_BEFORE_GIVING_UP - 1,
                 detail: diagnostic.detail.clone(),
             });
-            if cut_off {
+            if cut_off && full {
                 runaway_retry = true;
             }
             messages.push(ChatMessage::text(
                 "tool",
-                if cut_off {
+                if !full {
+                    "Your tool call could not be read, so nothing was done."
+                } else if cut_off {
                     "Your tool call was cut off before it ended, so nothing was done. Send it again, \
                      complete; if a file is long, write part of it and add the rest with replace_text \
                      or apply_patch."
@@ -2010,7 +2127,7 @@ async fn take_turn_inner<P: ModelProvider>(
                     );
                 }
                 let detail = if call_in_reasoning {
-                    answer_without_thinking = true;
+                    answer_without_thinking = full;
                     "the model wrote a tool call in its reasoning phase; calls there cannot run"
                 } else {
                     "the reply held neither an answer nor a tool call"
@@ -2031,7 +2148,9 @@ async fn take_turn_inner<P: ModelProvider>(
                 });
                 messages.push(ChatMessage::text(
                     "tool",
-                    if call_in_reasoning {
+                    if !full {
+                        "The reply held neither an answer nor a tool call."
+                    } else if call_in_reasoning {
                         "Your tool call was inside the reasoning phase and was not executed. \
                          Close the reasoning phase, then send the tool call in the answer phase."
                     } else {
@@ -2135,7 +2254,8 @@ async fn take_turn_inner<P: ModelProvider>(
             // `complete` -- "the files were created and the tests validated"
             // -- over an empty folder. A turn that only answers ends in prose
             // and never reaches this; a second completion is carried out.
-            if actions == 0
+            if full
+                && actions == 0
                 && !held_empty_completion
                 && !continuity.chat_only
                 && matches!(action, ActionProposal::Complete { .. })
@@ -2150,7 +2270,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 ));
                 continue;
             }
-            if position > 0 && matches!(action, ActionProposal::Complete { .. }) {
+            if full && position > 0 && matches!(action, ActionProposal::Complete { .. }) {
                 on_step(TurnStep::Refused(
                     "complete: waits for the results of the calls before it".into(),
                 ));
@@ -2163,7 +2283,8 @@ async fn take_turn_inner<P: ModelProvider>(
             // A program was built here and nothing that runs it has run: asked
             // once, exactly as the scripted loop asks. No checks are passed
             // because a conversation runs them after the turn, not during it.
-            if matches!(action, ActionProposal::Complete { .. })
+            if full
+                && matches!(action, ActionProposal::Complete { .. })
                 && !continuity.chat_only
                 && changed_runnable
                 && !ran_something
@@ -2408,7 +2529,8 @@ async fn take_turn_inner<P: ModelProvider>(
                 ActionProposal::RunCommand { .. } | ActionProposal::StartService { .. }
             );
             let repeated = echoes.repeated_failures(&fingerprint);
-            if runs_something
+            if full
+                && runs_something
                 && (repeated >= crate::repetition::REPEATED_FAILURE_LIMIT
                     || failed_runs.handed_over())
             {
@@ -2432,6 +2554,8 @@ async fn take_turn_inner<P: ModelProvider>(
                 messages.push(tool_message(call, serde_json::json!({"not_run": why})));
                 continue;
             }
+            // The control is never told it proposed a refused action again.
+            let mut no_streak = crate::repetition::RefusalStreak::new();
             let gated = tokio::select! {
                 biased;
                 () = pressed(stop) => return stopped(actions, edited, StopReason::Interrupted),
@@ -2443,7 +2567,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 &fingerprint,
                 &mut policy,
                 prompt,
-                &mut refused_streak,
+                if full { &mut refused_streak } else { &mut no_streak },
                 call.id.clone(),
             ) => result?,
             };
@@ -2526,7 +2650,7 @@ async fn take_turn_inner<P: ModelProvider>(
                     &mut outcome,
                     &mut policy,
                     prompt,
-                    &mut refused_streak,
+                    if full { &mut refused_streak } else { &mut no_streak },
                 ) => result?,
                 };
                 if let crate::session::Withheld::Allowed { approval, once } = withheld {
@@ -2562,10 +2686,12 @@ async fn take_turn_inner<P: ModelProvider>(
                 Ok(mut value) => {
                     // Reads are left to `ReadHistory`, which already names a
                     // re-read of an unchanged file.
-                    if !matches!(
-                        capability.as_str(),
-                        "read_file" | "search" | "list_tree" | "vcs_status" | "vcs_diff"
-                    ) && let Some(seen) = echoes.observe(&fingerprint, &value)
+                    if full
+                        && !matches!(
+                            capability.as_str(),
+                            "read_file" | "search" | "list_tree" | "vcs_status" | "vcs_diff"
+                        )
+                        && let Some(seen) = echoes.observe(&fingerprint, &value)
                         && let Some(object) = value.as_object_mut()
                     {
                         object.insert(
@@ -2606,7 +2732,8 @@ async fn take_turn_inner<P: ModelProvider>(
                     {
                         written.insert(path.clone(), pwr_domain::hash_bytes(&bytes));
                     }
-                    if edits_a_file
+                    if full
+                        && edits_a_file
                         && value.get("new_hash").is_some()
                         && let Some(path) = &path
                         && let Ok(mut stall) = continuity.stall.lock()
@@ -2642,18 +2769,21 @@ async fn take_turn_inner<P: ModelProvider>(
                     // turn: a conversation runs the repository's checks after
                     // the turn, not during it. So what moves here is the
                     // workspace, which is the half a turn can move.
-                    let observed = continuity.stall.lock().ok().and_then(|mut stall| {
-                        let stall = &mut *stall;
-                        crate::stall::record_effect(&mut stall.changed_files, &value);
-                        let effect = crate::EffectSignature::of(
-                            &stall.changed_files,
-                            "checks are run after the turn, not within it",
-                        );
-                        stall
-                            .progress
-                            .observe(fingerprint.clone(), effect)
-                            .map(|stalled| (stalled, stall.progress.windows))
-                    });
+                    let observed = full
+                        .then(|| continuity.stall.lock().ok())
+                        .flatten()
+                        .and_then(|mut stall| {
+                            let stall = &mut *stall;
+                            crate::stall::record_effect(&mut stall.changed_files, &value);
+                            let effect = crate::EffectSignature::of(
+                                &stall.changed_files,
+                                "checks are run after the turn, not within it",
+                            );
+                            stall
+                                .progress
+                                .observe(fingerprint.clone(), effect)
+                                .map(|stalled| (stalled, stall.progress.windows))
+                        });
                     let mut halt = false;
                     if let Some((stalled, windows)) = observed {
                         store
@@ -2724,7 +2854,8 @@ async fn take_turn_inner<P: ModelProvider>(
                     }));
                     on_step(TurnStep::Refused(format!("{capability}: {problem}")));
                     let mut outcome = crate::action_outcome(Err(problem));
-                    if runs_something
+                    if full
+                        && runs_something
                         && let Some(notice) = failed_runs.observe(true, edited)
                         && let Some(object) = outcome.as_object_mut()
                     {
@@ -2735,6 +2866,26 @@ async fn take_turn_inner<P: ModelProvider>(
             }
         }
     }
+}
+
+/// The control's answer to a full window: drop the oldest exchanges after the
+/// first request until `fits` says the rest does, and say how many messages
+/// went. An exchange is a message with the tool results that answer it, so no
+/// result is left without its call. The system message and the first request
+/// stay; the newest message is never dropped.
+fn drop_oldest_exchanges(
+    messages: &mut Vec<ChatMessage>,
+    mut fits: impl FnMut(&[ChatMessage]) -> bool,
+) -> usize {
+    let mut dropped = 0;
+    while !fits(messages) {
+        let Some(end) = (3..messages.len()).find(|&i| messages[i].role != "tool") else {
+            break;
+        };
+        dropped += end - 2;
+        messages.drain(2..end);
+    }
+    dropped
 }
 
 /// Whether the backend is silently truncating, and what to do about it.
@@ -3251,6 +3402,45 @@ fn tool_message(call: &pwr_domain::ToolCall, outcome: serde_json::Value) -> Chat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_control_drops_whole_exchanges_and_keeps_the_request_and_the_newest() {
+        let call = |id: &str| {
+            let mut message = ChatMessage::text("assistant", "");
+            message.tool_calls.push(pwr_domain::ToolCall {
+                name: "read_file".into(),
+                arguments: serde_json::json!({}),
+                id: Some(id.into()),
+            });
+            message
+        };
+        let result = |id: &str| {
+            let mut message = ChatMessage::text("tool", "x");
+            message.tool_call_id = Some(id.into());
+            message
+        };
+        let mut messages = vec![
+            ChatMessage::text("system", "s"),
+            ChatMessage::text("user", "objective"),
+            call("a"),
+            result("a"),
+            result("a2"),
+            call("b"),
+            result("b"),
+            call("c"),
+            result("c"),
+        ];
+        // Fits once two messages fewer than seven remain.
+        let dropped = drop_oldest_exchanges(&mut messages, |kept| kept.len() <= 6);
+        assert_eq!(dropped, 3, "the first exchange and both its results");
+        assert_eq!(messages[1].content, "objective");
+        assert_eq!(messages[2].tool_calls[0].id.as_deref(), Some("b"));
+        // Nothing fits: everything but the request and the newest exchange goes.
+        let dropped = drop_oldest_exchanges(&mut messages, |_| false);
+        assert_eq!(dropped, 2);
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[2].tool_calls[0].id.as_deref(), Some("c"));
+    }
 
     #[test]
     fn a_rewind_restores_each_file_as_it_was_and_names_what_someone_else_changed() {

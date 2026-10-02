@@ -4283,6 +4283,42 @@ mod new_project_verification_tests {
 /// point the deployment can rebuild with `search` and `read_file`, which is why
 /// the compiler evicts them first under pressure; a turn that cannot retrieve
 /// is worse than one that can and better than no turn at all.
+/// The W8.3 control's prompt: its neutral instruction and the deployment's
+/// declared suffix (plumbing: what the model needs to run, not how PWR works),
+/// and nothing retrieved, remembered or ruled.
+fn compose_minimal_turn(
+    root: &Path,
+    context_tokens: u32,
+    task_profile: &pwr_orchestrator::TaskProfile,
+    messages: &mut [ChatMessage],
+) -> Result<(Option<usize>, Option<String>), String> {
+    if let Some(system) = messages.first_mut().filter(|first| first.role == "system") {
+        let (merged, compiled) = pwr_orchestrator::context::compile(
+            vec![
+                pwr_orchestrator::context::Section::new(
+                    pwr_orchestrator::context::SectionKind::System,
+                    converse::minimal_system_prompt(root),
+                ),
+                pwr_orchestrator::context::Section::new(
+                    pwr_orchestrator::context::SectionKind::ModelSuffix,
+                    &task_profile.prompt_suffix,
+                ),
+            ],
+            context_tokens,
+        );
+        if compiled.over_budget_by > 0 {
+            return Err(format!(
+                "Context full: system instructions exceed budget by {} estimated tokens",
+                compiled.over_budget_by
+            ));
+        }
+        if let Some(first) = merged.first() {
+            system.content = first.content.clone();
+        }
+    }
+    Ok((None, None))
+}
+
 fn compose_chat_turn(
     root: &Path,
     context_tokens: u32,
@@ -4911,6 +4947,9 @@ async fn chat_turn(
     let task_profile = task_profile;
     let mut continuity = continuity;
     continuity.chat_only = chat_only;
+    // The W8.3 control: the same deployment, sampling, tools and policy, and
+    // none of PWR's composition or checks (`converse::Harness`).
+    let minimal = continuity.harness == converse::Harness::Minimal;
     let policy = if chat_only {
         // Chat mode: what the person attached, read-only, and nothing else.
         // No commands, no grants, no dependencies; the catalogue offers only
@@ -4975,7 +5014,7 @@ async fn chat_turn(
     };
     let store = pwr_store::Store::open(root.join(".pwr/state.sqlite"))
         .map_err(|error| error.to_string())?;
-    let checks = if chat_only {
+    let checks = if chat_only || minimal {
         Vec::new()
     } else {
         pwr_verify::discover_checks(&root, "targeted").unwrap_or_default()
@@ -4995,11 +5034,17 @@ async fn chat_turn(
     // that discards tool bodies to make room -- and this is the deterministic
     // record of what those bodies said about which files, with the hashes they
     // have now rather than the ones they had when they were read.
-    let ledger = pwr_orchestrator::session_ledger(&store, &[conversation_id], &root).ok();
+    let ledger = if minimal {
+        None
+    } else {
+        pwr_orchestrator::session_ledger(&store, &[conversation_id], &root).ok()
+    };
     // Report retrieval degradation to the operator and journal, without
     // polluting a small model's task prompt with harness diagnostics.
     let composition = if chat_only {
         Ok((None, None))
+    } else if minimal {
+        compose_minimal_turn(&root, config.context_tokens, &task_profile, &mut messages)
     } else {
         compose_chat_turn(
             &root,
@@ -5074,6 +5119,8 @@ async fn chat_turn(
     };
     let catalog = if goal_mode {
         converse::with_goal_verification(catalog)
+    } else if minimal {
+        converse::minimal_tool_catalog(catalog)
     } else {
         catalog
     };
@@ -5111,7 +5158,7 @@ async fn chat_turn(
             said => format!("{said}\n\n{}", reason.said()),
         };
     }
-    if report.edited {
+    if report.edited && !minimal {
         let after_checks = if chat_only {
             Vec::new()
         } else {
@@ -12023,6 +12070,27 @@ mod tests {
         let said = summarise_verification(&serde_json::json!({"baseline": {"checks": []}}));
         assert!(said.contains("declares no checks"), "{said}");
         assert!(!said.contains("passing"), "{said}");
+    }
+
+    #[test]
+    fn the_minimal_control_is_given_a_neutral_instruction_and_its_models_suffix() {
+        let root = tempfile::tempdir().unwrap();
+        let mut profile = pwr_orchestrator::TaskProfile::resolve(None, None);
+        profile.prompt_suffix = "Write tool calls in the model's own format.".into();
+        let mut messages = vec![
+            ChatMessage::text("system", "PWR's instructions and repository rules"),
+            ChatMessage::text("user", "Do it."),
+        ];
+        compose_minimal_turn(root.path(), 8192, &profile, &mut messages).unwrap();
+        assert!(messages[0].content.starts_with("You are a coding agent"));
+        assert!(
+            messages[0]
+                .content
+                .contains("Write tool calls in the model's own format.")
+        );
+        assert!(!messages[0].content.contains("PWR"));
+        assert_eq!(messages.len(), 2, "something was retrieved for the control");
+        assert_eq!(messages[1].content, "Do it.");
     }
 
     #[tokio::test]
