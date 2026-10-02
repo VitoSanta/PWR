@@ -1260,6 +1260,9 @@ fn chat_approvals(
         .into_iter()
         .filter(|approval| !ask_before.contains(approval) || session_grants.contains(approval))
         .collect();
+    // What no mode grants, reading the person's terminal, is granted only
+    // when they allowed it for this session.
+    granted.extend(session_grants.iter().copied());
     granted.sort();
     granted.dedup();
     granted
@@ -1298,6 +1301,7 @@ fn approval_label(approval: pwr_tools::Approval) -> &'static str {
         Approval::VerifierProposal => "adopt a check the model proposes",
         Approval::OutsideSandbox => "run a command outside the sandbox, with your full rights",
         Approval::OutsideWorkspace => "reach a folder outside the workspace",
+        Approval::TerminalRead => "read the recent output of your terminal tabs",
     }
 }
 
@@ -5127,6 +5131,12 @@ async fn chat_turn(
         converse::with_vision(converse::chat_tool_catalog())
     } else {
         converse::chat_tool_catalog()
+    };
+    // A client that shows the person's terminal can read it to the model.
+    let catalog = if !chat_only && !minimal && approvals.reads_terminal() {
+        converse::with_terminal(catalog)
+    } else {
+        catalog
     };
     let catalog = if goal_mode {
         converse::with_goal_verification(catalog)
@@ -13360,6 +13370,27 @@ mod tests {
         assert_eq!(composed, (None, None));
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1], note);
+    }
+
+    /// Reading the person's terminal is never granted by a mode, Full access
+    /// included; only their "Allow for this session" grants it.
+    #[test]
+    fn reading_the_terminal_is_granted_only_by_the_person() {
+        let full = ChatConfig {
+            permission_mode: Some(PermissionMode::Full),
+            ..ChatConfig::default()
+        };
+        assert!(
+            !chat_approvals(&effective_ask_before(&full), &[])
+                .contains(&pwr_tools::Approval::TerminalRead)
+        );
+        assert!(
+            chat_approvals(
+                &effective_ask_before(&ChatConfig::default()),
+                &[pwr_tools::Approval::TerminalRead]
+            )
+            .contains(&pwr_tools::Approval::TerminalRead)
+        );
     }
 
     /// The owner's Libra configuration of 2026-10-02, as saved: a window the

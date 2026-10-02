@@ -48,6 +48,7 @@ The scripted loop offers all of it; a conversation removes two and adds four
 | `recall_project` | Another project's wiki overview and log | ✓ | — |
 | `wiki_query` | Ask the project graph | ✓ | — |
 | `look_at` | Screenshot a local page or workspace HTML file (**experimental**, vision models only) | ✓ | — |
+| `read_terminal` | The last lines (200 by default, at most 1,000) of the person's own terminal tabs in the app, read-only and redacted; asked about once per conversation (`terminal_read`, granted by no mode, Full access included); offered only when the client declares it can answer (`_meta.pwr.readTerminal` in `initialize`) | ✓ (desktop) | — |
 
 Chat without a workspace offers only `read_file`, `list_tree`, `remember`,
 `recall_project` and `wiki_query`, on attached files.

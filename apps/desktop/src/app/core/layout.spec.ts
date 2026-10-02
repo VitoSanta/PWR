@@ -1,4 +1,4 @@
-import { LEFT, MAIN_MIN, RAIL, RIGHT, arrange } from './layout';
+import { LEFT, MAIN_MIN, RIGHT, arrange } from './layout';
 
 const open = {
   leftOpen: true,
@@ -27,16 +27,16 @@ describe('arrange', () => {
     }
   });
 
-  it('collapses the navigation to the rail when even it does not fit', () => {
+  it('hides the sidebar when even it does not fit', () => {
     const result = arrange(720, open);
-    expect(result.left).toBe('rail');
+    expect(result.left).toBe('hidden');
     expect(result.right).toBe('hidden');
   });
 
   it('never leaves the conversation narrower than its minimum beside docked panels', () => {
     for (let width = 640; width <= 2000; width += 10) {
       const result = arrange(width, open);
-      const left = result.left === 'docked' ? LEFT.initial : RAIL;
+      const left = result.left === 'docked' ? LEFT.initial : 0;
       const right = result.right === 'docked' ? RIGHT.initial : 0;
       if (result.left === 'docked' || result.right === 'docked') {
         expect(width - left - right).toBeGreaterThanOrEqual(MAIN_MIN);
@@ -51,17 +51,9 @@ describe('arrange', () => {
 
   it('keeps a panel the person closed closed, even with room for it', () => {
     const result = arrange(1600, { ...open, leftOpen: false, rightOpen: false });
-    expect(result.left).toBe('rail');
+    expect(result.left).toBe('hidden');
     expect(result.right).toBe('hidden');
-    // The inspector gets the room the collapsed navigation gave back.
+    // The inspector gets the room the hidden sidebar gave back.
     expect(arrange(1100, { ...open, leftOpen: false }).right).toBe('docked');
-  });
-
-  it('docks the workbench by the width a shell without a sidebar really keeps', () => {
-    // 1000px: beside a 288px sidebar the workbench cannot dock; beside a
-    // 48px rail, or nothing, it can.
-    expect(arrange(1000, open).right).toBe('hidden');
-    expect(arrange(1000, open, 48).right).toBe('docked');
-    expect(arrange(1000, open, 0).right).toBe('docked');
   });
 });

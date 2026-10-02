@@ -4479,7 +4479,7 @@ fn a_project_generated_in_a_subfolder_of_an_empty_workspace_lands_in_its_root() 
             .unwrap_or_default()
     };
     assert!(
-        told(1).contains("moved everything the command created in `libro-ecommerce/`"),
+        told(1).contains("It moved what `libro-ecommerce/` held into the root"),
         "{}",
         told(1)
     );
@@ -4505,6 +4505,80 @@ fn a_project_generated_in_a_subfolder_of_an_empty_workspace_lands_in_its_root() 
             .iter()
             .any(|event| event.event_type == "workspace.moved_to_root"),
         "the move is not in the audit"
+    );
+}
+
+/// The same request in a fresh empty folder, built by hand: no generator,
+/// a folder made first, files written under it one by one and commands run
+/// with `cd` into it. Measured 2026-10-02, the second Libra run (`Libra/libra`).
+#[test]
+fn a_project_written_by_hand_in_a_new_folder_lands_in_the_root() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".pwr")).unwrap();
+    let script = vec![
+        calls(
+            "make_directory",
+            serde_json::json!({"path": "libro-ecommerce"}),
+        ),
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": ["-c",
+                "mkdir -p ./libro-ecommerce/src/app/api/books ./libro-ecommerce/prisma"]}),
+        ),
+        calls(
+            "write_file",
+            serde_json::json!({"path": "./libro-ecommerce/package.json", "content": "{}\n"}),
+        ),
+        calls(
+            "write_file",
+            serde_json::json!({"path": "./libro-ecommerce/src/app/page.tsx",
+                "content": "export default 1;\n"}),
+        ),
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": ["-c",
+                "cd ./libro-ecommerce && test -f package.json && test -d src/app/api/books"]}),
+        ),
+        says("Fatto."),
+    ];
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(script),
+        vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", "Voglio creare un e-commerce di libri con Next.js."),
+        ],
+        32_768,
+        Default::default(),
+    );
+    let root = dir.path();
+    assert!(root.join("package.json").is_file(), "{:?}", outcome.steps);
+    assert!(root.join("src/app/page.tsx").is_file());
+    assert!(root.join("src/app/api/books").is_dir());
+    assert!(root.join("prisma").is_dir());
+    assert!(
+        !root.join("libro-ecommerce").exists(),
+        "{:?}",
+        outcome.steps
+    );
+    let told = |index: usize| {
+        outcome.requests[index]
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == "tool")
+            .map(|message| message.content.clone())
+            .unwrap_or_default()
+    };
+    assert!(
+        told(3).contains("treats `libro-ecommerce/` as the workspace root"),
+        "{}",
+        told(3)
+    );
+    assert!(
+        told(5).contains("\"exit_code\":0"),
+        "`cd ./libro-ecommerce` did not run in the root: {}",
+        told(5)
     );
 }
 
@@ -5188,4 +5262,169 @@ fn the_minimal_control_is_not_told_it_repeats_a_refused_action() {
         "the control was told it repeated itself"
     );
     assert_eq!(outcome.requests.len(), 5);
+}
+
+/// The person's terminal as the desktop reads it back, and their answers.
+struct TerminalClient {
+    answer: pwr_orchestrator::ApprovalDecision,
+    asked: std::sync::Mutex<Vec<pwr_tools::Approval>>,
+    reads: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl pwr_orchestrator::ApprovalPrompt for TerminalClient {
+    async fn ask(
+        &self,
+        approval: pwr_tools::Approval,
+        _: &str,
+    ) -> pwr_orchestrator::ApprovalDecision {
+        self.asked.lock().unwrap().push(approval);
+        self.answer
+    }
+
+    fn reads_terminal(&self) -> bool {
+        true
+    }
+
+    async fn read_terminal(&self, lines: usize) -> Result<serde_json::Value, String> {
+        self.reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(lines, 200, "the default number of lines");
+        Ok(serde_json::json!({"terminals": [{
+            "title": "Terminal 1",
+            "text": "./src/app/layout.tsx:2:1\nModule not found: Can't resolve './globals.css'\nexport API_KEY=sk-live-123\n GET / 500 in 1366ms",
+        }]}))
+    }
+}
+
+fn read_the_terminal_twice(
+    client: &TerminalClient,
+) -> (Vec<ModelRequest>, Vec<pwr_store::EventRecord>) {
+    let dir = workspace();
+    let provider = Scripted::new(vec![
+        calls("read_terminal", serde_json::json!({})),
+        calls("read_terminal", serde_json::json!({})),
+        says("globals.css is missing."),
+    ]);
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let conversation_id = pwr_domain::new_id();
+    let mut messages = vec![
+        ChatMessage::text("system", "You are PWR."),
+        ChatMessage::text("user", "ho un errore di build, guarda il terminale"),
+    ];
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(converse::take_turn(
+            &provider,
+            pwr_compat::adapter_for(None, "fake").as_ref(),
+            &deployment(),
+            &store,
+            conversation_id,
+            &policy_for(dir.path()),
+            &mut messages,
+            32_768,
+            &[],
+            Default::default(),
+            pwr_compat::render_tools(&converse::with_terminal(converse::chat_tool_catalog())),
+            &std::sync::atomic::AtomicBool::new(false),
+            &converse::Continuity::default(),
+            client,
+            |_| {},
+        ))
+        .unwrap();
+    (
+        provider.requests(),
+        store.events_for_run(conversation_id).unwrap(),
+    )
+}
+
+fn last_tool_result(request: &ModelRequest) -> String {
+    request
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == "tool")
+        .map(|message| message.content.clone())
+        .unwrap_or_default()
+}
+
+/// Asked for by the owner on 2026-10-02: "if I tell it I have a build error,
+/// can it check the terminal?". Allowed for the session, the person is asked
+/// once; what the terminal printed reaches the model, secrets redacted.
+#[test]
+fn the_model_reads_the_terminal_once_the_person_allows_it() {
+    let client = TerminalClient {
+        answer: pwr_orchestrator::ApprovalDecision::AllowForRun,
+        asked: Default::default(),
+        reads: Default::default(),
+    };
+    let (requests, events) = read_the_terminal_twice(&client);
+    assert_eq!(
+        *client.asked.lock().unwrap(),
+        vec![pwr_tools::Approval::TerminalRead],
+        "asked more than once"
+    );
+    assert_eq!(client.reads.load(std::sync::atomic::Ordering::Relaxed), 2);
+    let read = last_tool_result(&requests[1]);
+    assert!(read.contains("Can't resolve './globals.css'"), "{read}");
+    assert!(
+        read.contains("[REDACTED]") && !read.contains("sk-live-123"),
+        "{read}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event.event_type == "approval.decision"
+                && event.payload["approval"] == "terminal_read"),
+        "the person's answer is not in the audit"
+    );
+}
+
+#[test]
+fn a_refused_terminal_read_tells_the_model_to_ask_for_the_lines() {
+    let client = TerminalClient {
+        answer: pwr_orchestrator::ApprovalDecision::Deny,
+        asked: Default::default(),
+        reads: Default::default(),
+    };
+    let (requests, _) = read_the_terminal_twice(&client);
+    assert_eq!(client.reads.load(std::sync::atomic::Ordering::Relaxed), 0);
+    let told = last_tool_result(&requests[1]);
+    assert!(
+        told.contains("did not allow reading their terminal"),
+        "{told}"
+    );
+    assert_eq!(
+        client.asked.lock().unwrap().len(),
+        2,
+        "a refusal is not remembered"
+    );
+}
+
+/// A client without terminals (the console, a protocol client that did not
+/// say it has any) is not offered the tool, and a call is answered plainly.
+#[test]
+fn a_client_without_terminals_cannot_read_one() {
+    let names: Vec<String> = converse::chat_tool_catalog()
+        .tools
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect();
+    assert!(!names.contains(&"read_terminal".to_owned()));
+    let dir = workspace();
+    let provider = Scripted::new(vec![
+        calls("read_terminal", serde_json::json!({"lines": 50})),
+        says("I cannot see it."),
+    ]);
+    let outcome = drive_chat_under(
+        policy_for(dir.path()),
+        provider,
+        &[],
+        &std::sync::atomic::AtomicBool::new(false),
+    );
+    let told = last_tool_result(&outcome.requests[1]);
+    assert!(
+        told.contains("read_terminal is not available in a conversation"),
+        "{told}"
+    );
 }

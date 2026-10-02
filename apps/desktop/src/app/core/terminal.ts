@@ -2,7 +2,7 @@ import { Injectable, OnDestroy, WritableSignal, computed, effect, inject, signal
 import { ThemeService } from './theme';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
-import { AgentStore } from './agent.store';
+import { AgentStore, TerminalSnapshot } from './agent.store';
 import { bridge, inTauri } from './bridge';
 
 export type ShellState = 'starting' | 'running' | 'exited';
@@ -42,6 +42,8 @@ export class TerminalService implements OnDestroy {
   readonly error = computed(() => this.current()?.error() ?? '');
 
   constructor() {
+    // What the model may read, when the person allows it: these tabs' text.
+    this.agent.terminalReader = (lines) => this.read(lines);
     // The terminals' colours follow the app's theme, read once it is applied.
     const theme = inject(ThemeService);
     effect(() => {
@@ -144,7 +146,29 @@ export class TerminalService implements OnDestroy {
     this.current()?.term?.focus();
   }
 
+  /**
+   * The last `lines` rows of each tab, as plain text -- xterm's buffer, so no
+   * colour codes -- with a line the terminal wrapped joined back to one.
+   */
+  read(lines: number): TerminalSnapshot[] {
+    return this.sessions()
+      .filter((session) => session.term)
+      .map((session) => {
+        const buffer = session.term!.buffer.active;
+        const rows: string[] = [];
+        for (let row = Math.max(0, buffer.length - lines); row < buffer.length; row++) {
+          const line = buffer.getLine(row);
+          const text = line?.translateToString(true) ?? '';
+          if (line?.isWrapped && rows.length) rows[rows.length - 1] += text;
+          else rows.push(text);
+        }
+        while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
+        return { title: session.title, running: session.state() === 'running', text: rows.join('\n') };
+      });
+  }
+
   ngOnDestroy(): void {
+    if (this.agent.terminalReader) this.agent.terminalReader = null;
     this.closeAll();
   }
 

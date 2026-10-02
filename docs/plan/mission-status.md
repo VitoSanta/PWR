@@ -14,9 +14,11 @@ follows from this status.
   IMPLEMENTED. Repeat manual test before battery; model effectiveness UNKNOWN.
 - **IMPLEMENTED after the second Libra run (owner's decisions):** compaction at
   75 % of the granted window with no default ceiling (D-2026-10-02-3; it had
-  compacted at 34k of 262k), and a project generated into a new folder of an
-  empty workspace moved into its root, with later paths redirected
-  (D-2026-10-02-4). Model effect UNKNOWN until the owner repeats the task.
+  compacted at 34k of 262k), and in an empty workspace the first folder that
+  becomes a project -- generated or written by hand -- taken as its root, with
+  later paths and `cd` in scripts redirected (D-2026-10-02-4).
+  `read_terminal` (D-2026-10-02-5): a desktop conversation may read the
+  person's terminal tabs, read-only, after a once-per-conversation permission. Model effect UNKNOWN until the owner repeats the task.
 
 - **F0 adopted**, owner approved ("ok procedi"), commit `b9db2eab`.
   MASTER_SPEC and D-2026-10-01-2 are operative; prior contract archived whole.

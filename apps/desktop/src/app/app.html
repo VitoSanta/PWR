@@ -1,7 +1,7 @@
 @if (store.engineSetup()) {
   <pa-engine-setup [class.is-mac]="win.isMac" [class.is-fullscreen]="win.fullscreen()" />
 } @else {
-  <pa-shell-focus />
+  <pa-shell />
 }
 
 <pa-permission />

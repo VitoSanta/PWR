@@ -27,6 +27,7 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | Permissive campaign comparison as default | REMOVE (as default) | IMPLEMENTED: strict default, legacy explicitly noncausal | `pwr_eval::compare` | W8.1, W10.3 |
 | Semantic retrieval (embedding fusion) | EXPERIMENTAL | Opt-in (`PWR_SEMANTIC_RETRIEVAL=1`) | `crates/pwr-cli/src/semantic.rs` | Later (W4.7) |
 | `look_at` and image input | EXPERIMENTAL | Offered to vision models only | `look_at_tool`, `converse.rs` | Later |
+| `read_terminal` (the person's terminal tabs, read-only) | EXPERIMENTAL | IMPLEMENTED 2026-10-02 at the owner's request; desktop only, asked once per conversation, redacted | `read_terminal_tool`, `converse.rs`; `_pwr/terminal/read` in `serve.rs`; `TerminalService.read` | Measure use in manual runs |
 | Evidence-state compaction | EXPERIMENTAL | Scripted loop only (`--context-policy`) | `crates/pwr-orchestrator/src/evidence.rs` | W4.7 |
 | Goal review by the same model | EXPERIMENTAL | IMPLEMENTED, one round; since 2026-10-01 also when only technical checks pass and no acceptance is declared (the common case). 3/8 → 6/8 on one deployment, one trial per task: a signal, not a result | `review_prompt`, `executor.rs` | Kept, labelled as an opinion, not verification; to be measured (W8) |
 | llama.cpp / GGUF | EXPERIMENTAL | CLI only; server started per generation | `crates/pwr-llama` | Later |

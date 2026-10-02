@@ -106,6 +106,13 @@ pub enum ActionProposal {
         #[serde(default)]
         height: Option<u32>,
     },
+    /// The recent output of the person's own terminal tabs in the app,
+    /// read-only: what their dev server, build or tests printed. Answered by
+    /// the client, after the person allows it (`TerminalRead`).
+    ReadTerminal {
+        #[serde(default)]
+        lines: Option<usize>,
+    },
     /// Several replacements in one file, under one hash guard.
     ///
     /// Named for the schema, not for the variant. The tool has always been
@@ -523,6 +530,11 @@ pub enum Approval {
     /// in Full access, asked about with the exact path otherwise.
     /// Subfolders are the workspace and need nothing.
     OutsideWorkspace,
+    /// Reading the recent output of the person's own terminal tabs in the
+    /// app. Never granted by a mode: the terminal is the person's shell, with
+    /// whatever it printed -- their own commands, paths, sometimes secrets --
+    /// so it is asked about once per conversation, in Full access too.
+    TerminalRead,
 }
 
 /// Host paths under the real home directory that no run has a reason to read.

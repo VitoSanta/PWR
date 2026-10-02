@@ -12,10 +12,10 @@
   gap: 6px;
   flex: none;
   height: var(--control-h);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-4);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface-secondary);
+  border-radius: var(--radius-pill);
+  background: transparent;
   color: var(--text-primary);
   font-size: var(--fs-body-sm);
   font-weight: var(--fw-medium);
@@ -30,7 +30,7 @@
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--surface-elevated);
+  background: var(--surface-secondary);
   border-color: var(--border-strong);
 }
 
@@ -55,6 +55,19 @@
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-solid-hover);
   border-color: transparent;
+}
+
+/* The ink button: the one thing to do next in a column, as New conversation. */
+.btn-ink {
+  border-color: transparent;
+  border-radius: var(--radius-control);
+  background: var(--ink-solid);
+  color: var(--text-on-ink);
+}
+
+.btn-ink:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ink-solid-hover);
 }
 
 .btn-ghost {
@@ -94,7 +107,7 @@
 
 .btn-sm {
   height: var(--control-h-sm);
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-3);
   font-size: var(--fs-label);
   gap: 4px;
 }
@@ -176,6 +189,12 @@
   height: var(--control-h-sm);
 }
 
+.icon-btn-xs {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-inline);
+}
+
 .icon-btn-outline {
   border-color: var(--border-subtle);
 }
@@ -189,7 +208,7 @@
 .input {
   display: block;
   width: 100%;
-  height: var(--control-h);
+  height: var(--control-h-lg);
   padding: 0 var(--space-3);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
@@ -202,7 +221,7 @@
 }
 
 .input::placeholder {
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .input:hover:not(:disabled) {
@@ -302,11 +321,10 @@
 .switch {
   position: relative;
   flex: none;
-  width: 26px;
-  height: 16px;
+  width: 36px;
+  height: 20px;
   border-radius: var(--radius-pill);
-  background: var(--surface-active);
-  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  background: var(--border-subtle);
   transition: background-color var(--dur) var(--ease);
 }
 
@@ -315,10 +333,11 @@
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: var(--text-muted);
+  background: var(--input-bg);
+  box-shadow: var(--shadow-sm);
   transition:
     transform var(--dur) var(--ease),
     background-color var(--dur) var(--ease);
@@ -326,14 +345,13 @@
 
 [aria-pressed='true'] > .switch,
 [aria-checked='true'] > .switch {
-  background: var(--accent-solid);
-  box-shadow: none;
+  background: var(--accent-primary);
 }
 
 [aria-pressed='true'] > .switch::after,
 [aria-checked='true'] > .switch::after {
-  transform: translateX(10px);
-  background: var(--text-on-accent);
+  transform: translateX(16px);
+  background: #fff;
 }
 
 /* A labelled on/off control that reads as a button. */
@@ -385,9 +403,8 @@
   grid-auto-columns: 1fr;
   gap: 2px;
   padding: 3px;
-  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
-  background: var(--input-bg);
+  background: var(--surface-secondary);
 }
 
 .segmented > button {
@@ -398,12 +415,11 @@
   min-width: 0;
   height: calc(var(--control-h) - 8px);
   padding: 0 var(--space-3);
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-control-inner);
   background: transparent;
-  color: var(--text-muted);
-  font-size: var(--fs-label);
-  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+  font-size: var(--fs-body-sm);
   white-space: nowrap;
   transition:
     background-color var(--dur-fast) var(--ease),
@@ -415,9 +431,9 @@
 }
 
 .segmented > button[aria-checked='true'] {
-  background: var(--surface-elevated);
-  border-color: var(--border-subtle);
+  background: var(--input-bg);
   color: var(--text-primary);
+  font-weight: var(--fw-medium);
   box-shadow: var(--shadow-sm);
 }
 
@@ -433,27 +449,27 @@
 /* ----------------------------------------------------------------- tabs */
 .tabs {
   display: flex;
-  align-items: center;
-  gap: 2px;
+  align-items: flex-end;
+  gap: 22px;
   min-width: 0;
 }
 
+/* Underlined, as the inspector's: the chosen one in ink over the accent. */
 .tab {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   flex: none;
-  height: var(--control-h-sm);
-  padding: 0 var(--space-3);
+  padding: 0 0 10px;
   border: 0;
-  border-radius: var(--radius-control);
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--text-muted);
-  font-size: var(--fs-body-sm);
+  font-size: var(--fs-body);
   font-weight: var(--fw-medium);
   white-space: nowrap;
   transition:
-    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
 
@@ -462,7 +478,7 @@
 }
 
 .tab[aria-selected='true'] {
-  background: var(--surface-active);
+  border-bottom-color: var(--accent-primary);
   color: var(--text-primary);
 }
 
@@ -524,18 +540,9 @@ button.badge:hover {
 }
 
 .count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-size: var(--fs-caption);
-  font-weight: var(--fw-semibold);
+  color: var(--text-muted);
+  font: var(--fw-regular) var(--fs-label) / 1 var(--mono);
   font-variant-numeric: tabular-nums;
-  line-height: 1;
 }
 
 /* A status dot: colour plus shape of motion, never colour alone. */
@@ -565,6 +572,14 @@ button.badge:hover {
   animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
 }
 
+/* Something running: amber, breathing. */
+.dot-running {
+  width: 6px;
+  height: 6px;
+  background: var(--warning);
+  animation: pa-pulse var(--dur-pulse) ease-in-out infinite;
+}
+
 /* --------------------------------------------------------- kbd, tokens */
 .kbd {
   display: inline-flex;
@@ -573,12 +588,18 @@ button.badge:hover {
   gap: 2px;
   min-width: 18px;
   height: 18px;
-  padding: 0 4px;
+  padding: 0 5px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xs);
-  background: var(--surface-secondary);
+  border-radius: var(--radius-inline);
+  background: transparent;
   color: var(--text-muted);
-  font: var(--fw-medium) var(--fs-caption) / 1 var(--font);
+  font: var(--fw-regular) var(--fs-caption) / 1 var(--mono);
+}
+
+/* On the ink button. */
+.kbd-on-ink {
+  border-color: color-mix(in srgb, var(--text-on-ink) 22%, transparent);
+  color: color-mix(in srgb, var(--text-on-ink) 70%, transparent);
 }
 
 .path-token {
@@ -586,10 +607,10 @@ button.badge:hover {
   align-items: center;
   gap: 6px;
   max-width: 100%;
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-3);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-inline);
-  background: var(--surface-secondary);
+  border-radius: var(--radius-pill);
+  background: var(--surface-primary);
   color: var(--text-secondary);
   font: var(--fs-label) / 1.5 var(--mono);
   vertical-align: middle;
@@ -662,11 +683,6 @@ button.badge:hover {
   gap: var(--space-2);
   min-height: 20px;
   margin: 0 0 var(--space-1);
-  font-size: var(--fs-caption);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
 }
 
 .fine {
@@ -780,7 +796,7 @@ button.badge:hover {
 /* ------------------------------------------- menus, popovers, listboxes */
 .surface-floating {
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-panel);
   background: var(--surface-elevated);
   box-shadow: var(--shadow-popover);
 }
@@ -819,7 +835,7 @@ button.badge:hover {
 .menu-item.is-active,
 .menu-item:focus-visible {
   outline: none;
-  background: var(--surface-hover);
+  background: var(--surface-secondary);
 }
 
 .menu-item[aria-selected='true'] > .menu-check,
@@ -840,12 +856,7 @@ button.badge:hover {
 }
 
 .menu-label {
-  padding: var(--space-2) var(--space-2) var(--space-1);
-  font-size: var(--fs-caption);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  padding: 10px var(--space-3) var(--space-1);
 }
 
 .menu-hint {
@@ -904,7 +915,7 @@ button.badge:hover {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: min(440px, 100%);
+  width: min(460px, 100%);
   max-height: 100%;
   overflow: hidden;
   border: 1px solid var(--border-subtle);
@@ -919,19 +930,19 @@ button.badge:hover {
 }
 
 .dialog.size-md {
-  width: min(560px, 100%);
+  width: min(640px, 100%);
 }
 
 .dialog.size-lg {
-  width: min(1000px, 100%);
-  height: min(860px, 100%);
+  width: min(1100px, 100%);
+  height: min(780px, 100%);
 }
 
 .dialog-header {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-5) var(--space-6) 0;
+  padding: var(--space-6) var(--space-6) 0;
 }
 
 .dialog-header-text {
@@ -943,14 +954,13 @@ button.badge:hover {
 }
 
 .dialog-title {
-  font-size: var(--fs-heading);
-  font-weight: var(--fw-semibold);
-  line-height: 1.4;
+  font: var(--fw-regular) var(--fs-title) / 1.2 var(--heading);
+  letter-spacing: -0.005em;
 }
 
 .dialog-description {
-  color: var(--text-secondary);
-  font-size: var(--fs-body-sm);
+  color: var(--text-muted);
+  font-size: var(--fs-body);
   line-height: 1.5;
 }
 
@@ -1181,14 +1191,15 @@ pa-popover.popover {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: 44px;
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-4) var(--space-3) var(--space-1) 18px;
+}
+
+.popover-head > .icon-btn {
+  color: var(--text-muted);
 }
 
 .popover-title {
-  font-size: var(--fs-body-sm);
-  font-weight: var(--fw-semibold);
+  font: var(--fw-regular) var(--fs-title) / 1.2 var(--heading);
 }
 
 .popover-body {
@@ -1202,7 +1213,7 @@ pa-popover.popover {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) 18px;
 }
 
 .popover-section + .popover-section {
@@ -1213,9 +1224,9 @@ pa-popover.popover {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  padding: 14px 18px;
   border-top: 1px solid var(--border-subtle);
-  background: var(--surface-elevated);
+  background: var(--surface-inset);
 }
 
 /* Resize handle between panels. */

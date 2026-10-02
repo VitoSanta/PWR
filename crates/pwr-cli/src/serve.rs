@@ -586,6 +586,10 @@ struct Server<R> {
     summarising: Rc<std::cell::Cell<bool>>,
     summary_cancel: RefCell<pwr_provider::Cancel>,
     closing: std::cell::Cell<bool>,
+    /// The client said in `initialize` that it can read the person's own
+    /// terminal tabs back (`_meta.pwr.readTerminal`), so turns offer
+    /// `read_terminal`.
+    client_reads_terminal: std::cell::Cell<bool>,
 }
 
 /// The server as the executor's host: one session's notifications and
@@ -666,6 +670,7 @@ where
         summarising: Rc::default(),
         summary_cancel: RefCell::default(),
         closing: std::cell::Cell::new(false),
+        client_reads_terminal: std::cell::Cell::new(false),
     });
     let mut lines = input.lines();
     while let Some(line) = lines.next_line().await.map_err(|error| error.to_string())? {
@@ -763,7 +768,12 @@ impl<R: TurnRunner + 'static> Server<R> {
 
     async fn request(self: &Rc<Self>, id: Value, method: &str, params: Value) {
         match method {
-            "initialize" => self.send(result(
+            "initialize" => {
+                self.client_reads_terminal.set(
+                    params["clientCapabilities"]["_meta"]["pwr"]["readTerminal"].as_bool()
+                        == Some(true),
+                );
+                self.send(result(
                 id,
                 json!({
                     "protocolVersion": PROTOCOL_VERSION,
@@ -778,7 +788,8 @@ impl<R: TurnRunner + 'static> Server<R> {
                     // no workspace -- it reads only what is attached to it.
                     "_meta": {"pwr": {"chatHome": self.runner.chat_home()}},
                 }),
-            )),
+            ))
+            }
             "session/new" => self.new_session(id, &params).await,
             "session/load" => self.load_session(id, &params, true).await,
             "session/resume" => self.load_session(id, &params, false).await,
@@ -802,7 +813,9 @@ impl<R: TurnRunner + 'static> Server<R> {
                 };
                 let context_tokens = match params.get("contextTokens") {
                     None | Some(Value::Null) => None,
-                    Some(Value::Number(tokens)) => tokens.as_u64().and_then(|tokens| u32::try_from(tokens).ok()),
+                    Some(Value::Number(tokens)) => tokens
+                        .as_u64()
+                        .and_then(|tokens| u32::try_from(tokens).ok()),
                     Some(_) => {
                         return self.send(error_response(
                             id,
@@ -811,9 +824,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                         ));
                     }
                 };
-                if params.get("contextTokens").is_some()
-                    && context_tokens.is_none()
-                {
+                if params.get("contextTokens").is_some() && context_tokens.is_none() {
                     return self.send(error_response(
                         id,
                         -32602,
@@ -829,8 +840,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                         reasoning_effort: match params.get("reasoningEffort") {
                             None | Some(Value::Null) => None,
                             Some(value) => {
-                                match value.as_str().and_then(pwr_domain::ReasoningEffort::parse)
-                                {
+                                match value.as_str().and_then(pwr_domain::ReasoningEffort::parse) {
                                     Some(effort) => Some(effort),
                                     None => {
                                         return self.send(error_response(
@@ -875,14 +885,19 @@ impl<R: TurnRunner + 'static> Server<R> {
                 if self.is_chat_home(&root) {
                     return self.send(error_response(id, -32000, "chat mode has no wiki"));
                 }
-                let started = !self.summarising.get() && !self.sessions.borrow().values().any(|session| session.busy);
+                let started = !self.summarising.get()
+                    && !self.sessions.borrow().values().any(|session| session.busy);
                 self.summarise_while_idle(root);
                 self.send(result(id, json!({"started": started})));
             }
             "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/wiki_settings" => {
-                let enabled = match params.get("enabled") { None | Some(Value::Null) => None, Some(Value::Bool(enabled)) => Some(*enabled), _ => return self.send(error_response(id, -32602, "enabled must be a boolean")) };
+                let enabled = match params.get("enabled") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::Bool(enabled)) => Some(*enabled),
+                    _ => return self.send(error_response(id, -32602, "enabled must be a boolean")),
+                };
                 self.settings(id, &params, SettingsRequest::WikiSummaries { enabled });
             }
             "_pwr/compact" => self.compact(id, &params).await,
@@ -2669,6 +2684,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 session_id: session_id.clone(),
                 grants: Arc::clone(&grants),
                 asking_about,
+                reads_terminal: server.client_reads_terminal.get(),
             });
             let session_grants = Arc::clone(&grants);
             let reply = server
@@ -3032,10 +3048,57 @@ struct ClientApproval {
     /// about: the turn announces an action before putting it to the policy,
     /// on the same task, so nothing can come between them.
     asking_about: Arc<Mutex<Option<String>>>,
+    /// Whether the client can read the person's terminal back.
+    reads_terminal: bool,
 }
+
+/// How long the client has to read its terminals back: it answers from what
+/// its terminal cards already hold, so a client that takes longer is not
+/// answering at all.
+const TERMINAL_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[async_trait::async_trait]
 impl ApprovalPrompt for ClientApproval {
+    fn reads_terminal(&self) -> bool {
+        self.reads_terminal
+    }
+
+    async fn read_terminal(&self, lines: usize) -> Result<Value, String> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (reply, answer) = oneshot::channel();
+        if let Ok(mut waiting) = self.pending.lock() {
+            waiting.insert(id, (self.session_id.clone(), reply));
+        }
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "_pwr/terminal/read",
+            "params": {"sessionId": self.session_id, "lines": lines},
+        });
+        if self.out.send(request).is_err() {
+            return Err("the app is not connected".into());
+        }
+        match tokio::time::timeout(TERMINAL_READ_TIMEOUT, answer).await {
+            Ok(Ok(response)) => match response.get("error") {
+                Some(error) => Err(format!(
+                    "the app could not read its terminal: {}",
+                    error["message"].as_str().unwrap_or("no reason given")
+                )),
+                None => Ok(response["result"].clone()),
+            },
+            Ok(Err(_)) => Err("the app closed before answering".into()),
+            Err(_) => {
+                if let Ok(mut waiting) = self.pending.lock() {
+                    waiting.remove(&id);
+                }
+                Err(format!(
+                    "the app did not read its terminal back within {} seconds",
+                    TERMINAL_READ_TIMEOUT.as_secs()
+                ))
+            }
+        }
+    }
+
     async fn ask(&self, approval: pwr_tools::Approval, description: &str) -> ApprovalDecision {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (reply, answer) = oneshot::channel();
@@ -3988,6 +4051,8 @@ mod tests {
         ask_on_first: Option<pwr_tools::Approval>,
         /// How many session grants each turn started with.
         grants_seen: Arc<Mutex<Vec<usize>>>,
+        /// The first turn reads the person's terminal through the client.
+        read_terminal_on_first: bool,
     }
 
     #[async_trait::async_trait(?Send)]
@@ -4037,6 +4102,21 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(turn.session_grants.lock().unwrap().len());
+            if run == 0 && self.read_terminal_on_first {
+                let reads = turn.approvals.reads_terminal();
+                let read = if reads {
+                    match turn.approvals.read_terminal(7).await {
+                        Ok(read) => read.to_string(),
+                        Err(why) => why,
+                    }
+                } else {
+                    "not offered".to_owned()
+                };
+                self.requests
+                    .lock()
+                    .unwrap()
+                    .push(format!("TERMINAL {reads} {read}"));
+            }
             if run == 0
                 && let Some(approval) = self.ask_on_first
             {
@@ -4245,6 +4325,12 @@ mod tests {
                         "an extension notification with an id"
                     );
                 }
+                // PWR's one request of its own, made only of a client that
+                // said in `initialize` it can answer it.
+                "_pwr/terminal/read" => {
+                    assert!(message.get("id").is_some(), "a request without an id");
+                    assert!(message["params"]["lines"].is_u64(), "{message}");
+                }
                 other => panic!("the server sent a method a client does not implement: {other}"),
             }
             return;
@@ -4393,6 +4479,66 @@ mod tests {
             .filter(|message| message["method"] == "session/update")
             .map(|message| &message["params"]["update"])
             .collect()
+    }
+
+    /// `initialize` saying the client reads its terminals offers that to the
+    /// turn; the turn's read goes to the client as `_pwr/terminal/read`, and
+    /// the client's answer comes back to it. Without the capability, nothing
+    /// is offered.
+    #[tokio::test]
+    async fn a_client_that_reads_its_terminal_answers_the_turn() {
+        for declared in [true, false] {
+            let mut runner = budget_runner();
+            runner.read_terminal_on_first = true;
+            let requests = Arc::clone(&runner.requests);
+            with_runner(runner, |mut client| async move {
+                let capabilities = if declared {
+                    json!({"_meta": {"pwr": {"readTerminal": true}}})
+                } else {
+                    json!({})
+                };
+                client
+                    .request(
+                        1,
+                        "initialize",
+                        json!({"protocolVersion": 1, "clientCapabilities": capabilities}),
+                    )
+                    .await;
+                client.until_response(1).await;
+                let session = client.new_session(2).await;
+                client.prompt(3, &session, "ho un errore di build").await;
+                loop {
+                    let message = client.receive().await;
+                    if message["method"] == "_pwr/terminal/read" {
+                        assert!(declared, "asked a client that cannot read its terminal");
+                        assert_eq!(message["params"]["lines"], 7);
+                        assert_eq!(message["params"]["sessionId"], session);
+                        client
+                            .send(json!({"jsonrpc": "2.0", "id": message["id"], "result": {
+                                "terminals": [{"title": "Terminal 1", "text": "Module not found"}],
+                            }}))
+                            .await;
+                    }
+                    if message.get("method").is_none() && message["id"] == 3 {
+                        break;
+                    }
+                }
+            })
+            .await;
+            let seen = requests.lock().unwrap().clone();
+            let read = seen
+                .iter()
+                .find(|line| line.starts_with("TERMINAL"))
+                .expect("the first turn did not run");
+            if declared {
+                assert!(
+                    read.starts_with("TERMINAL true") && read.contains("Module not found"),
+                    "{read}"
+                );
+            } else {
+                assert_eq!(read, "TERMINAL false not offered");
+            }
+        }
     }
 
     #[tokio::test(start_paused = true)]
@@ -4838,6 +4984,7 @@ mod tests {
                 delay: None,
                 runs: std::sync::atomic::AtomicUsize::new(0),
                 ask_on_first: None,
+                read_terminal_on_first: false,
                 grants_seen: Default::default(),
                 script: Vec::new(),
                 requests: Default::default(),
@@ -4921,6 +5068,7 @@ mod tests {
             delay: None,
             runs: std::sync::atomic::AtomicUsize::new(0),
             ask_on_first: None,
+            read_terminal_on_first: false,
             grants_seen: Default::default(),
             script: Vec::new(),
             requests: Default::default(),
@@ -5073,6 +5221,7 @@ mod tests {
             runs: Default::default(),
             requests: Default::default(),
             ask_on_first: None,
+            read_terminal_on_first: false,
             grants_seen: Default::default(),
             script: vec![turn(1, true, None)],
             verification: GoalVerification {
@@ -5241,6 +5390,7 @@ mod tests {
             delay: None,
             runs: std::sync::atomic::AtomicUsize::new(0),
             ask_on_first: None,
+            read_terminal_on_first: false,
             grants_seen: Default::default(),
             script: vec![turn(4, true, None), turn(0, true, None)],
             requests: Arc::clone(&requests),
@@ -5284,6 +5434,7 @@ mod tests {
             },
             requests: Default::default(),
             ask_on_first: Some(pwr_tools::Approval::ContainerEngine),
+            read_terminal_on_first: false,
             grants_seen: Arc::clone(&seen),
             script: vec![
                 turn(2, false, Some(StopReason::BudgetSpent)),
@@ -5331,6 +5482,7 @@ mod tests {
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
             ask_on_first: None,
+            read_terminal_on_first: false,
             grants_seen: Default::default(),
             script: vec![turn(4, true, None)],
             verification: GoalVerification {
@@ -5367,6 +5519,7 @@ mod tests {
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
             ask_on_first: None,
+            read_terminal_on_first: false,
             grants_seen: Default::default(),
             script: vec![
                 turn(5, false, Some(StopReason::BudgetSpent)),
@@ -5393,6 +5546,7 @@ mod tests {
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
             ask_on_first: None,
+            read_terminal_on_first: false,
             grants_seen: Default::default(),
             script,
             verification: GoalVerification {
@@ -5428,6 +5582,7 @@ mod tests {
                 delay: None,
                 runs: std::sync::atomic::AtomicUsize::new(0),
                 ask_on_first: None,
+                read_terminal_on_first: false,
                 grants_seen: Default::default(),
                 script: Vec::new(),
                 requests: Default::default(),
