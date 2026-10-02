@@ -13,6 +13,21 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — Paired analysis of stack-matrix runs; the 3/8 to 6/8 signal re-read
+
+**IMPLEMENTED analysis; MEASURED re-reading of existing runs, no new run.**
+`evidence/stack-matrix/runner/analyze.py` compares runs as arms on shared
+(task, attempt) results, first cycle apart from nudged final outcomes, with the
+MASTER_SPEC statistics (Wilson, bootstrap over tasks, exact McNemar or paired
+sign-flip with repeats, Holm) and lists unequal provenance; `power` sizes a
+campaign with the exact McNemar power. Applied to `fix2-q36-35b` (binary
+`9385a010`) and `fix3-q36-35b` (`7afe9fdc`), Qwen3.6-35B-A3B, 8 dev tasks, one
+trial: first cycle 3/8 vs 4/8 (p = 1.0); final 3/8 vs 6/8, difference -0.375,
+bootstrap 95% [-0.875, 0.125], exact McNemar p = 0.375. The review-round change
+of 2026-10-01 stays a hypothesis; most of its gain came after nudges. Tests:
+`test_analyze.py` (hand-worked values; power within 15% above Connor's
+approximation).
+
 ## 2026-10-02 — Stack-matrix tasks frozen by split and digest
 
 **IMPLEMENTED measurement procedure.** `evidence/stack-matrix/splits.json`

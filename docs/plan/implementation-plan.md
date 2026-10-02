@@ -678,7 +678,8 @@ superseded design, kept for its inventory.
 
 **Runner progress.** (1) Engine lease and provenance: IMPLEMENTED 2026-10-02
 (`provenance.py`, runner tests in CI against a stand-in core). (2) Frozen split
-manifest: IMPLEMENTED 2026-10-02 (`splits.json`, 20 dev / 11 heldout). Next: (3) the paired analysis, (4) the W8.3 minimal control as
+manifest: IMPLEMENTED 2026-10-02 (`splits.json`, 20 dev / 11 heldout). (3) Paired
+analysis and exact power: IMPLEMENTED 2026-10-02 (`analyze.py`). Next: (4) the W8.3 minimal control as
 an arm, (5) competitors against a matched endpoint (installs need the owner).
 
 **Former status:** IN PROGRESS · L — dispositions accepted (D-2026-09-30-6); rows 5, 6, 8 and 14 applied locally; the evaluator is not yet on the executor (see *Progress*)
