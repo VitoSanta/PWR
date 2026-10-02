@@ -78,6 +78,13 @@ whoever tunes PWR, who then never reads them: `run.py reference` and
 to measure, after the harness is frozen for a campaign; a harness change made
 after looking at a held-out failure moves that task to `dev`.
 
+`splits.json` freezes every task's split and digest (first frozen 2026-10-02:
+20 dev, 11 heldout). `run.py run` refuses a task that is missing from it, has
+moved split, or has changed since; `--allow-unfrozen` runs it anyway and the
+result says so. A revision listed below is followed by `run.py freeze --reason
+"<why>"`, which keeps the previous freeze and the tasks it changed in the
+manifest's history.
+
 ## Revisions
 
 A task changed after it was run is listed here, with what changed and why.

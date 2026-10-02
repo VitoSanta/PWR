@@ -5,6 +5,7 @@
     run.py reference [TASK ...]          seed fails and reference passes, in containers
     run.py run [TASK ...] --run RUN_ID [--split dev|heldout] [--repeat N]
     run.py verify TASK WORKSPACE         the independent verdict on one workspace
+    run.py freeze [--reason WHY]         record every task's split and digest (splits.json)
 
 PWR is driven the way the desktop app drives it -- `pwr serve --stdio`, one
 process per task, goal mode, the permission questions answered by a stand-in
@@ -42,6 +43,11 @@ MLX_PYTHON = os.environ.get(
     str(pathlib.Path.home() / "Library/Application Support/ai.pwr.desktop/engine/venv/bin/python"),
 )
 MODEL = os.environ.get("PWR_EVIDENCE_MODEL", "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit")
+
+# The frozen identity of every task: split and digest. A campaign runs only
+# tasks that still match it, so a result names the task it was measured on and
+# a held-out task cannot be quietly edited between campaigns.
+SPLITS = pathlib.Path(os.environ.get("PWR_EVIDENCE_SPLITS", SUITE / "splits.json"))
 
 # One campaign at a time holds the machine's inference engine (D-2026-10-01-1).
 LEASE = pathlib.Path(os.environ.get("PWR_EVIDENCE_LEASE", pathlib.Path.home() / "Desktop/pwr-evidence/engine.lock"))
@@ -84,7 +90,9 @@ def say(*parts):
 
 def load_tasks(names=None, split=None):
     tasks = []
-    paths = sorted(p for folder in [TASKS, *EXTRA_TASKS] for p in folder.glob("*/task.json"))
+    # Tests point the runner at their own tasks alone.
+    folders = EXTRA_TASKS if os.environ.get("PWR_EVIDENCE_ONLY_EXTRA") else [TASKS, *EXTRA_TASKS]
+    paths = sorted(p for folder in folders for p in folder.glob("*/task.json"))
     for path in sorted(paths, key=lambda p: p.parent.name):
         task = json.loads(path.read_text())
         task["dir"] = path.parent
@@ -374,6 +382,50 @@ def binary_revision():
     return f"{head} (unpinned build)"
 
 
+def frozen_manifest():
+    if not SPLITS.is_file():
+        return None
+    return json.loads(SPLITS.read_text())
+
+
+def unfrozen(tasks, manifest):
+    """Why each task does not match the frozen manifest; empty when all do."""
+    if manifest is None:
+        return [f"no frozen manifest at {SPLITS}; run `run.py freeze`"]
+    problems = []
+    for task in tasks:
+        entry = manifest["tasks"].get(task["id"])
+        if entry is None:
+            problems.append(f"{task['id']}: not in the frozen manifest")
+        elif entry["split"] != task.get("split"):
+            problems.append(f"{task['id']}: split {task.get('split')} but frozen as {entry['split']}")
+        elif entry["digest"] != task_digest(task["dir"]):
+            problems.append(f"{task['id']}: changed since the manifest was frozen")
+    return problems
+
+
+def cmd_freeze(args):
+    tasks = load_tasks()
+    previous = frozen_manifest()
+    if previous and not args.reason:
+        sys.exit(f"{SPLITS} exists; a new freeze needs --reason, kept in its history")
+    history = (previous or {}).get("history", [])
+    if previous:
+        history.append({"frozen": previous["frozen"], "reason_replaced": args.reason,
+                        "changed": sorted(t["id"] for t in tasks
+                                          if previous["tasks"].get(t["id"], {}).get("digest") != task_digest(t["dir"]))})
+    manifest = {
+        "frozen": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "note": "Split and digest of every task, as run.py's task_digest computes it. "
+                "A campaign runs only tasks that match; a changed task is listed in README.md "
+                "under Revisions and the manifest frozen again with a reason.",
+        "tasks": {t["id"]: {"split": t.get("split"), "digest": task_digest(t["dir"])} for t in tasks},
+        "history": history,
+    }
+    SPLITS.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
+    say(f"froze {len(tasks)} tasks in {SPLITS}")
+
+
 def wait_for_idle_engines(seconds=60):
     """Other inference engines still running after `seconds`: the previous
     task's engine is given time to exit; anything left competes for the GPU."""
@@ -525,6 +577,11 @@ def cmd_run(args):
     tasks = load_tasks(args.tasks or None, args.split)
     # A campaign whose verdicts cannot run would only record failures: c4's
     # first attempt ran six tasks with Docker stopped.
+    problems = unfrozen(tasks, frozen_manifest())
+    if problems and not args.allow_unfrozen:
+        sys.exit("Tasks do not match the frozen manifest:\n  " + "\n  ".join(problems)
+                 + "\n(--allow-unfrozen runs them anyway, recorded; such results are not a measurement "
+                 "of the frozen task set)")
     if any("host" not in task["verify"] for task in tasks) and not docker_ready():
         sys.exit("Docker is not running: the verdicts run in containers. Start Docker, then run again.")
     try:
@@ -534,7 +591,9 @@ def cmd_run(args):
         sys.exit(f"Another campaign holds the inference engine ({LEASE}): {held}")
     campaign = {"machine": provenance.machine(),
                 "engine_libraries": provenance.engine_libraries(MLX_PYTHON),
-                "busy_machine_allowed": args.allow_busy_machine}
+                "busy_machine_allowed": args.allow_busy_machine,
+                "splits": {"manifest_digest": provenance.digest(SPLITS),
+                           "unfrozen": problems}}
     summary = []
     try:
         for attempt in range(1, args.repeat + 1):
@@ -590,13 +649,18 @@ def main():
     run.add_argument("--split")
     run.add_argument("--repeat", type=int, default=1)
     run.add_argument("--turns", type=int)
+    run.add_argument("--allow-unfrozen", action="store_true",
+                     help="run tasks that do not match the frozen manifest (recorded)")
     run.add_argument("--allow-busy-machine", action="store_true",
                      help="run even with another inference engine present (recorded; timings are then not comparable)")
+    freeze = sub.add_parser("freeze")
+    freeze.add_argument("--reason", help="why an existing manifest is replaced (kept in its history)")
     check = sub.add_parser("verify")
     check.add_argument("task")
     check.add_argument("workspace")
     args = parser.parse_args()
-    {"list": cmd_list, "reference": cmd_reference, "run": cmd_run, "verify": cmd_verify}[args.cmd](args)
+    {"list": cmd_list, "reference": cmd_reference, "run": cmd_run, "verify": cmd_verify,
+     "freeze": cmd_freeze}[args.cmd](args)
 
 
 if __name__ == "__main__":

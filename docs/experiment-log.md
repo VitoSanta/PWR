@@ -13,6 +13,15 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — Stack-matrix tasks frozen by split and digest
+
+**IMPLEMENTED measurement procedure.** `evidence/stack-matrix/splits.json`
+records every task's split and digest (20 dev, 11 heldout); `run.py run`
+refuses tasks that are missing, moved or changed, unless `--allow-unfrozen`,
+which each result records under `provenance.splits`. A refreeze needs a reason
+and keeps the previous freeze and the changed tasks in its history. Computing
+digests reads no task for tuning; no heldout content was inspected.
+
 ## 2026-10-02 — Stack-matrix runner: engine lease and run provenance
 
 **IMPLEMENTED measurement procedure, no campaign run.** By D-2026-10-02-1 the
