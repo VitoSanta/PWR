@@ -1172,6 +1172,25 @@ The review's fourth "build next", and the reason for the order above.
 - **Where it runs (D-2026-10-02-1).** Behind `pwr serve`, selected by the
   stack-matrix runner as an arm, so it shares the engine, template, sampling,
   tools and sandbox with the PWR arm and only the harness differs.
+- **PROPOSED classification (2026-10-02, awaiting the owner).** *Shared by both
+  arms (plumbing):* engine, model, quantization, window, resolved sampling, the
+  per-generation reasoning budget, the family adapter and the declared model
+  suffix, the tool catalogue and its execution, sandbox, policy, approvals,
+  version-checked writes, the goal's action and wall budgets, Stop, backend-fault
+  retries, context-tier drop on a backend refusal and the physical context check.
+  *PWR only (harness, off in the control):* PWR's instructions and framework
+  guidance (the control gets a short neutral instruction), ranked repository
+  passages, session ledger, personal block and wiki; completion holds (unseen
+  results, nothing done, syntax-only); repetition and stall guards (repeated
+  refusal, echoes, repeated failure, failed-run handover, no progress, rewrite
+  notes); reply recoveries (reasoning finalization, unstructured-reply guard and
+  runaway cap, anti-loop presence penalty, degenerate clean start, cut-off and
+  tool-call format guidance -- the control says only that the reply could not
+  be used); compaction with the verbatim objective (the control drops the oldest
+  exchanges); checks after an editing turn; Goal verification, review, the
+  already-failing note and idle/stalled guards. *Bounds kept in the control so
+  it stays bounded, not as help:* three unusable or empty replies in a row stop
+  it. The runner's nudges apply to both arms alike.
 
 ### W8.4 The confirmatory campaign
 
