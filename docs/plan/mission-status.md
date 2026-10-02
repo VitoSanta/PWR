@@ -95,21 +95,25 @@ F0 saved patch. Suites include these hunks; commit only this cycle's work.
 
 ## Queue / next step
 
-No campaign queued or launched. External queue.sh serializes its own model
-list, but is not verified to exclude another queue/engine. F3 needs a lease
-and recorded provenance before timing; machine is not certified idle.
+No campaign queued or launched. The runner now holds an engine lease and
+records provenance (D-2026-10-02-1); the machine is not certified idle and
+Docker is not running.
 
 1. Continue the remaining F1 audit, tests first for demonstrated defects;
    no default tuning. (Goal-deadline transcript: IMPLEMENTED 2026-10-02.)
-2. Runner (W2.4 by D-2026-10-02-1): competitors against a matched endpoint
-   (owner approves installs); a first paired dev run PWR vs minimal when the
-   owner frees the Mac and starts Docker; W8.3 minimal control as an arm, competitors (owner approves
-   installs); then W5.6 per-generation selection; continue the F2 survey.
-3. Arrange Docker and a serial idle/night slot for S/M/L/XL baselines.
+2. First paired dev run, PWR vs `--arm minimal`, sized with `analyze.py power`,
+   when the owner frees the Mac and starts Docker; S/M/L/XL baselines in a
+   serial night slot. XL has no installed model (a 70B 4-bit is about 40 GB).
+3. W5.6 per-generation sampling selection only after that baseline (it changes
+   sampling); continue the F2 survey.
 4. Propose exit thresholds from baseline; owner approval before F6.
 
 ## Pending owner stops
 
-F0 approval received; no further contract approval pending. F6 numerical
-thresholds later; future visible-feature removal or out-of-scope irreversible/
-external actions; Windows hardware only after the approved exit criterion.
+F0 approval received; no further contract approval pending. Owner decisions
+of 2026-10-02: stack-matrix runner as evaluator (D-2026-10-02-1); W8.3
+classification approved; no model runs for now; competitor installs deferred
+(mini-SWE-agent, Aider, OpenCode were proposed; Codex CLI needs a Responses
+endpoint mlx_lm.server lacks). Still pending: when to run, the XL download,
+competitors, F6 numerical thresholds; visible-feature removal (e.g. retiring
+`pwr eval run`/`pwr run`); Windows only after the approved exit criterion.
