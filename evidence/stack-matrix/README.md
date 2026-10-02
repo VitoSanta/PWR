@@ -65,6 +65,30 @@ the core sends none, so repeated trials differ by sampling.
 `python3 -m unittest discover -s runner` tests the runner against a stand-in
 core, without a model or Docker.
 
+## Analysis
+
+    python3 runner/analyze.py compare --arm pwr=<run> --arm other=<run> [--split heldout]
+    python3 runner/analyze.py power --p10 0.25 --p01 0.05
+
+`compare` pairs arms on the (task, attempt) results they share and reports,
+apart, the **first cycle** (passed on the brief alone, unattended) and the
+**final** outcome (after the runner's nudges, an external oracle's
+intervention): pass@1 per task, Wilson 95% intervals with one trial per task,
+between-trial variance with repeats, a task-resampled bootstrap interval for
+the difference, exact McNemar (one trial per task) or a paired sign-flip test
+over tasks (repeats are not new tasks), Holm-adjusted across comparisons, and
+every provenance field on which the arms differ besides the arm itself.
+`power` gives the paired tasks the exact McNemar test needs for a given effect
+(p10: passes under A only; p01: under B only) -- for example 61 tasks for
+0.25/0.05 at 80% power, 210 for 0.12/0.04 -- which is how a campaign is sized
+before it runs.
+
+Read on the development runs of 2026-10-01 (Qwen3.6-35B-A3B, 8 dev tasks,
+one trial each), the "3/8 to 6/8" after the review-round change is 3/8 to 4/8
+at the first cycle and 3/8 to 6/8 only after nudges; final difference -0.375,
+bootstrap [-0.875, 0.125], exact McNemar p = 0.375, binaries `9385a010` and
+`7afe9fdc`. A signal worth testing, not a measured effect.
+
 ## Tasks kept outside the repository
 
 `PWR_EVIDENCE_TASKS` names further task folders (separated by `:`), laid out
