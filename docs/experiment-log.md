@@ -715,3 +715,17 @@ project, and to say so, not to clear the person's files, when a generator
 refuses a non-empty folder. Whether models obey is **unmeasured**; the Angular
 topology guidance also assumes a root `angular.json`, which a subfolder
 project hid.
+
+## 2026-10-02 — Libra manual failure: delivery evidence and workspace recovery
+
+**MEASURED:** the owner's Nemotron 3.5 manual run on the C01–C15 build left
+Libra empty after 47 tool actions (failed invented outside write, one listing,
+45 commands), yet the UI claimed delivery. Read-only journal diagnosis and
+red regressions are described in [the repair review](reviews/2026-10-02-libra-delivery.md).
+**IMPLEMENTED:** artifact evidence separated from possible command effects;
+ACP preserves it; unavailable checks no longer imply delivery; replay/live
+failures remain failed; one failed-write completion hold and explicit workspace
+anchor/recovery instructions. The golden refused-edit turn changes only its
+delivery flag to false. No verifier, sandbox boundary, sampling or investigation
+threshold is relaxed. Real-model recovery effectiveness is **UNKNOWN**; repeat
+the manual test before the battery. No inference/campaign was run by this agent.

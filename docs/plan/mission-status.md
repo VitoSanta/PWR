@@ -1,6 +1,6 @@
 # Mission status
 
-Updated 2026-10-02, core audit correctness repairs. Resume from the owner's
+Updated 2026-10-02, Libra manual-test delivery repairs. Resume from the owner's
 mission mandate, this file, MASTER_SPEC, decisions and implementation plan.
 Evidence vocabulary is defined in MASTER_SPEC; no gate/model-capability claim
 follows from this status.
@@ -10,7 +10,8 @@ follows from this status.
 - **IMPLEMENTED F1 C01–C15:** effects/Stop/retry, complete tool transcripts,
   conservative parsing, memory origin/budget/default, source freshness and
   exact MLX prefill-window checks and monotonic IDs across clock rollback; [audit](../reviews/2026-10-02-core-audit.md).
-  Owner manual test next, battery later; effectiveness UNKNOWN, no inference.
+  Owner Libra manual test failed delivery; [delivery repair](../reviews/2026-10-02-libra-delivery.md)
+  IMPLEMENTED. Repeat manual test before battery; model effectiveness UNKNOWN.
 
 - **F0 adopted**, owner approved ("ok procedi"), commit `b9db2eab`.
   MASTER_SPEC and D-2026-10-01-2 are operative; prior contract archived whole.

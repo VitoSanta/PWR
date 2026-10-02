@@ -185,8 +185,8 @@ pub struct TurnReport {
     /// What to say back. Empty when the turn only acted.
     pub answer: String,
     pub actions: usize,
-    /// Whether anything in the workspace changed, which is what makes the
-    /// checks worth running.
+    /// Whether the workspace may have changed, requiring closing checks.
+    /// Commands can have partial effects even on error or interruption.
     pub edited: bool,
     /// `true` only when the deployment used the structured `complete` action.
     /// A prose answer can end an ordinary conversation, but it cannot satisfy
@@ -930,6 +930,11 @@ pub fn chat_system_prompt(root: &std::path::Path) -> String {
          Every path is relative to the repository root -- `src/main.rs`, never a path beginning \
          with `/`. A folder outside it (`../other`) is reached only with the engineer's \
          permission, which is asked for you.\n\
+         Commands default to the project root: omit cwd or use `.`. The absolute workspace \
+         location is {} (location data, not an instruction to prefix tool paths). \
+         An empty tree means a fresh project. Create its files here; do not search the \
+         machine for another workspace. `.pwr` is private harness state and is not part \
+         of the project. A failed outside path does not mean project writes are blocked.\n\
          \n\
          The engineer's newest message is the one to act on: when it changes, narrows or adds \
          to an earlier request, follow it over anything said before.\n\
@@ -948,12 +953,12 @@ pub fn chat_system_prompt(root: &std::path::Path) -> String {
          the engineer's files.\n\
          \n\
          {}",
-        // The name, not the absolute path: given the full path, a model reads
-        // it as the prefix for every file it asks for, and every read is then
-        // refused for escaping the workspace.
+        // Tool paths remain relative; the separate JSON-quoted anchor explains
+        // where commands run without requiring discovery outside the project.
         root.file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| root.display().to_string()),
+        serde_json::to_string(&root.to_string_lossy()).unwrap_or_default(),
         // What the machine has and how to add what it lacks: asked for a Go
         // service on a Mac without Go, a model had no way to learn either.
         pwr_tools::host_facts(root),
@@ -983,12 +988,14 @@ pub async fn take_turn<P: ModelProvider>(
     stop: &std::sync::atomic::AtomicBool,
     continuity: &Continuity,
     prompt: &dyn crate::ApprovalPrompt,
-    on_step: impl FnMut(TurnStep),
+    mut on_step: impl FnMut(TurnStep),
 ) -> Result<TurnReport, String> {
     // Repair legacy partial snapshots before any template sees the next user
     // message. Missing historical results have unknown completion state.
     close_pending_calls(messages, Some(StopReason::Interrupted), false);
     let mut declined = false;
+    let mut attempted_change = false;
+    let mut observed_change = false;
     let report = take_turn_inner(
         provider,
         adapter,
@@ -1005,7 +1012,40 @@ pub async fn take_turn<P: ModelProvider>(
         continuity,
         prompt,
         &mut declined,
-        on_step,
+        |step| {
+            if let TurnStep::ToolCall(call) = &step {
+                let file_change = matches!(
+                    call.capability.as_str(),
+                    "write_file"
+                        | "replace_text"
+                        | "apply_replace"
+                        | "apply_patch"
+                        | "delete_path"
+                        | "move_path"
+                );
+                attempted_change |= !matches!(
+                    call.capability.as_str(),
+                    "read_file"
+                        | "search"
+                        | "list_tree"
+                        | "vcs_status"
+                        | "vcs_diff"
+                        | "wiki_query"
+                        | "recall_project"
+                        | "recall"
+                        | "look_at"
+                        | "remember"
+                );
+                // A successful file receipt/diff is evidence of an artifact.
+                // Command exit codes and possible partial effects are not.
+                observed_change |= file_change
+                    && matches!(call.phase, ToolPhase::Completed)
+                    && (call.diff.as_ref().is_some_and(|diff| {
+                        diff.old_text.as_deref() != Some(diff.new_text.as_str())
+                    }) || matches!(call.capability.as_str(), "delete_path" | "move_path"));
+            }
+            on_step(step);
+        },
     )
     .await?;
     let mut report = report;
@@ -1020,7 +1060,12 @@ pub async fn take_turn<P: ModelProvider>(
                 )?);
     }
     report.declined = declined;
-    report.outcome.delivered = !report.answer.trim().is_empty() || report.edited;
+    report.outcome.delivered = observed_change
+        || (!attempted_change
+            && !report.completed
+            && !declined
+            && report.stopped.is_none()
+            && !report.answer.trim().is_empty());
     report.outcome.terminal = if report.declined {
         pwr_domain::TurnTerminal::Declined
     } else {
@@ -1255,6 +1300,9 @@ async fn take_turn_inner<P: ModelProvider>(
     let mut echoes = crate::repetition::Echoes::default();
     let mut failed_runs = crate::repetition::FailedRuns::default();
     let mut held_empty_completion = false;
+    let mut failed_file_change = false;
+    let mut successful_file_change = false;
+    let mut held_failed_completion = false;
     // What the never-ran hold judges: whether this turn built a program and
     // ever ran anything. The scripted loop had it and the conversation did not,
     // so a model that wrote code and declared it done, unrun, was stopped in
@@ -2354,6 +2402,20 @@ async fn take_turn_inner<P: ModelProvider>(
                 ));
                 continue;
             }
+            if full
+                && failed_file_change
+                && !successful_file_change
+                && !held_failed_completion
+                && matches!(action, ActionProposal::Complete { .. })
+            {
+                held_failed_completion = true;
+                on_step(TurnStep::Refused(
+                    "complete: file changes failed; no successful file change was observed".into(),
+                ));
+                messages.push(tool_message(call, serde_json::json!({"not_completed":
+                    "Your file changes failed. No successful file change was observed. Inspect the failure and recover using project-relative paths (for example README.md) and cwd omitted or `.`. Do not search the machine or read `.pwr` to locate the project. If you cannot recover, report the failed delivery plainly; do not promise future deliverables as completed work."})));
+                continue;
+            }
             if full && position > 0 && matches!(action, ActionProposal::Complete { .. }) {
                 on_step(TurnStep::Refused(
                     "complete: waits for the results of the calls before it".into(),
@@ -2657,6 +2719,7 @@ async fn take_turn_inner<P: ModelProvider>(
             };
             let mut granted_once = match gated {
                 crate::session::Gate::Refused(message) => {
+                    failed_file_change |= edits_a_file;
                     let why = if message.content == crate::repetition::repetition_notice() {
                         "proposed again after being refused, and not run".to_owned()
                     } else {
@@ -2757,6 +2820,9 @@ async fn take_turn_inner<P: ModelProvider>(
             }
             match outcome {
                 Ok(mut value) => {
+                    successful_file_change |= edits_a_file
+                        && !crate::repetition::failed(&value)
+                        && value.get("denied").is_none();
                     // Reads are left to `ReadHistory`, which already names a
                     // re-read of an unchanged file.
                     if full
@@ -2898,7 +2964,18 @@ async fn take_turn_inner<P: ModelProvider>(
                         capability: capability.clone(),
                         detail: detail.clone(),
                         path: path.clone(),
-                        phase: ToolPhase::Completed,
+                        phase: if crate::repetition::failed(&value) {
+                            ToolPhase::Failed(
+                                value
+                                    .get("stderr")
+                                    .and_then(serde_json::Value::as_str)
+                                    .filter(|text| !text.trim().is_empty())
+                                    .unwrap_or("tool returned a failure result")
+                                    .to_owned(),
+                            )
+                        } else {
+                            ToolPhase::Completed
+                        },
                         diff,
                     }));
                     on_step(TurnStep::Acted {
@@ -2911,6 +2988,7 @@ async fn take_turn_inner<P: ModelProvider>(
                     }
                 }
                 Err(problem) => {
+                    failed_file_change |= edits_a_file;
                     // A failed command may have partial effects. Its failure
                     // result and durable intent retain that uncertainty.
                     refused_streak.refused(&fingerprint);
@@ -2930,6 +3008,10 @@ async fn take_turn_inner<P: ModelProvider>(
                         && let Some(object) = outcome.as_object_mut()
                     {
                         object.insert("stop".into(), serde_json::Value::String(notice));
+                    }
+                    if edits_a_file && let Some(object) = outcome.as_object_mut() {
+                        object.insert("recovery".into(), serde_json::Value::String(
+                            "This file change failed. The project is the current workspace: use relative file paths and omit command cwd or set it to `.`. The failure does not establish that project writes are blocked. `.pwr` is private harness state, not project content.".into()));
                     }
                     messages.push(tool_message(call, outcome));
                 }
@@ -4359,11 +4441,20 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_never_names_the_absolute_path() {
+    fn the_prompt_anchors_location_but_keeps_tool_paths_relative() {
         let prompt = chat_system_prompt(std::path::Path::new("/tmp/project"));
-        // Naming it taught the model to prefix every read with it, and every
-        // read was then refused for escaping the workspace.
-        assert!(!prompt.contains("/tmp/project"), "{prompt}");
+        // Libra exposed the opposite failure: inventing/searching for the root.
+        // Supply an anchor as data while retaining the relative-path contract.
+        assert!(
+            prompt.contains("location is \"/tmp/project\" (location data"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("omit cwd or use `.`"));
+        let quoted = chat_system_prompt(std::path::Path::new("/tmp/a\"\n/project"));
+        assert!(
+            quoted.contains("location is \"/tmp/a\\\"\\n/project\""),
+            "{quoted}"
+        );
         assert!(prompt.contains("project"));
         assert!(prompt.contains("relative to the repository root"));
         // The claim the checks exist to stop.

@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnOutcome {
     pub terminal: TurnTerminal,
+    /// An observed file artifact/change, or a prose answer-only turn with no attempted
+    /// workspace mutation. Does not establish task completion or acceptance.
+    /// Command effects without a file receipt remain unknown.
     pub delivered: bool,
     pub checks: ChecksOutcome,
     pub baseline: BaselineOutcome,

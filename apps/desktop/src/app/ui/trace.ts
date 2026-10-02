@@ -89,7 +89,7 @@ abstract class Foldable {
               <span class="badge">{{ retried }} retried</span>
             }
             @if (refused(step.entries); as failed) {
-              <span class="badge badge-danger">{{ failed }} refused</span>
+              <span class="badge badge-danger">{{ failed }} failed</span>
             }
             <pa-icon class="chevron" [class.open]="isOpen(step.key, step.last)" name="chevron-right" [size]="16" />
           </button>
@@ -334,7 +334,7 @@ export class TraceCompact extends Foldable {
         if (summary.edited) parts.push(`${summary.edited} edited`);
         if (summary.commands) parts.push(`${summary.commands} command${summary.commands === 1 ? '' : 's'}`);
         if (summary.checks) parts.push(`${summary.checks} check${summary.checks === 1 ? '' : 's'}`);
-        if (summary.refused) parts.push(`${summary.refused} refused`);
+        if (summary.refused) parts.push(`${summary.refused} failed`);
         if (!parts.length && summary.reasoned) parts.push('thinking');
         const lastRetry = summary.retries[summary.retries.length - 1];
         let retry: { text: string; tone: 'ok' | 'warn' | 'bad' } | null = null;

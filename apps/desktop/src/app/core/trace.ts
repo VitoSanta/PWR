@@ -286,7 +286,7 @@ export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
   if (evidence?.checks?.status === 'failed') return { ...base, text: evidence.baseline?.status === 'preserved' ? 'Existing checks still fail; the baseline was preserved, but the work is not verified.' : 'The repository checks failed; the work is not verified.', action: null, tone: 'failed' };
   if (evidence?.checks?.status === 'could_not_run') return { ...base, text: 'Verification could not run.', detail: evidence.checks.why, action: null, tone: 'failed' };
   if (evidence?.checks?.status === 'ran_zero_tests') return { ...base, text: 'Checks exited successfully but ran zero tests; behavior is unverified.', action: null, tone: 'paused' };
-  if (evidence?.checks?.status === 'unavailable') return { ...base, text: 'Work delivered; independent verification is unavailable.', detail: evidence.checks.why, action: null, tone: 'paused' };
+  if (evidence?.checks?.status === 'unavailable') return { ...base, text: 'Turn ended; independent verification is unavailable.', detail: evidence.checks.why, action: null, tone: 'paused' };
   switch (terminal) {
     case 'budget':
       return { ...base, text: `Paused after ${plural(actions)} to check in. Nothing was discarded.`, action: 'continue', tone: 'paused' };
