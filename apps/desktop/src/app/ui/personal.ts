@@ -274,7 +274,7 @@ export class ProjectsSettings {
       <div class="memory-proposal" role="status" animate.enter="anim-rise-in" animate.leave="anim-sink-out">
         <pa-icon name="sparkles" [size]="16" />
         <div class="memory-proposal-text">
-          <span class="t-meta">Remember this?</span>
+          <span class="t-meta">Remember this? @if (proposal.cwd) { · {{ proposal.cwd }} }</span>
           <span>{{ proposal.text }}</span>
         </div>
         @if (!agent.chatMode()) {
@@ -282,9 +282,9 @@ export class ProjectsSettings {
             class="btn btn-sm"
             (click)="personal.accept(proposal, proposal.scope === 'global' ? 'workspace' : 'global')"
             [disabled]="personal.saving()"
-            [paTooltip]="proposal.scope === 'global' ? 'Keep it for this workspace only' : 'Keep it for every conversation'"
+            [paTooltip]="proposal.scope === 'global' ? 'Keep it in the originating workspace only' : 'Keep it for every conversation'"
           >
-            {{ proposal.scope === 'global' ? 'Only here' : 'Everywhere' }}
+            {{ proposal.scope === 'global' ? 'Project only' : 'Everywhere' }}
           </button>
         }
         <button class="btn btn-sm btn-primary" (click)="personal.accept(proposal, agent.chatMode() ? 'global' : proposal.scope)" [disabled]="personal.saving()">

@@ -10553,7 +10553,8 @@ fn provider_error(e: pwr_provider::ProviderError) -> SafeError {
     let category = match e {
         pwr_provider::ProviderError::Unavailable { .. }
         | pwr_provider::ProviderError::Timeout { .. } => "provider_unavailable",
-        pwr_provider::ProviderError::ContextLimit { .. } => "provider_context_limit",
+        pwr_provider::ProviderError::ContextLimit { .. }
+        | pwr_provider::ProviderError::PromptTooLarge { .. } => "provider_context_limit",
         pwr_provider::ProviderError::Protocol { .. } => "provider_protocol",
         pwr_provider::ProviderError::Cancelled => "provider_cancelled",
         pwr_provider::ProviderError::Truncated { .. } => "provider_truncated",

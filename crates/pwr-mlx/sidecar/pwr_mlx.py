@@ -912,6 +912,22 @@ class Engine:
 
         started = time.perf_counter()
         full, images = self.render(messages, tools, thinking, True, budget, effort)
+        context_tokens = request.get("context_tokens")
+        if context_tokens is not None:
+            context_tokens = int(context_tokens)
+            # Count the actual template, schema and image-expanded token vector
+            # before touching the model or its KV cache.
+            while True:
+                if context_tokens <= 0 or len(full) >= context_tokens:
+                    return {"event": "error", "code": "context_limit",
+                            "message": "rendered prompt leaves no generation space",
+                            "prompt_tokens": len(full), "context_tokens": context_tokens}
+                max_tokens = min(max_tokens, context_tokens - len(full))
+                adjusted = None if budget is None else max(0, min(budget, max_tokens - FINAL_RESERVE))
+                if adjusted == budget:
+                    break
+                budget = adjusted
+                full, images = self.render(messages, tools, thinking, True, budget, effort)
         base, _ = self.render(messages, tools, thinking, False, budget, effort)
         if isinstance(self.model, VisionText):
             self.model.set_prompt(full, images, images and images["digest"])
@@ -939,6 +955,7 @@ class Engine:
         generated = 0
         finish = "length"
         finalizations = 0
+        forced_tokens = 0
         written = []          # everything generated, both channels, for the loop check
         written_len = 0
         repetition = RepetitionSignals()
@@ -993,21 +1010,25 @@ class Engine:
         try:
             outcome = stream(full[len(base):], max_tokens)
             while outcome == "budget" and finalizations < FINALIZATION_ATTEMPTS:
+                forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,
+                                                    add_special_tokens=False))
+                remaining = max_tokens - generated - forced_tokens - len(forced)
+                if remaining <= 0:
+                    break
+                forced_tokens += len(forced)
                 # Close the reasoning with the template's own delimiter and let
                 # the answer follow, inside what is left of the cap.
                 finalizations += 1
                 for channel, piece in tracker.force_close():
                     reply({"event": "delta", "channel": channel, "text": piece})
                 reply({"event": "finalizing", "reasoning_tokens": tracker.reasoning_tokens})
-                forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,
-                                                    add_special_tokens=False))
                 finish = "length"
-                outcome = stream(forced, max(1, max_tokens - generated))
+                outcome = stream(forced, remaining)
         finally:
             self.settle(len(base))
         for channel, piece in tracker.flush():
             reply({"event": "delta", "channel": channel, "text": piece})
-        if finalizations and finish not in ("cancelled", "repetition") and (
+        if (finalizations or outcome == "budget") and finish not in ("cancelled", "repetition") and (
                 outcome in ("reopened", "budget") or not tracker.answered):
             # A failed transition is a failure, never a successful reply that
             # holds only private reasoning or half a tool call.
@@ -1035,7 +1056,8 @@ class Engine:
                 "prompt_tokens": len(full),
                 "cached_tokens": reused,
                 "prefilled_tokens": len(base) - reused,
-                "completion_tokens": generated,
+                "completion_tokens": generated + forced_tokens,
+                "forced_tokens": forced_tokens,
                 "reasoning_tokens": tracker.reasoning_tokens if delimiters else None,
                 "answer_tokens": generated - tracker.reasoning_tokens if delimiters else None,
             },

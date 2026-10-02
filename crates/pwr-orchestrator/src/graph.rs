@@ -685,7 +685,9 @@ impl Graph {
                 let stale = node.attrs.get("summaryStale") == Some(&serde_json::json!(true));
                 lines.push(format!(
                     "Summary (written by a model, unverified{}): {summary}",
-                    if stale {
+                    if node.attrs.get("summaryFreshnessUnknown") == Some(&serde_json::json!(true)) {
+                        "; source freshness not checked"
+                    } else if stale {
                         "; its files changed since"
                     } else {
                         ""

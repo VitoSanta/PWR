@@ -490,6 +490,26 @@ class Chat(unittest.TestCase):
                                        if e.get("event") == "delta" and e["channel"] == channel)
         return done, text("reasoning"), text("content"), events
 
+    def test_actual_rendered_context_is_refused_before_prefill(self):
+        from unittest.mock import Mock
+        self.engine.resume = Mock(side_effect=AssertionError("must not prefill"))
+        self.engine.render = lambda *args: (list(range(20)), None)
+        generate = scripted(list("ok"))
+        done, _, _, _ = self.chat(generate, context_tokens=20)
+        self.assertEqual(done["event"], "error")
+        self.assertEqual(done["code"], "context_limit")
+        self.assertEqual(done["prompt_tokens"], 20)
+        self.assertEqual(generate.calls, [])
+        self.engine.resume.assert_not_called()
+
+    def test_schema_and_template_tokens_bound_generation_space(self):
+        generate = scripted(list("long response"))
+        full = self.engine.render([{"role": "user", "content": "q"}], None, False, True)[0]
+        done, _, _, _ = self.chat(generate, thinking=False,
+                                 context_tokens=len(full) + 2, max_tokens=8192)
+        self.assertEqual(generate.calls[0][1], 2)
+        self.assertLessEqual(done["usage"]["prompt_tokens"] + done["usage"]["completion_tokens"], len(full) + 2)
+
     def test_an_aside_leaves_the_conversations_cache_where_it_was(self):
         cache, copy = object(), object()
         self.engine.cache, self.engine.checkpoint = cache, copy
@@ -561,7 +581,8 @@ class Chat(unittest.TestCase):
         self.assertEqual(content.strip(), "42")
         self.assertTrue(any(e.get("event") == "finalizing" for e in events))
         # The continuation got the rest of the cap, not a fixed sliver of it.
-        self.assertEqual(generate.calls[1][1], 1000 - 4)
+        self.assertEqual(generate.calls[1][1], 1000 - 4 - len(generate.calls[1][0]))
+        self.assertEqual(done["usage"]["forced_tokens"], len(generate.calls[1][0]))
 
     def test_a_reopened_block_after_the_close_fails_once_and_does_not_loop(self):
         generate = scripted(list("abcdefghij"), ["<think>"] + list("more"))

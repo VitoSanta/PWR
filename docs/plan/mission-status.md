@@ -1,11 +1,16 @@
 # Mission status
 
-Updated 2026-10-02, review of the F1 commits (second reviewer). Resume from the owner's
+Updated 2026-10-02, core audit correctness repairs. Resume from the owner's
 mission mandate, this file, MASTER_SPEC, decisions and implementation plan.
 Evidence vocabulary is defined in MASTER_SPEC; no gate/model-capability claim
 follows from this status.
 
 ## Current phase / cycle
+
+- **IMPLEMENTED F1 C01–C15:** effects/Stop/retry, complete tool transcripts,
+  conservative parsing, memory origin/budget/default, source freshness and
+  exact MLX prefill-window checks and monotonic IDs across clock rollback; [audit](../reviews/2026-10-02-core-audit.md).
+  Owner manual test next, battery later; effectiveness UNKNOWN, no inference.
 
 - **F0 adopted**, owner approved ("ok procedi"), commit `b9db2eab`.
   MASTER_SPEC and D-2026-10-01-2 are operative; prior contract archived whole.
@@ -35,7 +40,7 @@ follows from this status.
 - **IMPLEMENTED F2 research artifact, partial:** competitors.md now includes
   opened Lost in the Middle/RULER, pinned Qwen3.6 mode and mlx-lm renderer
   sources. PWR effects remain unknown; full survey/audit remain PLANNED.
-- Cycle parent: `c24028f5` on `develop` (executor cycle); this review
+- Cycle parent: `95e7bed0` on `develop` (core cycle); this correction
   commit is resolved by `git log -1 -- docs/plan/mission-status.md`. Context
   `84b4654c` and sampling `312070c6` follow F0 `b9db2eab`. No fetch or push.
 - Initial code baseline: `ae1e36c1e5dbe80f7fa3ee781072948b106a0208`.
@@ -43,10 +48,10 @@ follows from this status.
 
 ## Reproduced checks / limits
 
-- **MEASURED** final Rust suite: 1,424 reported passed, 0 failed,
+- **MEASURED** final Rust suite: 1,452 reported passed, 0 failed,
   5 ignored; one host-dependent Docker test skipped (among reported passes).
-- **MEASURED** Clippy with denied warnings, formatting, desktop 107 tests /
-  13 files, production build, sidecar 41 tests, milestone-table agreement and
+- **MEASURED** Clippy with denied warnings, formatting, desktop 109 tests /
+  14 files, production build, sidecar 43 tests, milestone-table agreement and
   diff whitespace checks pass. Hosted CI / clean npm installation unknown.
 - **MEASURED** 19 new executor-cycle tests (including concurrent stress),
   plus expanded fixtures, cover cancellation, deadlines and honest verification.
@@ -99,8 +104,9 @@ No campaign queued or launched. The runner now holds an engine lease and
 records provenance (D-2026-10-02-1); the machine is not certified idle and
 Docker is not running.
 
-1. Continue the remaining F1 audit, tests first for demonstrated defects;
-   no default tuning. (Goal-deadline transcript: IMPLEMENTED 2026-10-02.)
+1. Owner manual test of the prepared build (core C01–C15); repeat Quick
+   Calibration if parser/sidecar scope is stale. No default tuning or campaign.
+   Continue remaining F1 audit after feedback.
 2. First paired dev run, PWR vs `--arm minimal`, sized with `analyze.py power`,
    when the owner frees the Mac and starts Docker; S/M/L/XL baselines in a
    serial night slot. XL has no installed model (a 70B 4-bit is about 40 GB).

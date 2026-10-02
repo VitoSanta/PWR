@@ -13,6 +13,38 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — Core effects, parsing, memory and real MLX context bounds
+
+**IMPLEMENTED correctness repair; capability and performance effects UNKNOWN.**
+Owner authorized applying the core audit before their manual test and a later
+battery. Parent `95e7bed020a0c519338d03787254987d620f4fed`; no model inference or
+campaign. C01–C14 cover durable intent identities, uncertain command effects,
+no automatic permission replay, complete tool transcripts, conservative Qwen
+and Mistral parsing, bounded/origin-safe memory, current source hashes and an
+actual-token preflight before MLX prefill. An additional reproduced clock
+rollback defect (C15) is fixed without changing UUID format or dependency pins.
+The numbered-command reader also refuses unknown/duplicate numeric members and
+preserves quoted argv and policy fields. Parser revisions: qwen-v4/mistral-v2.
+
+**MEASURED:** fresh full workspace: 1452 reported passed, 0 failed, 5
+ignored; one reported pass is a host-dependent Docker skip (no engine socket),
+confirmed separately with nocapture. Clippy with warnings denied, formatting,
+desktop 109 tests / 14 files and production build, pinned sidecar 43 tests,
+milestone agreement and whitespace checks pass. Red parser/effect/sidecar,
+numbered-field and clock-sequence regressions precede their fixes; the earlier
+full-suite ID failure and its IDs/seed are retained. Hosted CI and a clean
+installation remain unknown.
+
+Audit and manual-test cases: [core audit](reviews/2026-10-02-core-audit.md).
+Raw evidence: `/Users/vitosantanelli/Desktop/pwr-evidence/logs/core-fixes-20261002/`.
+Prepared local application: `/Users/vitosantanelli/Desktop/pwr-evidence/builds/core-fixes-20261002/PWR.app`;
+its core/sidecar/bundle hashes and exact source patch are saved in that folder.
+The build includes the pre-existing uncommitted tool sandbox fixes; those
+changes and the unrelated research/docs edits are preserved, not absorbed into
+this correction commit. No push, public release, new tuning default or model
+effectiveness claim. Owner manual feedback comes before the battery; stale
+parser/sidecar calibration scope needs Quick Calibration of the chosen model.
+
 ## 2026-10-02 — The W8.3 minimal control, as a stack-matrix arm
 
 **IMPLEMENTED experimental control; deterministic tests, no model run.** What

@@ -4167,18 +4167,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             if once {
                 once_granted.push(approval);
             }
-            outcome = session::perform(
-                store,
-                run_id,
-                &policy,
-                command,
-                &mut services,
-                &mut files_read,
-                step,
-                &mut continuity,
-                usize::from(step) + 1,
-            )
-            .await?;
+            session::note_unreplayed(&mut outcome);
         }
         let mut outcome = action_outcome(outcome);
         // The rest of a read-only turn, performed here rather than over the
@@ -5883,7 +5872,7 @@ fn actions_from_reply(
 /// `npm --version`, `bun --version`, `pwd` and `npm prefix`, refused three
 /// times as not declaring `executable_2`, and the turn stopped. One reading:
 /// each is a command. A line with shell syntax runs through `sh -c`, as the
-/// tool's own description says to; any other is split on spaces.
+/// tool's own description says to; other lines retain quoted argv boundaries.
 pub(crate) fn expand_numbered_commands(
     calls: &[pwr_domain::ToolCall],
 ) -> Vec<pwr_domain::ToolCall> {
@@ -5906,6 +5895,25 @@ pub(crate) fn expand_numbered_commands(
             continue;
         }
         let fields = call.arguments.as_object().expect("checked above");
+        if !fields.contains_key("executable")
+            || fields.iter().any(|(key, value)| {
+                if let Some(order) = key.strip_prefix("executable_")
+                    && !order.parse::<u32>().is_ok_and(|order| order >= 2)
+                {
+                    return true;
+                }
+                (key == "executable" || key.starts_with("executable_"))
+                    && value.as_str().is_none_or(|line| {
+                        line.trim().is_empty()
+                            || !shell_words::split(line).is_ok_and(|words| {
+                                words.first().is_some_and(|word| !word.is_empty())
+                            })
+                    })
+            })
+        {
+            expanded.push(call.clone());
+            continue;
+        }
         let mut lines: Vec<(u32, &str)> = fields
             .iter()
             .filter_map(|(key, value)| {
@@ -5918,6 +5926,10 @@ pub(crate) fn expand_numbered_commands(
             })
             .collect();
         lines.sort_by_key(|(order, _)| *order);
+        if lines.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            expanded.push(call.clone());
+            continue;
+        }
         for (index, (order, line)) in lines.into_iter().enumerate() {
             let line = line.trim();
             if line.is_empty() {
@@ -5930,14 +5942,23 @@ pub(crate) fn expand_numbered_commands(
             } else if line.contains(['|', '&', ';', '<', '>', '$', '`', '*']) {
                 ("sh".to_owned(), serde_json::json!(["-c", line]))
             } else {
-                let mut words = line.split_whitespace();
-                let executable = words.next().unwrap_or_default().to_owned();
-                (executable, serde_json::json!(words.collect::<Vec<_>>()))
+                let Ok(mut words) = shell_words::split(line) else {
+                    // Preserve invalid syntax for schema refusal, never guess.
+                    expanded.push(call.clone());
+                    break;
+                };
+                let executable = words.remove(0);
+                (executable, serde_json::json!(words))
             };
-            let mut arguments = serde_json::json!({"executable": executable, "args": args});
-            if let Some(cwd) = fields.get("cwd") {
-                arguments["cwd"] = cwd.clone();
-            }
+            // Preserve stdin, sandbox intent and unknown fields so validation
+            // cannot turn an invalid proposal into a valid, different action.
+            let mut arguments = call.arguments.clone();
+            arguments
+                .as_object_mut()
+                .expect("object")
+                .retain(|key, _| !key.starts_with("executable_"));
+            arguments["executable"] = serde_json::json!(executable);
+            arguments["args"] = args;
             expanded.push(pwr_domain::ToolCall {
                 name: "run_command".into(),
                 arguments,
@@ -8938,5 +8959,46 @@ mod tests {
             "the model stopped inside an unfinished tool call; no call was executed".into(),
         );
         assert!(cut.told().contains("too long to write in one call"));
+    }
+    #[test]
+    fn numbered_commands_preserve_quoted_arguments_and_policy_fields() {
+        let call = pwr_domain::ToolCall {
+            name: "run_command".into(),
+            id: Some("c".into()),
+            arguments: serde_json::json!({"executable":"node -p 'a b'", "executable_2":"pwd",
+                "outside_sandbox":true, "stdin":"input", "cwd":"src"}),
+        };
+        let expanded = expand_numbered_commands(std::slice::from_ref(&call));
+        assert_eq!(expanded.len(), 2);
+        assert_eq!(
+            expanded[0].arguments["args"],
+            serde_json::json!(["-p", "a b"])
+        );
+        assert_eq!(expanded[0].arguments["stdin"], "input");
+        assert_eq!(expanded[1].arguments["outside_sandbox"], true);
+        let mut comment_only = call.clone();
+        comment_only.arguments["executable_2"] = serde_json::json!("# not a command");
+        assert_eq!(
+            expand_numbered_commands(std::slice::from_ref(&comment_only)),
+            vec![comment_only]
+        );
+        let mut unknown = call.clone();
+        unknown.arguments["executable_note"] = serde_json::json!("must not disappear");
+        assert_eq!(
+            expand_numbered_commands(std::slice::from_ref(&unknown)),
+            vec![unknown]
+        );
+        let mut duplicated = call.clone();
+        duplicated.arguments["executable_02"] = serde_json::json!("node --version");
+        assert_eq!(
+            expand_numbered_commands(std::slice::from_ref(&duplicated)),
+            vec![duplicated]
+        );
+        let mut invalid = call;
+        invalid.arguments["executable_2"] = serde_json::json!(7);
+        assert_eq!(
+            expand_numbered_commands(std::slice::from_ref(&invalid)),
+            vec![invalid]
+        );
     }
 }

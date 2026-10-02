@@ -174,7 +174,45 @@ pub fn query(home: &Home, root: Option<&Path>, project: &str, question: &str) ->
         );
     };
     match load_graph(&path) {
-        Some(graph) => graph.neighbourhood(question),
+        Some(mut graph) => {
+            // A saved graph is a snapshot, not evidence that sources are still
+            // current. Validate only the active workspace; other projects stay
+            // within recall's wiki-only read boundary.
+            let current = if root.is_some_and(|root| root == path) {
+                pwr_repo::index(&path).ok()
+            } else {
+                None
+            };
+            let saved = summaries(&path);
+            for node in &mut graph.nodes {
+                if let Some(summary) = saved.get(&node.id) {
+                    let hash = current
+                        .as_ref()
+                        .and_then(|index| crate::graph::source_hash(index, &node.id));
+                    node.attrs.insert(
+                        "summaryFreshnessUnknown".into(),
+                        serde_json::json!(current.is_none()),
+                    );
+                    node.attrs.insert(
+                        "summaryStale".into(),
+                        serde_json::json!(
+                            current.is_some()
+                                && hash.as_deref() != Some(summary.source_hash.as_str())
+                        ),
+                    );
+                }
+            }
+            format!(
+                "Wiki snapshot built at {}. Source freshness is {}.\n{}",
+                graph.generated_at,
+                if current.is_some() {
+                    "checked for this workspace"
+                } else {
+                    "unknown; summaries require revalidation"
+                },
+                graph.neighbourhood(question)
+            )
+        }
         None => {
             "This workspace has no graph yet: it is built after PWR's first reply in it.".into()
         }

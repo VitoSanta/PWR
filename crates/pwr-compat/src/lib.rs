@@ -131,7 +131,7 @@ impl ModelBehaviorAdapter for QwenFamilyAdapter {
         // v2: also reads the XML parameter form Qwen 3.5/3.6 write.
         // v3: and that form without its `<tool_call>` opening, as Qwen3-Coder
         // arrives from the MLX engine.
-        "qwen-v3"
+        "qwen-v4"
     }
 
     fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
@@ -184,6 +184,25 @@ impl ModelBehaviorAdapter for QwenFamilyAdapter {
 /// reader of the form reads it; a reply that wrote both is left alone.
 /// Measured 2026-10-01: Quick Calibration called the model "no tool call was
 /// made" and refused it agent tasks. Returns the text and whether it changed.
+// Stop at the explicit call envelope or the next function opening. Within
+// one candidate, keep every function closing tag so the parser can reject
+// ambiguous delimiters instead of accepting the first truncated prefix.
+fn xml_function_end(text: &str) -> Option<usize> {
+    let bound = [
+        text.find(CLOSE_TOOL),
+        text[OPEN_FUNCTION.len()..]
+            .find(OPEN_FUNCTION)
+            .map(|at| at + OPEN_FUNCTION.len()),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
+    .unwrap_or(text.len());
+    text[..bound]
+        .rfind(CLOSE_FUNCTION)
+        .map(|at| at + CLOSE_FUNCTION.len())
+}
+
 fn wrap_bare_xml_calls(content: &str) -> (String, bool) {
     if !content.contains(OPEN_FUNCTION) {
         return (content.to_owned(), false);
@@ -200,9 +219,7 @@ fn wrap_bare_xml_calls(content: &str) -> (String, bool) {
             // replies of one run so, each refused as "stopped inside an
             // unfinished tool call", 2026-10-01): closed here.
             let closed = rest[at..].find(CLOSE_TOOL).map(|close| at + close);
-            let function_end = rest[at..]
-                .find(CLOSE_FUNCTION)
-                .map(|close| at + close + CLOSE_FUNCTION.len());
+            let function_end = xml_function_end(&rest[at..]).map(|end| at + end);
             let end = match (closed, function_end) {
                 (Some(close), _) => close + CLOSE_TOOL.len(),
                 (None, Some(function)) => {
@@ -223,13 +240,13 @@ fn wrap_bare_xml_calls(content: &str) -> (String, bool) {
         out.push_str(OPEN_TOOL);
         out.push('\n');
         changed = true;
-        let Some(close) = rest[at..].find(CLOSE_FUNCTION) else {
+        let Some(function_end) = xml_function_end(&rest[at..]) else {
             // Cut off inside the call: the unterminated-call path names it.
             out.push_str(&rest[at..]);
             rest = "";
             break;
         };
-        let end = at + close + CLOSE_FUNCTION.len();
+        let end = at + function_end;
         out.push_str(&rest[at..end]);
         if !rest[end..].trim_start().starts_with(CLOSE_TOOL) {
             out.push('\n');
@@ -350,6 +367,11 @@ fn fenced_calls(content: &str) -> Option<(String, Vec<ToolCall>, Diagnostic)> {
     let parts: Vec<&str> = content.split(FENCE).collect();
     // prose, body, prose, body, ..., body, prose -- an odd count.
     if parts.len() < 3 || parts.len().is_multiple_of(2) {
+        return None;
+    }
+    // Fenced JSON has no call channel. Recover only a reply consisting wholly
+    // of call fences; prose can describe an example rather than request effects.
+    if parts.iter().step_by(2).any(|part| !part.trim().is_empty()) {
         return None;
     }
     let mut calls = Vec::new();
@@ -527,6 +549,11 @@ const CLOSE_FUNCTION: &str = "</function>";
 /// to be. The template puts one newline either side of a value; exactly those
 /// are removed, so a value's own leading or trailing whitespace survives.
 fn parse_xml_call(body: &str) -> Option<ToolCall> {
+    // A literal function delimiter in a value is ambiguous in this raw
+    // protocol. Never execute a guessed prefix of a file or command.
+    if body.matches(CLOSE_FUNCTION).count() != 1 || !body.trim_end().ends_with(CLOSE_FUNCTION) {
+        return None;
+    }
     let after = &body[OPEN_FUNCTION.len()..];
     let end = after.find('>')?;
     let name = after[..end].trim().to_owned();
@@ -536,6 +563,9 @@ fn parse_xml_call(body: &str) -> Option<ToolCall> {
     let mut rest = &after[end + 1..];
     let mut arguments = serde_json::Map::new();
     while let Some(open) = rest.find(OPEN_PARAMETER) {
+        if !rest[..open].trim().is_empty() {
+            return None;
+        }
         let from = &rest[open + OPEN_PARAMETER.len()..];
         let key_end = from.find('>')?;
         let key = from[..key_end].trim().to_owned();
@@ -567,6 +597,11 @@ fn parse_xml_call(body: &str) -> Option<ToolCall> {
         .min()
         .unwrap_or(value_from.len());
         let segment = &value_from[..boundary];
+        if value_from[boundary..].starts_with(CLOSE_FUNCTION)
+            && value_from[boundary + CLOSE_FUNCTION.len()..].contains(CLOSE_PARAMETER)
+        {
+            return None;
+        }
         let named_close = format!("</{key}>");
         let trimmed = segment.trim_end();
         let (raw, consumed) = if let Some(value) = trimmed.strip_suffix(CLOSE_PARAMETER) {
@@ -596,8 +631,13 @@ fn parse_xml_call(body: &str) -> Option<ToolCall> {
             _ => python_literal(raw.trim())
                 .unwrap_or_else(|| serde_json::Value::String(raw.to_owned())),
         };
-        arguments.insert(key, value);
+        if arguments.insert(key, value).is_some() {
+            return None;
+        }
         rest = &value_from[consumed..];
+    }
+    if rest.trim() != CLOSE_FUNCTION {
+        return None;
     }
     Some(ToolCall {
         name,
@@ -653,8 +693,8 @@ fn mistral_call(segment: &str) -> Option<Vec<ToolCall>> {
         let calls: Vec<ToolCall> = value
             .as_array()?
             .iter()
-            .filter_map(parse_call_value)
-            .collect();
+            .map(parse_call_value)
+            .collect::<Option<_>>()?;
         return (!calls.is_empty()).then_some(calls);
     }
     let (name, rest) = segment.split_once(MISTRAL_ARGS)?;
@@ -682,7 +722,7 @@ impl ModelBehaviorAdapter for MistralFamilyAdapter {
     }
 
     fn version(&self) -> &'static str {
-        "mistral-v1"
+        "mistral-v2"
     }
 
     fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
@@ -1757,8 +1797,8 @@ mod tests {
         // After a sentence about it, as it writes calls in a run.
         let after =
             QwenFamilyAdapter.normalize(&reply(&format!("Let's read the file first.\n\n{text}")));
-        assert_eq!(after.tool_calls.len(), 1);
-        assert_eq!(after.narrative, "Let's read the file first.");
+        assert!(after.tool_calls.is_empty());
+        assert!(after.narrative.contains("Let's read the file first."));
         // Not after a fence that is not a call.
         let two = format!("```python\nprint(1)\n```\n{text}");
         assert!(
@@ -1778,8 +1818,7 @@ mod tests {
             read("money.py"),
             read("invoice.py")
         )));
-        assert_eq!(both.tool_calls.len(), 2);
-        assert_eq!(both.tool_calls[1].arguments["path"], "invoice.py");
+        assert!(both.tool_calls.is_empty());
         // Python's \' inside a string, as it wrote one replace_text.
         let quoted = "```json\n{\"name\": \"replace_text\", \"arguments\": {\"path\": \"bag.py\", \"replace\": \"raise TypeError(\\'Bag\\')\"}}\n```";
         let read_back = QwenFamilyAdapter.normalize(&reply(quoted));
@@ -1794,10 +1833,11 @@ mod tests {
             read("money.py"),
             read("invoice.py")
         )));
-        assert_eq!(interleaved.tool_calls.len(), 2);
-        assert_eq!(
-            interleaved.narrative,
-            "### Creating `money.py`\n\nNow the second one.\n\nThen we can run the checks."
+        assert!(interleaved.tool_calls.is_empty());
+        assert!(
+            interleaved
+                .narrative
+                .contains("Then we can run the checks.")
         );
         // A code example anywhere in the reply and nothing is read.
         let example = format!(
@@ -1816,8 +1856,7 @@ mod tests {
             "Creating it.\n\n```json\n{{\n  \"name\": \"write_file\",\n  \"arguments\": {{\n    \"path\": \"server.js\",\n    \"content\": \"listen();\\n\n```\n\nNow check it.\n\n{}",
             read("server.js")
         )));
-        assert_eq!(unclosed.tool_calls.len(), 2);
-        assert_eq!(unclosed.tool_calls[0].arguments["content"], "listen();\n");
+        assert!(unclosed.tool_calls.is_empty());
         // Nor is a fenced object that is not a call.
         let data = "```json\n{\"file\": \"src/parser.rs\", \"line\": 7}\n```";
         assert!(
@@ -2313,5 +2352,45 @@ mod tests {
         let call = &adapter.normalize(&reply(text)).tool_calls[0];
         assert_eq!(call.name, "complete");
         assert_eq!(call.arguments, serde_json::json!({}));
+    }
+    #[test]
+    fn core_audit_ambiguous_xml_never_truncates_file_content() {
+        let text = "<tool_call><function=write_file>\n<parameter=path>x.txt</parameter>\n<parameter=content>Before </function> after</parameter>\n</function></tool_call>";
+        let result = QwenFamilyAdapter.normalize(&reply(text));
+        assert!(result.tool_calls.is_empty());
+        assert!(
+            QwenFamilyAdapter
+                .normalize(&reply(text.trim_start_matches("<tool_call>")))
+                .tool_calls
+                .is_empty()
+        );
+        assert!(
+            QwenFamilyAdapter
+                .normalize(&reply(text.trim_end_matches("</tool_call>")))
+                .tool_calls
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn core_audit_prose_examples_are_not_executable_fences() {
+        let text = "Here is an example; do not execute it:\n```json\n{\"name\":\"run_command\",\"arguments\":{\"executable\":\"sh\"}}\n```";
+        assert!(
+            QwenFamilyAdapter
+                .normalize(&reply(text))
+                .tool_calls
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn core_audit_mistral_batch_is_all_or_nothing() {
+        let text = r#"[TOOL_CALLS][{"name":"read_file","arguments":{"path":"x"}},{"arguments":{"path":"y"}}]"#;
+        assert!(
+            MistralFamilyAdapter
+                .normalize(&reply(text))
+                .tool_calls
+                .is_empty()
+        );
     }
 }

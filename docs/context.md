@@ -41,10 +41,14 @@ The first message is the **system prompt**, rebuilt each turn
 - PWR's instructions and harness rules (`chat_system_prompt_for`), including that a new project goes directly in the repository root and not in a new subfolder, unless asked (added 2026-10-01: every model scaffolded `ng new <name>` into a subfolder), including the workspace's reference folders;
 - the deployment's own suffix from its profile (a required section: a model
   switched mid-conversation gets its own suffix);
-- the personal block (`personal::prompt_block`, bounded to 8,000 characters):
+- the personal block (`personal::prompt_block`, bounded to 8,000 bytes):
   the person's profile, workspace and global memories, the names of known
   projects, and the project's instructions (`.pwr/instructions.md`, else
-  `AGENTS.md`, else `PWR.md`).
+  `AGENTS.md`, else `PWR.md`). Repository instructions reserve room first;
+  optional entries cannot evict them, and omitted entries are disclosed.
+  Instructions beyond the 6,000-byte excerpt allowance carry a notice to read
+  the full file. Project README descriptions reach only recall tool results,
+  not the system block.
 
 When a new user request arrives, it is composed with typed sections
 (`context::compile`, `crates/pwr-orchestrator/src/context.rs`):
@@ -173,6 +177,15 @@ guidance section gives Angular-specific rules. **The guidance says no tool
 can render or screenshot the page**, which is false for vision models offered
 `look_at` (`context.rs`; plan W4.5).
 
+The MLX request carries the selected logical window (`context_tokens`). After
+rendering the complete chat template, tools and images, the sidecar checks the
+actual token vector before model prefill and limits generation to remaining
+space, including a forced reasoning close. An oversized input returns typed
+`PromptTooLarge`: full mode compacts if possible; minimal mode drops complete
+old exchanges; irreducible input ends as ContextFull. It does not reload at a
+smaller context tier, which cannot fit more input. Rust estimates remain useful
+for planning and display; they are not proof that the final prompt fits.
+
 ## The project wiki and memory
 
 | What | Where | Written by | Reaches the model |
@@ -188,7 +201,9 @@ can render or screenshot the page**, which is false for vision models offered
 | Project registry | `~/.pwr/projects.json` | PWR | project names, system prompt |
 
 `PWR_HOME` replaces `~/.pwr`. A memory is written only when the person presses
-Save; memories never grant a permission.
+Save; memories never grant a permission. A proposal records its originating
+workspace, so accepting after switching folders still saves to that origin.
+The missing-profile and empty-JSON defaults both enable confirmed memories.
 
 The **graph** has nodes for the project, folders, files, symbols (up to
 5,000), packages, work entries and decisions; each edge says how it is known:
@@ -201,7 +216,9 @@ call graph and not semantic understanding.
 up to 8 per idle period, 400 tokens each, no tools, no reasoning — **only when
 the person turns them on** (`background_summaries`, off by default since plan W5.2;
 an incoming prompt pre-empts one in flight). They occupy the only engine and
-are unverified text.
+are unverified text. A query rechecks hashes in the active workspace; recall
+of another project's saved wiki states that source freshness is unknown and
+identifies the graph snapshot time.
 
 `remember`, `recall_project` and `wiki_query` are offered to conversations
 only, never to scripted runs.
@@ -217,8 +234,8 @@ the last compaction; the app's context indicator and panel show them
 
 | Defect | Plan | State |
 |---|---|---|
-| Tool-call arguments uncounted; no exact preflight | W4.2 | open |
-| Required sections can exceed the budget without an exact backend preflight | W4.3 | partial |
+| Rust room planning still estimates tokens; MLX now checks the actual schema/template/image-expanded token vector before prefill | W4.2 | MLX preflight implemented; other-backend parity and effective-context evidence pending |
+| Required context can exceed an estimate; MLX refuses actual overflow before prefill, while optional personalization cannot evict the instruction excerpt | W4.3 | partial; full long instruction files still require explicit reads |
 | Large tool output is dropped past its bound, not retrievable | W4.4 | open |
 | Angular guidance contradicts `look_at` | W4.5 | open |
 | Retrieval errors outside the embedding path are silent | W4.6 | partial |

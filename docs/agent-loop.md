@@ -110,6 +110,21 @@ diagnostics, the re-read note, a seen file's hash for a delete) belongs to the
 tools and is the same in both arms. The full list is the implementation plan's
 W8.3.
 
+At every mutating action boundary, durable intent identities advance before
+execution. Stop and uncertain command failures retain their intents; a later
+mutation cannot reuse an identity or receipt an earlier uncertain effect.
+Commands count conservatively as potentially editing before completion, so
+verification cannot be skipped because a command changed files and then failed.
+Granting a missing network/engine permission preserves the failed attempt and
+its partial-effect evidence; it never automatically replays the whole command.
+A new proposal must inspect and reconcile effects. Once-only grants are not
+transferred to unrelated future commands.
+
+Every declared call receives a result even when Stop, completion or an action
+budget ends a batch: remaining calls are marked unexecuted or of unknown
+completion, never successful. Legacy incomplete groups are repaired before
+the next user message is rendered ([core audit](reviews/2026-10-02-core-audit.md)).
+
 ### Limits of a turn
 
 | Limit | Value | Where | What happens |
