@@ -43,8 +43,12 @@ MLX_PYTHON = os.environ.get(
 )
 MODEL = os.environ.get("PWR_EVIDENCE_MODEL", "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit")
 
+# One campaign at a time holds the machine's inference engine (D-2026-10-01-1).
+LEASE = pathlib.Path(os.environ.get("PWR_EVIDENCE_LEASE", pathlib.Path.home() / "Desktop/pwr-evidence/engine.lock"))
+
 sys.path.insert(0, str(HERE))
 from acp import Core, initialize  # noqa: E402
+import provenance  # noqa: E402
 
 # Never part of what is verified or diffed: build output, installed
 # toolchains, caches and PWR's own state.
@@ -370,7 +374,18 @@ def binary_revision():
     return f"{head} (unpinned build)"
 
 
-def run_task(task, run_id, attempt, turns_override=None):
+def wait_for_idle_engines(seconds=60):
+    """Other inference engines still running after `seconds`: the previous
+    task's engine is given time to exit; anything left competes for the GPU."""
+    deadline = time.time() + seconds
+    while True:
+        engines = provenance.running_engines()
+        if not engines or time.time() >= deadline:
+            return engines
+        time.sleep(2)
+
+
+def run_task(task, run_id, attempt, turns_override=None, campaign=None):
     label = task["id"] if attempt == 1 else f"{task['id']}~{attempt}"
     out = RESULTS / run_id / label
     if (out / "result.json").exists():
@@ -400,6 +415,19 @@ def run_task(task, run_id, attempt, turns_override=None):
         "sidecar": sidecar_digest(),
         "task_digest": task_digest(task["dir"]),
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "turns": [],
+        # What a reader needs to compare this run with another: which code,
+        # which artifact, which engine, under what conditions.
+        "provenance": {
+            **(campaign or {}),
+            "binary_digest": provenance.digest(PWR_BIN),
+            "runner_digest": {name: provenance.digest(HERE / name)
+                              for name in ("run.py", "acp.py", "provenance.py")},
+            "model": provenance.model_facts(MODEL),
+            # The core sends no seed: generations are unseeded, and repeated
+            # trials differ by sampling.
+            "seed": None,
+            "load_start": provenance.load(),
+        },
     }
     say(f"=== {label}: {task['title']}")
     started = time.time()
@@ -421,8 +449,16 @@ def run_task(task, run_id, attempt, turns_override=None):
     watchdog = None
     try:
         initialize(core)
-        core.request("_pwr/models", {"cwd": str(workspace), "model": MODEL, "acknowledgeProvisional": True},
-                     on_message=person, timeout=900)
+        models = core.request("_pwr/models", {"cwd": str(workspace), "model": MODEL,
+                                              "acknowledgeProvisional": True},
+                              on_message=person, timeout=900)
+        result["provenance"]["window"] = provenance.window_from(models)
+        try:
+            sampling = core.request("_pwr/model_sampling", {"cwd": str(workspace), "modelRef": MODEL},
+                                    on_message=person, timeout=120)
+            result["provenance"]["sampling"] = provenance.sampling_from(sampling)
+        except Exception as error:  # recorded as unknown, not guessed
+            result["provenance"]["sampling"] = {"error": repr(error)}
         core.request("_pwr/approvals", {"cwd": str(workspace), "mode": "ask"}, timeout=60)
         session = core.request("session/new", {"cwd": str(workspace), "mcpServers": []},
                                on_message=person, timeout=900)["sessionId"]
@@ -466,6 +502,7 @@ def run_task(task, run_id, attempt, turns_override=None):
         say(f"  error: {error!r}")
     finally:
         core.close()
+    result["provenance"]["load_end"] = provenance.load()
     result.update({
         "passed": passed,
         "minutes": round((time.time() - started) / 60, 1),
@@ -490,16 +527,38 @@ def cmd_run(args):
     # first attempt ran six tasks with Docker stopped.
     if any("host" not in task["verify"] for task in tasks) and not docker_ready():
         sys.exit("Docker is not running: the verdicts run in containers. Start Docker, then run again.")
+    try:
+        lease = provenance.Lease(LEASE, f"run.py run --run {args.run}, pid {os.getpid()}")
+        lease.__enter__()
+    except provenance.LeaseHeld as held:
+        sys.exit(f"Another campaign holds the inference engine ({LEASE}): {held}")
+    campaign = {"machine": provenance.machine(),
+                "engine_libraries": provenance.engine_libraries(MLX_PYTHON),
+                "busy_machine_allowed": args.allow_busy_machine}
     summary = []
-    for attempt in range(1, args.repeat + 1):
-        for task in tasks:
-            try:
-                result = run_task(task, args.run, attempt, args.turns)
-            except VerifierDown as down:
-                say(f"--- stopped: Docker stopped answering during {task['id']}; "
-                    f"its result is not recorded.\n{down}")
-                sys.exit(2)
-            summary.append((result["task"], attempt, result["passed"], result["minutes"]))
+    try:
+        for attempt in range(1, args.repeat + 1):
+            for task in tasks:
+                # Two engines on one Mac overrun its GPU working set and both
+                # write text without meaning (2026-10-01): a run beside another
+                # engine measures neither, so the campaign stops instead.
+                engines = wait_for_idle_engines()
+                if engines and not args.allow_busy_machine:
+                    say("--- stopped: another inference engine is running; no result recorded for "
+                        f"{task['id']}.")
+                    for engine in engines:
+                        say(f"    {engine['engine']} pid={engine['pid']} {engine['command'][:120]}")
+                    sys.exit(3)
+                try:
+                    result = run_task(task, args.run, attempt, args.turns,
+                                      dict(campaign, engines_at_start=engines))
+                except VerifierDown as down:
+                    say(f"--- stopped: Docker stopped answering during {task['id']}; "
+                        f"its result is not recorded.\n{down}")
+                    sys.exit(2)
+                summary.append((result["task"], attempt, result["passed"], result["minutes"]))
+    finally:
+        lease.__exit__(None, None, None)
     say("--- summary")
     for name, attempt, passed, minutes in summary:
         say(f"{'PASS' if passed else 'FAIL'}  {name}  #{attempt}  {minutes} min")
@@ -531,6 +590,8 @@ def main():
     run.add_argument("--split")
     run.add_argument("--repeat", type=int, default=1)
     run.add_argument("--turns", type=int)
+    run.add_argument("--allow-busy-machine", action="store_true",
+                     help="run even with another inference engine present (recorded; timings are then not comparable)")
     check = sub.add_parser("verify")
     check.add_argument("task")
     check.add_argument("workspace")

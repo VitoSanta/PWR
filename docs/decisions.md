@@ -8,6 +8,39 @@ still holds it is restated here.
 
 ---
 
+## D-2026-10-02-1 — The stack-matrix runner is the product-path evaluator
+
+**Decision, the owner's choice of 2026-10-02** (asked after the review of the
+F1 commits, between this, the planned `EvalHost`, and a baseline first).
+Product-path measurement for F3/F6 runs through the stack-matrix runner
+(`evidence/stack-matrix/runner/run.py`), which drives `pwr serve --stdio` in
+Goal mode exactly as the desktop app does and takes its verdict from hidden
+tests in the task's container. Parity with the app holds by construction: the
+measured code is the shipped code.
+
+**Supersedes** the means of W2.4 (an `EvalHost` so that `pwr eval run --arm b1`
+calls the executor), not its goal. `pwr eval run` and `pwr run` keep the
+scripted loop as a declared research harness: their results describe that loop,
+not the product, and carry no product claim. Removing them is a visible change
+and needs its own decision. D-2026-09-30-6 stays as the parity inventory; its
+rows matter for which mechanisms a minimal control leaves out.
+
+**What the runner needs before a campaign it can confirm with:** an engine
+lease (one inference engine at a time, refused otherwise) and full provenance
+per run (binary and sidecar, model revision, engine libraries, effective
+sampling and its sources, granted window, machine and load); a hash-frozen
+dev/heldout manifest; arms -- PWR, the W8.3 minimal control behind the same
+`pwr serve` plumbing, and eligible competitors against a matched endpoint for
+the same weights -- with every difference that cannot be equalised listed; and
+a paired analysis under the MASTER_SPEC statistics (exact McNemar or task-paired
+bootstrap, Wilson intervals, Holm, unbiased pass@1, first-cycle results apart
+from nudged ones). Competitor installs and model runs follow the owner-stop and
+night-queue rules of the contract.
+
+**Basis.** The stack matrix already measures the app's path; competitors are
+external programs that a corpus arm inside `pwr eval` cannot run; an `EvalHost`
+would have reproduced the server's turn composition beside it.
+
 ## D-2026-10-01-2 — Mission expansion and Windows exit gate
 
 **Decision, approved 2026-10-01.** The owner accepted the F0 proposal and
