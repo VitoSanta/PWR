@@ -3,7 +3,7 @@
 
     run.py list [--split dev|heldout]
     run.py reference [TASK ...]          seed fails and reference passes, in containers
-    run.py run [TASK ...] --run RUN_ID [--split dev|heldout] [--repeat N]
+    run.py run [TASK ...] --run RUN_ID [--arm pwr|minimal] [--split dev|heldout] [--repeat N]
     run.py verify TASK WORKSPACE         the independent verdict on one workspace
     run.py freeze [--reason WHY]         record every task's split and digest (splits.json)
 
@@ -437,7 +437,16 @@ def wait_for_idle_engines(seconds=60):
         time.sleep(2)
 
 
-def run_task(task, run_id, attempt, turns_override=None, campaign=None):
+# What each arm sends with every prompt. `pwr` is the product as the app runs
+# it; `minimal` is the W8.3 control behind the same `pwr serve` (same engine,
+# sampling, tools, sandbox and budgets, none of PWR's harness).
+ARMS = {
+    "pwr": {"goalMode": True},
+    "minimal": {"goalMode": False, "harness": "minimal"},
+}
+
+
+def run_task(task, run_id, attempt, turns_override=None, campaign=None, arm="pwr"):
     label = task["id"] if attempt == 1 else f"{task['id']}~{attempt}"
     out = RESULTS / run_id / label
     if (out / "result.json").exists():
@@ -459,6 +468,7 @@ def run_task(task, run_id, attempt, turns_override=None, campaign=None):
     result = {
         "task": task["id"], "title": task["title"], "stacks": task["stacks"],
         "category": task["category"], "split": task.get("split"), "attempt": attempt,
+        "arm": arm,
         "run": run_id, "model": MODEL, "binary": PWR_BIN,
         "revision": binary_revision(),
         "protocol": PROTOCOL,
@@ -530,10 +540,15 @@ def run_task(task, run_id, attempt, turns_override=None, campaign=None):
             turn_started = time.time()
             reply = core.request(
                 "session/prompt",
-                {"sessionId": session, "prompt": [{"type": "text", "text": text}], "goalMode": True},
+                {"sessionId": session, "prompt": [{"type": "text", "text": text}], **ARMS[arm]},
                 on_message=person,
             )
             meta = (reply.get("_meta") or {}).get("pwr", {})
+            # The core says which harness ran; a comparison never rests on
+            # what was asked for alone.
+            ran = meta.get("harness", "pwr")
+            if ran != arm:
+                raise RuntimeError(f"asked for the {arm} arm, the core ran {ran}")
             passed, output = verify(task, workspace, f"t{turn}")
             record = {
                 "turn": turn, "prompt": text if turn > 1 else "(brief)",
@@ -610,7 +625,7 @@ def cmd_run(args):
                     sys.exit(3)
                 try:
                     result = run_task(task, args.run, attempt, args.turns,
-                                      dict(campaign, engines_at_start=engines))
+                                      dict(campaign, engines_at_start=engines), args.arm)
                 except VerifierDown as down:
                     say(f"--- stopped: Docker stopped answering during {task['id']}; "
                         f"its result is not recorded.\n{down}")
@@ -649,6 +664,8 @@ def main():
     run.add_argument("--split")
     run.add_argument("--repeat", type=int, default=1)
     run.add_argument("--turns", type=int)
+    run.add_argument("--arm", choices=sorted(ARMS), default="pwr",
+                     help="pwr (the product) or minimal (the W8.3 control); one arm per run")
     run.add_argument("--allow-unfrozen", action="store_true",
                      help="run tasks that do not match the frozen manifest (recorded)")
     run.add_argument("--allow-busy-machine", action="store_true",

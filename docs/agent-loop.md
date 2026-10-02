@@ -93,6 +93,23 @@ An abandoned MLX opening discards its worker protocol, including a partial
 pipe write/load/drain, before reuse. Real stop latency and cancellation of
 separate lifecycle calls remain unmeasured.
 
+### The minimal control (W8.3)
+
+An experimental arm, not a mode: the stack-matrix runner asks for it with
+`harness: "minimal"` to measure what PWR's harness adds. It runs on the same
+deployment, sampling, reasoning budget, tools, sandbox, approvals and goal
+budgets, through the same `take_turn`, with `Continuity::harness` set to
+`Minimal`. Off in it: PWR's instructions (a three-sentence neutral one plus the
+model's declared suffix), ranked passages, ledger, completion holds, repetition
+and stall guards, reply recoveries (an unusable reply is answered with its
+kind and "the reply could not be used"), summarising compaction (the oldest
+exchanges after the request are dropped when no answer fits), checks after the
+turn, and Goal verification and review. Three unusable or empty replies in a
+row still stop it. What the tool executor adds to a result (located compiler
+diagnostics, the re-read note, a seen file's hash for a delete) belongs to the
+tools and is the same in both arms. The full list is the implementation plan's
+W8.3.
+
 ### Limits of a turn
 
 | Limit | Value | Where | What happens |

@@ -1916,11 +1916,12 @@ impl<R: TurnRunner + 'static> Server<R> {
         continuity: converse::Continuity,
         approvals: Arc<dyn ApprovalPrompt>,
         session_grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
-        goal_mode: bool,
+        policy: Policy,
     ) -> Value {
+        let goal_mode = policy == Policy::Goal;
         let limits = match self.runner.goal_limits(&root) {
             Ok(limits) => limits,
-            Err(why) if goal_mode => return error_response(id, -32000, &why),
+            Err(why) if policy != Policy::Conversation => return error_response(id, -32000, &why),
             Err(_) => GoalLimits::default(),
         };
         // What a prompt amounts to is the executor's to decide; this only
@@ -1940,11 +1941,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 continuity,
                 approvals,
                 session_grants,
-                policy: if goal_mode {
-                    Policy::Goal
-                } else {
-                    Policy::Conversation
-                },
+                policy,
             },
             limits,
         )
@@ -1968,6 +1965,15 @@ impl<R: TurnRunner + 'static> Server<R> {
             } => self.goal_out_of_budget(id, &session_id, total_actions, reached),
             SessionEnd::Error { code, message } => error_response(id, code, &message),
         };
+        // Which arm ran, in the reply itself, so a comparison never rests on
+        // what the client meant to ask for.
+        if policy == Policy::Minimal
+            && let Some(meta) = reply
+                .pointer_mut("/result/_meta/pwr")
+                .and_then(Value::as_object_mut)
+        {
+            meta.insert("harness".into(), json!("minimal"));
+        }
         if goal_mode {
             if let Some(meta) = reply
                 .pointer_mut("/result/_meta/pwr")
@@ -2402,6 +2408,32 @@ impl<R: TurnRunner + 'static> Server<R> {
             Some(Value::Bool(enabled)) => *enabled,
             Some(_) => return self.send(error_response(id, -32602, "goalMode must be a boolean")),
         };
+        // The W8.3 control, for the stack-matrix runner's comparison arm. Not
+        // offered by the app: it is an experiment, not a mode.
+        let minimal = match params.get("harness") {
+            None | Some(Value::Null) => false,
+            Some(Value::String(harness)) if harness == "pwr" => false,
+            Some(Value::String(harness)) if harness == "minimal" => true,
+            Some(_) => {
+                return self.send(error_response(
+                    id,
+                    -32602,
+                    "harness must be \"pwr\" or \"minimal\"",
+                ));
+            }
+        };
+        let policy = match (minimal, goal_mode) {
+            (true, true) => {
+                return self.send(error_response(
+                    id,
+                    -32602,
+                    "the minimal control has no goal mode; it runs one turn under the goal's budgets",
+                ));
+            }
+            (true, false) => Policy::Minimal,
+            (false, true) => Policy::Goal,
+            (false, false) => Policy::Conversation,
+        };
         let mut sessions = self.sessions.borrow_mut();
         let Some(session) = sessions.get_mut(&session_id) else {
             return self.send(error_response(id, -32602, "no such session"));
@@ -2638,7 +2670,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     continuity,
                     approvals,
                     session_grants,
-                    goal_mode,
+                    policy,
                 )
                 .await;
             server.finish(&session_id, reply);
@@ -3944,7 +3976,10 @@ mod tests {
                 }
             }
             let run = self.runs.fetch_add(1, Ordering::Relaxed);
-            assert_eq!(turn.continuity.action_limit.is_some(), turn.goal_mode);
+            assert_eq!(
+                turn.continuity.action_limit.is_some(),
+                turn.goal_mode || turn.continuity.harness == converse::Harness::Minimal
+            );
             self.grants_seen
                 .lock()
                 .unwrap()
@@ -4900,6 +4935,11 @@ mod tests {
     }
 
     async fn prompt_mode(runner: GoalScripted, goal_mode: bool) -> (Vec<Value>, usize) {
+        prompt_with(runner, json!({"goalMode": goal_mode})).await
+    }
+
+    /// One prompt with `extra` laid over its parameters.
+    async fn prompt_with(runner: GoalScripted, extra: Value) -> (Vec<Value>, usize) {
         let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counted = Arc::clone(&runs);
         let requests = Arc::clone(&runner.requests);
@@ -4918,17 +4958,14 @@ mod tests {
             let response = client.receive().await;
             client.receive().await;
             let session = response["result"]["sessionId"].as_str().unwrap().to_owned();
-            client
-                .request(
-                    2,
-                    "session/prompt",
-                    json!({
-                        "sessionId": session,
-                        "goalMode": goal_mode,
-                        "prompt": [{"type": "text", "text": "Make the acceptance tests pass"}],
-                    }),
-                )
-                .await;
+            let mut params = json!({
+                "sessionId": session,
+                "prompt": [{"type": "text", "text": "Make the acceptance tests pass"}],
+            });
+            for (key, value) in extra.as_object().unwrap() {
+                params[key] = value.clone();
+            }
+            client.request(2, "session/prompt", params).await;
             *kept.lock().unwrap() = client.until_response(2).await;
         })
         .await;
@@ -5045,6 +5082,34 @@ mod tests {
             assert_eq!(meta["terminal"], "budget", "{phase}: {meta}");
             assert_eq!(meta["budget"]["limit"], "time", "{phase}");
             assert_eq!(meta["budget"]["spentSeconds"], 2, "{phase}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_minimal_control_is_one_budgeted_turn_and_says_so_in_its_reply() {
+        let runner = budget_runner();
+        let requests = Arc::clone(&runner.requests);
+        let (messages, runs) = prompt_with(runner, json!({"harness": "minimal"})).await;
+        assert_eq!(runs, 1, "the control was continued like a goal");
+        let meta = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_eq!(meta["harness"], "minimal", "{meta}");
+        assert!(meta.get("goal").is_none_or(Value::is_null), "{meta}");
+        assert!(
+            !requests.lock().unwrap()[0].contains("Goal mode is enabled"),
+            "the control was given goal-mode instructions"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_minimal_control_has_no_goal_mode_and_no_other_harness_exists() {
+        for extra in [
+            json!({"harness": "minimal", "goalMode": true}),
+            json!({"harness": "simple"}),
+            json!({"harness": 1}),
+        ] {
+            let (messages, runs) = prompt_with(budget_runner(), extra.clone()).await;
+            assert_eq!(runs, 0, "{extra}");
+            assert_eq!(messages.last().unwrap()["error"]["code"], -32602, "{extra}");
         }
     }
 

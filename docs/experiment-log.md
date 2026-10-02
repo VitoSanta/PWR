@@ -13,6 +13,25 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-02 — The W8.3 minimal control, as a stack-matrix arm
+
+**IMPLEMENTED experimental control; deterministic tests, no model run.** What
+"PWR beats a simple loop" is measured against. The owner approved the
+classification in W8.3: the control shares the deployment, sampling, reasoning
+budget, tools, sandbox, approvals and goal budgets with PWR, and leaves out
+PWR's instructions and retrieval, completion holds, repetition and stall guards,
+reply recoveries, summarising compaction (it drops the oldest exchanges
+instead), checks after a turn and Goal verification/review. It runs through the
+same `take_turn` with `Continuity::harness = Minimal`, so the plumbing cannot
+drift between arms; `pwr serve` takes `harness: "minimal"` and tags the reply,
+and `run.py --arm minimal` sends it and stops on a mismatch. Default behaviour
+is unchanged: every gate is open for `Harness::Full`. Regressions: four loop
+cases (holds, reply recovery, compaction, repeated refusal) that pass under the
+control and fail under the full harness; the executor's one budgeted, unverified
+turn; the server's parameter and tag; the neutral prompt; whole-exchange
+dropping; the runner's arm parameters. A first paired dev comparison needs the
+Mac free and Docker running.
+
 ## 2026-10-02 — Paired analysis of stack-matrix runs; the 3/8 to 6/8 signal re-read
 
 **IMPLEMENTED analysis; MEASURED re-reading of existing runs, no new run.**

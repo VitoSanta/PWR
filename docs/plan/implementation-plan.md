@@ -679,7 +679,8 @@ superseded design, kept for its inventory.
 **Runner progress.** (1) Engine lease and provenance: IMPLEMENTED 2026-10-02
 (`provenance.py`, runner tests in CI against a stand-in core). (2) Frozen split
 manifest: IMPLEMENTED 2026-10-02 (`splits.json`, 20 dev / 11 heldout). (3) Paired
-analysis and exact power: IMPLEMENTED 2026-10-02 (`analyze.py`). Next: (4) the W8.3 minimal control as
+analysis and exact power: IMPLEMENTED 2026-10-02 (`analyze.py`). (4) The W8.3
+minimal control as `--arm minimal`: IMPLEMENTED 2026-10-02. Next: (4) the W8.3 minimal control as
 an arm, (5) competitors against a matched endpoint (installs need the owner).
 
 **Former status:** IN PROGRESS · L — dispositions accepted (D-2026-09-30-6); rows 5, 6, 8 and 14 applied locally; the evaluator is not yet on the executor (see *Progress*)
@@ -1172,7 +1173,9 @@ The review's fourth "build next", and the reason for the order above.
 - **Where it runs (D-2026-10-02-1).** Behind `pwr serve`, selected by the
   stack-matrix runner as an arm, so it shares the engine, template, sampling,
   tools and sandbox with the PWR arm and only the harness differs.
-- **PROPOSED classification (2026-10-02, awaiting the owner).** *Shared by both
+- **IMPLEMENTED 2026-10-02** as `harness: "minimal"` behind `pwr serve` and
+  `run.py --arm minimal`; deterministic tests only, no model run yet.
+- **Classification, APPROVED by the owner 2026-10-02.** *Shared by both
   arms (plumbing):* engine, model, quantization, window, resolved sampling, the
   per-generation reasoning budget, the family adapter and the declared model
   suffix, the tool catalogue and its execution, sandbox, policy, approvals,
@@ -1190,7 +1193,11 @@ The review's fourth "build next", and the reason for the order above.
   exchanges); checks after an editing turn; Goal verification, review, the
   already-failing note and idle/stalled guards. *Bounds kept in the control so
   it stays bounded, not as help:* three unusable or empty replies in a row stop
-  it. The runner's nudges apply to both arms alike.
+  it. The runner's nudges apply to both arms alike. *Boundary made explicit at
+  implementation:* what the tool executor itself adds to a result -- located
+  compiler diagnostics, the note that a file was read again unchanged, the hash
+  supplied for deleting a file the turn has seen -- belongs to the tools and is
+  shared.
 
 ### W8.4 The confirmatory campaign
 
