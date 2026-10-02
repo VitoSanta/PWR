@@ -43,6 +43,7 @@ whole, in the [archive](archive/README.md).
 | [Initial mission audit](reviews/2026-10-01-audit.md) | Reproduced local checks, verified findings and unexamined F1 coverage |
 | [Competitor sources](research/competitors.md) | Partial F2 source/revision/license survey; no matched capability comparison |
 | [Experiment log](experiment-log.md) | Dated experiments and measurement-changing changes |
+| [Semantic Decision Layer](research/semantic-decision-layer.md) | Unmeasured, model-agnostic hypothesis: candidate generation, semantic selection and deterministic verification |
 | [Testing](testing.md) | Suites, CI, what "passed" means, manual passes |
 | [Distribution](distribution.md) | Building, releasing, reproducibility gaps |
 | [Feature status](feature-status.md) | Every feature, its state and its plan item |

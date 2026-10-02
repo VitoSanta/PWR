@@ -277,6 +277,16 @@ commit was made or push was dispatched. Next: F0 approval, correctness regressio
 product/eval parity and prospective baseline protocol. Negative capability
 claims cannot be inferred from absent measurements.
 
+## 2026-10-01 — Semantic Decision Layer (research proposal; no experiment run)
+
+**HYPOTHESIS, not implemented or measured.** Can an 8B local generator plus
+semantic ranking and deterministic verification outperform 14B/30B vanilla
+agents at equal or lower total computational cost? The
+[research proposal](research/semantic-decision-layer.md) separates generation,
+selection and verification, specifies model-agnostic candidate-ranking levels,
+controls, metrics, risks and success criteria. No scorer has been selected,
+no campaign has run, and no product, routing or roadmap decision is made.
+
 ## 2026-09-30 — W1.4 goal budget (working tree; commit pending)
 
 **IMPLEMENTED, not a capability measurement.** The product goal path now shares
