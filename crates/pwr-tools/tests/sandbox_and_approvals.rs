@@ -175,6 +175,64 @@ fn a_sandboxed_command_cannot_write_outside_the_workspace() {
     assert_ne!(result.exit_code, Some(0));
 }
 
+/// Measured 2026-10-01: a command killed the dev server of PWR's own window
+/// (`pkill -f 'ng serve'`). The profile denies signalling any process the
+/// sandboxed command did not start; its own children stay stoppable.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_sandboxed_command_cannot_signal_a_process_it_did_not_start() {
+    let root = tempfile::tempdir().unwrap();
+    let quiet = root.path().join("quiet.txt");
+    fs::write(&quiet, "").unwrap();
+    // A process of the person's own, started outside any sandbox.
+    let mut victim = std::process::Command::new("tail")
+        .args(["-f", quiet.to_str().unwrap()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands.push("pkill".into());
+    let by_pid = block_on(run_command(
+        &policy,
+        "sh",
+        &[
+            "-c".to_string(),
+            format!("kill -TERM {}; echo status=$?", victim.id()),
+        ],
+    ))
+    .unwrap();
+    assert!(by_pid.sandboxed, "the fixture did not exercise a sandbox");
+    assert!(by_pid.stdout.contains("status=1"), "{by_pid:?}");
+    let by_name = block_on(run_command(
+        &policy,
+        "sh",
+        &[
+            "-c".to_string(),
+            "pkill -f 'tail -f' ; echo status=$?".to_string(),
+        ],
+    ))
+    .unwrap();
+    assert!(by_name.stdout.contains("status=1"), "{by_name:?}");
+    assert!(
+        victim.try_wait().unwrap().is_none(),
+        "a sandboxed command killed a process it did not start"
+    );
+    // What it started itself it can stop.
+    let own = block_on(run_command(
+        &policy,
+        "sh",
+        &[
+            "-c".to_string(),
+            "tail -f /dev/null & kill $!; echo status=$?".to_string(),
+        ],
+    ))
+    .unwrap();
+    assert!(own.stdout.contains("status=0"), "{own:?}");
+    let _ = victim.kill();
+    let _ = victim.wait();
+}
+
 /// A refusal says it was the sandbox, and what to do about it -- rather
 /// than reading as a project that cannot write its own files.
 #[cfg(target_os = "macos")]
