@@ -2349,7 +2349,8 @@ impl<R: TurnRunner + 'static> Server<R> {
                 outcome.terminal = pwr_domain::TurnTerminal::Blocked;
             }
         }
-        outcome.delivered = !answer.is_empty() || report.edited;
+        // Preserve the executor's observed delivery; answer/check summaries
+        // and possible command effects cannot manufacture file delivery.
 
         let mut meta = if goal_mode {
             json!({
@@ -2950,15 +2951,55 @@ fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value
                 let result = envelope.as_ref().and_then(|value| value.get("result"));
                 let failed = result.is_none_or(|value| {
                     value.get("denied").is_some()
+                        || value.get("tool_failure").is_some()
+                        || value
+                            .get("failure")
+                            .is_some_and(|failure| !failure.is_null())
+                        || value.get("not_completed").is_some()
+                        || value.get("not_run").is_some()
+                        || value
+                            .get("execution_status")
+                            .is_some_and(|status| status != "completed")
                         || value.get("error").is_some()
                         || value
                             .get("exit_code")
                             .and_then(Value::as_i64)
                             .is_some_and(|code| code != 0)
                 });
+                let failure_text = failed.then(|| {
+                    result
+                        .and_then(|value| {
+                            [
+                                "tool_failure",
+                                "denied",
+                                "error",
+                                "not_completed",
+                                "not_run",
+                                "reason",
+                                "stderr",
+                            ]
+                            .iter()
+                            .find_map(|key| {
+                                value
+                                    .get(key)
+                                    .and_then(Value::as_str)
+                                    .filter(|text| !text.trim().is_empty())
+                            })
+                        })
+                        .unwrap_or("This saved call did not complete successfully.")
+                });
+                let content: Vec<Value> = failure_text
+                    .into_iter()
+                    .map(|text| {
+                        json!({
+                            "type": "content", "content": {"type": "text", "text": text}
+                        })
+                    })
+                    .collect();
                 shown.push(json!({
                     "sessionUpdate": "tool_call_update", "toolCallId": id,
                     "status": if failed { "failed" } else { "completed" },
+                    "content": content,
                     "_meta": {"pwr": {"replay": true}},
                 }));
             }
@@ -6028,6 +6069,35 @@ mod tests {
             "The file is correct.\n\nIndependent verification unavailable: this workspace declares no automated checks"
         );
         assert_eq!(shown[3]["_meta"]["pwr"]["replay"], true);
+    }
+
+    #[test]
+    fn replay_preserves_tool_failures_and_unexecuted_calls() {
+        for result in [
+            json!({"tool_failure":"permission denied","failure_category":"io_failure"}),
+            json!({"execution_status":"not_executed","reason":"budget"}),
+            json!({"not_completed":"unseen results"}),
+        ] {
+            let mut call = ChatMessage::text("assistant", "");
+            call.tool_calls.push(pwr_domain::ToolCall {
+                name: "write_file".into(),
+                arguments: json!({"path":"README.md"}),
+                id: None,
+            });
+            let shown = replay(
+                &[
+                    call,
+                    ChatMessage::text("tool", json!({"result":result}).to_string()),
+                ],
+                &[],
+            );
+            assert_eq!(shown[1]["status"], "failed", "{result}");
+            assert!(
+                shown[1]["content"][0]["content"]["text"]
+                    .as_str()
+                    .is_some_and(|text| !text.is_empty())
+            );
+        }
     }
 
     #[test]

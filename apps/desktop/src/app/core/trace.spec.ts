@@ -15,6 +15,14 @@ const tool = (toolKind: string, text: string, extra: Partial<Entry> = {}) =>
   entry('tool', { toolKind, text, title: `${toolKind === 'execute' ? 'run_command' : 'read_file ' + text}`, ...extra });
 
 describe('the execution trace', () => {
+  it('does not infer work delivery from unavailable checks', () => {
+    for (const delivered of [false, true, undefined]) {
+      const result = runOutcome({ _meta: { pwr: { outcome: { delivered, checks: { status: 'unavailable', why: 'no checks' } } } } }, false);
+      expect(result.text).not.toContain('Work delivered');
+      expect(result.text).toContain('unavailable');
+    }
+  });
+
   it('uses typed verification evidence and exposes unconfined execution', () => {
     const reply = { _meta: { pwr: { goal: { verified: true }, outcome: { checks: { status: 'ran_zero_tests' }, acceptance: { status: 'not_declared' }, confinement: { status: 'unconfined' } } } } };
     expect(runOutcome(reply, false)).toMatchObject({ tone: 'paused', action: null, confinement: 'Unconfined: commands run with your full rights' });

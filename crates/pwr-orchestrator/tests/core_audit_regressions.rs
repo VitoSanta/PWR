@@ -414,3 +414,202 @@ async fn actual_prompt_overflow_does_not_reload_at_a_smaller_tier() {
     .unwrap();
     assert_eq!(report.stopped, Some(converse::StopReason::ContextFull));
 }
+
+#[tokio::test]
+async fn failed_write_completion_recovers_inside_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("directory")).unwrap();
+    let fake = Fake {
+        replies: Mutex::new(VecDeque::from([
+            vec![call(
+                "write_file",
+                "bad",
+                serde_json::json!({"path":"directory","content":"bad"}),
+            )],
+            vec![call(
+                "complete",
+                "premature",
+                serde_json::json!({"rationale":"I will provide the files."}),
+            )],
+            vec![call(
+                "write_file",
+                "fixed",
+                serde_json::json!({"path":"README.md","content":"delivered"}),
+            )],
+            vec![call(
+                "complete",
+                "done",
+                serde_json::json!({"rationale":"Created README.md."}),
+            )],
+        ])),
+    };
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let mut messages = vec![
+        ChatMessage::text("system", "s"),
+        ChatMessage::text("user", "create files"),
+    ];
+    let report = turn(
+        &fake,
+        &store,
+        pwr_domain::new_id(),
+        &PolicyProfile::Safe.build(root.path().to_owned()),
+        &mut messages,
+        &AtomicBool::new(false),
+        &converse::Continuity::default(),
+    )
+    .await;
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("README.md")).unwrap(),
+        "delivered"
+    );
+    assert!(report.outcome.delivered);
+}
+
+#[tokio::test]
+async fn failed_write_and_listing_do_not_prove_delivery() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("directory")).unwrap();
+    let fake = Fake {
+        replies: Mutex::new(VecDeque::from([
+            vec![call(
+                "write_file",
+                "bad",
+                serde_json::json!({"path":"directory","content":"bad"}),
+            )],
+            vec![call("list_tree", "list", serde_json::json!({"path":"."}))],
+            vec![call(
+                "complete",
+                "end1",
+                serde_json::json!({"rationale":"I will provide the files."}),
+            )],
+            vec![call(
+                "complete",
+                "end2",
+                serde_json::json!({"rationale":"Cannot create the files."}),
+            )],
+        ])),
+    };
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let mut messages = vec![
+        ChatMessage::text("system", "s"),
+        ChatMessage::text("user", "create files"),
+    ];
+    let report = turn(
+        &fake,
+        &store,
+        pwr_domain::new_id(),
+        &PolicyProfile::Safe.build(root.path().to_owned()),
+        &mut messages,
+        &AtomicBool::new(false),
+        &converse::Continuity::default(),
+    )
+    .await;
+    assert!(!report.outcome.delivered);
+}
+
+#[tokio::test]
+async fn command_failure_is_visible_and_is_not_delivery() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = PolicyProfile::Safe.build(root.path().to_owned());
+    policy.allow_commands.push("sh".into());
+    let fake = Fake {
+        replies: Mutex::new(VecDeque::from([
+            vec![call(
+                "run_command",
+                "failure",
+                serde_json::json!({"executable":"sh","args":["-c","printf failed >&2; exit 1"]}),
+            )],
+            vec![call(
+                "complete",
+                "end",
+                serde_json::json!({"rationale":"The command failed."}),
+            )],
+        ])),
+    };
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let deployment = DeploymentDescriptor {
+        schema_version: 1,
+        id: pwr_domain::new_id(),
+        provider: "fake".into(),
+        endpoint: "http://localhost/".into(),
+        model_ref: "fake".into(),
+        backend_options: Default::default(),
+        auth_ref: None,
+    };
+    let mut messages = vec![
+        ChatMessage::text("system", "s"),
+        ChatMessage::text("user", "work"),
+    ];
+    let mut failed = false;
+    let report = converse::take_turn(
+        &fake,
+        &pwr_compat::GenericAdapter,
+        &deployment,
+        &store,
+        pwr_domain::new_id(),
+        &policy,
+        &mut messages,
+        16384,
+        &[],
+        Default::default(),
+        serde_json::json!([]),
+        &AtomicBool::new(false),
+        &converse::Continuity::default(),
+        &DenyWithoutAsking,
+        |step| {
+            if let converse::TurnStep::ToolCall(call) = step {
+                failed |= matches!(call.phase, converse::ToolPhase::Failed(_));
+            }
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        failed,
+        "nonzero exit must be visible as failed in the live trace"
+    );
+    assert!(
+        report.edited,
+        "possible command effects still require checks"
+    );
+    assert!(!report.outcome.delivered);
+}
+
+#[tokio::test]
+async fn completion_rationale_without_artifacts_is_not_delivery() {
+    let root = tempfile::tempdir().unwrap();
+    let fake = Fake {
+        replies: Mutex::new(VecDeque::from([
+            vec![call(
+                "complete",
+                "first",
+                serde_json::json!({"rationale":"Created all files."}),
+            )],
+            vec![call(
+                "complete",
+                "second",
+                serde_json::json!({"rationale":"Created all files."}),
+            )],
+        ])),
+    };
+    let store = pwr_store::Store::open(":memory:").unwrap();
+    let mut messages = vec![
+        ChatMessage::text("system", "s"),
+        ChatMessage::text("user", "create files"),
+    ];
+    let report = turn(
+        &fake,
+        &store,
+        pwr_domain::new_id(),
+        &PolicyProfile::Safe.build(root.path().to_owned()),
+        &mut messages,
+        &AtomicBool::new(false),
+        &converse::Continuity::default(),
+    )
+    .await;
+    assert!(
+        report.completed,
+        "the model may terminate, but its rationale is only a claim"
+    );
+    assert!(!report.outcome.delivered);
+}

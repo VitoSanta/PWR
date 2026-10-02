@@ -207,8 +207,8 @@ impl FailedRuns {
         (edited && !self.handed_over && self.streak >= FAILED_RUN_LIMIT).then(|| {
             self.handed_over = true;
             format!(
-                "Stop running things now: the last {FAILED_RUN_LIMIT} runs all failed. The files \
-                 you wrote are kept. Answer the engineer instead: say which files are ready, what \
+                "Stop running things now: the last {FAILED_RUN_LIMIT} runs all failed. Any possible \
+                 filesystem effects are kept. Inspect what exists and answer the engineer: say what was produced, what \
                  you tried to run and why it failed, and the exact commands they can run \
                  themselves. Further commands this turn will not be run."
             )

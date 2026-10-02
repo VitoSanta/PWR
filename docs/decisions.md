@@ -248,6 +248,24 @@ N7, 9.4, 16.2).
 
 ---
 
+## D-2026-10-02-2 — A model's completion rationale is not artifact delivery
+
+**Decision.** Ordinary-turn delivery evidence uses successful file receipts/diffs;
+possible command effects remain a reason to check, not a delivery claim. ACP
+preserves that evidence. The desktop reports unavailable verification without
+asserting completed work. Answer-only turns may deliver an answer, while task
+acceptance remains independently established. Command-only artifacts without a
+file receipt are conservatively unknown.
+
+**Evidence.** The owner's Libra manual run produced no project files but said
+“Work delivered”; deterministic failed-write, exit-1, replay and desktop
+regressions reproduced the evidence errors. See [repair review](reviews/2026-10-02-libra-delivery.md).
+A once-per-turn failed-write completion hold and workspace anchor are implemented
+recovery interventions; their model effectiveness remains UNKNOWN pending a fresh
+manual run. Safety boundaries and declared verification remain unchanged.
+
+---
+
 ## Decisions from earlier revisions that still hold
 
 Restated from the archive, with where they were first recorded.
