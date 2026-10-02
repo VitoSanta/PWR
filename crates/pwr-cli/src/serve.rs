@@ -2568,7 +2568,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     if let TurnStep::MemoryProposed { text, scope } = &step {
                         server.send(notification(
                             "_pwr/memory_proposed",
-                            json!({"sessionId": session_id, "text": text, "scope": scope}),
+                            json!({"sessionId": session_id, "cwd": root, "text": text, "scope": scope}),
                         ));
                         return;
                     }

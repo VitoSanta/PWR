@@ -985,6 +985,9 @@ pub async fn take_turn<P: ModelProvider>(
     prompt: &dyn crate::ApprovalPrompt,
     on_step: impl FnMut(TurnStep),
 ) -> Result<TurnReport, String> {
+    // Repair legacy partial snapshots before any template sees the next user
+    // message. Missing historical results have unknown completion state.
+    close_pending_calls(messages, Some(StopReason::Interrupted), false);
     let mut declined = false;
     let report = take_turn_inner(
         provider,
@@ -1006,6 +1009,16 @@ pub async fn take_turn<P: ModelProvider>(
     )
     .await?;
     let mut report = report;
+    close_pending_calls(messages, report.stopped, declined);
+    if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
+        checkpoint.next_intent =
+            checkpoint
+                .next_intent
+                .max(crate::conversation::last_intent_sequence(
+                    store,
+                    conversation_id,
+                )?);
+    }
     report.declined = declined;
     report.outcome.delivered = !report.answer.trim().is_empty() || report.edited;
     report.outcome.terminal = if report.declined {
@@ -1065,6 +1078,70 @@ pub async fn take_turn<P: ModelProvider>(
         )
         .map_err(|error| error.to_string())?;
     Ok(report)
+}
+
+/// Complete the protocol even when a batch ends at Stop or a budget boundary.
+/// Missing results are observations of non-completion, never fabricated success.
+fn close_pending_calls(
+    messages: &mut Vec<ChatMessage>,
+    stopped: Option<StopReason>,
+    declined: bool,
+) {
+    let mut at = 0;
+    while at < messages.len() {
+        if messages[at].tool_calls.is_empty() {
+            at += 1;
+            continue;
+        }
+        let calls = messages[at].tool_calls.clone();
+        let end = messages[at + 1..]
+            .iter()
+            .position(|message| message.role != "tool")
+            .map_or(messages.len(), |offset| at + 1 + offset);
+        let results = &messages[at + 1..end];
+        let mut anonymous = results
+            .iter()
+            .filter(|message| {
+                message.tool_call_id.is_none()
+                    && crate::tool_result_json(&message.content).is_some()
+            })
+            .count();
+        let pending: Vec<_> = calls
+            .into_iter()
+            .filter(|call| {
+                if let Some(id) = &call.id {
+                    !results
+                        .iter()
+                        .any(|message| message.tool_call_id.as_ref() == Some(id))
+                } else if anonymous > 0 {
+                    anonymous -= 1;
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+        let reason = if declined {
+            "declined".to_owned()
+        } else {
+            stopped.map_or_else(
+                || "turn_completed".to_owned(),
+                |reason| format!("{reason:?}"),
+            )
+        };
+        let inserted: Vec<_> = pending.iter().map(|call| {
+            let interrupted = stopped == Some(StopReason::Interrupted);
+            tool_message(call, serde_json::json!({
+                "execution_status": if interrupted { "not_completed" } else { "not_executed" },
+                "reason": reason,
+                "notice": if interrupted { "No completed result was recorded. A started command may have partial effects; inspect the workspace before repeating it." }
+                    else { "This call was not executed before the turn ended." },
+            }))
+        }).collect();
+        let count = inserted.len();
+        messages.splice(end..end, inserted);
+        at = end + count;
+    }
 }
 
 /// How a turn ended, in the audit.
@@ -1822,7 +1899,13 @@ async fn take_turn_inner<P: ModelProvider>(
                 )?;
                 return stopped(actions, edited, StopReason::Interrupted);
             }
-            Err(pwr_provider::ProviderError::ContextLimit { safe_context }) => {
+            Err(
+                error @ (pwr_provider::ProviderError::ContextLimit { .. }
+                | pwr_provider::ProviderError::PromptTooLarge { .. }),
+            ) => {
+                let prompt_capacity =
+                    matches!(&error, pwr_provider::ProviderError::PromptTooLarge { .. });
+                let safe_context = error.to_string();
                 failed(&mut turn, "context_limit", safe_context.clone())?;
                 // A lower window that calibration measured, before reaching for
                 // the prompt. Dropping a tier keeps the conversation whole;
@@ -1845,7 +1928,8 @@ async fn take_turn_inner<P: ModelProvider>(
                 // It cannot happen on a backend that ignores context requests:
                 // nothing can calibrate one, so it has no profile, so the tier
                 // list is empty and this branch is unreachable there.
-                if context_drops < max_context_drops
+                if !prompt_capacity
+                    && context_drops < max_context_drops
                     && let Some(lower) = crate::lower_measured_tier(context_tokens, context_tiers)
                 {
                     context_drops += 1;
@@ -2613,6 +2697,9 @@ async fn take_turn_inner<P: ModelProvider>(
             // without a receipt, which is what an effect nobody can vouch for
             // should look like to a restart.
             let interruptible = matches!(action, ActionProposal::RunCommand { .. });
+            // A permitted command can edit before returning an error or Stop.
+            // Conservatively trigger verification; this is not a success claim.
+            edited |= interruptible && would_mutate;
             // Kept to run again if the network or the engine is what it lacked.
             let command = interruptible.then(|| action.clone());
             let performing = crate::session::perform(
@@ -2657,23 +2744,9 @@ async fn take_turn_inner<P: ModelProvider>(
                     if once {
                         granted_once.push(approval);
                     }
-                    let again = crate::session::perform(
-                        store,
-                        conversation_id,
-                        &policy,
-                        command,
-                        &mut services,
-                        &mut reads,
-                        u8::try_from(actions).unwrap_or(u8::MAX),
-                        &mut checkpoint,
-                        actions,
-                    );
-                    outcome = tokio::select! {
-                        outcome = again => outcome?,
-                        () = pressed(stop) => {
-                            return stopped(actions, edited, StopReason::Interrupted);
-                        }
-                    };
+                    // A grant is not evidence that the failed command rolled back.
+                    // Keep its result; the next explicit proposal must reconcile it.
+                    crate::session::note_unreplayed(&mut outcome);
                 }
             }
             if let Ok(mut shared) = continuity.checkpoint.lock() {
@@ -2838,11 +2911,8 @@ async fn take_turn_inner<P: ModelProvider>(
                     }
                 }
                 Err(problem) => {
-                    // Every error the conversation sees here is a refusal: the
-                    // action did not have its effect. The run distinguishes a
-                    // policy denial from a broken tool for the streak's
-                    // purposes and both count as refused, which is what
-                    // `action_outcome` renders and what this reads back.
+                    // A failed command may have partial effects. Its failure
+                    // result and durable intent retain that uncertainty.
                     refused_streak.refused(&fingerprint);
                     on_step(TurnStep::ToolCall(ToolCallStep {
                         id: call_id,
@@ -4318,5 +4388,21 @@ mod tests {
             prompt.contains("unless the engineer asked for a subfolder"),
             "{prompt}"
         );
+    }
+    #[test]
+    fn legacy_partial_batch_is_closed_before_the_next_user_message() {
+        let mut assistant = ChatMessage::text("assistant", "");
+        assistant.tool_calls = vec![pwr_domain::ToolCall {
+            id: Some("pending".into()),
+            name: "run_command".into(),
+            arguments: serde_json::json!({"executable":"sh"}),
+        }];
+        let mut messages = vec![assistant, ChatMessage::text("user", "continue")];
+        close_pending_calls(&mut messages, Some(StopReason::Interrupted), false);
+        assert_eq!(messages[1].tool_call_id.as_deref(), Some("pending"));
+        assert_eq!(messages[2].role, "user");
+        assert!(messages[1].content.contains("partial effects"));
+        close_pending_calls(&mut messages, Some(StopReason::Interrupted), false);
+        assert_eq!(messages.len(), 3);
     }
 }

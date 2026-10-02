@@ -19,18 +19,21 @@ into canonical actions. An adapter has a revision that a calibration records.
 
 | Family (revision) | Calls it reads |
 |---|---|
-| Qwen, Nemotron 3.x (`qwen-v3`) | `<tool_call>` JSON; the XML `<function=…><parameter=…>` form with or without its opening or closing `<tool_call>` tag (Qwen3-Coder arrives without the opening one); a list or dict written the Python way inside a parameter (`['-m', 'unittest']`); fenced JSON; `<tools>` written as a call; inline `<think>` |
+| Qwen, Nemotron 3.x (`qwen-v4`) | `<tool_call>` JSON; the XML `<function=…><parameter=…>` form with or without its opening or closing `<tool_call>` tag (Qwen3-Coder arrives without the opening one); a list or dict written the Python way inside a parameter (`['-m', 'unittest']`); fenced JSON only when the entire reply consists of call fences; `<tools>` written as a call; inline `<think>` |
 | GLM-4.x | `<tool_call>name<arg_key>…<arg_value>…` |
 | Seed-OSS | `<seed:tool_call>`, `<seed:think>` |
 | gpt-oss (Harmony) | channels and `to=functions.…` |
 | Gemma 4 (`gemma4-v2`) | `<|tool_call>call:name{…}<tool_call|>` and its thought channel |
 | Granite (`granite-v2`) | a bare JSON array, and `<tool_call>{json}</tool_call>`; role-header reasoning |
-| Mistral, Devstral, Magistral, Ministral (`mistral-v1`) | `[TOOL_CALLS]name[ARGS]{json}` (several in a row) and the older `[TOOL_CALLS][{…}]`; the request is rendered with the roles Mistral's template insists on (below) |
+| Mistral, Devstral, Magistral, Ministral (`mistral-v2`) | `[TOOL_CALLS]name[ARGS]{json}` (several in a row) and the older `[TOOL_CALLS][{…}]`; the request is rendered with the roles Mistral's template insists on (below) |
 | Liquid LFM2 (`liquid-v1`) | `<|tool_call_start|>[name(key="v", …)]<|tool_call_end|>` (Python call syntax) and `<function_call>{json}</function_call>`; `<think>` |
 
 A call a model wrote whole but could not finish (cut off inside the arguments)
 is never guessed at: it is reported as cut off, and the turn retries smaller.
 Fixes are made to help every model where possible, not per model.
+Ambiguous raw XML delimiters are refused instead of truncating arguments, and
+Mistral arrays decode every member or none. Parser and sidecar changes alter
+calibration scope; old calibration evidence may require Quick Calibration again.
 
 **What the request carries for the chat template** (`template_messages`): every
 tool call has an id (its own, else nine letters or digits, which Mistral's
@@ -143,7 +146,7 @@ quantization, backend, template or engine version.
 
 ## Provenance and reuse
 
-A calibration records: model reference, the family adapter's revision (`qwen-v3`), Hub revision (`.pwr-revision`), the
+A calibration records: model reference, the family adapter's revision (`qwen-v4`), Hub revision (`.pwr-revision`), the
 backend's artifact digest, a fingerprint of the weight files' names and sizes,
 size, quantization, format, architecture, tokenizer and chat-template
 fingerprints, backend and its version (`mlx-lm <v>; mlx <v>; sidecar <hash>`),

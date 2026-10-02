@@ -1012,7 +1012,7 @@ pub fn retrieve_with(
                 heading,
                 words_of(&whole),
             ));
-            bodies.push((file.content_hash.clone(), body));
+            bodies.push((hash_bytes(text.as_bytes()), body));
             wholes.push(whole);
         }
     }
@@ -1165,7 +1165,7 @@ pub fn retrieve_with(
             first_line: first + 1,
             last_line: last + 1,
             content,
-            content_hash: file.content_hash.clone(),
+            content_hash: hash_bytes(text.as_bytes()),
             rationale: format!("score {score}: {rationale}"),
             estimated_tokens,
         });

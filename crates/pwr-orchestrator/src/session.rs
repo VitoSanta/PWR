@@ -148,8 +148,8 @@ pub enum Withheld {
     /// It did not fail for want of something the sandbox withholds, or
     /// asking would not change it: nothing to ask.
     Nothing,
-    /// The person granted `approval`; run it again. `once` when the grant is
-    /// for this command alone and goes when it has run.
+    /// The person granted `approval`. Preserve the failed attempt: a new
+    /// proposal must reconcile possible partial effects before any repetition.
     Allowed { approval: Approval, once: bool },
     /// The person kept it withheld, and the command's result now says so.
     Refused,
@@ -315,6 +315,23 @@ pub async fn withheld(
     }
 }
 
+/// Preserve partial-effect evidence after granting a missing permission.
+pub fn note_unreplayed(outcome: &mut Result<serde_json::Value, ActionExecutionError>) {
+    const NOTE: &str = "Permission was granted, but this failed attempt was not replayed. Inspect possible partial effects before proposing another command.";
+    match outcome {
+        Ok(value) => {
+            if let Some(object) = value.as_object_mut() {
+                object.insert("permission_recovery".into(), serde_json::json!(NOTE));
+            }
+        }
+        Err(ActionExecutionError::TimedOut(text)) => {
+            text.push('\n');
+            text.push_str(NOTE);
+        }
+        Err(_) => {}
+    }
+}
+
 /// Runs an action the gate let through, with the trail a restart needs.
 ///
 /// Announced before it runs when it can change the workspace and receipted
@@ -334,16 +351,37 @@ pub async fn perform(
     checkpoint: &mut conversation::Checkpoint,
     actions_taken: usize,
 ) -> Result<Result<serde_json::Value, ActionExecutionError>, String> {
-    let intent = conversation::may_change_workspace(&action).then(|| {
-        checkpoint.next_intent += 1;
-        conversation::intent_for(&action, checkpoint.next_intent)
-    });
+    let command = matches!(action, ActionProposal::RunCommand { .. });
+    let intent = if conversation::may_change_workspace(&action) {
+        // The durable journal includes intents whose futures were dropped by
+        // Stop. A stale in-memory checkpoint must never reuse their identities.
+        checkpoint.next_intent = checkpoint
+            .next_intent
+            .max(conversation::last_intent_sequence(store, id)?)
+            .checked_add(1)
+            .ok_or("action intent sequence exhausted")?;
+        Some(conversation::intent_for(&action, checkpoint.next_intent))
+    } else {
+        None
+    };
     if let Some(intent) = &intent {
         conversation::record_intent(store, id, intent)?;
+        conversation::record_checkpoint(store, id, checkpoint)?;
     }
     let outcome =
         crate::execute_action_recorded(store, id, policy, action, services, reads, step).await;
-    if let Some(intent) = &intent {
+    let uncertain = command
+        && matches!(
+            &outcome,
+            Err(ActionExecutionError::TimedOut(_)
+                | ActionExecutionError::Timeout
+                | ActionExecutionError::Io(_)
+                | ActionExecutionError::Audit(_)
+                | ActionExecutionError::Serialization(_))
+        );
+    if let Some(intent) = &intent
+        && !uncertain
+    {
         conversation::record_receipt(store, id, intent.sequence)?;
     }
     if let Ok(value) = &outcome {

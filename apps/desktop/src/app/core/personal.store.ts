@@ -26,10 +26,14 @@ export class PersonalStore {
       const text = String(params.text ?? '').trim();
       if (!text) return;
       const scope: MemoryScope = params.scope === 'global' ? 'global' : 'workspace';
+      const cwd = typeof params.cwd === 'string' ? params.cwd : '';
+      // Old cores cannot prove a workspace proposal's origin. Never silently
+      // attach it to whichever folder happens to be visible now.
+      if (scope === 'workspace' && !cwd) return;
       this.proposals.update((all) =>
-        all.some((proposal) => proposal.text === text)
+        all.some((proposal) => proposal.text === text && proposal.cwd === cwd && proposal.scope === scope)
           ? all
-          : [...all, { key: `${Date.now()}-${all.length}`, sessionId: params.sessionId ?? null, text, scope }],
+          : [...all, { key: `${Date.now()}-${all.length}`, sessionId: params.sessionId ?? null, cwd, text, scope }],
       );
     });
   }
@@ -81,7 +85,12 @@ export class PersonalStore {
 
   /** Saves a proposal the person confirmed, in the scope they chose. */
   async accept(proposal: MemoryProposal, scope: MemoryScope = proposal.scope): Promise<void> {
-    await this.add(scope, proposal.text, proposal.sessionId ?? undefined);
+    if (scope === 'workspace' && !proposal.cwd) {
+      this.error.set('This proposal has no recorded workspace. Add it manually in the intended workspace.');
+      return;
+    }
+    await this.change({ action: 'add', scope, text: proposal.text,
+      source: proposal.sessionId ?? undefined, cwd: proposal.cwd });
     if (!this.error()) this.dismiss(proposal);
   }
 
@@ -105,7 +114,9 @@ export class PersonalStore {
     this.error.set('');
     try {
       const reply = await this.agent.call('_pwr/memory', { cwd: this.agent.workspace(), ...params });
-      this.memories.set(reply as MemoryList);
+      if (!params['cwd'] || params['cwd'] === this.agent.workspace()) {
+        this.memories.set(reply as MemoryList);
+      }
     } catch (error) {
       this.error.set(message(error));
     } finally {

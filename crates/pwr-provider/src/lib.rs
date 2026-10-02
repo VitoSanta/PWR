@@ -226,6 +226,10 @@ pub enum ProviderError {
     Timeout { safe_context: String },
     #[error("provider context limit exceeded: {safe_context}")]
     ContextLimit { safe_context: String },
+    /// The final rendered input itself exceeds the selected logical window.
+    /// Unlike an allocation fault, lowering the window cannot recover it.
+    #[error("rendered prompt exceeds the context window: {safe_context}")]
+    PromptTooLarge { safe_context: String },
     #[error("provider operation cancelled")]
     Cancelled,
     /// The reply stopped without the backend saying it was finished.

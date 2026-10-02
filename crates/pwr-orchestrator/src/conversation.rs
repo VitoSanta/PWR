@@ -216,6 +216,18 @@ pub struct Restored {
     pub revision: u32,
 }
 
+/// Highest durable identity, including effects interrupted before a receipt.
+pub fn last_intent_sequence(store: &Store, id: pwr_domain::Id) -> Result<u64, String> {
+    Ok(store
+        .events_for_run(id)
+        .map_err(|error| error.to_string())?
+        .iter()
+        .filter(|event| event.event_type == INTENT_EVENT)
+        .filter_map(|event| event.payload["sequence"].as_u64())
+        .max()
+        .unwrap_or(0))
+}
+
 /// Rebuilds a conversation from its events. `None` if it never completed a
 /// turn, since there is then no conversation to continue.
 pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<Restored>, String> {
@@ -276,18 +288,23 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
             _ => {}
         }
     }
-    let checkpoint = events
+    let mut checkpoint = events
         .iter()
         .rev()
         .find(|event| event.event_type == CHECKPOINT_EVENT)
         .and_then(|event| serde_json::from_value::<Checkpoint>(event.payload.clone()).ok());
     let mut intents: BTreeMap<u64, Intent> = BTreeMap::new();
+    let mut ambiguous_legacy = Vec::new();
     let mut revision = 0;
     for event in &events {
         match event.event_type.as_str() {
             INTENT_EVENT => {
-                if let Ok(intent) = serde_json::from_value::<Intent>(event.payload.clone()) {
-                    intents.insert(intent.sequence, intent);
+                if let Ok(intent) = serde_json::from_value::<Intent>(event.payload.clone())
+                    && let Some(earlier) = intents.insert(intent.sequence, intent)
+                {
+                    // Older versions reused identities after Stop. A later
+                    // receipt cannot certify both overlapping effects.
+                    ambiguous_legacy.push(earlier);
                 }
             }
             "action.receipt" => {
@@ -317,11 +334,29 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
                 .to_string()
         })
         .collect();
+    let highest = events
+        .iter()
+        .filter(|event| event.event_type == INTENT_EVENT)
+        .filter_map(|event| event.payload["sequence"].as_u64())
+        .max()
+        .unwrap_or(0);
+    if highest > 0 {
+        checkpoint
+            .get_or_insert_with(Checkpoint::default)
+            .next_intent = highest.max(
+            checkpoint
+                .as_ref()
+                .map_or(0, |checkpoint| checkpoint.next_intent),
+        );
+    }
     Ok(Some(Restored {
         messages,
         turn_models,
         checkpoint,
-        unreceipted: intents.into_values().collect(),
+        unreceipted: ambiguous_legacy
+            .into_iter()
+            .chain(intents.into_values())
+            .collect(),
         after_snapshot,
         revision,
     }))
@@ -662,4 +697,37 @@ pub fn delete(store: &Store, conversation_id: pwr_domain::Id) -> Result<bool, St
         .append(Some(conversation_id), DELETED_EVENT, serde_json::json!({}))
         .map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+#[cfg(test)]
+#[test]
+fn legacy_duplicate_identity_keeps_the_earlier_uncertain_effect() {
+    let store = Store::open(":memory:").unwrap();
+    let id = pwr_domain::new_id();
+    record_snapshot(&store, id, &[ChatMessage::text("user", "work")]).unwrap();
+    record_intent(
+        &store,
+        id,
+        &Intent {
+            sequence: 1,
+            capability: "run_command".into(),
+            path: None,
+        },
+    )
+    .unwrap();
+    record_intent(
+        &store,
+        id,
+        &Intent {
+            sequence: 1,
+            capability: "write_file".into(),
+            path: Some("next.txt".into()),
+        },
+    )
+    .unwrap();
+    record_receipt(&store, id, 1).unwrap();
+    let restored = restore(&store, id).unwrap().unwrap();
+    assert_eq!(restored.unreceipted.len(), 1);
+    assert_eq!(restored.unreceipted[0].capability, "run_command");
+    assert_eq!(restored.checkpoint.unwrap().next_intent, 1);
 }

@@ -1162,6 +1162,7 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
     };
     serde_json::json!({
         "op": "chat",
+        "context_tokens": request.context_tokens,
         "messages": messages,
         "tools": request.tools,
         "thinking": sampling.get("think").cloned().unwrap_or(serde_json::Value::Null),
@@ -1445,6 +1446,14 @@ fn step_of(
             }
             Err(error) => Step::Finish(Err(error)),
         },
+        Some("error") if event["code"] == "context_limit" => {
+            Step::Finish(Err(ProviderError::PromptTooLarge {
+                safe_context: format!(
+                    "rendered prompt has {} tokens, logical window is {} tokens (before prefill)",
+                    event["prompt_tokens"], event["context_tokens"]
+                ),
+            }))
+        }
         Some("error") => Step::Finish(Err(ProviderError::Protocol {
             safe_context: format!(
                 "the MLX engine failed: {}",
@@ -2443,6 +2452,7 @@ mod tests {
             sampling: Default::default(),
         };
         assert_eq!(chat_body(&request)["aside"], false);
+        assert_eq!(chat_body(&request)["context_tokens"], 4096);
         request
             .sampling
             .insert("aside".into(), serde_json::json!(true));
@@ -2648,5 +2658,13 @@ mod tests {
             .unwrap();
         }
         assert!(MlxProvider::model_weights_complete(&dir));
+    }
+    #[test]
+    fn actual_token_overflow_is_a_context_fault_not_a_backend_protocol_fault() {
+        let event = serde_json::json!({"event": "error", "code": "context_limit",
+            "prompt_tokens": 4216, "context_tokens": 4096});
+        assert!(matches!(step_of(&event, "", &pwr_compat::GenericAdapter),
+            Step::Finish(Err(ProviderError::PromptTooLarge { safe_context }))
+                if safe_context.contains("4216") && safe_context.contains("4096")));
     }
 }

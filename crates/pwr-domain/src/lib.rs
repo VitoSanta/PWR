@@ -62,19 +62,56 @@ pub trait Validate {
     fn validate(&self) -> Result<(), DomainError>;
 }
 
-/// A time-ordered identifier.
-///
-/// `Uuid::now_v7()` keeps a process-wide reseeding counter (uuid 1.26's
-/// `SharedContextV7`), so ids taken inside one millisecond are ordered and
-/// distinct, and a clock that steps backwards reuses the larger timestamp
-/// rather than going back. Read from the installed source on 2026-09-23 after
-/// the invariant test below failed once under load; a probe of a million ids,
-/// in one thread and across four, found no violation, so the cause of that
-/// failure is **not explained** and wrapping this in a second context of our
-/// own -- which is the same mutex and the same counter -- would only have hidden
-/// it. If it recurs, keep the ids it failed on.
+// UUID 1.26.0's ContextV7 clamps subsecond nanos independently when a
+// previous second is observed, then may reseed from a lower millisecond. Keep
+// the whole (seconds, nanos) pair monotonic before handing it to that context.
+struct IdGenerator {
+    context: uuid::ContextV7,
+    last: (u64, u32),
+}
+impl IdGenerator {
+    fn new() -> Self {
+        Self {
+            context: uuid::ContextV7::new(),
+            last: (0, 0),
+        }
+    }
+    fn at(&mut self, seconds: u64, nanos: u32) -> Id {
+        self.last = self.last.max((seconds, nanos));
+        Uuid::new_v7(uuid::Timestamp::from_unix(
+            &self.context,
+            self.last.0,
+            self.last.1,
+        ))
+    }
+}
+
+#[test]
+fn id_order_survives_backward_second_then_forward_subsecond() {
+    let mut generator = IdGenerator::new();
+    let first = generator.at(2, 1_000_000);
+    let backward = generator.at(1, 999_000_000);
+    let forward = generator.at(2, 2_000_000);
+    assert!(
+        first < backward && backward < forward,
+        "{first} < {backward} < {forward}"
+    );
+}
+
+/// A process-local time-ordered, unique UUIDv7, including clock rollback.
 pub fn new_id() -> Id {
-    Uuid::now_v7()
+    static GENERATOR: std::sync::OnceLock<std::sync::Mutex<IdGenerator>> =
+        std::sync::OnceLock::new();
+    let mut generator = GENERATOR
+        .get_or_init(|| std::sync::Mutex::new(IdGenerator::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Read the clock inside the same lock as sequencing. A suspended caller
+    // cannot later feed an older timestamp to the shared context.
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    generator.at(elapsed.as_secs(), elapsed.subsec_nanos())
 }
 
 /// An id that is the same whenever its content is the same.
