@@ -18,3 +18,5 @@
 @import './styles/panels.css';
 @import './styles/parts.css';
 @import './styles/palettes.css';
+
+@import './styles/focus.css';

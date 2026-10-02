@@ -289,13 +289,9 @@ impl StopReason {
                     .to_owned()
             }
             Self::Unparseable => {
-                "three turns running produced nothing this backend could use -- tool calls that \
-                 were not valid JSON, replies that ran on until they were cut off, or replies \
-                 that went round in circles -- so it was stopped; everything done before that \
-                 is kept, and carrying on continues from it. A smaller task, a lower Reasoning \
-                 Effort (a small model that loops in its reasoning often stops when it has less \
-                 room to), or a deployment whose tool calling has been demonstrated is more \
-                 likely to hold a long conversation together"
+                "Stopped after three unusable model replies (invalid tool calls, truncated output \
+                 or repetition). Your changes are saved. Continue with a smaller request or lower \
+                 Reasoning Effort; check failed builds before treating the work as complete."
                     .to_owned()
             }
             Self::BackendFailing => {
@@ -465,7 +461,7 @@ fn tool_call_detail(call: &pwr_domain::ToolCall) -> String {
                 .unwrap_or_default();
             format!("{}{place}", format!("{executable} {args}").trim())
         }
-        "look_at" => arguments
+        "look_at" | "check_page" => arguments
             .and_then(|fields| fields.get("target"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or("a page")
@@ -785,9 +781,11 @@ pub fn look_at_tool() -> ToolDefinition {
         name: "look_at".into(),
         description: "See a page as a person would: takes a screenshot of a local server's URL \
                       (http://localhost:PORT/...) or an HTML file in the workspace, and shows it \
-                      to you. Use it to check what a page you built looks like -- layout, text, \
-                      what is visible -- after its tests pass. Start a server first with \
-                      start_service if the page needs one."
+                      to you with the page's HTTP status, title, visible text and what it logged \
+                      to the browser console, uncaught errors and failed loads included. Use it \
+                      to check what a page you built looks like -- layout, text, what is visible \
+                      -- and whether it fails. Start a server first with start_service if the \
+                      page needs one."
             .into(),
         input_schema: serde_json::json!({
             "type": "object",
@@ -799,6 +797,44 @@ pub fn look_at_tool() -> ToolDefinition {
             "required": ["target"],
         }),
     }
+}
+
+/// `check_page`: what a page on this machine shows and logs, as text, for a
+/// model that does not read images (one that does has `look_at`, which says
+/// the same with the image).
+///
+/// Asked for by the owner on 2026-10-02: a Next.js site the model called
+/// "builds successfully" answered 500 in the app's Web preview, and only a
+/// model reading images had any way to look at a page.
+pub fn check_page_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "check_page".into(),
+        description: "Open a page on this machine in a browser -- a local server's URL \
+                      (http://localhost:PORT/...) or an HTML file in the workspace -- and read \
+                      what it shows: its HTTP status, title, visible text, and what it logged to \
+                      the browser console, uncaught errors and failed loads included. Use it to \
+                      check that a page you built loads without errors, or to find why it does \
+                      not. Start the server first with start_service, or use the URL the \
+                      engineer gave."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "description": "http://localhost:PORT/path, or a workspace-relative .html file"},
+            },
+            "required": ["target"],
+        }),
+    }
+}
+
+/// A conversation's catalogue with `check_page`, for a model that does not
+/// read images.
+pub fn with_page_check(catalog: ToolCatalog) -> ToolCatalog {
+    let mut tools = catalog.tools;
+    if !tools.iter().any(|tool| tool.name == "check_page") {
+        tools.push(check_page_tool());
+    }
+    ToolCatalog::new(tools).expect("a catalogue with one more tool is valid")
 }
 
 /// A conversation's catalogue with `look_at`, for a model that reads images.
@@ -1188,6 +1224,8 @@ pub async fn take_turn<P: ModelProvider>(
                         | "recall_project"
                         | "recall"
                         | "look_at"
+                        | "check_page"
+                        | "read_terminal"
                         | "remember"
                 );
                 // A successful file receipt/diff is evidence of an artifact.
@@ -1425,14 +1463,27 @@ async fn take_turn_inner<P: ModelProvider>(
     // The semantic catalogue, kept beside the rendered one: a refusal names the
     // fields a capability takes, and the wire form has already been flattened
     // into the backend's own shape.
-    let catalog = if continuity.chat_only {
+    // What decodes is what was offered: a tool the front end added for this
+    // model or client -- `look_at`, `check_page`, `read_terminal` -- is a call
+    // to answer. Decoded against the bare catalogue, `look_at` had been
+    // refused as "not available in a conversation" to every model that reads
+    // images (found 2026-10-02).
+    let offered = tools.to_string();
+    let mut catalog = if continuity.chat_only {
         chat_only_tool_catalog()
-    } else if continuity.harness == Harness::Full && prompt.reads_terminal() {
-        // As offered: the front end built the same catalogue.
-        with_terminal(chat_tool_catalog())
     } else {
         chat_tool_catalog()
     };
+    for added in [look_at_tool(), check_page_tool(), read_terminal_tool()] {
+        if !continuity.chat_only
+            && offered.contains(&format!("\"{}\"", added.name))
+            && catalog.get(&added.name).is_none()
+        {
+            let mut tools = catalog.tools;
+            tools.push(added);
+            catalog = ToolCatalog::new(tools).expect("a catalogue with one more tool is valid");
+        }
+    }
     let mut actions = 0usize;
     let mut edited = false;
     let stopped = |actions, edited, reason| {
@@ -2670,6 +2721,7 @@ async fn take_turn_inner<P: ModelProvider>(
                     | ActionProposal::RecallProject { .. }
                     | ActionProposal::WikiQuery { .. }
                     | ActionProposal::LookAt { .. }
+                    | ActionProposal::CheckPage { .. }
                     | ActionProposal::ReadTerminal { .. }
             ) {
                 call_sequence += 1;
@@ -2744,6 +2796,24 @@ async fn take_turn_inner<P: ModelProvider>(
                         .and_then(|look| {
                             serde_json::to_value(look).map_err(|error| error.to_string())
                         }),
+                    // The same look, without the image: the model does not
+                    // read one.
+                    ActionProposal::CheckPage { target } => {
+                        pwr_tools::look_at(&policy, target, None, None)
+                            .await
+                            .map_err(|error| error.to_string())
+                            .and_then(|look| {
+                                serde_json::to_value(look).map_err(|error| error.to_string())
+                            })
+                            .map(|mut value| {
+                                if let Some(fields) = value.as_object_mut() {
+                                    for field in ["image", "bytes", "width", "height"] {
+                                        fields.remove(field);
+                                    }
+                                }
+                                value
+                            })
+                    }
                     ActionProposal::ReadTerminal { lines } => {
                         read_terminal(store, conversation_id, &mut policy, prompt, *lines, actions)
                             .await

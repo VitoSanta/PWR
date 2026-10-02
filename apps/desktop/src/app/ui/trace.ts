@@ -271,7 +271,7 @@ export class TraceSteps extends Foldable {
   selector: 'pa-trace-compact',
   imports: [Markdown, Icon, TraceSteps],
   template: `
-    @if (work() && view().phases.length) {
+    @if (view().phases.length) {
       <ol class="step phases" [class.busy]="live()">
         @for (phase of view().phases; track phase.key; let last = $last) {
           <li class="phase" [class.running]="live() && last && !resultLive()" [class.failed]="phase.failed">
@@ -321,8 +321,6 @@ export class TraceSteps extends Foldable {
 export class TraceCompact extends Foldable {
   readonly entries = input.required<Entry[]>();
   readonly live = input(false);
-  /** The phases of work; off when the conversation folds them under the turn's summary. */
-  readonly work = input(true);
 
   protected readonly view = computed(() => {
     const turn = compactTurn(this.entries(), this.live());

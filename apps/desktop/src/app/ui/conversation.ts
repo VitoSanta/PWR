@@ -11,39 +11,29 @@ import {
 import { AgentStore } from '../core/agent.store';
 import { Entry } from '../core/model';
 import { ModelsStore } from '../core/models.store';
-import { NavigationService } from '../core/navigation';
-import { PersonalStore } from '../core/personal.store';
 import { ConfirmService, ToastService } from '../core/ui';
 import { RunOutcome, Step, groupSteps } from '../core/trace';
-import { WorkbenchStore } from '../core/workbench';
-import { diffStats } from './diff';
+import { BrandMark } from './kit/brand-mark';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
 import { TraceCompact, TraceRaw, TraceSteps } from './trace';
 
-/** What a turn changed: files, and lines added and removed. */
-interface Edits {
-  files: number;
-  added: number;
-  removed: number;
-}
-
 /** One row of the conversation: the person's message, or the whole reply to it. */
 type Item =
   | { type: 'user'; key: string; entry: Entry }
-  | { type: 'turn'; key: string; entries: Entry[]; steps: Step[]; live: boolean; startedAt: number; endedAt: number; modelName: string; actions: number; failed: number; edits: Edits }
+  | { type: 'turn'; key: string; entries: Entry[]; steps: Step[]; live: boolean; startedAt: number; endedAt: number; modelName: string }
   | { type: 'notice'; key: string; entry: Entry };
 
 @Component({
   selector: 'pa-conversation',
-  imports: [Icon, Popover, Tooltip, TraceCompact, TraceSteps, TraceRaw],
+  imports: [BrandMark, Icon, Popover, Tooltip, TraceCompact, TraceSteps, TraceRaw],
   template: `
     <section class="conversation" #scroller (wheel)="onWheel($event)" (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
         <div class="welcome">
-          <span class="welcome-where">{{ where() }}</span>
-          <h2 class="welcome-title">{{ store.chatMode() ? 'What would you like to know?' : 'What are we building?' }}</h2>
+          <pa-brand-mark class="welcome-mark" />
+          <h2 class="t-display">{{ store.chatMode() ? 'What would you like to know?' : 'What are we building?' }}</h2>
           @if (store.model()) {
             <p class="welcome-text">
               @if (store.chatMode()) {
@@ -78,18 +68,11 @@ type Item =
         </div>
       }
       <div class="timeline">
-        @if (store.timeline().length) {
-          <header class="conversation-head">
-            <span class="conversation-where truncate">{{ where() }} · {{ turns() }} turn{{ turns() === 1 ? '' : 's' }}</span>
-            <h1 class="conversation-title">{{ nav.title() }}</h1>
-          </header>
-        }
-        @for (item of items(); track item.key; let lastItem = $last) {
+        @for (item of items(); track item.key) {
           @switch (item.type) {
             @case ('user') {
               <article class="message-user-group" aria-label="Your message">
-                <span class="speaker">{{ person() }}</span>
-                <div class="message-user" [class.is-long]="item.entry.text.length > 280">
+                <div class="message-user">
                 <div class="message-user-text selectable">{{ item.entry.text }}</div>
                 @if (item.entry.attachments?.length) {
                   <div class="attachment-chips">
@@ -147,35 +130,20 @@ type Item =
               </article>
             }
             @case ('turn') {
-              @let folds = !item.live && item.actions > 0 && store.traceVisibility() === 'compact';
               <article class="turn" [class.live]="item.live" aria-label="PWR">
                 <header class="turn-head">
-                  <span class="speaker">PWR</span>
-                  @if (folds) {
-                    <button
-                      class="turn-summary"
-                      (click)="toggleWork(item.key)"
-                      [attr.aria-expanded]="workOpen(item.key)"
-                      [paTooltip]="item.modelName"
-                    >
-                      <pa-icon class="chevron" [class.open]="workOpen(item.key)" name="chevron-right" [size]="12" />
-                      <span class="num">
-                        @if (duration(item); as elapsed) { {{ elapsed }} · }{{ item.actions }} action{{ item.actions === 1 ? '' : 's' }}
-                        @if (item.failed) { · <span class="text-danger">{{ item.failed }} failed</span> }
-                      </span>
-                    </button>
-                  } @else {
-                    <span class="turn-meta truncate">{{ item.modelName }}</span>
-                    <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }}@if (duration(item); as elapsed) { · {{ elapsed }} }</span>
-                  }
+                  <pa-brand-mark class="turn-avatar" />
+                  <strong>PWR</strong>
+                  <span class="turn-meta truncate">{{ item.modelName }}</span>
+                  <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }}@if (duration(item); as elapsed) { · {{ elapsed }} }</span>
                 </header>
                 <div class="turn-body">
-                  @if (item.entries.some(replayedTool) && (!folds || workOpen(item.key))) {
+                  @if (item.entries.some(replayedTool)) {
                     <div class="trace-replay-note" role="note">Restored action summary · detailed output, diffs and timings were not saved.</div>
                   }
                   @switch (store.traceVisibility()) {
                     @case ('compact') {
-                      <pa-trace-compact [entries]="item.entries" [live]="item.live" [work]="!folds || workOpen(item.key)" />
+                      <pa-trace-compact [entries]="item.entries" [live]="item.live" />
                     }
                     @case ('detailed') {
                       <pa-trace-steps [steps]="item.steps" />
@@ -184,6 +152,13 @@ type Item =
                       <pa-trace-raw [entries]="item.entries" [startedAt]="item.startedAt" [endedAt]="item.endedAt" [live]="item.live" />
                     }
                   }
+                  @if (!item.live && answer(item.entries); as text) {
+                    <div class="message-actions turn-actions">
+                      <button class="icon-btn icon-btn-sm" (click)="copy(text)" aria-label="Copy answer" paTooltip="Copy answer">
+                        <pa-icon name="copy" [size]="14" />
+                      </button>
+                    </div>
+                  }
                   @if (item.live) {
                     <div class="step working" role="status">
                       <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -191,41 +166,6 @@ type Item =
                     </div>
                   }
                 </div>
-                @if (!item.live) {
-                  @let outcome = lastItem && !store.turnActive() ? store.runOutcome() : null;
-                  @let text = answer(item.entries);
-                  @if (item.edits.files || outcome || text) {
-                    <div class="turn-chips">
-                      @if (item.edits.files) {
-                        <button class="note-chip" (click)="work.show('review')" paTooltip="Open the changes">
-                          {{ item.edits.files }} file{{ item.edits.files === 1 ? '' : 's' }}
-                          <span class="delta"><span class="add">+{{ item.edits.added }}</span><span class="del">−{{ item.edits.removed }}</span></span>
-                        </button>
-                      }
-                      @if (outcome) {
-                        <span [class]="'note-chip outcome tone-' + outcome.tone" role="status">
-                          <span class="dot" aria-hidden="true"></span>
-                          <span>{{ outcome.text }}</span>
-                          @if (outcome.confinement) { <span class="t-meta">{{ outcome.confinement }}</span> }
-                        </span>
-                        @if (outcome.acceptanceChanges?.length) { <button class="btn btn-sm" (click)="store.reviewAcceptanceChanges()">Review acceptance changes</button> }
-                        @if (outcome.action) {
-                          <button class="btn btn-sm" (click)="store.continueRun()">
-                            <pa-icon [name]="outcome.action === 'retry' ? 'refresh' : 'arrow-right'" [size]="14" />
-                            {{ outcome.action === 'retry' ? 'Retry' : 'Continue' }}
-                          </button>
-                        }
-                      }
-                      @if (text) {
-                        <span class="message-actions turn-actions">
-                          <button class="icon-btn icon-btn-sm" (click)="copy(text)" aria-label="Copy answer" paTooltip="Copy answer">
-                            <pa-icon name="copy" [size]="14" />
-                          </button>
-                        </span>
-                      }
-                    </div>
-                  }
-                }
               </article>
             }
           }
@@ -233,7 +173,8 @@ type Item =
         @if (store.turnActive() && lastIsUser()) {
           <article class="turn live" aria-label="PWR">
             <header class="turn-head">
-              <span class="speaker">PWR</span>
+              <pa-brand-mark class="turn-avatar" />
+              <strong>PWR</strong>
               <span class="turn-meta truncate">{{ store.modelName() }} · {{ store.chatMode() ? 'thinking' : 'working' }} · {{ pendingDuration() }}</span>
             </header>
             <div class="turn-body">
@@ -244,8 +185,7 @@ type Item =
             </div>
           </article>
         }
-        <!-- A run that ended with no reply of its own: its outcome on its own line. -->
-        @if (!store.turnActive() && !lastIsTurn() && store.runOutcome(); as outcome) {
+        @if (!store.turnActive() && store.runOutcome(); as outcome) {
           <div [class]="'outcome tone-' + outcome.tone" role="status">
             <pa-icon [name]="outcomeIcon(outcome.tone)" [size]="14" />
             <span>{{ outcome.text }}</span>
@@ -267,9 +207,6 @@ type Item =
 export class Conversation {
   protected readonly store = inject(AgentStore);
   protected readonly models = inject(ModelsStore);
-  protected readonly nav = inject(NavigationService);
-  protected readonly work = inject(WorkbenchStore);
-  private readonly personal = inject(PersonalStore);
   protected readonly replayedTool = (entry: Entry) => entry.kind === 'tool' && entry.replayed === true;
   private readonly scroller = viewChild.required<ElementRef<HTMLElement>>('scroller');
   private readonly now = signal(Date.now());
@@ -299,7 +236,7 @@ export class Conversation {
       }
       let turn = items[items.length - 1];
       if (turn?.type !== 'turn') {
-        turn = { type: 'turn', key: `turn-${entry.key}`, entries: [], steps: [], live: false, startedAt: userAt || entry.at, endedAt: entry.at, modelName, actions: 0, failed: 0, edits: { files: 0, added: 0, removed: 0 } };
+        turn = { type: 'turn', key: `turn-${entry.key}`, entries: [], steps: [], live: false, startedAt: userAt || entry.at, endedAt: entry.at, modelName };
         items.push(turn);
       }
       turn.endedAt = Math.max(turn.endedAt, entry.at);
@@ -311,39 +248,9 @@ export class Conversation {
       // followed by the person's next message is finished, whatever runs now.
       lastTurn.live = this.store.turnActive() && items[items.length - 1] === lastTurn;
     }
-    for (const item of items) {
-      if (item.type !== 'turn') continue;
-      item.steps = groupSteps(item.entries);
-      const tools = item.entries.filter((entry) => entry.kind === 'tool');
-      item.actions = tools.length;
-      item.failed = tools.filter((entry) => entry.status === 'failed').length;
-      item.edits = edits(tools);
-    }
+    for (const item of items) if (item.type === 'turn') item.steps = groupSteps(item.entries);
     return items;
   });
-
-  /** Where the conversation is: "projects / pwr-website", or Chat. */
-  protected readonly where = computed(() => {
-    if (this.store.chatMode()) return 'Chat · no workspace';
-    const parts = this.store.workspace().split(/[\\/]/).filter(Boolean);
-    return parts.slice(-2).join(' / ') || 'No folder open';
-  });
-
-  protected readonly turns = computed(() => this.store.timeline().filter((entry) => entry.kind === 'user').length);
-
-  /** Who writes: the name in Settings → Profile. */
-  protected readonly person = computed(() => this.personal.profile().name?.trim() || 'You');
-
-  /** A finished turn's work, folded under its summary unless opened. */
-  private readonly opened = signal<Record<string, boolean>>({});
-
-  protected workOpen(key: string): boolean {
-    return this.opened()[key] ?? false;
-  }
-
-  protected toggleWork(key: string): void {
-    this.opened.update((state) => ({ ...state, [key]: !state[key] }));
-  }
 
   protected readonly workingLabel = computed(() => {
     const quiet = Math.floor((this.now() - this.store.lastEventAt()) / 1000);
@@ -453,11 +360,6 @@ export class Conversation {
     return items[items.length - 1]?.type === 'user';
   }
 
-  protected lastIsTurn(): boolean {
-    const items = this.items();
-    return items[items.length - 1]?.type === 'turn';
-  }
-
   protected duration(item: { entries: Entry[]; startedAt: number; endedAt: number; live: boolean }): string {
     if (item.entries.every((entry) => entry.replayed)) return '';
     const end = item.live ? this.now() : item.endedAt;
@@ -485,21 +387,6 @@ export class Conversation {
   protected kindOf(path: string) {
     return fileKind(path);
   }
-}
-
-/** The files a turn's tool calls edited, and their lines added and removed. */
-function edits(tools: Entry[]): Edits {
-  const paths = new Set<string>();
-  let added = 0;
-  let removed = 0;
-  for (const tool of tools) {
-    if (!tool.diff) continue;
-    paths.add(tool.diff.path);
-    const stats = diffStats(tool.diff.oldText, tool.diff.newText);
-    added += stats.added;
-    removed += stats.removed;
-  }
-  return { files: paths.size, added, removed };
 }
 
 /** A short visual type for an attachment. */

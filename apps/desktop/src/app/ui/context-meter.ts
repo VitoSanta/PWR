@@ -55,23 +55,14 @@ import { Tooltip } from './kit/tooltip';
         @if (info(); as info) {
           <div class="popover-body">
             <section class="popover-section">
-              <dl class="figures">
-                <div>
-                  <dt>Used</dt>
-                  <dd class="figure-value num">{{ t(now(info).used) }}</dd>
-                  <dd class="figure-note">{{ now(info).note }}</dd>
-                </div>
-                <div>
-                  <dt>Window</dt>
-                  <dd class="figure-value num">{{ t(info.window) }}</dd>
-                  <dd class="figure-note">{{ store.context()?.setting ? 'your setting' : 'computed' }}</dd>
-                </div>
-                <div>
-                  <dt>Remaining</dt>
-                  <dd class="figure-value num">{{ t(max(0, info.window - now(info).used)) }}</dd>
-                  <dd class="figure-note num">{{ 100 - pct(now(info).used, info.window) }}% free</dd>
-                </div>
-              </dl>
+              <p class="context-figure">
+                <span class="context-used num">{{ t(now(info).used) }}</span>
+                <span class="context-of num">of {{ t(info.window) }} · {{ 100 - pct(now(info).used, info.window) }}% free</span>
+              </p>
+              <p class="fine">
+                Used: {{ now(info).note }}. Window: {{ store.context()?.setting ? 'your setting' : 'computed for this machine' }};
+                {{ t(max(0, info.window - now(info).used)) }} remaining.
+              </p>
               <div class="bar" role="img" [attr.aria-label]="pct(now(info).used, info.window) + '% of the window used'">
                 @for (part of parts(); track part.key) {
                   <span [class]="'seg k-' + part.key" [style.width.%]="part.share" [attr.title]="part.label + ': ~' + t(part.tokens)"></span>

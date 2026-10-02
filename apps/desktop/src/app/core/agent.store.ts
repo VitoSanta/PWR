@@ -155,6 +155,8 @@ export class AgentStore {
   readonly queue = signal<string[]>([]);
   /** Text for the composer to take up, such as a message being edited. */
   readonly composerDraft = signal<string | null>(null);
+  /** A diagnostic request to append without replacing the person's draft. */
+  readonly composerContext = signal<string | null>(null);
   readonly rewinding = signal(false);
 
   readonly modelName = computed(() => {

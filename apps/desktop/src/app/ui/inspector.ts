@@ -1,24 +1,26 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { ActivityStore } from '../core/activity';
 import { AgentStore } from '../core/agent.store';
 import { LayoutService, RIGHT } from '../core/layout';
-import { SHORTCUTS, roveFocus, shortcut } from '../core/ui';
-import { CardId, CardInfo, WorkbenchStore } from '../core/workbench';
-import { Icon } from './kit/icon';
+import { SHORTCUTS, shortcut } from '../core/ui';
+import { CARDS, CARD_GAP, CardId, CardInfo, WorkbenchStore } from '../core/workbench';
+import { Icon, IconName } from './kit/icon';
+import { Popover } from './kit/popover';
 import { ResizeHandle } from './kit/resize-handle';
 import { Tooltip } from './kit/tooltip';
 import { ActivityCard, BrowserCard, FilesCard, PlanCard, ReviewCard, TerminalCard } from './workbench/cards';
 import { KnowledgeCard } from './workbench/knowledge';
 
 /**
- * The inspector: one panel on the right, its tools as tabs -- Changes,
- * Terminal, Preview, Files, Checks -- one at a time and full height.
- * Knowledge and Activity join the tabs while the palette has one open.
+ * The workbench: the right-hand column, where the tools live as cards --
+ * Review, Terminal, Web preview, Files, Knowledge, Plan & checks, Activity --
+ * stacked, each collapsible, movable, maximisable and closable.
  */
 @Component({
   selector: 'pa-inspector',
   imports: [
     Icon,
+    Popover,
     Tooltip,
     ResizeHandle,
     ReviewCard,
@@ -30,64 +32,205 @@ import { KnowledgeCard } from './workbench/knowledge';
     KnowledgeCard,
   ],
   template: `
-    <aside class="inspector" aria-label="Inspector">
-      <header class="inspector-head titlebar-row" data-tauri-drag-region="deep">
-        <div class="inspector-tabs" role="tablist" aria-label="Tools" (keydown)="tabKeys($event)">
-          @for (card of work.tabs(); track card.id) {
-            @let selected = work.active() === card.id;
-            <span class="inspector-tab-slot" [class.is-selected]="selected">
-              <button
-                class="inspector-tab"
-                role="tab"
-                [id]="'inspector-tab-' + card.id"
-                aria-controls="inspector-panel"
-                [attr.aria-selected]="selected"
-                [attr.tabindex]="selected ? 0 : -1"
-                (click)="work.show(card.id)"
-                [paTooltip]="card.keys ? card.description : null"
-                [paTooltipKeys]="card.keys ?? null"
-              >
-                {{ card.label }}
-                @if (badge(card.id); as count) {
-                  <span class="inspector-count num">{{ count }}</span>
-                }
-              </button>
-              @if (card.extra) {
-                <button class="inspector-tab-close" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + card.label" tabindex="-1">
-                  <pa-icon name="x" [size]="12" />
+    <aside class="workbench" aria-label="Workbench">
+      @if (!work.focusMode()) {
+      <header class="workbench-head titlebar-row" data-tauri-drag-region="deep">
+        <span class="workbench-title">Workbench</span>
+        <span class="spacer" data-tauri-drag-region="deep"></span>
+        <button
+          #addTrigger
+          class="icon-btn icon-btn-sm"
+          (click)="launcher.set(!launcher())"
+          aria-label="Open a tool"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="launcher()"
+          paTooltip="Open a tool"
+        >
+          <pa-icon name="plus" [size]="16" />
+        </button>
+        @if (launcher()) {
+          <pa-popover [anchor]="addTrigger" anchorAlign="end" width="300px" ariaLabel="Tools" panelRole="menu" [focusFirst]="true" (closed)="launcher.set(false)" animate.leave="anim-pop-out">
+            <div class="menu" role="none">
+              @for (card of work.available(); track card.id) {
+                <button class="menu-item" role="menuitem" (click)="open(card.id)">
+                  <pa-icon [name]="icon(card)" [size]="16" />
+                  <span class="truncate">{{ card.label }}</span>
+                  @if (work.isOpen(card.id)) {
+                    <pa-icon class="menu-hint tool-menu-open" name="check" [size]="14" />
+                  } @else if (card.keys) {
+                    <span class="kbd menu-hint">{{ keys(card.keys) }}</span>
+                  }
                 </button>
               }
-            </span>
-          }
-        </div>
-        <span class="spacer" data-tauri-drag-region="deep"></span>
+            </div>
+          </pa-popover>
+        }
         <button
           class="icon-btn icon-btn-sm"
           (click)="layout.toggleRight()"
-          aria-label="Hide the inspector"
-          paTooltip="Hide the inspector"
+          aria-label="Hide the workbench"
+          paTooltip="Hide the workbench"
           [paTooltipKeys]="shortcuts.toggleInspector"
         >
-          <pa-icon name="panel-right" [size]="16" />
+          <pa-icon name="x" [size]="16" />
         </button>
       </header>
+      }
 
-      <div class="inspector-body" role="tabpanel" id="inspector-panel" [attr.aria-labelledby]="'inspector-tab-' + work.active()">
-        @switch (work.active()) {
-          @case ('review') { <pa-review-card /> }
-          @case ('knowledge') { <pa-knowledge-card /> }
-          @case ('files') { <pa-files-card /> }
-          @case ('terminal') { <pa-terminal-card /> }
-          @case ('browser') { <pa-browser-card /> }
-          @case ('activity') { <pa-activity-card /> }
-          @case ('plan') { <pa-plan-card /> }
+      <div
+        #body
+        class="workbench-body"
+        [class.maximized]="!!work.focused()"
+        [style.grid-template-rows]="work.focusMode() ? gridRows() : null"
+      >
+        <!-- One flat list, placed in rows by the grid, so a card that moves
+             to another row keeps what it shows. -->
+        @for (card of work.visible(); track card.id; let first = $first; let last = $last; let index = $index) {
+          @let place = placement().get(card.id);
+          <section
+            class="wb-card"
+            [attr.data-card]="card.id"
+            [class.collapsed]="card.collapsed"
+            [class.fills]="!card.collapsed"
+            [class.is-wide]="place?.wide"
+            [class.is-left]="place?.side === 'left'"
+            [class.is-right]="place?.side === 'right'"
+            [attr.aria-label]="info(card.id).label"
+            [style.flex-grow]="card.collapsed ? 0 : cardWeight(card.id)"
+            [style.grid-row]="place ? place.line : null"
+            [style.--card-w.px]="work.focusMode() ? work.widthOf(card.id) : null"
+            [style.--card-shift.px]="place?.shift ?? null"
+            [style.view-transition-name]="'wb-' + card.id"
+          >
+            <!-- The grid's outer edge; between a pair, the divider below. -->
+            @if (work.focusMode() && layout.right() === 'docked' && place?.side !== 'right') {
+              <pa-resize-handle
+                edge="left"
+                [offset]="0"
+                [label]="'Resize ' + info(card.id).label"
+                [width]="work.widthOf(card.id)"
+                [min]="bounds.min"
+                [max]="work.maxWidthOf(card.id)"
+                [initial]="bounds.initial"
+                (resize)="work.resize(card.id, $event)"
+              />
+            }
+            <header class="wb-card-head" (dblclick)="work.maximize(card.id)">
+                <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
+                  <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
+                  <pa-icon [name]="icon(info(card.id))" [size]="15" />
+                  <span>{{ info(card.id).label }}</span>
+                  @if (badge(card.id); as count) {
+                    <span class="count num">{{ count }}</span>
+                  }
+                </button>
+              <span class="spacer"></span>
+              <span class="wb-card-actions">
+                @if (!work.focused() && work.visible().length > 1) {
+                  <button class="icon-btn icon-btn-sm" (click)="work.move(card.id, -1)" [disabled]="first" aria-label="Move earlier" paTooltip="Move earlier">
+                    <pa-icon name="chevron-up" [size]="14" />
+                  </button>
+                  <button class="icon-btn icon-btn-sm" (click)="work.move(card.id, 1)" [disabled]="last" aria-label="Move later" paTooltip="Move later">
+                    <pa-icon name="chevron-down" [size]="14" />
+                  </button>
+                }
+                @if (work.focusMode() && !work.focused()) {
+                  <button
+                    class="icon-btn icon-btn-sm"
+                    (click)="work.toggleWide(card.id)"
+                    [attr.aria-pressed]="work.isWide(card.id)"
+                    [attr.aria-label]="work.isWide(card.id) ? 'One column' : 'Full width'"
+                    [paTooltip]="work.isWide(card.id) ? 'One column, beside another tool' : 'Full width, across both columns'"
+                  >
+                    <pa-icon [name]="work.isWide(card.id) ? 'columns' : 'span-full'" [size]="14" />
+                  </button>
+                }
+                  <button
+                    class="icon-btn icon-btn-sm"
+                    (click)="work.maximize(card.id)"
+                    [attr.aria-label]="work.focused() === card.id ? 'Restore' : 'Maximise'"
+                    [paTooltip]="work.focused() === card.id ? 'Show the other cards' : 'Fill the column'"
+                  >
+                    <pa-icon [name]="work.focused() === card.id ? 'minimize' : 'maximize'" [size]="14" />
+                  </button>
+                <button class="icon-btn icon-btn-sm" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + info(card.id).label" paTooltip="Close">
+                  <pa-icon name="x" [size]="14" />
+                </button>
+              </span>
+            </header>
+            @if (!card.collapsed) {
+              <div class="wb-card-body" animate.enter="card-body-in">
+                @switch (card.id) {
+                  @case ('review') { <pa-review-card /> }
+                  @case ('knowledge') { <pa-knowledge-card /> }
+                  @case ('files') { <pa-files-card /> }
+                  @case ('terminal') { <pa-terminal-card /> }
+                  @case ('browser') { <pa-browser-card /> }
+                  @case ('activity') { <pa-activity-card /> }
+                  @case ('plan') { <pa-plan-card /> }
+                }
+              </div>
+            }
+          </section>
+        } @empty {
+          <div class="launcher" role="list" aria-label="Tools" animate.enter="anim-fade-in">
+            @for (card of work.available(); track card.id) {
+              <button class="launcher-card" role="listitem" (click)="open(card.id)">
+                <pa-icon [name]="icon(card)" [size]="18" />
+                <span class="launcher-text">
+                  <span class="launcher-label">{{ card.label }}</span>
+                  <span class="t-meta">{{ card.description }}</span>
+                </span>
+                @if (card.keys) {
+                  <span class="kbd">{{ keys(card.keys) }}</span>
+                }
+              </button>
+            }
+          </div>
+        }
+        @if (work.focusMode()) {
+          @for (row of work.rows(); track row[0]; let r = $index; let lastRow = $last) {
+            @if (row.length === 2 && layout.right() === 'docked') {
+              <!-- Between two side by side: moves the line, the grid stays. -->
+              <pa-resize-handle
+                class="wb-divider"
+                edge="left"
+                [offset]="0"
+                [style.grid-row]="2 * r + 1"
+                [style.--card-shift.px]="work.widthOf(row[1])"
+                [label]="'Resize ' + names(row)"
+                [width]="work.widthOf(row[1])"
+                [min]="bounds.min"
+                [max]="work.maxWidthOf(row[1])"
+                [initial]="(work.columnWidth() - gap) / 2"
+                (resize)="work.resize(row[1], $event)"
+              />
+            }
+            @if (!lastRow && fills(row) && fills(work.rows()[r + 1])) {
+              <div
+                class="wb-splitter"
+                [style.grid-row]="2 * r + 2"
+                [style.--card-w.px]="work.columnWidth()"
+                role="separator"
+                tabindex="0"
+                aria-orientation="horizontal"
+                [attr.aria-label]="'Resize ' + names(row) + ' and ' + names(work.rows()[r + 1])"
+                (pointerdown)="startCardResize($event, row, work.rows()[r + 1])"
+                (pointermove)="moveCardResize($event)"
+                (pointerup)="endCardResize($event)"
+                (pointercancel)="endCardResize($event)"
+                (lostpointercapture)="endCardResize($event)"
+                (keydown)="keyCardResize($event, row, work.rows()[r + 1])"
+              ></div>
+            }
+          }
         }
       </div>
     </aside>
-    @if (layout.right() === 'docked') {
+    @if (layout.right() === 'docked' && !work.focusMode()) {
       <pa-resize-handle
         edge="left"
-        label="Resize the inspector"
+        label="Resize the workbench"
         [width]="layout.rightWidth()"
         [min]="bounds.min"
         [max]="bounds.max"
@@ -105,20 +248,169 @@ export class Inspector {
   private readonly activity = inject(ActivityStore);
   protected readonly shortcuts = SHORTCUTS;
   protected readonly bounds = RIGHT;
+  protected readonly gap = CARD_GAP;
+  protected readonly launcher = signal(false);
   protected readonly keys = shortcut;
+  private readonly cardWeights = signal<Partial<Record<CardId, number>>>(this.loadCardWeights());
+  private resizeOrigin: {
+    pointerId: number;
+    y: number;
+    before: CardId;
+    after: CardId;
+    beforeHeight: number;
+    totalHeight: number;
+    totalWeight: number;
+  } | null = null;
 
+  private readonly byId = new Map(CARDS.map((card) => [card.id, card]));
   private readonly badges = computed<Partial<Record<CardId, number>>>(() => ({
     review: this.store.changes().length,
     activity: this.activity.running(),
   }));
 
-  protected badge(id: CardInfo['id']): number {
+  protected info(id: CardId): CardInfo {
+    return this.byId.get(id)!;
+  }
+
+  protected icon(card: CardInfo): IconName {
+    return card.icon as IconName;
+  }
+
+  protected badge(id: CardId): number {
     return this.badges()[id] ?? 0;
   }
 
-  /** The arrow keys move along the tabs, and show the one they land on. */
-  protected tabKeys(event: KeyboardEvent): void {
-    if (roveFocus(event, event.currentTarget as HTMLElement, '[role=tab]', 'horizontal'))
-      (document.activeElement as HTMLElement | null)?.click();
+  private readonly body = viewChild<ElementRef<HTMLElement>>('body');
+
+  /**
+   * Where each card sits in Focus's grid: its row's line (rows on odd lines,
+   * the gaps between them on even ones), and in a pair which side. Both of a
+   * pair share the row's cell; the left one is kept clear of the right one
+   * by its width and the gap.
+   */
+  protected readonly placement = computed(() => {
+    const places = new Map<CardId, { line: number; side: 'left' | 'right' | null; wide: boolean; shift: number | null }>();
+    if (!this.work.focusMode()) return places;
+    this.work.rows().forEach((row, r) => {
+      const line = 2 * r + 1;
+      if (row.length === 2) {
+        places.set(row[0], { line, side: 'left', wide: false, shift: this.work.widthOf(row[1]) + CARD_GAP });
+        places.set(row[1], { line, side: 'right', wide: false, shift: null });
+      } else places.set(row[0], { line, side: null, wide: this.work.isWide(row[0]), shift: null });
+    });
+    return places;
+  });
+
+  /** The rows' heights: shares of the column for open rows, their header for a collapsed one. */
+  protected readonly gridRows = computed(() =>
+    this.work
+      .rows()
+      .map((row) => (this.fills(row) ? `minmax(160px, ${this.cardWeight(row[0])}fr)` : 'auto'))
+      .join(` ${CARD_GAP}px `),
+  );
+
+  protected fills(row: CardId[]): boolean {
+    return this.work.visible().some((card) => row.includes(card.id) && !card.collapsed);
+  }
+
+  protected names(row: CardId[]): string {
+    return row.map((id) => this.info(id).label).join(' and ');
+  }
+
+  /** A row's height as laid out: the tallest of its cards. */
+  private rowHeight(row: CardId[]): number {
+    const body = this.body()?.nativeElement;
+    return Math.max(0, ...row.map((id) => body?.querySelector<HTMLElement>(`[data-card="${id}"]`)?.offsetHeight ?? 0));
+  }
+
+  protected cardWeight(id: CardId): number {
+    return this.cardWeights()[id] ?? 1;
+  }
+
+  /** The line between two rows, dragged: they share their height anew. Rows go by their first card. */
+  protected startCardResize(event: PointerEvent, above: CardId[], below: CardId[]): void {
+    if (event.button !== 0) return;
+    const separator = event.currentTarget as HTMLElement;
+    const [before, after] = [above[0], below[0]];
+    const beforeHeight = this.rowHeight(above);
+    const totalHeight = beforeHeight + this.rowHeight(below);
+    if (totalHeight < 320) return;
+    this.resizeOrigin = {
+      pointerId: event.pointerId,
+      y: event.clientY,
+      before,
+      after,
+      beforeHeight,
+      totalHeight,
+      totalWeight: this.cardWeight(before) + this.cardWeight(after),
+    };
+    separator.setPointerCapture(event.pointerId);
+    this.layout.resizing.set(true);
+    event.preventDefault();
+  }
+
+  protected moveCardResize(event: PointerEvent): void {
+    const origin = this.resizeOrigin;
+    if (!origin || origin.pointerId !== event.pointerId) return;
+    this.setCardSplit(origin, origin.beforeHeight + event.clientY - origin.y);
+  }
+
+  protected endCardResize(event: PointerEvent): void {
+    if (this.resizeOrigin?.pointerId !== event.pointerId) return;
+    this.resizeOrigin = null;
+    this.layout.resizing.set(false);
+    this.saveCardWeights();
+  }
+
+  protected keyCardResize(event: KeyboardEvent, above: CardId[], below: CardId[]): void {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    const [before, after] = [above[0], below[0]];
+    const beforeHeight = this.rowHeight(above);
+    const totalHeight = beforeHeight + this.rowHeight(below);
+    if (totalHeight < 320) return;
+    const origin = {
+      pointerId: -1,
+      y: 0,
+      before,
+      after,
+      beforeHeight,
+      totalHeight,
+      totalWeight: this.cardWeight(before) + this.cardWeight(after),
+    };
+    this.setCardSplit(origin, beforeHeight + (event.key === 'ArrowDown' ? 32 : -32));
+    this.saveCardWeights();
+    event.preventDefault();
+  }
+
+  private setCardSplit(origin: NonNullable<Inspector['resizeOrigin']>, desiredHeight: number): void {
+    const beforeHeight = Math.max(160, Math.min(origin.totalHeight - 160, desiredHeight));
+    const beforeWeight = origin.totalWeight * beforeHeight / origin.totalHeight;
+    this.cardWeights.update((weights) => ({
+      ...weights,
+      [origin.before]: beforeWeight,
+      [origin.after]: origin.totalWeight - beforeWeight,
+    }));
+  }
+
+  private loadCardWeights(): Partial<Record<CardId, number>> {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('pwr:card-weights') ?? '{}') as Partial<Record<CardId, number>>;
+      return Object.fromEntries(Object.entries(parsed).filter(([, weight]) => typeof weight === 'number' && weight > 0));
+    } catch {
+      return {};
+    }
+  }
+
+  private saveCardWeights(): void {
+    try {
+      localStorage.setItem('pwr:card-weights', JSON.stringify(this.cardWeights()));
+    } catch {
+      // Keep the current sizes when storage is unavailable.
+    }
+  }
+
+  protected open(id: CardId): void {
+    this.launcher.set(false);
+    this.work.show(id);
   }
 }

@@ -59,6 +59,33 @@ export function readPalette(
   }
 }
 
+export const ACCENTS = [
+  { id: 'terracotta', label: 'Terracotta', color: '#c2593a' },
+  { id: 'amber', label: 'Amber', color: '#e8b44a' },
+  { id: 'sage', label: 'Sage', color: '#5f8a4e' },
+  { id: 'blue', label: 'Blue', color: '#4f6f8f' },
+  { id: 'plum', label: 'Plum', color: '#8a5a7a' },
+] as const;
+export type Accent = (typeof ACCENTS)[number]['id'];
+
+export function readAppearance(storage: Pick<Storage, 'getItem'> | undefined) {
+  const read = (key: string) => {
+    try {
+      return storage?.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+  const accent = read('pwr:accent');
+  const size = Number(read('pwr:chat-size'));
+  return {
+    accent: (ACCENTS.some((item) => item.id === accent) ? accent : 'terracotta') as Accent,
+    serif: read('pwr:headings') !== 'sans',
+    chatSize: [14, 16, 18, 20].includes(size) ? size : 16,
+    codeFont: read('pwr:code-font') === 'system' ? 'system' : 'geist',
+  };
+}
+
 /**
  * System, Light or Dark. System follows the operating system live; an
  * explicit choice overrides it and is remembered.
@@ -72,6 +99,11 @@ export class ThemeService {
   private readonly storage = typeof localStorage !== 'undefined' ? localStorage : undefined;
 
   private readonly search = typeof location !== 'undefined' ? location.search : '';
+  private readonly appearance = readAppearance(this.storage);
+  readonly accent = signal<Accent>(this.appearance.accent);
+  readonly serif = signal(this.appearance.serif);
+  readonly chatSize = signal(this.appearance.chatSize);
+  readonly codeFont = signal(this.appearance.codeFont);
   readonly mode = signal<ThemeMode>(readThemeMode(this.storage, this.search));
   private readonly systemDark = signal(this.media?.matches ?? true);
   readonly theme = computed(() => resolveTheme(this.mode(), this.systemDark()));
@@ -83,6 +115,27 @@ export class ThemeService {
   );
 
   constructor() {
+    effect(() => {
+      const root = document.documentElement;
+      root.dataset['accent'] = this.accent();
+      root.dataset['headings'] = this.serif() ? 'serif' : 'sans';
+      root.style.setProperty('--fs-chat', this.chatSize() + 'px');
+      root.dataset['codeFont'] = this.codeFont();
+      const values = {
+        'pwr:accent': this.accent(),
+        'pwr:headings': this.serif() ? 'serif' : 'sans',
+        'pwr:chat-size': String(this.chatSize()),
+        'pwr:code-font': this.codeFont(),
+      };
+      for (const [key, value] of Object.entries(values)) {
+        try {
+          this.storage?.setItem(key, value);
+        } catch {
+          /* Keep the choice for this run. */
+        }
+      }
+    });
+
     this.media?.addEventListener('change', (event) => this.systemDark.set(event.matches));
 
     effect(() => {

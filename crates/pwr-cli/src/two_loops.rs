@@ -5428,3 +5428,70 @@ fn a_client_without_terminals_cannot_read_one() {
         "{told}"
     );
 }
+
+/// A tool offered beside the conversation's own -- `look_at` to a model that
+/// reads images -- is decoded when called, not refused as unknown.
+#[test]
+fn a_tool_offered_to_this_model_is_not_refused_as_unknown() {
+    if pwr_tools::browser_executable().is_none() {
+        return;
+    }
+    for vision in [true, false] {
+        let dir = workspace();
+        std::fs::write(dir.path().join("page.html"), "<h1>Hi</h1>").unwrap();
+        let provider = Scripted::new(vec![
+            calls(
+                if vision { "look_at" } else { "check_page" },
+                serde_json::json!({"target": "page.html"}),
+            ),
+            says("Seen."),
+        ]);
+        let store = pwr_store::Store::open(":memory:").unwrap();
+        let mut messages = vec![
+            ChatMessage::text("system", "You are PWR."),
+            ChatMessage::text("user", "look at page.html"),
+        ];
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(converse::take_turn(
+                &provider,
+                pwr_compat::adapter_for(None, "fake").as_ref(),
+                &deployment(),
+                &store,
+                pwr_domain::new_id(),
+                &policy_for(dir.path()),
+                &mut messages,
+                32_768,
+                &[],
+                Default::default(),
+                pwr_compat::render_tools(&if vision {
+                    converse::with_vision(converse::chat_tool_catalog())
+                } else {
+                    converse::with_page_check(converse::chat_tool_catalog())
+                }),
+                &std::sync::atomic::AtomicBool::new(false),
+                &converse::Continuity::default(),
+                &pwr_orchestrator::DenyWithoutAsking,
+                |_| {},
+            ))
+            .unwrap();
+        let told = last_tool_result(&provider.requests()[1]);
+        assert!(
+            !told.contains("not available in a conversation"),
+            "an offered tool was refused: {told}"
+        );
+        let requests = provider.requests();
+        let tool = requests[1]
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == "tool")
+            .unwrap();
+        assert!(told.contains("Hi"), "{told}");
+        assert_eq!(
+            !tool.images.is_empty(),
+            vision,
+            "only vision models receive the screenshot"
+        );
+    }
+}

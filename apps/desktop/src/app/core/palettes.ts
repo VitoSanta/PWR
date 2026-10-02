@@ -32,7 +32,7 @@ export const PALETTES: PaletteInfo[] = [
   { id: 'contrast-light', label: 'High Contrast Light', scheme: 'light', description: 'White, black and hard edges, for legibility first', swatch: { sidebar: '#ffffff', app: '#ffffff', surface: '#ffffff', accent: '#0f4a85', text: '#000000', secondary: '#b5200d' } },
 ];
 
-/** Focus colours, drawn for the default palette choice. */
+/** PWR's own colours, Night and Paper, drawn for the default palette choice. */
 export const LAYOUT_SWATCHES: Record<string, Record<Scheme, Swatch>> = {
-  focus: { dark: { sidebar: '#0b0b0d', app: '#050506', surface: '#0f0f12', accent: '#a78bfa', text: '#f2f2f4', secondary: '#67e8f9' }, light: { sidebar: '#f1f1f3', app: '#f7f7f8', surface: '#ffffff', accent: '#7c3aed', text: '#121216', secondary: '#0891b2' } },
+  pwr: { dark: { sidebar: '#1c1814', app: '#1c1814', surface: '#24201b', accent: '#d9734f', text: '#efe7d8', secondary: '#e8b44a' }, light: { sidebar: '#f6f1e7', app: '#f6f1e7', surface: '#fcfaf5', accent: '#c2593a', text: '#2a2420', secondary: '#e8b44a' } },
 };

@@ -8,11 +8,13 @@ import { PALETTES } from '../core/palettes';
 import { LAYOUT_PALETTE, ThemeService } from '../core/theme';
 import { SHORTCUTS, UiStore, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
+import { Icon, IconName } from './kit/icon';
 
 interface Command {
   id: string;
   label: string;
   group: string;
+  icon: IconName;
   keys?: string;
   hint?: string;
   run: () => void;
@@ -24,7 +26,7 @@ interface Command {
  */
 @Component({
   selector: 'pa-command-palette',
-  imports: [Dialog],
+  imports: [Dialog, Icon],
   template: `
     @if (ui.paletteOpen()) {
       <pa-dialog
@@ -35,6 +37,7 @@ interface Command {
         class="palette-dialog"
       >
         <div class="palette-search">
+          <pa-icon name="search" [size]="16" />
           <input
             class="palette-input"
             type="text"
@@ -68,12 +71,13 @@ interface Command {
               (pointerdown)="$event.preventDefault()"
               (click)="run(command)"
             >
+              <pa-icon [name]="command.icon" [size]="16" />
               <span class="truncate">{{ command.label }}</span>
               @if (command.hint) {
-                <span class="palette-hint">{{ command.hint }}</span>
+                <span class="menu-hint">{{ command.hint }}</span>
               }
               @if (command.keys) {
-                <span class="palette-keys">{{ shortcut(command.keys) }}</span>
+                <span class="kbd palette-keys">{{ shortcut(command.keys) }}</span>
               }
             </div>
           } @empty {
@@ -82,12 +86,6 @@ interface Command {
             </div>
           }
         </div>
-        <footer class="palette-foot" aria-hidden="true">
-          <span>↑↓ move</span>
-          <span>↵ run</span>
-          <span class="spacer"></span>
-          <span>esc close</span>
-        </footer>
       </pa-dialog>
     }
   `,
@@ -113,6 +111,7 @@ export class CommandPalette {
         id: 'new',
         label: 'New conversation',
         group: 'Conversation',
+        icon: 'square-pen',
         keys: SHORTCUTS.newConversation,
         run: () => store.newConversation(),
       });
@@ -122,6 +121,7 @@ export class CommandPalette {
         id: 'stop',
         label: 'Stop this turn',
         group: 'Conversation',
+        icon: 'stop',
         run: () => store.cancel(),
       });
     }
@@ -130,6 +130,7 @@ export class CommandPalette {
         id: 'compact',
         label: 'Compact context now',
         group: 'Conversation',
+        icon: 'refresh',
         run: () => void store.compactNow(),
       });
     }
@@ -139,6 +140,7 @@ export class CommandPalette {
           id: 'agent',
           label: 'Switch to Agent mode',
           group: 'Workspace',
+          icon: 'terminal',
           run: () => void store.leaveChat(),
         });
       else if (store.chatHome())
@@ -146,12 +148,14 @@ export class CommandPalette {
           id: 'chat',
           label: 'Switch to Chat mode',
           group: 'Workspace',
+          icon: 'message',
           run: () => void store.openChat(),
         });
       list.push({
         id: 'workspace',
         label: 'Open a workspace folder…',
         group: 'Workspace',
+        icon: 'folder',
         run: () => void store.chooseWorkspace(),
       });
     }
@@ -160,12 +164,14 @@ export class CommandPalette {
         id: 'attach-files',
         label: 'Attach files…',
         group: 'Workspace',
+        icon: 'file',
         run: () => void store.attachFiles(),
       });
       list.push({
         id: 'attach-folder',
         label: 'Attach a folder…',
         group: 'Workspace',
+        icon: 'folder',
         hint: 'read-only',
         run: () => void store.attachFolder(),
       });
@@ -175,6 +181,7 @@ export class CommandPalette {
         id: 'goal',
         label: store.goalMode() ? 'Turn Goal mode off' : 'Turn Goal mode on',
         group: 'Conversation',
+        icon: 'zap',
         hint: store.goalMode() ? 'on' : 'off',
         run: () => store.goalMode.set(!store.goalMode()),
       });
@@ -183,23 +190,25 @@ export class CommandPalette {
           id: `permissions-${option.mode}`,
           label: `Permissions: ${option.label}`,
           group: 'Conversation',
+          icon: 'shield',
           hint: store.permissionMode() === option.mode ? 'on' : undefined,
           run: () => store.setPermissionMode(option.mode),
         });
       }
     }
-    for (const [name, label] of [
-      ['verify', 'Verify'],
-      ['changes', 'List changes'],
-      ['report', 'Report'],
-      ['diagnose', 'Diagnose'],
-      ['doctor', 'Doctor'],
+    for (const [name, label, icon] of [
+      ['verify', 'Verify', 'shield-check'],
+      ['changes', 'List changes', 'git-compare'],
+      ['report', 'Report', 'file-text'],
+      ['diagnose', 'Diagnose', 'activity'],
+      ['doctor', 'Doctor', 'stethoscope'],
     ] as const) {
       if (!store.sessionId() || store.commandRunning()) break;
       list.push({
         id: 'cmd-' + name,
         label,
         group: 'Evidence',
+        icon,
         run: () => this.evidence(name),
       });
     }
@@ -207,6 +216,7 @@ export class CommandPalette {
       id: 'models',
       label: 'Open Model Manager',
       group: 'Models',
+      icon: 'box',
       run: () => this.models.show(),
     });
     if (idle) {
@@ -216,22 +226,25 @@ export class CommandPalette {
           id: 'model-' + ref,
           label: `Use ${modelLabel(ref)}`,
           group: 'Models',
+          icon: 'box',
           run: () => void store.selectModel(ref),
         });
       }
     }
     list.push(
       {
-        id: 'sidebar',
-        label: 'Show or hide the sidebar',
+        id: 'conversations',
+        label: 'Toggle conversations',
         group: 'View',
+        icon: 'panel-left',
         keys: SHORTCUTS.toggleSidebar,
-        run: () => this.layout.toggleLeft(),
+        run: () => this.ui.sessionsOpen.update((open) => !open),
       },
       {
         id: 'inspector',
-        label: 'Show or hide the inspector',
+        label: 'Show or hide tools',
         group: 'View',
+        icon: 'panel-right',
         keys: SHORTCUTS.toggleInspector,
         run: () => this.layout.toggleRight(),
       },
@@ -239,6 +252,7 @@ export class CommandPalette {
         id: `card-${card.id}`,
         label: `Open ${card.label}`,
         group: 'View',
+        icon: card.icon as IconName,
         keys: card.keys,
         run: () => this.work.show(card.id),
       })),
@@ -246,33 +260,37 @@ export class CommandPalette {
         id: 'theme-system',
         label: 'Appearance: System',
         group: 'View',
+        icon: 'monitor',
         hint: this.theme.mode() === 'system' ? 'current' : undefined,
         run: () => this.theme.set('system'),
       },
       {
         id: 'theme-light',
-        label: 'Appearance: Paper',
+        label: 'Appearance: Light',
         group: 'View',
+        icon: 'sun',
         hint: this.theme.mode() === 'light' ? 'current' : undefined,
         run: () => this.theme.set('light'),
       },
       {
         id: 'theme-dark',
-        label: 'Appearance: Night',
+        label: 'Appearance: Dark',
         group: 'View',
+        icon: 'moon',
         hint: this.theme.mode() === 'dark' ? 'current' : undefined,
         run: () => this.theme.set('dark'),
       },
-      // As in an editor: any palette from here, in its own scheme, and
-      // PWR's own Night and Paper to come back to.
+      // As in an editor: any palette from here, in its own scheme, and the
+      // Focus defaults to come back to.
       ...[
-        { id: LAYOUT_PALETTE, label: 'Night', scheme: 'dark' as const },
-        { id: LAYOUT_PALETTE, label: 'Paper', scheme: 'light' as const },
+        { id: LAYOUT_PALETTE, label: 'Focus Dark', scheme: 'dark' as const },
+        { id: LAYOUT_PALETTE, label: 'Focus Light', scheme: 'light' as const },
         ...PALETTES,
       ].map((palette) => ({
         id: `palette-${palette.scheme}-${palette.id}`,
         label: `Colour theme: ${palette.label}`,
         group: 'View',
+        icon: (palette.scheme === 'dark' ? 'moon' : 'sun') as IconName,
         hint:
           this.theme.theme() === palette.scheme && this.theme.palette() === palette.id
             ? 'current'
@@ -286,6 +304,7 @@ export class CommandPalette {
         id: 'settings',
         label: 'Settings',
         group: 'View',
+        icon: 'settings',
         keys: SHORTCUTS.settings,
         run: () => this.ui.settingsOpen.set(true),
       },
