@@ -12,6 +12,9 @@ the machine's memory. That is compatibility, and it is implemented. It does
 **not** choose a better agentic strategy per model; nothing measured shows
 that it could yet (review §6).
 
+See [compatibility layers](model-compatibility.md) for the separation between
+reply protocol, artifact policy and execution architecture, with rollout gates.
+
 ## Families and adapters
 
 `pwr-compat` normalises each family's way of writing tool calls and reasoning
@@ -19,11 +22,11 @@ into canonical actions. An adapter has a revision that a calibration records.
 
 | Family (revision) | Calls it reads |
 |---|---|
-| Qwen, Nemotron 3.x (`qwen-v4`) | `<tool_call>` JSON; the XML `<function=…><parameter=…>` form with or without its opening or closing `<tool_call>` tag (Qwen3-Coder arrives without the opening one); a list or dict written the Python way inside a parameter (`['-m', 'unittest']`); fenced JSON only when the entire reply consists of call fences; `<tools>` written as a call; inline `<think>` |
+| Qwen, Nemotron 3.x, Ornith 1.5 9B / 35B-A3B (`qwen-v4`) | `<tool_call>` JSON; the XML `<function=…><parameter=…>` form with or without its opening or closing `<tool_call>` tag (Qwen3-Coder arrives without the opening one); a list or dict written the Python way inside a parameter (`['-m', 'unittest']`); fenced JSON only when the entire reply consists of call fences; `<tools>` written as a call; inline `<think>` |
 | GLM-4.x | `<tool_call>name<arg_key>…<arg_value>…` |
 | Seed-OSS | `<seed:tool_call>`, `<seed:think>` |
 | gpt-oss (Harmony) | channels and `to=functions.…` |
-| Gemma 4 (`gemma4-v2`) | `<|tool_call>call:name{…}<tool_call|>` and its thought channel |
+| Gemma 4 (`gemma4-v3`) | `<|tool_call>call:name{…}<tool_call|>` and its thought channel |
 | Granite (`granite-v2`) | a bare JSON array, and `<tool_call>{json}</tool_call>`; role-header reasoning |
 | Mistral, Devstral, Magistral, Ministral (`mistral-v2`) | `[TOOL_CALLS]name[ARGS]{json}` (several in a row) and the older `[TOOL_CALLS][{…}]`; the request is rendered with the roles Mistral's template insists on (below) |
 | Liquid LFM2 (`liquid-v1`) | `<|tool_call_start|>[name(key="v", …)]<|tool_call_end|>` (Python call syntax) and `<function_call>{json}</function_call>`; `<think>` |

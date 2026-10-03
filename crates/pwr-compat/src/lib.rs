@@ -1239,7 +1239,7 @@ impl ModelBehaviorAdapter for Gemma4Adapter {
         "gemma4"
     }
     fn version(&self) -> &'static str {
-        "gemma4-v2"
+        "gemma4-v3"
     }
 
     fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
@@ -1649,44 +1649,123 @@ fn glm_call(body: &str) -> Option<ToolCall> {
     })
 }
 
-pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehaviorAdapter> {
+/// Reply syntax is independent of parameter count, expert routing and backend.
+/// Multiple model families can share it without sharing rendering or sampling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyProtocol {
+    Native,
+    Qwen,
+    Glm,
+    Seed,
+    Harmony,
+    Gemma4,
+    Granite,
+    Liquid,
+    Mistral,
+}
+
+/// Resolve from architecture metadata first; use the repository name only when
+/// metadata is absent. An unknown explicit architecture must stay unknown.
+/// This is reply normalization, not a claim that the artifact is certified.
+pub fn reply_protocol_for(family: Option<&str>, model_ref: &str) -> ReplyProtocol {
     let evidence = family.unwrap_or(model_ref).to_ascii_lowercase();
-    // Nemotron 3.x writes Qwen's XML calls and think spans (its chat
-    // template, 2026-09-19), so Qwen's adapter reads it.
-    if evidence.contains("qwen") || evidence.contains("nemotron") {
-        return Box::new(QwenFamilyAdapter);
+    // Ornith 1.5 9B and 35B-A3B publish Qwen XML templates. Do not map all
+    // Ornith releases: the brand also includes models derived from Gemma.
+    let ornith_qwen = family.is_none()
+        && ["ornith-1.5-9b", "ornith-1.5-35b-a3b"].iter().any(|name| {
+            evidence.split('/').next_back().is_some_and(|artifact| {
+                artifact == *name
+                    || artifact
+                        .strip_prefix(name)
+                        .is_some_and(|suffix| suffix.starts_with('-'))
+            })
+        });
+    if evidence.contains("qwen") || evidence.contains("nemotron") || ornith_qwen {
+        return ReplyProtocol::Qwen;
     }
     if evidence.contains("glm") {
-        return Box::new(GlmFamilyAdapter);
+        return ReplyProtocol::Glm;
     }
     if evidence.contains("seed") {
-        return Box::new(SeedFamilyAdapter);
+        return ReplyProtocol::Seed;
     }
     if evidence.contains("gpt_oss") || evidence.contains("gpt-oss") {
-        return Box::new(HarmonyAdapter);
+        return ReplyProtocol::Harmony;
     }
     if evidence.contains("gemma4") || evidence.contains("gemma-4") {
-        return Box::new(Gemma4Adapter);
+        return ReplyProtocol::Gemma4;
     }
     if evidence.contains("granite") {
-        return Box::new(GraniteFamilyAdapter);
+        return ReplyProtocol::Granite;
     }
     if evidence.contains("lfm") || evidence.contains("liquid") {
-        return Box::new(LiquidFamilyAdapter);
+        return ReplyProtocol::Liquid;
     }
     if evidence.contains("mistral")
         || evidence.contains("devstral")
         || evidence.contains("magistral")
         || evidence.contains("ministral")
     {
-        return Box::new(MistralFamilyAdapter);
+        return ReplyProtocol::Mistral;
     }
-    Box::new(GenericAdapter)
+    ReplyProtocol::Native
+}
+
+pub fn adapter_for(family: Option<&str>, model_ref: &str) -> Box<dyn ModelBehaviorAdapter> {
+    match reply_protocol_for(family, model_ref) {
+        ReplyProtocol::Native => Box::new(GenericAdapter),
+        ReplyProtocol::Qwen => Box::new(QwenFamilyAdapter),
+        ReplyProtocol::Glm => Box::new(GlmFamilyAdapter),
+        ReplyProtocol::Seed => Box::new(SeedFamilyAdapter),
+        ReplyProtocol::Harmony => Box::new(HarmonyAdapter),
+        ReplyProtocol::Gemma4 => Box::new(Gemma4Adapter),
+        ReplyProtocol::Granite => Box::new(GraniteFamilyAdapter),
+        ReplyProtocol::Liquid => Box::new(LiquidFamilyAdapter),
+        ReplyProtocol::Mistral => Box::new(MistralFamilyAdapter),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verified_ornith_releases_share_qwen_calls_across_dense_and_moe() {
+        for model in [
+            "ornith-ai/Ornith-1.5-9B",
+            "mlx-community/Ornith-1.5-35B-A3B-4bit",
+        ] {
+            let adapter = adapter_for(None, model);
+            assert_eq!(adapter.id(), "qwen");
+            let canonical = adapter.normalize(&reply("<tool_call><function=read_file><parameter=path>src/main.rs</parameter></function></tool_call>"));
+            assert_eq!(canonical.tool_calls.len(), 1);
+            assert_eq!(canonical.tool_calls[0].arguments["path"], "src/main.rs");
+        }
+    }
+
+    #[test]
+    fn metadata_wins_over_brand_and_unverified_releases_stay_native() {
+        assert_eq!(
+            reply_protocol_for(Some("gemma4"), "ornith-ai/Ornith-1.5-9B"),
+            ReplyProtocol::Gemma4
+        );
+        assert_eq!(
+            reply_protocol_for(Some("unknown"), "Qwen/Qwen3.5-9B"),
+            ReplyProtocol::Native
+        );
+        for model in [
+            "ornith-ai/Ornith-1.0-26B-A4B",
+            "ornith-ai/Ornith-1.5-9Billion",
+            "ornith-ai/Ornith-2.0-9B",
+            "gpt-4.1",
+        ] {
+            assert_eq!(reply_protocol_for(None, model), ReplyProtocol::Native);
+        }
+        assert_eq!(
+            reply_protocol_for(Some("qwen3_5_moe"), "ornith-ai/custom"),
+            ReplyProtocol::Qwen
+        );
+    }
 
     /// Qwen2.5-Coder's edit, as it wrote it in the capability probe.
     #[test]
