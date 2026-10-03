@@ -239,8 +239,9 @@ class OneThought:
     channel has been opened or closed in this reply (or the generation
     prompt closed it, as with thinking off), it cannot be opened again."""
 
-    def __init__(self, open_id: int, close_id: int):
+    def __init__(self, open_id: int, close_id: int, allow_thought=True):
         self.open_id, self.close_id = open_id, close_id
+        self.allow_thought = allow_thought
         self.seen = None
         self.shut = False
         self.closed = False
@@ -251,8 +252,8 @@ class OneThought:
             # this reply (thinking-off templates may pre-close the channel).
             self.seen = tokens.size
             boundary = int(tokens[-1].item()) if tokens.size else None
-            self.shut = boundary in (self.open_id, self.close_id)
-            self.closed = boundary == self.close_id
+            self.shut = not self.allow_thought or boundary in (self.open_id, self.close_id)
+            self.closed = not self.allow_thought or boundary == self.close_id
         else:
             if tokens.size < self.seen:
                 self.seen = 0
@@ -270,7 +271,7 @@ class OneThought:
         return logits
 
 
-def one_thought(tokenizer, template: str):
+def one_thought(tokenizer, template: str, thinking=None):
     """The processor for templates with Gemma 4's thought channel, when both
     of its markers are single tokens; otherwise None."""
     if "<|channel>" not in template:
@@ -287,7 +288,7 @@ def one_thought(tokenizer, template: str):
         if not isinstance(token, int) or token < 0 or token == getattr(tokenizer, "unk_token_id", None):
             return None
         ids.append(token)
-    return OneThought(*ids)
+    return OneThought(*ids, allow_thought=thinking is not False)
 
 
 # Markers that end a turn in every template that has them, whatever the
@@ -1009,7 +1010,7 @@ class Engine:
             presence_context_size=int(request.get("presence_context_size") or 20),
             repetition_penalty=request.get("repetition_penalty"),
         )
-        thought = one_thought(self.tokenizer, template)
+        thought = one_thought(self.tokenizer, template, thinking)
         if thought is not None:
             logits_processors = [*(logits_processors or []), thought]
 

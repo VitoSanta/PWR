@@ -22,6 +22,9 @@ the sidecar reasoning tracker. Previously a Gemma thought could exhaust the
 whole output cap while its thinking budget was not enforced; the ledger trace
 on 34fef36b contains a 30K-character thought lasting about 327 seconds. The
 existing reasoning budget and finalization path now apply to this protocol.
+The Gemma thought guard also honors `thinking=false` after tool results: the
+canonical template emits no closed thinking prefix there, so relying on the
+prompt boundary alone allowed a new thought block despite the disabled mode.
 Gemma's quoted-string parser change is now identified by `gemma4-v3`, so old
 calibrations cannot certify the changed parser as the old revision.
 

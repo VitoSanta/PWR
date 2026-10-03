@@ -810,6 +810,14 @@ class OneThoughtPerReply(unittest.TestCase):
         self.assertEqual(self.close_score(processor, prompt), 0.0)
         self.assertEqual(self.close_score(processor, prompt + [101]), float("-inf"))
 
+    def test_thinking_off_after_tool_result_cannot_open_a_channel(self):
+        # Gemma templates append no thinking-off prefix after a tool result.
+        # The flag must still be honored when the boundary has no marker.
+        processor = one_thought(self.Tokenizer(), "<|channel>", thinking=False)
+        self.assertEqual(self.step(processor, [7, 8]), float("-inf"))
+        self.assertEqual(self.close_score(processor, [7, 8]), float("-inf"))
+        self.assertEqual(self.step(processor, [7, 8, 9]), float("-inf"))
+
     def test_templates_without_the_channel_get_nothing(self):
         self.assertIsNone(one_thought(self.Tokenizer(), "<think></think>"))
 
