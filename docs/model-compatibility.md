@@ -12,6 +12,11 @@ adapter when metadata is absent; unknown Ornith releases stay generic.
 The Gemma OneThought sidecar guard blocks both re-opening and repeated closing
 of the current reply's thought channel; historical markers remain ignored.
 This fixes a measured close-marker repetition path, not overall task reliability.
+Cache checkpoints include both tensors and MLX cache metadata. Restoring only
+tensors left sliding-window offsets and ring indices at their generated values;
+a regression with the real RotatingKVCache reproduces the stale position and
+checks the next append against a fresh reference. Task-level impact is still
+being measured.
 Gemma's quoted-string parser change is now identified by `gemma4-v3`, so old
 calibrations cannot certify the changed parser as the old revision.
 

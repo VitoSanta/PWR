@@ -685,6 +685,47 @@ class XmlCallEndsTheReply(Chat):
         self.assertEqual(content, CALL + "ocks and more")
 
 
+class CacheCheckpointMetadata(unittest.TestCase):
+    def test_rotating_cache_restores_position_and_next_append(self):
+        import mlx.core as mx
+        from mlx_lm.models.cache import RotatingKVCache
+        from pwr_mlx import snapshot, restore
+        cache = RotatingKVCache(max_size=4, keep=0)
+        first = mx.arange(6).reshape(1, 1, 3, 2)
+        cache.update_and_fetch(first, first)
+        saved = snapshot([cache])
+        expected_meta = cache.meta_state
+        # Cross the window while generating, then roll back to the prompt.
+        cache.update_and_fetch(mx.ones((1, 1, 4, 2)), mx.ones((1, 1, 4, 2)))
+        restore([cache], saved)
+        self.assertEqual(cache.meta_state, expected_meta)
+        reference = RotatingKVCache(max_size=4, keep=0)
+        reference.update_and_fetch(first, first)
+        next_tokens = mx.full((1, 1, 2, 2), 7)
+        actual = cache.update_and_fetch(next_tokens, next_tokens)
+        expected = reference.update_and_fetch(next_tokens, next_tokens)
+        self.assertEqual(cache.meta_state, reference.meta_state)
+        for a, b in zip(actual, expected):
+            self.assertTrue(mx.array_equal(a, b).item())
+
+    def test_kv_cache_checkpoint_is_reusable_after_generation(self):
+        import mlx.core as mx
+        from mlx_lm.models.cache import KVCache
+        from pwr_mlx import snapshot, restore
+        cache = KVCache()
+        first = mx.arange(6).reshape(1, 1, 3, 2)
+        cache.update_and_fetch(first, first)
+        saved = snapshot([cache])
+        cache.update_and_fetch(mx.ones((1, 1, 2, 2)), mx.ones((1, 1, 2, 2)))
+        restore([cache], saved)
+        self.assertEqual(cache.offset, 3)
+        self.assertTrue(mx.array_equal(cache.state[0], first).item())
+        cache.update_and_fetch(mx.ones((1, 1, 1, 2)), mx.ones((1, 1, 1, 2)))
+        restore([cache], saved)
+        self.assertEqual(cache.offset, 3)
+        self.assertTrue(mx.array_equal(cache.state[0], first).item())
+
+
 class OneThoughtPerReply(unittest.TestCase):
     """Gemma 4 reopened an empty thought channel until the loop guard (2026-10-02)."""
 

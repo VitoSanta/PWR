@@ -581,7 +581,9 @@ def snapshot(cache):
             return type(x)(copy(y) for y in x)
         return x + 0 if isinstance(x, mx.array) else x
 
-    states = [copy(c.state) for c in cache]
+    # Tensor setters do not restore RotatingKVCache offset/ring position.
+    # Keep metadata alongside tensors so the checkpoint describes one state.
+    states = [(copy(c.state), copy(c.meta_state)) for c in cache]
     mx.eval(arrays_of(states))
     return states
 
@@ -592,8 +594,9 @@ def restore(cache, states) -> None:
             return type(x)(copy(y) for y in x)
         return x + 0 if isinstance(x, mx.array) else x
 
-    for c, state in zip(cache, states):
+    for c, (state, metadata) in zip(cache, states):
         c.state = copy(state)
+        c.meta_state = copy(metadata)
 
 
 class VisionText(nn.Module):
