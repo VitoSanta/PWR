@@ -4732,18 +4732,34 @@ pub fn scripted_tool_catalog(plan_first: bool) -> pwr_domain::ToolCatalog {
 /// This remains in the orchestrator because it defines runtime authority. A
 /// compatibility adapter renders it for a backend.
 pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
-    let function =
-        |name: &str, description: &str, properties: serde_json::Value, required: &[&str]| {
-            pwr_domain::ToolDefinition {
-                name: name.into(),
-                description: description.into(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                }),
-            }
-        };
+    let function = |name: &str,
+                    description: &str,
+                    properties: serde_json::Value,
+                    required: &[&str]| {
+        let mut input_schema = serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        });
+        // The command decoder refuses unknown fields; publish the same
+        // contract instead of JSON Schema's default open object.
+        if name == "run_command" {
+            input_schema["additionalProperties"] = serde_json::json!(false);
+        }
+        pwr_domain::ToolDefinition {
+            name: name.into(),
+            // Native templates may render only properties/required, so
+            // retain the restriction in the description as well.
+            description: if name == "run_command" {
+                format!(
+                    "{description} Use only executable, args, cwd, stdin and outside_sandbox; result and diagnostic fields are not command arguments."
+                )
+            } else {
+                description.into()
+            },
+            input_schema,
+        }
+    };
     pwr_domain::ToolCatalog::new(vec![
         function(
             "read_file",
@@ -6792,6 +6808,35 @@ pub fn calibration_invalidations(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn command_schema_excludes_rejected_diagnostic_fields() {
+        let catalog = action_tool_catalog();
+        let tool = catalog.get("run_command").unwrap();
+        assert_eq!(
+            tool.input_schema["additionalProperties"],
+            serde_json::json!(false)
+        );
+        let valid = pwr_domain::ToolCall {
+            name: "run_command".into(),
+            id: None,
+            arguments: serde_json::json!({"executable": "npm", "args": ["test"]}),
+        };
+        assert!(action_from_tool_call(&valid).is_ok());
+        for field in ["ts", "exec_os_error"] {
+            assert!(
+                !tool.input_schema["properties"]
+                    .as_object()
+                    .unwrap()
+                    .contains_key(field)
+            );
+            let mut invalid = valid.clone();
+            invalid.arguments[field] = serde_json::json!(true);
+            assert_eq!(
+                action_from_tool_call(&invalid).unwrap_err().kind,
+                "schema_mismatch"
+            );
+        }
+    }
     use super::*;
 
     #[test]

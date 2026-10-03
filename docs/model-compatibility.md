@@ -138,3 +138,18 @@ checks, budgets, findings extraction and acceptance gates are unchanged. The
 after review feedback, including a questionable claim that changing a locally
 created Date mutated inputs. Aligning instructions removes the contradiction;
 it does not certify every reviewer finding or guarantee shorter completion.
+
+## Command schema and execution contract
+
+`run_command` now declares `additionalProperties: false`, matching the decoder's rejection of unknown request fields. The description repeats the accepted
+request keys because native templates may render only properties and required
+fields. Gemma goal traces supplied `ts` and `exec_os_error`; neither is a command
+argument. Existing tolerant argument normalization, permission checks and
+execution limits are unchanged. Other tools are not presumed to have the same
+closed-object policy.
+
+The regression failed on the previous open schema and passes with the corrected
+contract; it also checks that valid commands still decode and the observed
+diagnostic fields stay rejected. This establishes schema consistency, not
+six-case model certification or proof that the mismatch caused all task failures.
+See [JSON Schema additional properties](https://json-schema.org/understanding-json-schema/reference/object#additionalproperties).
