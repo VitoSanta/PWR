@@ -110,7 +110,8 @@ REPEAT_LIMIT = 4
 # The thinking-block delimiters the engine tracks, most specific first. The
 # pair a model uses is read from its own chat template (`think_delimiters`);
 # pwr-domain's `TemplateReasoning::KNOWN_DELIMITERS` carries the same list.
-THINK_DELIMITERS = (("<seed:think>", "</seed:think>"), ("<think>", "</think>"))
+THINK_DELIMITERS = (("<|channel>thought", "<channel|>"),
+                    ("<seed:think>", "</seed:think>"), ("<think>", "</think>"))
 # How a thinking phase that reached its budget is ended: the template's own
 # closing delimiter, then a blank line. Nothing else is injected -- no
 # model-family prose -- and only for a template that uses the delimiter.

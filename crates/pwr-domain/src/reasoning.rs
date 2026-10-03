@@ -98,8 +98,11 @@ pub struct TemplateReasoning {
 impl TemplateReasoning {
     /// The delimiter pairs PWR's MLX engine tracks, most specific first.
     /// The sidecar carries the same list (`THINK_DELIMITERS`).
-    pub const KNOWN_DELIMITERS: [(&'static str, &'static str); 2] =
-        [("<seed:think>", "</seed:think>"), ("<think>", "</think>")];
+    pub const KNOWN_DELIMITERS: [(&'static str, &'static str); 3] = [
+        ("<|channel>thought", "<channel|>"),
+        ("<seed:think>", "</seed:think>"),
+        ("<think>", "</think>"),
+    ];
 
     pub fn of(template: &str) -> Self {
         let delimiters = Self::KNOWN_DELIMITERS
@@ -506,6 +509,17 @@ mod tests {
 
         let seed = TemplateReasoning::of("{{ thinking_budget }}<seed:think></seed:think>");
         assert_eq!(seed.capability(true), ReasoningCapability::NativeBudget);
+
+        let gemma = TemplateReasoning::of("{{ enable_thinking }}<|channel>thought\n<channel|>");
+        assert_eq!(
+            gemma.delimiters,
+            Some(("<|channel>thought".into(), "<channel|>".into()))
+        );
+        assert_eq!(
+            gemma.capability(true),
+            ReasoningCapability::ExplicitThinkingStream
+        );
+        assert_eq!(gemma.capability(false), ReasoningCapability::ObservableOnly);
 
         let harmony = TemplateReasoning::of("Reasoning: {{ reasoning_effort }}<|channel|>analysis");
         assert_eq!(

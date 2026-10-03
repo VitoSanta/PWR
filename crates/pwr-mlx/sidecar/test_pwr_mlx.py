@@ -374,6 +374,14 @@ class Delimiters(unittest.TestCase):
 
 
 class Stream(unittest.TestCase):
+    def test_gemma_thought_is_separate_from_native_tool_call(self):
+        delimiters = think_delimiters("<|channel>thought\n<channel|>")
+        self.assertEqual(delimiters, ("<|channel>thought", "<channel|>"))
+        tracker = ReasoningStream(delimiters, starts_inside=False)
+        thought, content = run(tracker, ["<|chan", "nel>thought", "plan", "<channel", "|>", "<|tool_call>call:read_file{}<tool_call|>"])
+        self.assertEqual(thought, "plan")
+        self.assertEqual(content, "<|tool_call>call:read_file{}<tool_call|>")
+
     def test_reasoning_opened_by_the_template_is_counted_in_tokens(self):
         tracker = ReasoningStream(QWEN, starts_inside=True)
         reasoning, content = run(tracker, ["The", " user", " wants", " 5", "</th", "ink>", "\n\n5"])
@@ -583,6 +591,30 @@ class Chat(unittest.TestCase):
         # The continuation got the rest of the cap, not a fixed sliver of it.
         self.assertEqual(generate.calls[1][1], 1000 - 4 - len(generate.calls[1][0]))
         self.assertEqual(done["usage"]["forced_tokens"], len(generate.calls[1][0]))
+
+    def test_gemma_budget_closes_thought_and_preserves_tool_call(self):
+        class GemmaTokenizer(FakeTokenizer):
+            chat_template = "{{ enable_thinking }}<|channel>thought<channel|><|tool_call>"
+            def apply_chat_template(self, messages, add_generation_prompt=False, **kwargs):
+                prompt = "".join(m["content"] for m in messages)
+                if add_generation_prompt:
+                    prompt += "<|channel>thought"
+                return [ord(c) for c in prompt]
+        self.engine.tokenizer = GemmaTokenizer()
+        calls = []
+        call = "<|tool_call>call:read_file{path:a}<tool_call|>"
+        def generate(model, tokenizer, prompt, max_tokens, **kwargs):
+            text = tokenizer.decode(prompt.tolist())
+            calls.append(text)
+            pieces = [call] if text.startswith("<channel|>") else list("abcdefghij")
+            for at, piece in enumerate(pieces):
+                yield FakeResponse(piece, "stop" if at == len(pieces)-1 else None)
+        done, thought, content, _ = self.chat(generate, reasoning_budget=4, max_tokens=1000)
+        self.assertTrue(done["budget_forced"])
+        self.assertEqual(done["usage"]["reasoning_tokens"], 4)
+        self.assertEqual(thought, "abcd")
+        self.assertEqual(content, call)
+        self.assertTrue(calls[1].startswith("<channel|>"))
 
     def test_a_reopened_block_after_the_close_fails_once_and_does_not_loop(self):
         generate = scripted(list("abcdefghij"), ["<think>"] + list("more"))

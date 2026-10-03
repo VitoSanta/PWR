@@ -17,6 +17,11 @@ tensors left sliding-window offsets and ring indices at their generated values;
 a regression with the real RotatingKVCache reproduces the stale position and
 checks the next append against a fresh reference. Task-level impact is still
 being measured.
+Gemma native thought delimiters are recognized by both capability planning and
+the sidecar reasoning tracker. Previously a Gemma thought could exhaust the
+whole output cap while its thinking budget was not enforced; the ledger trace
+on 34fef36b contains a 30K-character thought lasting about 327 seconds. The
+existing reasoning budget and finalization path now apply to this protocol.
 Gemma's quoted-string parser change is now identified by `gemma4-v3`, so old
 calibrations cannot certify the changed parser as the old revision.
 
