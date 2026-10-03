@@ -308,7 +308,12 @@ def add_turn_ends(tokenizer) -> None:
     if add is None:
         return
     unknown = getattr(tokenizer, "unk_token_id", None)
-    for marker in TURN_ENDS:
+    markers = TURN_ENDS
+    if "<|tool_call>" in str(getattr(tokenizer, "chat_template", "") or ""):
+        # Gemma's native protocol hands control to the caller at this marker.
+        # Keep <tool_call|> visible: the tool parser needs that closing token.
+        markers += ("<turn|>", "<|tool_response>")
+    for marker in markers:
         try:
             token = tokenizer.convert_tokens_to_ids(marker)
         except Exception:

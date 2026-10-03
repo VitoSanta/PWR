@@ -153,3 +153,13 @@ contract; it also checks that valid commands still decode and the observed
 diagnostic fields stay rejected. This establishes schema consistency, not
 six-case model certification or proof that the mismatch caused all task failures.
 See [JSON Schema additional properties](https://json-schema.org/understanding-json-schema/reference/object#additionalproperties).
+
+### Gemma tool-response handoff
+
+Google's [Gemma 4 protocol](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4)
+marks `<|tool_response>` as an inference stop sequence. Native Gemma templates
+now register it and `<turn|>` with the tokenizer's EOS set when those special
+tokens exist. `<tool_call|>` remains visible for parsing a completed call.
+Other protocols and missing/unknown tokens are unchanged. Regression coverage
+checks handoff registration, protocol isolation, and unknown-token exclusion.
+This corrects a protocol omission; it does not certify small-model task success.

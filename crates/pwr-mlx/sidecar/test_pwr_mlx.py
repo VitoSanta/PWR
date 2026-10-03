@@ -843,6 +843,30 @@ class TurnEndsStopGeneration(unittest.TestCase):
         def add_eos_token(self, token):
             self.eos_token_ids.add(self.vocabulary[token])
 
+    def test_gemma_tool_response_handoff_is_an_eos(self):
+        tokenizer = self.Tokenizer()
+        tokenizer.chat_template = "<|tool_call>call:name{}<tool_call|>"
+        tokenizer.vocabulary = {**tokenizer.vocabulary, "<turn|>": 7,
+                                "<|tool_response>": 8, "<tool_call|>": 9}
+        add_turn_ends(tokenizer)
+        self.assertEqual(tokenizer.eos_token_ids, {5, 6, 7, 8})
+        # The closing call delimiter must remain visible to the parser.
+        self.assertNotIn(9, tokenizer.eos_token_ids)
+
+    def test_gemma_markers_are_not_added_for_another_protocol(self):
+        tokenizer = self.Tokenizer()
+        tokenizer.chat_template = "<function=name>"
+        tokenizer.vocabulary = {**tokenizer.vocabulary, "<turn|>": 7,
+                                "<|tool_response>": 8}
+        add_turn_ends(tokenizer)
+        self.assertEqual(tokenizer.eos_token_ids, {5, 6})
+
+    def test_missing_gemma_markers_never_add_the_unknown_token(self):
+        tokenizer = self.Tokenizer()
+        tokenizer.chat_template = "<|tool_call>"
+        add_turn_ends(tokenizer)
+        self.assertEqual(tokenizer.eos_token_ids, {5, 6})
+
     def test_every_marker_the_vocabulary_has_stops_and_no_other(self):
         tokenizer = self.Tokenizer()
         add_turn_ends(tokenizer)
