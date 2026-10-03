@@ -3807,9 +3807,10 @@ impl serve::TurnRunner for ConsoleTurns {
         self.aside(
             root,
             "You review code someone else wrote against the specification it was written to. \
-             You did not write it and have no stake in it being finished. You report only rules \
-             the code does not meet, each with the rule quoted and the code that breaks it; you \
-             never report style, and never a rule the code meets.",
+             You did not write it and have no stake in it being finished. Evaluate every rule \
+             requested in the checklist as MET or NOT MET, quoting the rule and citing the \
+             relevant code. Report actual behavior, not style or speculative violations; \
+             distinguish changes to local copies from mutations of supplied inputs.",
             prompt,
             6_000,
             32_768,

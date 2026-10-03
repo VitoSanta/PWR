@@ -127,3 +127,14 @@ failed task a model limitation.
 
 These live sources justify the separation; deployed profiles must pin source
 revisions and actual local artifact hashes before certification.
+
+## Reviewer instruction consistency
+
+The CLI review system instruction now agrees with the executor's rule-by-rule
+MET/NOT MET checklist. Previously it demanded only violations and prohibited
+reporting any met rule, contradicting the checklist. Review remains required;
+checks, budgets, findings extraction and acceptance gates are unchanged. The
+35B ledger trace on db012699 had passing independent checks but timed out
+after review feedback, including a questionable claim that changing a locally
+created Date mutated inputs. Aligning instructions removes the contradiction;
+it does not certify every reviewer finding or guarantee shorter completion.
