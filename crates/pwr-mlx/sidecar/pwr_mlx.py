@@ -242,22 +242,30 @@ class OneThought:
         self.open_id, self.close_id = open_id, close_id
         self.seen = None
         self.shut = False
+        self.closed = False
 
     def __call__(self, tokens, logits):
         if self.seen is None:
-            # mlx-lm first supplies the prompt, including older replies.
-            # Only a marker at the generation boundary belongs to this reply.
+            # Ignore markers from older replies. A boundary marker belongs to
+            # this reply (thinking-off templates may pre-close the channel).
             self.seen = tokens.size
-            self.shut = bool(tokens.size and int(tokens[-1].item()) in
-                             (self.open_id, self.close_id))
-        if not self.shut:
+            boundary = int(tokens[-1].item()) if tokens.size else None
+            self.shut = boundary in (self.open_id, self.close_id)
+            self.closed = boundary == self.close_id
+        else:
             if tokens.size < self.seen:
                 self.seen = 0
             fresh = tokens[self.seen:].tolist() if tokens.size > self.seen else []
             self.seen = tokens.size
-            self.shut = self.open_id in fresh or self.close_id in fresh
+            self.shut = self.shut or self.open_id in fresh or self.close_id in fresh
+            self.closed = self.closed or self.close_id in fresh
         if self.shut:
             logits[..., self.open_id] = -float("inf")
+        if self.closed:
+            # Blocking re-opening alone still allowed <channel|> hundreds
+            # of times (Gemma short ledger, 2026-10-03). A single thought
+            # block also has exactly one closing delimiter.
+            logits[..., self.close_id] = -float("inf")
         return logits
 
 

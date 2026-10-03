@@ -716,6 +716,27 @@ class OneThoughtPerReply(unittest.TestCase):
         self.assertEqual(self.step(processor, prompt), 0.0)
         self.assertEqual(self.step(processor, prompt + [100]), float("-inf"))
 
+    def close_score(self, processor, tokens):
+        import mlx.core as mx
+        return processor(mx.array(tokens), mx.zeros((1, 128)))[0, 101].item()
+
+    def test_first_close_is_allowed_but_repeated_close_is_blocked(self):
+        processor = one_thought(self.Tokenizer(), "<|channel>")
+        self.assertEqual(self.close_score(processor, [7, 8]), 0.0)
+        self.assertEqual(self.close_score(processor, [7, 8, 100, 9]), 0.0)
+        self.assertEqual(self.close_score(processor, [7, 8, 100, 9, 101]), float("-inf"))
+        self.assertEqual(self.close_score(processor, [7, 8, 100, 9, 101, 10]), float("-inf"))
+
+    def test_prefilled_close_cannot_close_again(self):
+        processor = one_thought(self.Tokenizer(), "<|channel>")
+        self.assertEqual(self.close_score(processor, [100, 9, 101]), float("-inf"))
+
+    def test_historical_close_does_not_block_new_reply_close(self):
+        processor = one_thought(self.Tokenizer(), "<|channel>")
+        prompt = [100, 9, 101, 7, 8]
+        self.assertEqual(self.close_score(processor, prompt), 0.0)
+        self.assertEqual(self.close_score(processor, prompt + [101]), float("-inf"))
+
     def test_templates_without_the_channel_get_nothing(self):
         self.assertIsNone(one_thought(self.Tokenizer(), "<think></think>"))
 

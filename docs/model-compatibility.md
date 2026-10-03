@@ -9,6 +9,9 @@ second agent loop. The first change exposes `ReplyProtocol` in `pwr-compat`
 and selects existing adapters through it. Architecture metadata takes precedence
 over repository names. Verified Ornith 1.5 9B and 35B-A3B aliases use Qwen's
 adapter when metadata is absent; unknown Ornith releases stay generic.
+The Gemma OneThought sidecar guard blocks both re-opening and repeated closing
+of the current reply's thought channel; historical markers remain ignored.
+This fixes a measured close-marker repetition path, not overall task reliability.
 Gemma's quoted-string parser change is now identified by `gemma4-v3`, so old
 calibrations cannot certify the changed parser as the old revision.
 
