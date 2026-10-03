@@ -1349,6 +1349,31 @@ impl GemmaValue<'_> {
             self.rest = &after[end + "<|\"|>".len()..];
             return Some(serde_json::Value::String(after[..end].to_owned()));
         }
+        // Some replies use ordinary quoted strings in the native call body.
+        // Parse only a complete string literal; never split or execute it.
+        if let Some(quote @ ('\'' | '"')) = self.rest.chars().next() {
+            let mut escaped = false;
+            for (index, ch) in self.rest.char_indices().skip(1) {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == quote {
+                    let end = index + ch.len_utf8();
+                    let mut reader = PyArgs::new(&self.rest[..end]);
+                    let value = reader.value()?;
+                    if reader.at != end {
+                        return None;
+                    }
+                    if !value.is_string() {
+                        return None;
+                    }
+                    self.rest = &self.rest[end..];
+                    return Some(value);
+                }
+            }
+            return None;
+        }
         if let Some(after) = self.rest.strip_prefix('{') {
             self.rest = after;
             let mut map = serde_json::Map::new();
@@ -2046,6 +2071,18 @@ mod tests {
                 .iter()
                 .any(|d| d.kind == "harmony_unterminated_tool_call")
         );
+    }
+
+    #[test]
+    fn gemma_quoted_strings_preserve_argument_boundaries() {
+        let (name, args) =
+            gemma_call("call:run_command{args:['test', 'a b,c'],executable:'npm'}").unwrap();
+        assert_eq!(name, "run_command");
+        assert_eq!(
+            args,
+            serde_json::json!({"args":["test","a b,c"],"executable":"npm"})
+        );
+        assert!(gemma_call("call:run_command{args:['test],executable:'npm'}").is_none());
     }
 
     #[test]
