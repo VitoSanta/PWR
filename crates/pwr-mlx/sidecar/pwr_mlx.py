@@ -240,10 +240,16 @@ class OneThought:
 
     def __init__(self, open_id: int, close_id: int):
         self.open_id, self.close_id = open_id, close_id
-        self.seen = 0
+        self.seen = None
         self.shut = False
 
     def __call__(self, tokens, logits):
+        if self.seen is None:
+            # mlx-lm first supplies the prompt, including older replies.
+            # Only a marker at the generation boundary belongs to this reply.
+            self.seen = tokens.size
+            self.shut = bool(tokens.size and int(tokens[-1].item()) in
+                             (self.open_id, self.close_id))
         if not self.shut:
             if tokens.size < self.seen:
                 self.seen = 0

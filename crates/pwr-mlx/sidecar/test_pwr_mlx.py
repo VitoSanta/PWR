@@ -710,6 +710,12 @@ class OneThoughtPerReply(unittest.TestCase):
         processor = one_thought(self.Tokenizer(), "<|channel>")
         self.assertEqual(self.step(processor, [100, 9, 101]), float("-inf"))
 
+    def test_a_previous_turn_does_not_block_this_turn_thinking(self):
+        processor = one_thought(self.Tokenizer(), "<|channel>")
+        prompt = [7, 100, 9, 101, 8, 10]
+        self.assertEqual(self.step(processor, prompt), 0.0)
+        self.assertEqual(self.step(processor, prompt + [100]), float("-inf"))
+
     def test_templates_without_the_channel_get_nothing(self):
         self.assertIsNone(one_thought(self.Tokenizer(), "<think></think>"))
 
