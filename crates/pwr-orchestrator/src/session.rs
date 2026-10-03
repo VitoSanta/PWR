@@ -623,6 +623,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_install_with_repeated_program_asks_before_execution() {
+        let prompt = Answer::with(&[ApprovalDecision::AllowOnce, ApprovalDecision::AllowOnce]);
+        let mut policy = policy(&["npm"]);
+        let gate = through(&command("npm", &["npm", "install"]), &mut policy, &prompt).await;
+        let Gate::Proceed { granted_once } = gate else {
+            panic!("{gate:?}")
+        };
+        assert!(granted_once.contains(&Approval::DependencyChange));
+        if policy.will_sandbox().unwrap_or(false) {
+            assert!(granted_once.contains(&Approval::NetworkAccess));
+        }
+        assert_eq!(
+            prompt.asked.lock().unwrap()[0].0,
+            Approval::DependencyChange
+        );
+    }
+
+    #[tokio::test]
     async fn a_command_naming_a_url_asks_for_the_network_first() {
         let prompt = Answer::with(&[ApprovalDecision::AllowOnce]);
         let mut policy = policy(&["curl"]);

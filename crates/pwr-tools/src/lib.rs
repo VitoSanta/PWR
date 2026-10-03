@@ -1358,6 +1358,8 @@ fn refuse_if_runs_outside(normalized: &Path) -> Result<(), ToolError> {
 
 /// Returns the approval a proposed command requires, if any.
 pub fn command_approval(executable: &str, args: &[String]) -> Option<Approval> {
+    // Use the same argv normalization as execution and network detection.
+    let args = args_after_program(executable, args).unwrap_or(args);
     let name = Path::new(executable)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
