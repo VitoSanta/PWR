@@ -179,3 +179,10 @@ Baseline check guidance preserves task scope: pre-existing failures can be the
 behaviour the engineer asked to repair. The goal prompt asks for those repairs
 and keeps acceptance checks mandatory, while avoiding unrelated test-setup
 work. This changes guidance only, not check results or acceptance criteria.
+
+
+An unfinished native tool call does not necessarily write a file. Recovery asks
+for the intended call with all argument and call delimiters closed; splitting a
+large file is conditional on a file-writing action. Recorded incomplete command
+arguments must not redirect the model into rewriting already completed files.
+This corrects guidance only; no partial call is executed or repaired by guessing.

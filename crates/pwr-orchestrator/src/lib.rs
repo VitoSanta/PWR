@@ -906,10 +906,11 @@ impl ReplyFault {
             ),
             Self::RanAway(detail) if detail.contains("unfinished tool call") => format!(
                 "Your last tool call was cut off before it ended, so nothing in it was done: \
-                 {told_detail}. The file is too long to write in one call. Write a first part that \
-                 works -- the structure and the parts that matter most -- with write_file, then \
-                 add the rest in further calls with replace_text or apply_patch. Keep each \
-                 call to a few hundred lines."
+                 {told_detail}. Retry the intended action as one complete native tool call, \
+                 closing all argument strings, arrays and call delimiters. If you were writing a long file \
+                 that is too long to write in one call, write a first part that works with write_file, \
+                 then add the rest with replace_text or apply_patch; otherwise fix the intended call \
+                 without rewriting work that already completed. Keep file-writing calls to a few hundred lines."
             ),
             Self::RanAway(_) => format!(
                 "Your last reply ran on until it was cut off, so nothing in it was done: \
@@ -9066,6 +9067,21 @@ mod tests {
         );
         assert!(cut.told().contains("too long to write in one call"));
     }
+    #[test]
+    fn unfinished_command_recovery_does_not_assume_a_file_write() {
+        // Native run_command with an unclosed argument reaches this same fault
+        // as an unfinished write; neither partial call may be executed.
+        let fault = ReplyFault::RanAway(
+            "the model stopped inside an unfinished tool call; no call was executed".into(),
+        );
+        let told = fault.told();
+        assert!(told.contains("nothing in it was done"), "{told}");
+        assert!(told.contains("Retry the intended action"), "{told}");
+        assert!(told.contains("If you were writing a long file"), "{told}");
+        assert!(!told.contains("The file is too long"), "{told}");
+        assert!(told.contains("otherwise fix the intended call"), "{told}");
+    }
+
     #[test]
     fn numbered_commands_preserve_quoted_arguments_and_policy_fields() {
         let call = pwr_domain::ToolCall {
