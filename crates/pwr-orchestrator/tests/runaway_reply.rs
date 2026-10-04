@@ -236,3 +236,18 @@ fn only_a_reply_the_turn_cannot_use_is_the_deployments_to_fix() {
     assert!(told.contains("cut off"), "{told}");
     assert!(told.contains("Do less in one turn"), "{told}");
 }
+
+#[test]
+fn incomplete_gemma_native_call_is_unreadable_not_absent() {
+    let raw = "<|tool_call>call:write_file{content:<|\"|>import React";
+    let error = pwr_orchestrator::decode_reply(
+        Some("gemma4_unified_text"),
+        "mlx-community/gemma-4-12B-it-4bit",
+        raw,
+        "",
+    )
+    .expect_err("An incomplete call must not execute");
+    assert_eq!(error.kind, "unreadable_call");
+    assert!(error.problem.contains("<tool_call|>"));
+    assert!(error.problem.contains("string delimiter"));
+}

@@ -163,3 +163,13 @@ tokens exist. `<tool_call|>` remains visible for parsing a completed call.
 Other protocols and missing/unknown tokens are unchanged. Regression coverage
 checks handoff registration, protocol isolation, and unknown-token exclusion.
 This corrects a protocol omission; it does not certify small-model task success.
+
+### Incomplete native Gemma calls
+
+Recorded Gemma write calls stopped inside their content string were classified
+as `no_tool_call`, although the native opening marker was present. The decoder
+now refuses them as `unreadable_call` and identifies the native string/call
+closing delimiters. No partial argument is repaired or executed. Offline replay
+checks completed reads and the recorded incomplete write; task improvement still
+requires the unchanged six-case battery. JSON escaping advice was reviewed and
+left unchanged because it already scopes itself to JSON strings.

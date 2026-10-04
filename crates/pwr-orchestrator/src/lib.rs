@@ -5838,6 +5838,21 @@ fn actions_from_reply(
 ) -> Result<Vec<ActionProposal>, MalformedCall> {
     match reply.tool_calls.as_slice() {
         [call] => action_from_tool_call(call).map(|action| vec![action]),
+        [] if reply.diagnostics.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.kind,
+                "gemma_unterminated_tool_call" | "gemma_undecodable_tool_call"
+            )
+        }) =>
+        {
+            Err(MalformedCall::detailed(
+                "unreadable_call",
+                "a native tool call was written but could not be read. Send one whole call, \
+                 closing each string delimiter <|\"|> and ending the call with }<tool_call|>. \
+                 No partial call was executed",
+                reply.narrative.trim(),
+            ))
+        }
         [] if reply.narrative.trim().is_empty() && !reply.thinking.trim().is_empty() => {
             // Not the same failure as prose where a call belonged, and it was
             // reported as one. Measured on the second Angular run of
