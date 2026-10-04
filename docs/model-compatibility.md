@@ -173,3 +173,9 @@ closing delimiters. No partial argument is repaired or executed. Offline replay
 checks completed reads and the recorded incomplete write; task improvement still
 requires the unchanged six-case battery. JSON escaping advice was reviewed and
 left unchanged because it already scopes itself to JSON strings.
+
+
+Baseline check guidance preserves task scope: pre-existing failures can be the
+behaviour the engineer asked to repair. The goal prompt asks for those repairs
+and keeps acceptance checks mandatory, while avoiding unrelated test-setup
+work. This changes guidance only, not check results or acceptance criteria.

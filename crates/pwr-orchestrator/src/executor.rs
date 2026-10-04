@@ -85,8 +85,10 @@ pub struct GoalVerification {
 pub fn already_failing_note(failing: &[String]) -> String {
     format!(
         "Before this goal started, the core ran the repository's checks and these were already failing: {}. \
-         They are not part of this goal. Do not repair them -- not their configuration, not their dependencies -- \
-         unless the engineer asks; mention them in your answer instead. They do not block completion.",
+         Repair failures covered by the engineer's request; acceptance checks must still pass. \
+         Do not repair unrelated pre-existing failures or rebuild their configuration or dependencies \
+         unless the engineer asks. Report any unrelated failures left unchanged; their baseline status \
+         does not mean the requested work is complete.",
         failing.join(", ")
     )
 }
@@ -1237,6 +1239,21 @@ pub async fn close_turn(
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// A broken check may be the very behaviour the engineer requested.
+    /// The observed React/ledger prompts incorrectly excluded every baseline
+    /// failure before asking the model to repair the same behaviour.
+    #[test]
+    fn baseline_note_preserves_requested_repairs_and_acceptance() {
+        let note = already_failing_note(&["npm test --silent".into()]);
+        assert!(note.contains("already failing: npm test --silent"));
+        assert!(
+            note.contains("failures covered by the engineer's request"),
+            "{note}"
+        );
+        assert!(note.contains("acceptance checks must still pass"), "{note}");
+        assert!(!note.contains("They are not part of this goal"), "{note}");
+    }
 
     /// The first passing verification asks once for a review against the
     /// request; a review that changes nothing ends the goal on it.

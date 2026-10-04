@@ -5154,7 +5154,10 @@ mod tests {
         assert_eq!(requests.len(), 2, "{requests:?}");
         let first = &requests[0];
         assert!(first.contains("already failing: npm test"), "{first}");
-        assert!(first.contains("Do not repair them"), "{first}");
+        assert!(
+            first.contains("Do not repair unrelated pre-existing failures"),
+            "{first}"
+        );
     }
 
     fn turn(actions: usize, completed: bool, stopped: Option<StopReason>) -> TurnReport {
