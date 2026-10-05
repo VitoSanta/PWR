@@ -52,7 +52,7 @@ and creates a draft prerelease. It has not run since it was changed.
 | Gap | Evidence | Plan |
 |---|---|---|
 | The release workflow ran no tests; nothing tied the artifact to a commit that passed CI | now `needs: checks` | W9.1 — implemented, never run |
-| The engine installs its four direct pins (`mlx==0.32.3`, `mlx-lm==0.31.3`, `mlx-embeddings==0.1.0`, `mlx-vlm==0.6.17`) with no lock of their transitive dependencies and no hashes | `engine.rs`, `scripts/setup-mlx.sh` | W9.2 |
+| The engine installs its four direct pins (`mlx==0.32.3`, `mlx-lm==0.31.3`, `mlx-embeddings==0.1.0`, `mlx-vlm==0.7.2`) with no lock of their transitive dependencies and no hashes | `engine.rs`, `scripts/setup-mlx.sh` | W9.2 |
 | **`mlx` was raised from 0.32.0 to 0.32.3 on 2026-10-01** (attention, quantized-matmul and eval-state fixes; the sidecar's 39 tests pass; Gemma 4 prefill 8–10 % faster; four architectures pass Quick Calibration). `mlx-lm` stays at 0.31.3 (0.32.0, out the same day, needs `mlx>=0.32.2` and `transformers>=5.7`; not evaluated). An app already installed keeps the version it installed until its engine is reinstalled: the readiness check does not compare the marker's pins with the app's, so there is no upgrade path for existing installs yet | `engine.rs`, [experiment-log.md](experiment-log.md) | W9.2 |
 | Python is `3.11`, not a patch release | `engine.rs` | W9.2 |
 | CI's sidecar job installs only `mlx` and `mlx-lm` | `ci.yml` | W9.2 |

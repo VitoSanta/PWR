@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 /// The versions the engine was measured on; the same as `scripts/setup-mlx.sh`.
 const PYTHON_VERSION: &str = "3.11";
-const PACKAGES: &[&str] = &["mlx==0.32.3", "mlx-lm==0.31.3", "mlx-embeddings==0.1.0", "mlx-vlm==0.6.17"];
+const PACKAGES: &[&str] = &["mlx==0.32.3", "mlx-lm==0.31.3", "mlx-embeddings==0.1.0", "mlx-vlm==0.7.2"];
 /// The encoder the semantic section ranking uses; the sidecar reads it offline.
 const ENCODER: &str = "intfloat/multilingual-e5-small";
 /// Written last, so a half-finished install is never taken for a ready one.
@@ -102,7 +102,7 @@ fn find(app: &AppHandle) -> Option<(&'static str, PathBuf)> {
     }
     if let Ok(root) = root(app) {
         let python = venv_python(&root);
-        if python.is_file() && root.join(MARKER).is_file() {
+        if python.is_file() && std::fs::read(root.join(MARKER)).is_ok_and(|marker| marker_current(&marker)) {
             return Some(("installed", python));
         }
     }
@@ -112,6 +112,17 @@ fn find(app: &AppHandle) -> Option<(&'static str, PathBuf)> {
         return has_engine(&python).then_some(("checkout", python));
     }
     None
+}
+
+/// Whether an install's marker names the packages this build pins. An install
+/// made by an earlier build is not ready: it would keep libraries the pins
+/// have left behind (mlx-vlm 0.6.17 cannot load 1-bit weights), so the
+/// installer is offered again and replaces it.
+fn marker_current(marker: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(marker)
+        .ok()
+        .and_then(|marker| marker.get("packages").and_then(|packages| packages.as_array().cloned()))
+        .is_some_and(|packages| packages.iter().map(|package| package.as_str()).eq(PACKAGES.iter().map(|package| Some(*package))))
 }
 
 /// Whether `python` runs and can find mlx-lm. Found, not imported: importing
@@ -331,5 +342,23 @@ fn run(
             let tail = tail.lock().map(|tail| tail.join("\n")).unwrap_or_default();
             Err(format!("{label} failed.\n{tail}"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_install_is_current_only_with_the_pinned_packages() {
+        let current = serde_json::json!({ "python": PYTHON_VERSION, "packages": PACKAGES });
+        assert!(marker_current(&serde_json::to_vec(&current).unwrap()));
+        let earlier = serde_json::json!({
+            "packages": ["mlx==0.32.3", "mlx-lm==0.31.3", "mlx-embeddings==0.1.0", "mlx-vlm==0.6.17"]
+        });
+        assert!(!marker_current(&serde_json::to_vec(&earlier).unwrap()));
+        assert!(!marker_current(br#"{"packages":["mlx==0.32.3"]}"#));
+        assert!(!marker_current(br#"{"python":"3.11"}"#));
+        assert!(!marker_current(b""));
     }
 }

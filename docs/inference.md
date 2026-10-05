@@ -31,7 +31,7 @@ and the app shows it ([pwr-serve.md](pwr-serve.md)).
 Mac.** A Python sidecar, `crates/pwr-mlx/sidecar/pwr_mlx.py` (about 1,080
 lines), driven by `crates/pwr-mlx` over JSON lines on stdin/stdout — no network
 endpoint at all. Libraries pinned: `mlx 0.32.3` (0.32.0 until 2026-10-01), `mlx-lm 0.31.3`,
-`mlx-embeddings 0.1.0`, `mlx-vlm 0.6.17`, in a private environment the app
+`mlx-embeddings 0.1.0`, `mlx-vlm 0.7.2` (0.6.17 until 2026-10-05; 0.7.2 loads 1-bit weights), in a private environment the app
 installs (`apps/desktop/src-tauri/src/engine.rs`; [distribution.md](distribution.md)).
 
 Operations: `load` (weights, with optional RoPE scaling; the vision encoder

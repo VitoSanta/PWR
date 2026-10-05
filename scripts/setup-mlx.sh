@@ -17,8 +17,9 @@ fi
 "$PYTHON" -m venv "$VENV"
 "$VENV/bin/python" -m pip install --upgrade pip
 # mlx-vlm loads a model that has a vision encoder once, for text and images
-# alike (backlog C.25); measured with 0.6.17, the version these pins resolve.
-"$VENV/bin/python" -m pip install "mlx==0.32.3" "mlx-lm==0.31.3" "mlx-embeddings==0.1.0" "mlx-vlm==0.6.17"
+# alike (backlog C.25). 0.7.2 since 2026-10-05: the first that loads 1-bit
+# weights (Bonsai 27B); 0.6.17 before.
+"$VENV/bin/python" -m pip install "mlx==0.32.3" "mlx-lm==0.31.3" "mlx-embeddings==0.1.0" "mlx-vlm==0.7.2"
 
 # The encoder the semantic section ranking uses (backlog C.22), fetched once
 # here so that nothing downloads at run time: the embedding sidecar runs with
