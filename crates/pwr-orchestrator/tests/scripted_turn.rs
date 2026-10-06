@@ -184,3 +184,44 @@ async fn with_nothing_scripted_the_model_answers_as_itself() {
         "the model's own answer"
     );
 }
+
+#[tokio::test]
+async fn putting_back_a_much_shorter_file_takes_the_guard_s_own_way_round() {
+    // What the proposals phase does when a refused proposal was more than
+    // twice the size of the file it replaced: the overwrite back is refused by
+    // the shrink guard, and a delete by hash followed by a write is not.
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("invoice.ts");
+    let long = "const line = 1;\n".repeat(200);
+    std::fs::write(&path, &long).unwrap();
+    let hash = pwr_domain::hash_bytes(&long);
+    let back = run(
+        root.path(),
+        Some((
+            "apply_replace",
+            serde_json::json!({"path": "invoice.ts", "expected_hash": hash, "replacement": "const line = 1;\n"}),
+        )),
+    )
+    .await;
+    assert!(!back.report.edited);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), long);
+    let removed = run(
+        root.path(),
+        Some((
+            "delete_path",
+            serde_json::json!({"path": "invoice.ts", "expected_hash": hash}),
+        )),
+    )
+    .await;
+    assert!(removed.report.edited);
+    let written = run(
+        root.path(),
+        Some((
+            "write_file",
+            serde_json::json!({"path": "invoice.ts", "content": "const line = 1;\n"}),
+        )),
+    )
+    .await;
+    assert!(written.report.edited);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "const line = 1;\n");
+}

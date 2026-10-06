@@ -1008,26 +1008,55 @@ async fn drive<H: SessionHost + ?Sized>(
                         id: None,
                     },
                 };
-                let undone = scripted!(
-                    undo,
-                    format!("{path} did not reduce the failing tests; restored what was there.")
-                );
-                match undone {
-                    Ok((report, next)) if report.edited => {
-                        total_actions = total_actions.saturating_add(report.actions);
-                        budget.actions = total_actions;
-                        messages = next;
-                        host.keep_messages(&messages);
-                        last_report = Some(report);
+                let said =
+                    format!("{path} did not reduce the failing tests; restored what was there.");
+                // What a scripted turn left, taken into the goal's own state.
+                macro_rules! taken {
+                    ($turn:expr) => {{
+                        match $turn {
+                            Ok((report, next)) => {
+                                total_actions = total_actions.saturating_add(report.actions);
+                                budget.actions = total_actions;
+                                messages = next;
+                                host.keep_messages(&messages);
+                                let edited = report.edited;
+                                last_report = Some(report);
+                                edited
+                            }
+                            Err(_) => false,
+                        }
+                    }};
+                }
+                let mut put_back = taken!(scripted!(undo, said.clone()));
+                if !put_back && on_disk.is_some() {
+                    // An overwrite that drops more than half of a file is
+                    // refused (the shrink guard), and a proposal twice the
+                    // size of the original makes the way back exactly that.
+                    // The guard's own advice: delete it by its hash, then
+                    // write. Seen on the product path, 2026-10-06: a 137-line
+                    // invoice.ts stayed where a 58-line one had been.
+                    let removed = pwr_domain::ToolCall {
+                        name: "delete_path".into(),
+                        arguments: json!({"path": path, "expected_hash": pwr_domain::hash_bytes(file.as_bytes())}),
+                        id: None,
+                    };
+                    if taken!(scripted!(removed, said.clone())) {
+                        let rewritten = pwr_domain::ToolCall {
+                            name: "write_file".into(),
+                            arguments: json!({"path": path, "content": current}),
+                            id: None,
+                        };
+                        put_back = taken!(scripted!(rewritten, said));
                     }
-                    // Said plainly: the workspace now holds a file its tests
-                    // did not approve, and the goal that follows must know.
-                    _ => {
-                        note = Some(format!(
-                            "Proposals stopped: {path} did not reduce the failing tests and could not be restored; the proposed version is still in place."
-                        ));
-                        break 'phase;
-                    }
+                }
+                if !put_back {
+                    // Said plainly: the workspace may now hold a file its
+                    // tests did not approve, or lack one it had, and the goal
+                    // that follows must know.
+                    note = Some(format!(
+                        "Proposals stopped: {path} did not reduce the failing tests and could not be restored; check it before anything else."
+                    ));
+                    break 'phase;
                 }
                 restored += 1;
                 let broke = now
@@ -2574,6 +2603,9 @@ mod tests {
         kept: Mutex<Vec<ChatMessage>>,
         turns: AtomicUsize,
         refuse_edits: bool,
+        /// Refuse an overwrite that drops more than half of the file, as
+        /// `pwr_tools::apply_replace` does.
+        shrink_guard: bool,
     }
 
     const SOURCE: &str = "src/dates.ts";
@@ -2600,6 +2632,7 @@ mod tests {
                 kept: Mutex::default(),
                 turns: AtomicUsize::new(0),
                 refuse_edits: false,
+                shrink_guard: false,
             }
         }
 
@@ -2691,7 +2724,13 @@ mod tests {
                         pwr_domain::hash_bytes(std::fs::read(&path).unwrap()),
                         "an overwrite is bound to the version it replaces"
                     );
-                    std::fs::write(&path, arguments["replacement"].as_str().unwrap()).unwrap();
+                    let replacement = arguments["replacement"].as_str().unwrap();
+                    let old = std::fs::read_to_string(&path).unwrap();
+                    if self.shrink_guard && replacement.lines().count() * 2 < old.lines().count() {
+                        messages.push(ChatMessage::text("assistant", "refused"));
+                        return Ok((done, messages));
+                    }
+                    std::fs::write(&path, replacement).unwrap();
                 }
                 "delete_path" => std::fs::remove_file(&path).unwrap(),
                 other => panic!("unexpected scripted call {other}"),
@@ -2846,6 +2885,32 @@ mod tests {
                 .contains("The checks did not finish within 20 s with this file")
         );
         assert!(result.budget.started.elapsed() < std::time::Duration::from_secs(120));
+    }
+
+    #[test]
+    fn a_refused_proposal_much_longer_than_the_file_is_still_put_back() {
+        let long = format!("{}{}", body("BROKEN"), "// more\n".repeat(200));
+        let mut host = Proposing::new(Some(&body("original")), &[&long]);
+        host.shrink_guard = true;
+        host.run(1);
+        assert_eq!(host.source().unwrap(), body("original"));
+        assert_eq!(
+            *host.calls.lock().unwrap(),
+            [
+                "apply_replace",
+                "apply_replace",
+                "delete_path",
+                "write_file"
+            ]
+        );
+        assert!(
+            !host
+                .kept
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|message| message.content.contains("could not be restored"))
+        );
     }
 
     #[test]
