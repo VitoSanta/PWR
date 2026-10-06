@@ -930,6 +930,12 @@ mod tests {
                     }
                     Err(error) => panic!("{error}"),
                 };
+                // On macOS a socket accepted from a non-blocking listener is
+                // non-blocking too, and a read before the request has arrived
+                // fails with WouldBlock whatever the read timeout says: on a
+                // hosted runner it did (CI run 37513133681), on a fast local
+                // machine the bytes were already there.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(1)))
                     .unwrap();

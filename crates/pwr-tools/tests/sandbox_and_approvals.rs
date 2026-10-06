@@ -1912,6 +1912,15 @@ fn a_browser_check_reports_a_local_server_error() {
         ("clean", clean_result),
         ("sandbox", result),
     ] {
+        // The tool itself says this failure is the host's and proves nothing
+        // about the page: a runner with no display to initialise (CI run
+        // 37513133681), or a machine too busy to (seen locally under load).
+        if let Err(error) = &result
+            && error.to_string().contains("CVDisplayLink")
+        {
+            common::skip("the host could not initialise a display for the browser (CVDisplayLink)");
+            return;
+        }
         let result = result.unwrap();
         assert_eq!(result.status, Some(500), "{mode}: {result:?}");
         assert!(result.text.contains("Module not found"), "{:?}", result);
