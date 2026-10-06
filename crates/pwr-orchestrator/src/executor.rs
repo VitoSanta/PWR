@@ -625,6 +625,9 @@ pub struct GoalAids {
     /// Ask the proposals phase for edit blocks instead of the whole file
     /// when the file exists ([`crate::proposals::Transport`]; plan W2.12).
     pub block_edits: bool,
+    /// Let the model keep a plan with `update_plan` and show it the plan
+    /// before every reply ([`crate::board`]; plan W2.14).
+    pub plan: bool,
 }
 
 /// How a request is run: one turn, or turns repeated until the work is
@@ -815,12 +818,14 @@ async fn drive<H: SessionHost + ?Sized>(
         mut messages,
         stop,
         steps,
-        continuity,
+        mut continuity,
         approvals,
         session_grants,
         policy,
         aids,
     } = request;
+    // One plan for the goal, across its turns; a conversation keeps none.
+    continuity.plan = (aids.plan && policy == Policy::Goal).then(Arc::default);
     let goal_mode = policy == Policy::Goal;
     let minimal = policy == Policy::Minimal;
     // The control spends the same budget a goal would, so the two arms of a
@@ -3262,5 +3267,54 @@ mod tests {
                 .unwrap()
                 .contains("work")
         );
+    }
+
+    /// Says whether the turn it was given keeps a plan, then is done.
+    struct SeesPlan(Mutex<Vec<bool>>);
+
+    #[async_trait::async_trait(?Send)]
+    impl SessionHost for SeesPlan {
+        async fn run_turn(
+            &self,
+            input: TurnInput,
+        ) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+            self.0.lock().unwrap().push(input.continuity.plan.is_some());
+            Ok((report(0, true), input.messages))
+        }
+
+        async fn verify(
+            &self,
+        ) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+            Ok((GoalVerification::default(), BTreeMap::new()))
+        }
+
+        async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+            Ok(String::new())
+        }
+
+        fn say(&self, _: &str) {}
+
+        fn keep_messages(&self, _: &[ChatMessage]) {}
+    }
+
+    #[test]
+    fn a_goal_keeps_a_plan_only_when_the_workspace_asks_and_a_conversation_never() {
+        let saw = |policy: Policy, plan: bool| {
+            let host = SeesPlan(Mutex::default());
+            let mut request = request(policy);
+            request.aids = GoalAids {
+                plan,
+                ..Default::default()
+            };
+            tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap()
+                .block_on(execute(&host, request, GoalLimits::default()));
+            host.0.into_inner().unwrap()
+        };
+        assert!(saw(Policy::Goal, true).iter().all(|kept| *kept));
+        assert!(saw(Policy::Goal, false).iter().all(|kept| !*kept));
+        assert_eq!(saw(Policy::Conversation, true), [false]);
     }
 }

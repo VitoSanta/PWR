@@ -623,6 +623,10 @@ pub struct Continuity {
     pub work: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Where `work` ends the turn, when the goal has a work allowance.
     pub work_limit: Option<u64>,
+    /// The plan the model keeps under this goal, when the goal has one
+    /// ([`crate::board`]). Shared across the goal's turns; `None` inside is a
+    /// plan not written yet.
+    pub plan: Option<std::sync::Arc<std::sync::Mutex<Option<crate::board::Board>>>>,
     /// The share of the window at which the conversation compacts itself, in
     /// percent, when the workspace chose one; [`COMPACT_AT`] otherwise.
     pub compact_at_percent: Option<u8>,
@@ -904,6 +908,40 @@ pub fn core_tool_catalog(catalog: ToolCatalog) -> ToolCatalog {
         .filter(|tool| CORE_TOOLS.contains(&tool.name.as_str()))
         .collect();
     ToolCatalog::new(tools).expect("a catalogue with fewer tools is valid")
+}
+
+/// A catalogue with `update_plan`, for a goal that keeps a plan.
+pub fn with_plan(catalog: ToolCatalog) -> ToolCatalog {
+    let mut tools = catalog.tools;
+    if !tools.iter().any(|tool| tool.name == crate::board::TOOL) {
+        tools.push(crate::board::tool());
+    }
+    ToolCatalog::new(tools).expect("a catalogue with one more tool is valid")
+}
+
+/// The conversation as a request sends it: with the goal's plan held up after
+/// it, when the goal keeps one. The plan is not part of the conversation -- it
+/// is shown again, as it then stands, before every reply -- so it goes into
+/// what is sent and never into what is kept.
+fn with_plan_shown(messages: &[ChatMessage], continuity: &Continuity) -> Vec<ChatMessage> {
+    let mut sent = messages.to_vec();
+    let Some(plan) = continuity.plan.as_ref() else {
+        return sent;
+    };
+    let text = match plan.lock() {
+        Ok(plan) => plan.as_ref().map_or_else(
+            || crate::board::NO_PLAN.to_owned(),
+            crate::board::Board::shown,
+        ),
+        Err(_) => return sent,
+    };
+    match sent.last_mut() {
+        // Two user messages in a row are not a conversation every template
+        // accepts: said at the end of the person's own.
+        Some(last) if last.role == "user" => last.content.push_str(&format!("\n\n{text}")),
+        _ => sent.push(ChatMessage::text("user", text)),
+    }
+    sent
 }
 
 /// A conversation's catalogue with `look_at`, for a model that reads images.
@@ -1911,7 +1949,7 @@ async fn take_turn_inner<P: ModelProvider>(
             tools: Some(tools.clone()),
             seed: None,
             sampling: request_sampling,
-            messages: messages.clone(),
+            messages: with_plan_shown(messages, continuity),
         };
         // The prompt as sent: what the count that comes back is a count of.
         let sent_upto = messages.len();
@@ -2609,6 +2647,27 @@ async fn take_turn_inner<P: ModelProvider>(
                 // whose process group is killed with it. An edit is never
                 // dropped half-written.
                 return stopped(actions, edited, StopReason::Interrupted);
+            }
+            // The goal's plan: recorded as written, or refused in words. An
+            // action, so that a model rewriting its plan for ever is bounded
+            // like one that does anything else for ever.
+            if call.name == crate::board::TOOL
+                && let Some(plan) = continuity.plan.as_ref()
+            {
+                actions += 1;
+                let outcome = match crate::board::Board::parse(&call.arguments) {
+                    Ok(board) => {
+                        on_step(TurnStep::Note(board.shown()));
+                        let steps = board.steps.len();
+                        if let Ok(mut plan) = plan.lock() {
+                            *plan = Some(board);
+                        }
+                        serde_json::json!({"plan": "recorded", "steps": steps})
+                    }
+                    Err(problem) => serde_json::json!({"not_recorded": problem}),
+                };
+                messages.push(tool_message(call, outcome));
+                continue;
             }
             let mut action = match decode(call, &catalog) {
                 Ok(action) => {

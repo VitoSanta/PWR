@@ -5318,6 +5318,11 @@ async fn chat_turn(
     } else {
         catalog
     };
+    let catalog = if continuity.plan.is_some() {
+        converse::with_plan(catalog)
+    } else {
+        catalog
+    };
     let catalog = if goal_mode {
         converse::with_goal_verification(catalog)
     } else if minimal {

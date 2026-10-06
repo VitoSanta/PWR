@@ -235,6 +235,13 @@ verification, no second turn.
    `"goal_aids": {"block_edits": true}` the proposals phase asks for
    SEARCH/REPLACE blocks instead of the whole of a file that exists; a block
    that does not match the file exactly once is refused. Not measured.
+   **A plan (HYPOTHESIS, off by default; plan W2.14).** With
+   `"goal_aids": {"plan": true}` a goal's turns are offered `update_plan`: a
+   list of up to twelve steps, each pending, in progress or completed, one in
+   progress at a time. PWR records it as written (`board.rs`) and shows the
+   current plan at the end of what it sends before every generation — or that
+   there is none yet. The plan is in what is sent, never in the conversation
+   that is kept; PWR does not mark steps or check them. Not measured.
 2. After each turn:
    - a declined or stopped turn (other than *budget spent*) ends the goal;
    - a turn with no actions and no completion counts as idle; three idle

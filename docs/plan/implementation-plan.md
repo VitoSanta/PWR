@@ -292,6 +292,25 @@ depend on the machine's speed.
 - **To verify.** One goal at full power and the same in Low Power Mode with a
   work limit and a generous wall: the same work spent, different seconds.
 
+### W2.14 A plan the model keeps and the harness shows
+
+**HYPOTHESIS, implemented behind a switch, not measured (2026-10-06).** The
+scaffold arXiv 2609.20804 measured: +11.6 % success for its weakest model
+(30B, SWE-Bench Verified), which without it ended 69 % of runs without an
+edit; no accuracy gain for the stronger ones. An earlier attempt here at a
+plan the model had to get admitted before any work failed at 9B (planner
+timeouts, diagnostics of 2026-10-05); this is the lighter thing the paper
+tested.
+
+- **Change.** With `goal_aids.plan` on, a goal's turns are offered
+  `update_plan` and the current plan is appended to what every generation is
+  sent (`converse::with_plan_shown`), never to the conversation that is kept.
+  The harness records and shows; it does not mark or verify steps
+  (`board.rs`). Off by default; no profile turns it on.
+- **Cost to watch.** Each plan update is an action and a generation; the plan
+  text is re-read at every generation.
+- **To measure.** In the campaign with W2.9-W2.12, under W2.13's budget.
+
 No candidate above authorizes a campaign before the baseline/power/provenance
 requirements. F0 owner approval adopted scope, not the numerical F6 thresholds.
 

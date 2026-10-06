@@ -1083,3 +1083,12 @@ has generated that many tokens (a prompt token read counting an eighth), and
 the proposals phase reads its shares in tokens. Written so that runs made in
 macOS Low Power Mode are comparable with runs at full power; that property is
 tested on simulated streams and has not been checked with a model.
+
+### 2026-10-06: a switch for a model-kept plan shown before every reply (W2.14)
+
+Adds `goal_aids.plan`, off by default and turned on by no profile. With it on
+a goal's catalogue gains `update_plan`, and what each generation is sent ends
+with the plan as the model last wrote it, or with a line saying there is none
+yet. The conversation that is kept does not contain it. The scaffold is the
+one arXiv 2609.20804 measured on a 30B model; nothing here has run with a
+model.

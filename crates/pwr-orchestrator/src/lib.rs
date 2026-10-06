@@ -1,5 +1,6 @@
 //! Durable task-state transitions and evidence-bounded profile selection.
 pub mod baseline;
+pub mod board;
 pub mod compaction;
 pub mod context;
 pub mod conversation;
