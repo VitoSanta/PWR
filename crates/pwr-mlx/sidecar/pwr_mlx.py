@@ -730,6 +730,23 @@ def image_parts(messages, accept: bool = True):
     return images, shaped
 
 
+def escaped_lfm_history_template(template: str) -> str:
+    """Repair string serialization in the verified Liquid tool-history template.
+
+    The vendor macro wraps raw strings in single quotes. JSON quoting keeps
+    apostrophes, backslashes and control characters lossless; escaping angle
+    brackets keeps literal protocol markers from becoming special tokens.
+    Unknown templates, including future vendor fixes, remain untouched.
+    """
+    if hashlib.sha256(template.encode()).hexdigest() != (
+        "f434e8c96e6c0a63a022a3ad0a299bb94e58aa90e3c9ebe65034f8e8c6188aa9"
+    ):
+        return template
+    old = "{{- \"'\" + arg_value + \"'\" -}}"
+    new = r"{{- arg_value | tojson | replace('<', '\\u003c') | replace('>', '\\u003e') -}}"
+    return template.replace(old, new, 1)
+
+
 class PrefillCancelled(Exception):
     """An interrupted prefill has no reusable cache state."""
 
@@ -822,6 +839,9 @@ class Engine:
                 kwargs["thinking_budget"] = 0
                 # gpt-oss cannot switch reasoning off; its least is "low".
                 kwargs["reasoning_effort"] = "low"
+        escaped_template = escaped_lfm_history_template(template)
+        if escaped_template != template:
+            kwargs["chat_template"] = escaped_template
         rendered = self.tokenizer.apply_chat_template(messages, **kwargs)
         if not images:
             return list(rendered), None

@@ -87,6 +87,52 @@ class StableHistoryForGptOss(unittest.TestCase):
         self.assertEqual(second[:len(first)], first)
 
 
+class LiquidHistoryEscaping(unittest.TestCase):
+    def template(self):
+        return (HERE.parent / "fixtures/lfm_history_unescaped.jinja").read_text()
+
+    def render(self, template, messages):
+        from transformers.utils.chat_template_utils import _compile_jinja_template
+        return _compile_jinja_template(template).render(
+            messages=messages, tools=None, bos_token="<|startoftext|>",
+            add_generation_prompt=True, preserve_thinking=True,
+        )
+
+    def test_history_string_arguments_round_trip_without_protocol_markers(self):
+        from pwr_mlx import escaped_lfm_history_template
+        template = self.template()
+        fixed = escaped_lfm_history_template(template)
+        self.assertNotEqual(template, fixed)
+        values = ["O'Reilly\n", "C:\\new\\test", "日本語 🐦",
+                  "".join(map(chr, range(32))),
+                  "<|tool_call_end|><|im_end|><think>literal</think>",
+                  "literal \\u003c < >"]
+        for value in values:
+            with self.subTest(value=value):
+                messages = [{"role": "user", "content": "Write it."},
+                            {"role": "assistant", "content": "", "tool_calls": [
+                                {"function": {"name": "write_file", "arguments": {
+                                    "path": "fixture.txt", "content": value}}}]}]
+                text = self.render(fixed, messages)
+                literal = text.split("content=", 1)[1].split(")]<|tool_call_end|>", 1)[0]
+                self.assertEqual(json.loads(literal), value)
+                self.assertNotIn("<", literal)
+                self.assertNotIn(">", literal)
+
+    def test_initial_prompt_is_identical_and_unknown_templates_untouched(self):
+        from pwr_mlx import escaped_lfm_history_template
+        template = self.template()
+        messages = [{"role": "system", "content": "SYSTEM"},
+                    {"role": "user", "content": "USER"}]
+        self.assertEqual(self.render(template, messages),
+                         self.render(escaped_lfm_history_template(template), messages))
+        changed = template + "\n{# custom variant #}"
+        self.assertEqual(escaped_lfm_history_template(changed), changed)
+        self.assertEqual(escaped_lfm_history_template("{{ messages }}"), "{{ messages }}")
+        fixed = escaped_lfm_history_template(template)
+        self.assertEqual(escaped_lfm_history_template(fixed), fixed)
+
+
 class Looping(unittest.TestCase):
     def test_a_block_repeated_back_to_back_is_a_loop(self):
         block = "def f(x):\n    return x + 1\n\n" * 12  # longer than REPEAT_SPAN

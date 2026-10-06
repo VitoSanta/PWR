@@ -839,6 +839,27 @@ impl<'a> PyArgs<'a> {
             return None;
         }
         let triple = self.text.get(self.at..self.at + 3) == Some(&[quote, quote, quote]);
+        // JSON-escaped double-quoted arguments are emitted by history serializers.
+        // Preserve the existing Python-like reader for other literal forms.
+        if quote == b'"' && !triple {
+            let start = self.at;
+            let mut end = start + 1;
+            let mut escaped = false;
+            while let Some(&byte) = self.text.get(end) {
+                if escaped {
+                    escaped = false;
+                } else if byte == b'\\' {
+                    escaped = true;
+                } else if byte == b'"' {
+                    if let Ok(value) = serde_json::from_slice::<String>(&self.text[start..=end]) {
+                        self.at = end + 1;
+                        return Some(value);
+                    }
+                    break;
+                }
+                end += 1;
+            }
+        }
         self.at += if triple { 3 } else { 1 };
         let mut out: Vec<u8> = Vec::new();
         loop {
@@ -1801,6 +1822,36 @@ mod tests {
             "[{\"name\": \"read_file\", \"arguments\": {\"path\": \"a\"}}]",
         ));
         assert_eq!(array.tool_calls.len(), 1);
+    }
+
+    #[test]
+    fn liquid_json_escaped_string_arguments_preserve_content() {
+        let adapter = adapter_for(None, "mlx-community/LFM2.5-8B-A1B-MLX-4bit");
+        let found = adapter.normalize(&reply(
+            r#"<|tool_call_start|>[write_file(path="fixture.txt", content="\u0000\u0001\b\f\u00e8\ud83d\udc26\/")]<|tool_call_end|>"#,
+        ));
+        assert_eq!(found.tool_calls.len(), 1);
+        assert_eq!(
+            found.tool_calls[0].arguments["content"],
+            "\0\u{1}\u{8}\u{c}è🐦/"
+        );
+    }
+
+    #[test]
+    fn python_like_string_forms_and_truncation_remain_supported() {
+        for (literal, expected) in [
+            (r#"'\u00e8'"#, r#"\u00e8"#),
+            (r#""\q""#, r#"\q"#),
+            (r#""\0""#, "\0"),
+            ("\"raw\nline\"", "raw\nline"),
+            ("\"\"\"raw\nline\"\"\"", "raw\nline"),
+        ] {
+            let mut parser = PyArgs::new(literal);
+            assert_eq!(parser.string().as_deref(), Some(expected));
+            assert_eq!(parser.at, literal.len());
+        }
+        let mut cut = PyArgs::new(r#""\u00e8"#);
+        assert!(cut.string().is_none());
     }
 
     #[test]
