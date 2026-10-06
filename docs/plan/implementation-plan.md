@@ -235,6 +235,22 @@ its first twelve actions and changed none, 5 of 17 passing in ten runs of ten.
   elided. Storing tool output past the bound for later reading is no longer
   NEXT until a run here shows a model asking for it.
 
+### W2.11 Fewer tools for a goal
+
+**HYPOTHESIS, implemented behind a switch, not measured (2026-10-06).** A
+goal's model is offered about 25 tools, 3,700 tokens of definitions in every
+prompt. Whether a weak model does better with fewer is asserted in practitioner
+write-ups and in no measurement read so far; arXiv 2609.20804 compared
+predefined tools with bash only, not a large catalogue with a small one.
+
+- **Change.** With `goal_aids.core_tools` on, a goal's turns are offered the
+  ten tools of `converse::CORE_TOOLS` (read, search, list, the three edits,
+  delete, run, complete, decline). Off by default; no profile turns it on.
+  The system prompt is not changed with it and may still name a tool that is
+  no longer offered: to check before measuring.
+- **To measure.** In the campaign that switches W2.9, W2.10 and this on and
+  off, one at a time and together, under a token budget.
+
 No candidate above authorizes a campaign before the baseline/power/provenance
 requirements. F0 owner approval adopted scope, not the numerical F6 thresholds.
 

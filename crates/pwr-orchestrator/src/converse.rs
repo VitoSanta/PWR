@@ -837,6 +837,34 @@ pub fn with_page_check(catalog: ToolCatalog) -> ToolCatalog {
     ToolCatalog::new(tools).expect("a catalogue with one more tool is valid")
 }
 
+/// The tools a goal on a small repository needs to read, change, run and
+/// finish, and no others (plan W2.11, a hypothesis). The conversation's
+/// catalogue is about 25 definitions and 3,700 tokens in every prompt; whether
+/// fewer serve a weak model better has not been measured here. Offered tools
+/// only: a call to one left out is refused as any unknown call is.
+pub const CORE_TOOLS: [&str; 10] = [
+    "read_file",
+    "search",
+    "list_tree",
+    "replace_text",
+    "apply_replace",
+    "write_file",
+    "delete_path",
+    "run_command",
+    "complete",
+    "decline",
+];
+
+/// `catalog` without what is not in [`CORE_TOOLS`].
+pub fn core_tool_catalog(catalog: ToolCatalog) -> ToolCatalog {
+    let tools = catalog
+        .tools
+        .into_iter()
+        .filter(|tool| CORE_TOOLS.contains(&tool.name.as_str()))
+        .collect();
+    ToolCatalog::new(tools).expect("a catalogue with fewer tools is valid")
+}
+
 /// A conversation's catalogue with `look_at`, for a model that reads images.
 pub fn with_vision(catalog: ToolCatalog) -> ToolCatalog {
     let mut tools = catalog.tools;
@@ -3942,6 +3970,34 @@ fn tool_message(call: &pwr_domain::ToolCall, outcome: serde_json::Value) -> Chat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_core_catalogue_is_ten_of_the_conversation_s_tools_and_can_finish_a_goal() {
+        let whole = chat_tool_catalog();
+        let core = core_tool_catalog(with_goal_verification(chat_tool_catalog()));
+        let names: Vec<&str> = core.tools.iter().map(|tool| tool.name.as_str()).collect();
+        // Every core tool exists in the catalogue a conversation is given:
+        // a name here that the catalogue dropped would silently offer nine.
+        assert_eq!(names.len(), CORE_TOOLS.len(), "{names:?}");
+        assert!(whole.tools.len() > 2 * names.len());
+        for needed in [
+            "read_file",
+            "write_file",
+            "apply_replace",
+            "run_command",
+            "complete",
+        ] {
+            assert!(names.contains(&needed), "{needed}");
+        }
+        assert!(!names.contains(&"wiki_query") && !names.contains(&"start_service"));
+        // The goal's own description of `complete` survives the narrowing.
+        let complete = core
+            .tools
+            .iter()
+            .find(|tool| tool.name == "complete")
+            .unwrap();
+        assert!(complete.description.contains("verification"));
+    }
 
     #[test]
     fn the_control_drops_whole_exchanges_and_keeps_the_request_and_the_newest() {

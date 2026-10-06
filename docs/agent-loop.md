@@ -228,6 +228,9 @@ verification, no second turn.
    acceptance check failing at the baseline, the goal's first request ends
    with the files its failing tests use (`proposals::pointers`), said to be
    where to look and not what is wrong. Not measured.
+   **Core tools (HYPOTHESIS, off by default; plan W2.11).** With
+   `"goal_aids": {"core_tools": true}` a goal's turns are offered ten tools
+   (`converse::CORE_TOOLS`) instead of the whole catalogue. Not measured.
 2. After each turn:
    - a declined or stopped turn (other than *budget spent*) ends the goal;
    - a turn with no actions and no completion counts as idle; three idle

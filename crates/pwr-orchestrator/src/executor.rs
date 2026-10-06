@@ -567,6 +567,10 @@ pub struct GoalAids {
     /// Tell the goal, in its first request, which files its failing
     /// acceptance tests use ([`crate::proposals::pointers`]; plan W2.10).
     pub pointers: bool,
+    /// Offer a goal's turns the ten tools of [`converse::CORE_TOOLS`] instead
+    /// of the whole catalogue (plan W2.11). Read by the front end, which
+    /// builds the catalogue.
+    pub core_tools: bool,
 }
 
 /// How a request is run: one turn, or turns repeated until the work is
@@ -2845,7 +2849,10 @@ mod tests {
             let host = Proposing::new(Some(&body("original")), &[]);
             let mut request = request(Policy::Goal);
             request.root = host.root.path().to_path_buf();
-            request.aids = GoalAids { pointers };
+            request.aids = GoalAids {
+                pointers,
+                ..Default::default()
+            };
             tokio::runtime::Builder::new_current_thread()
                 .enable_time()
                 .start_paused(true)

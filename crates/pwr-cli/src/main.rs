@@ -5313,6 +5313,11 @@ async fn chat_turn(
     } else {
         catalog
     };
+    let catalog = if goal_mode && config.goal_aids.core_tools {
+        converse::core_tool_catalog(catalog)
+    } else {
+        catalog
+    };
     let catalog = if goal_mode {
         converse::with_goal_verification(catalog)
     } else if minimal {

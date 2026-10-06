@@ -1060,3 +1060,9 @@ tests use appended to its first request. Reason: arXiv 2609.20804's weakest
 model (30B) ended 58 % of its runs while locating the problem, and Ornith 1.5
 9B here read a whole project and edited nothing in ten runs of ten. Covered on
 the simulated host; no model has run with it.
+
+### 2026-10-06: a switch for a ten-tool catalogue in goals (W2.11)
+
+Adds `goal_aids.core_tools`, off by default and turned on by no profile. With
+it on, the catalogue a goal's turns are offered is cut to ten tools. A
+hypothesis from practice, not from a measurement; no model has run with it.
