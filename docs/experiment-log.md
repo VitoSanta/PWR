@@ -1010,3 +1010,26 @@ read failures also discard the broken process. A simulated JSON-lines engine
 regression checks an error on the first process, an empty engine slot after
 failure, and a successful reload in a second process. This does not establish
 the cause of the GPU fault or demonstrate recovery under real-model GPU load.
+
+### 2026-10-06: verified proposals as an opt-in phase of Goal mode (W2.9)
+
+Changes what a goal does before its first turn when `goal_budget.proposals`
+is above zero; the default, zero, leaves every measured path as it was. With
+it on and an acceptance check failing, the executor asks the model for whole
+files with no tools, applies each through a scripted turn, runs the full
+verification and keeps the file only when fewer named tests fail and none is
+new; then the ordinary goal continues. The failure fingerprint now names
+`node:test` and Python `unittest` failures, which changes the identity of a
+failure for those toolchains on every path (reproduction and goal repetition
+included).
+
+Evidence is from outside the product only (pwr-evidence
+`batteries/20261003-small-model-diagnostics`, 2026-10-05/06; Ornith 1.5 9B
+and Qwen3.5 9B, MLX 4-bit; 2-10 runs per cell; summarized in the plan item).
+The product path differs from what was measured there: files are applied in
+the workspace and restored, not tried in a copy; the budget is the goal's wall
+clock, not a token count; the generation takes the provider's default
+sampling. Simulated-host tests cover keep, restore, deletion of a refused new
+file, a declined edit and an unavailable model; a real turn loop with a
+scripted provider covers policy and hash binding. No model was run on this
+path. Nothing here is a capability claim.

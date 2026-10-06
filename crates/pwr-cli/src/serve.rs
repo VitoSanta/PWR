@@ -124,6 +124,16 @@ pub trait TurnRunner {
     async fn review(&self, _root: &Path, _prompt: String) -> Result<String, String> {
         Err("reviews are not available for this runner".into())
     }
+    /// A plain reply with no tools, as it is generated: what the goal's
+    /// proposals phase reads a file from (plan W2.9).
+    async fn author(
+        &self,
+        _root: &Path,
+        _prompt: String,
+        _think: bool,
+    ) -> Result<pwr_provider::ModelStream, String> {
+        Err("proposals are not available for this runner".into())
+    }
     /// Full repository verification for a goal completion. Kept separate from
     /// the user-facing `verify` command so this is structured evidence rather
     /// than prose the server would need to parse.
@@ -640,6 +650,15 @@ impl<R: TurnRunner + 'static> SessionHost for ServerHost<'_, R> {
 
     async fn review(&self, root: &Path, prompt: String) -> Result<String, String> {
         self.server.runner.review(root, prompt).await
+    }
+
+    async fn author(
+        &self,
+        root: &Path,
+        prompt: String,
+        think: bool,
+    ) -> Result<pwr_provider::ModelStream, String> {
+        self.server.runner.author(root, prompt, think).await
     }
 
     fn say(&self, text: &str) {
@@ -5476,6 +5495,8 @@ mod tests {
                 failure_fingerprints: Vec::new(),
                 contract_changed: Vec::new(),
                 checks: None,
+                failed_tests: Default::default(),
+                evidence: String::new(),
             },
             requests: Default::default(),
             ask_on_first: Some(pwr_tools::Approval::ContainerEngine),

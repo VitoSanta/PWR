@@ -107,6 +107,168 @@ pub fn missing_targets(tests: &[(String, String)], exists: impl Fn(&str) -> bool
     found
 }
 
+/// A file to ask for, and what the model is shown with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Target {
+    pub path: String,
+    /// Read-only files: the tests that use it and the targets it imports.
+    pub context: Vec<(String, String)>,
+}
+
+/// Directories a survey never enters.
+const SKIPPED: &[&str] = &[
+    ".git",
+    ".pwr",
+    "node_modules",
+    "target",
+    "__pycache__",
+    ".venv",
+    "dist",
+    "build",
+];
+/// A test file larger than this is not shown to the model whole.
+const MAX_SHOWN: u64 = 48 * 1024;
+
+fn test_files(root: &Path) -> Vec<(String, String)> {
+    fn walk(
+        root: &Path,
+        folder: &Path,
+        depth: usize,
+        inside: bool,
+        found: &mut Vec<(String, String)>,
+    ) {
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return;
+        };
+        let mut entries: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+        entries.sort();
+        for path in entries {
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if path.is_dir() {
+                if depth < 3 && !SKIPPED.contains(&name) && !path.is_symlink() {
+                    let tests = inside || matches!(name, "test" | "tests" | "__tests__" | "spec");
+                    walk(root, &path, depth + 1, tests, found);
+                }
+            } else if (inside
+                || name.contains(".test.")
+                || name.contains(".spec.")
+                || name.starts_with("test_"))
+                && language(name).is_some()
+                && path.metadata().is_ok_and(|meta| meta.len() <= MAX_SHOWN)
+                && found.len() < 24
+                && let (Ok(relative), Ok(text)) =
+                    (path.strip_prefix(root), std::fs::read_to_string(&path))
+            {
+                found.push((relative.to_string_lossy().replace('\\', "/"), text));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(root, root, 0, false, &mut found);
+    found
+}
+
+/// The source files a test file imports by relative path, there or not: one
+/// that is missing is a file the tests need written.
+fn imported(root: &Path, test: &str, text: &str) -> Vec<String> {
+    let folder = Path::new(test).parent().unwrap_or(Path::new(""));
+    let mut found = Vec::new();
+    for quoted in text.split(['\'', '"', '`']) {
+        if !(quoted.starts_with("./") || quoted.starts_with("../")) || language(quoted).is_none() {
+            continue;
+        }
+        let mut parts: Vec<&str> = Vec::new();
+        let mut inside = true;
+        let joined = folder.join(quoted);
+        for part in joined.iter().filter_map(|part| part.to_str()) {
+            match part {
+                "." => {}
+                ".." => inside &= parts.pop().is_some(),
+                part => parts.push(part),
+            }
+        }
+        let path = parts.join("/");
+        if inside && !root.join(&path).is_dir() && !found.contains(&path) {
+            found.push(path);
+        }
+    }
+    found
+}
+
+/// The files to ask for, in the order to ask: what the owner's tests name and
+/// the workspace lacks, then the source that failing test files import.
+///
+/// A test file counts as failing when the checks' output names it; when the
+/// output names none of them, all do. A file other targets mention comes
+/// before them, so a module is settled before what is built on it.
+pub fn survey(root: &Path, evidence: &str) -> Vec<Target> {
+    let tests = test_files(root);
+    let named: Vec<&(String, String)> = tests
+        .iter()
+        .filter(|(path, _)| evidence.contains(path.as_str()))
+        .collect();
+    let failing: Vec<&(String, String)> = if named.is_empty() {
+        tests.iter().collect()
+    } else {
+        named
+    };
+    let mut paths = missing_targets(&tests, |path| root.join(path).exists());
+    for (test, text) in &failing {
+        for path in imported(root, test, text) {
+            if !paths.contains(&path) && !tests.iter().any(|(test, _)| *test == path) {
+                paths.push(path);
+            }
+        }
+    }
+    let texts: Vec<String> = paths
+        .iter()
+        .map(|path| std::fs::read_to_string(root.join(path)).unwrap_or_default())
+        .collect();
+    let name = |path: &str| path.rsplit('/').next().unwrap_or(path).to_owned();
+    let mentions = |index: usize| {
+        let name = name(&paths[index]);
+        texts
+            .iter()
+            .enumerate()
+            .filter(|(other, text)| *other != index && text.contains(&name))
+            .count()
+    };
+    let mut order: Vec<usize> = (0..paths.len()).collect();
+    order.sort_by_key(|index| std::cmp::Reverse(mentions(*index)));
+    order
+        .into_iter()
+        .map(|index| {
+            let file = name(&paths[index]);
+            let mut context: Vec<(String, String)> = tests
+                .iter()
+                .filter(|(_, text)| text.contains(&file))
+                .cloned()
+                .collect();
+            for (other, text) in paths.iter().zip(&texts) {
+                if *other != paths[index] && !text.is_empty() && texts[index].contains(&name(other))
+                {
+                    context.push((other.clone(), text.clone()));
+                }
+            }
+            Target {
+                path: paths[index].clone(),
+                context,
+            }
+        })
+        .collect()
+}
+
+/// The project's own statement of what it must do, when it has one.
+pub fn contract(root: &Path) -> String {
+    ["README.md", "README", "readme.md"]
+        .iter()
+        .find_map(|name| std::fs::read_to_string(root.join(name)).ok())
+        .map(|text| text.chars().take(16_000).collect())
+        .unwrap_or_default()
+}
+
 /// What a set of checks said, as far as a proposal is judged by it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Standing {
@@ -930,5 +1092,94 @@ mod tests {
             proposal.file.as_deref(),
             Some("export function dueDate(): string { return ''; }\n")
         );
+    }
+
+    #[test]
+    fn a_survey_asks_for_what_failing_tests_import_dependencies_first() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("test")).unwrap();
+        std::fs::create_dir_all(root.join("node_modules/x/test")).unwrap();
+        std::fs::write(root.join("README.md"), "# ledger\nRules.\n").unwrap();
+        std::fs::write(
+            root.join("src/money.ts"),
+            "export function roundCents() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/invoice.ts"),
+            "import { roundCents } from './money.ts';\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/dates.ts"), "export function dueDate() {}\n").unwrap();
+        std::fs::write(
+            root.join("test/invoice.test.ts"),
+            "import { totals } from '../src/invoice.ts';\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("test/money.test.ts"),
+            "import { roundCents } from '../src/money.ts';\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("test/dates.test.ts"),
+            "import { dueDate } from '../src/dates.ts';\nimport x from '../../outside.ts';\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("node_modules/x/test/a.test.ts"),
+            "import '../../../src/dates.ts';\n",
+        )
+        .unwrap();
+
+        // The output names two test files: only what they import is asked for,
+        // and money.ts, which invoice.ts is built on, comes first.
+        let targets = survey(
+            root,
+            "test at test/invoice.test.ts:17:1\ntest at test/money.test.ts:5:1\n",
+        );
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.path.as_str())
+                .collect::<Vec<_>>(),
+            ["src/money.ts", "src/invoice.ts"]
+        );
+        let invoice = &targets[1];
+        assert_eq!(
+            invoice
+                .context
+                .iter()
+                .map(|(path, _)| path.as_str())
+                .collect::<Vec<_>>(),
+            ["test/invoice.test.ts", "src/money.ts"]
+        );
+        // Output that names no test file: every test file counts.
+        assert_eq!(survey(root, "exit code 1").len(), 3);
+        assert_eq!(contract(root), "# ledger\nRules.\n");
+    }
+
+    #[test]
+    fn a_survey_of_an_empty_repository_asks_for_the_file_its_tests_run() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        std::fs::create_dir_all(root.join("tests")).unwrap();
+        std::fs::write(
+            root.join("tests/test_todo.py"),
+            "ROOT=pathlib.Path(__file__).resolve().parents[1]\nsubprocess.run([sys.executable,str(ROOT/'todo.py')])\n",
+        )
+        .unwrap();
+        let targets = survey(root, "");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].path, "todo.py");
+        assert_eq!(targets[0].context[0].0, "tests/test_todo.py");
+        std::fs::write(root.join("todo.py"), "print(1)\n").unwrap();
+        assert!(
+            survey(root, "").is_empty(),
+            "nothing is missing and nothing is imported by path"
+        );
+        assert_eq!(contract(root), "");
     }
 }

@@ -50,6 +50,86 @@ pub struct TurnInput {
     /// The runner still owns completion evidence; the server owns the bounded
     /// continuation policy and the operator's stop control.
     pub goal_mode: bool,
+    /// One action PWR decided itself, taken through the turn as if the model
+    /// had called it. The proposals phase (W2.9) applies and restores a file
+    /// this way, so that the policy, the person's approval and the record are
+    /// the turn's own and there is no second way to write to a workspace.
+    pub scripted: Option<ScriptedTurn>,
+}
+
+/// The one call a scripted turn makes, and what it says once it has.
+#[derive(Debug, Clone)]
+pub struct ScriptedTurn {
+    pub call: pwr_domain::ToolCall,
+    pub said: String,
+}
+
+/// A provider that answers once with a call PWR decided, then with nothing
+/// more to do. The proposals phase applies and restores a file through it, so
+/// the call meets the policy, the person and the record exactly as a model's
+/// own would: there is one way to write to a workspace.
+pub struct Scripted<P> {
+    inner: P,
+    turn: Mutex<Option<ScriptedTurn>>,
+}
+
+impl<P> Scripted<P> {
+    /// `inner` answers as itself when there is nothing scripted.
+    pub fn new(inner: P, turn: Option<ScriptedTurn>) -> Self {
+        Self {
+            inner,
+            turn: Mutex::new(turn),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<P: pwr_provider::ModelProvider> pwr_provider::ModelProvider for Scripted<P> {
+    async fn inspect(
+        &self,
+        deployment: &pwr_domain::DeploymentDescriptor,
+    ) -> Result<pwr_domain::ModelInspection, pwr_provider::ProviderError> {
+        self.inner.inspect(deployment).await
+    }
+    async fn runtime_state(&self) -> Result<pwr_domain::BackendState, pwr_provider::ProviderError> {
+        self.inner.runtime_state().await
+    }
+    async fn prepare_context(
+        &self,
+        deployment: &pwr_domain::DeploymentDescriptor,
+        context_tokens: u32,
+    ) -> Result<u32, pwr_provider::ProviderError> {
+        // Nothing is generated: no model needs loading or resizing for it.
+        let scripted = self.turn.lock().is_ok_and(|turn| turn.is_some());
+        if scripted {
+            return Ok(context_tokens);
+        }
+        self.inner.prepare_context(deployment, context_tokens).await
+    }
+    async fn chat(
+        &self,
+        request: pwr_domain::ModelRequest,
+    ) -> Result<pwr_provider::ModelStream, pwr_provider::ProviderError> {
+        // `None` from the start is an ordinary turn.
+        let scripted = match self.turn.lock() {
+            Ok(mut turn) => turn.as_mut().map(|turn| {
+                let call = (!turn.call.name.is_empty()).then(|| turn.call.clone());
+                turn.call.name.clear();
+                (call, turn.said.clone())
+            }),
+            Err(_) => None,
+        };
+        let Some((call, said)) = scripted else {
+            return self.inner.chat(request).await;
+        };
+        let chunk = pwr_domain::ModelChunk {
+            content: if call.is_some() { String::new() } else { said },
+            tool_calls: call.into_iter().collect(),
+            done: true,
+            ..Default::default()
+        };
+        Ok(Box::pin(futures_util::stream::iter([Ok(chunk)])))
+    }
 }
 
 /// Evidence the core gathered after a model declared a goal complete.
@@ -71,6 +151,11 @@ pub struct GoalVerification {
     pub failure_fingerprints: Vec<String>,
     /// Those of `failing` the workspace declares as acceptance checks.
     pub failing_acceptance: Vec<String>,
+    /// The failing tests by name, where the checks' output names them
+    /// ([`pwr_verify::failure`]): what a proposal is judged by.
+    pub failed_tests: std::collections::BTreeSet<String>,
+    /// What the failing checks printed, shortened: what a proposal is shown.
+    pub evidence: String,
 }
 
 /// What a goal is told about checks that failed before it started.
@@ -122,6 +207,9 @@ pub struct GoalLimits {
     pub refused_completions: usize,
     pub verification_runs: usize,
     pub review_rounds: usize,
+    /// Files PWR may ask the model for, one at a time, before the first turn
+    /// (W2.9). Zero, the default, is off: the phase is experimental.
+    pub proposals: usize,
     #[serde(with = "goal_seconds")]
     pub wall: std::time::Duration,
 }
@@ -133,6 +221,7 @@ impl Default for GoalLimits {
             refused_completions: GOAL_MAX_REFUSED_COMPLETIONS,
             verification_runs: 9, // baseline + six refusals + passing checks before/after review
             review_rounds: 1,
+            proposals: 0,
             wall: GOAL_MAX_WALL,
         }
     }
@@ -247,6 +336,7 @@ pub struct GoalBudget {
     pub refused: usize,
     pub verifications: usize,
     pub reviews: usize,
+    pub proposals: usize,
 }
 impl GoalBudget {
     pub fn new(limits: GoalLimits) -> Self {
@@ -257,6 +347,7 @@ impl GoalBudget {
             refused: 0,
             verifications: 0,
             reviews: 0,
+            proposals: 0,
         }
     }
     pub fn reached(&self) -> Option<GoalLimitReached> {
@@ -273,7 +364,7 @@ impl GoalBudget {
         self.limits.wall.saturating_sub(self.started.elapsed())
     }
     pub fn snapshot(&self) -> Value {
-        json!({"limits": self.limits, "spent": {"actions": self.actions, "refused_completions": self.refused, "verification_runs": self.verifications, "review_rounds": self.reviews, "wall_seconds": self.started.elapsed().as_secs()}})
+        json!({"limits": self.limits, "spent": {"actions": self.actions, "refused_completions": self.refused, "verification_runs": self.verifications, "review_rounds": self.reviews, "proposals": self.proposals, "wall_seconds": self.started.elapsed().as_secs()}})
     }
 }
 
@@ -490,6 +581,17 @@ pub trait SessionHost {
     async fn verify(&self) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError>;
     /// A second reading of the work against its specification.
     async fn review(&self, root: &Path, prompt: String) -> Result<String, String>;
+    /// A plain reply to `prompt` as it is generated, with no tools: what a
+    /// proposed file is read from (W2.9). A front end without one has no
+    /// proposals phase.
+    async fn author(
+        &self,
+        _root: &Path,
+        _prompt: String,
+        _think: bool,
+    ) -> Result<pwr_provider::ModelStream, String> {
+        Err("this front end cannot ask for a proposal".into())
+    }
     /// Says something to the person, between turns.
     fn say(&self, text: &str);
     /// The conversation as it now stands, for the session to keep.
@@ -567,6 +669,30 @@ pub fn apply_verification(outcome: &mut pwr_domain::TurnOutcome, verification: &
         outcome.terminal = pwr_domain::TurnTerminal::Blocked;
     }
 }
+
+/// The host's plain generation, as the proposals module asks for it.
+struct HostAuthor<'a, H: SessionHost + ?Sized> {
+    host: &'a H,
+    root: &'a Path,
+}
+
+#[async_trait::async_trait(?Send)]
+impl<H: SessionHost + ?Sized> crate::proposals::Author for HostAuthor<'_, H> {
+    async fn write(
+        &self,
+        prompt: String,
+        think: bool,
+    ) -> Result<pwr_provider::ModelStream, String> {
+        self.host.author(self.root, prompt, think).await
+    }
+}
+
+/// The least and the most one proposal may take, in seconds, whatever share
+/// of the goal's time falls to it.
+const PROPOSAL_SHARE: (f64, f64) = (30.0, 240.0);
+/// Passes over the files with nothing kept before the phase gives way to the
+/// ordinary goal.
+const PROPOSAL_IDLE_PASSES: usize = 2;
 
 async fn drive<H: SessionHost + ?Sized>(
     host: &H,
@@ -658,14 +784,276 @@ async fn drive<H: SessionHost + ?Sized>(
     // The checks already failing when the goal starts, so the goal is
     // neither sent to repair them nor held open by them.
     let mut already_failing: Vec<String> = Vec::new();
-    if goal_mode
-        && let Ok((baseline, _)) = verify!()
-        && !baseline.failing.is_empty()
+    let baseline = if goal_mode {
+        verify!().ok().map(|(baseline, _)| baseline)
+    } else {
+        None
+    };
+    if let Some(baseline) = baseline
+        .as_ref()
+        .filter(|baseline| !baseline.failing.is_empty())
     {
-        already_failing = baseline.failing;
+        already_failing = baseline.failing.clone();
         if let Some(last) = messages.last_mut().filter(|last| last.role == "user") {
             last.content
                 .push_str(&format!("\n\n{}", already_failing_note(&already_failing)));
+        }
+    }
+    let mut goal_edited = false;
+    // One action of PWR's own, through a turn (see `TurnInput::scripted`).
+    macro_rules! scripted {
+        ($call:expr, $said:expr) => {{
+            let base = highest_call.get();
+            let mut turn_continuity = continuity.clone();
+            if let Ok(mut checkpoint) = continuity.checkpoint.lock() {
+                checkpoint.actions = 0;
+            }
+            turn_continuity.action_limit =
+                Some(budget.limits.actions.saturating_sub(total_actions));
+            bounded!(host.run_turn(TurnInput {
+                root: root.clone(),
+                conversation_id,
+                messages: messages.clone(),
+                stop: Arc::clone(&stop),
+                steps: Box::new({
+                    let steps = Rc::clone(&steps);
+                    let highest_call = Rc::clone(&highest_call);
+                    move |mut step| {
+                        if let TurnStep::ToolCall(call) = &mut step {
+                            call.id += base;
+                            highest_call.set(highest_call.get().max(call.id));
+                        }
+                        if let Ok(mut sink) = steps.try_borrow_mut() {
+                            sink(step);
+                        }
+                    }
+                }),
+                continuity: turn_continuity,
+                approvals: Arc::clone(&approvals),
+                session_grants: Arc::clone(&session_grants),
+                goal_mode,
+                scripted: Some(ScriptedTurn {
+                    call: $call,
+                    said: $said,
+                }),
+            }))
+        }};
+    }
+    // Verified proposals (W2.9): while an acceptance check fails, ask the
+    // model for one file at a time, with no tools, and keep a file only when
+    // fewer of the owner's tests fail with it. The ordinary goal follows with
+    // what is left of the budget and decides the ending as it always has.
+    if budget.limits.proposals > 0
+        && let Some(baseline) = baseline
+            .as_ref()
+            .filter(|baseline| !baseline.failing_acceptance.is_empty())
+    {
+        use crate::proposals;
+        let mut standing = proposals::Standing {
+            failing: true,
+            failures: baseline.failed_tests.clone(),
+        };
+        let mut evidence = baseline.evidence.clone();
+        let contract = proposals::contract(&root);
+        let mut refused: BTreeMap<String, (String, String, Vec<String>)> = BTreeMap::new();
+        let mut kept: Vec<String> = Vec::new();
+        let mut restored = 0usize;
+        let mut idle_passes = 0usize;
+        let mut note: Option<String> = None;
+        let author = HostAuthor { host, root: &root };
+        'phase: while standing.failing
+            && budget.proposals < budget.limits.proposals
+            && idle_passes < PROPOSAL_IDLE_PASSES
+        {
+            let targets = proposals::survey(&root, &evidence);
+            if targets.is_empty() {
+                break;
+            }
+            let kept_before = kept.len();
+            for target in targets {
+                if !standing.failing || budget.proposals >= budget.limits.proposals {
+                    break;
+                }
+                let left = (budget.limits.proposals - budget.proposals) as f64;
+                budget.proposals += 1;
+                let path = target.path;
+                let on_disk = std::fs::read(root.join(&path)).ok();
+                let current = on_disk
+                    .as_deref()
+                    .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+                    .unwrap_or_default();
+                let was = refused
+                    .get(&path)
+                    .map(|(file, evidence, broke)| proposals::Refused {
+                        file,
+                        evidence,
+                        broke,
+                    });
+                let brief = proposals::brief(
+                    &path,
+                    &contract,
+                    &target.context,
+                    &current,
+                    &evidence,
+                    was.as_ref(),
+                );
+                // Half of what the goal has left is the ordinary goal's.
+                let share = (budget.remaining().as_secs_f64() / 2.0 / left)
+                    .clamp(PROPOSAL_SHARE.0, PROPOSAL_SHARE.1);
+                let shares = proposals::Shares {
+                    thinking: share / 2.0,
+                    reply: share,
+                    // A file written from nothing is longer than a correction.
+                    answer: if on_disk.is_some() {
+                        share / 2.0
+                    } else {
+                        share
+                    },
+                };
+                let proposal = match bounded!(proposals::propose(
+                    &author, &path, &current, brief, shares, &stop
+                )) {
+                    Ok(proposal) => proposal,
+                    Err(problem) => {
+                        note = Some(format!("Proposals stopped: {problem}."));
+                        break 'phase;
+                    }
+                };
+                let Some(file) = proposal.file.filter(|file| *file != current) else {
+                    continue;
+                };
+                let write = match &on_disk {
+                    Some(bytes) => pwr_domain::ToolCall {
+                        name: "apply_replace".into(),
+                        arguments: json!({"path": path, "expected_hash": pwr_domain::hash_bytes(bytes), "replacement": file}),
+                        id: None,
+                    },
+                    None => pwr_domain::ToolCall {
+                        name: "write_file".into(),
+                        arguments: json!({"path": path, "content": file}),
+                        id: None,
+                    },
+                };
+                let (report, next) = match scripted!(
+                    write,
+                    format!("Proposed {path}; checking it against the owner's tests.")
+                ) {
+                    Ok(turn) => turn,
+                    Err(problem) => {
+                        note = Some(format!("Proposals stopped: {problem}."));
+                        break 'phase;
+                    }
+                };
+                total_actions = total_actions.saturating_add(report.actions);
+                budget.actions = total_actions;
+                messages = next;
+                host.keep_messages(&messages);
+                let (declined, stopped, edited) =
+                    (report.declined, report.stopped.is_some(), report.edited);
+                last_report = Some(report);
+                if declined || stopped {
+                    note = Some("Proposals stopped: an edit was not allowed.".into());
+                    break 'phase;
+                }
+                if !edited {
+                    continue;
+                }
+                goal_edited = true;
+                let after = match bounded!(host.verify()) {
+                    Ok((after, _)) => after,
+                    Err(_) => {
+                        note = Some(format!(
+                            "Proposals stopped: {path} was written and could not be verified; it is still in place."
+                        ));
+                        break 'phase;
+                    }
+                };
+                let now = proposals::Standing {
+                    failing: !after.failing.is_empty(),
+                    failures: after.failed_tests.clone(),
+                };
+                if proposals::improves(&standing, &now) {
+                    host.say(&format!(
+                        "Kept {path}: {} of the owner's tests still fail.\n\n",
+                        now.failures.len()
+                    ));
+                    kept.push(path.clone());
+                    refused.remove(&path);
+                    standing = now;
+                    evidence = after.evidence;
+                    continue;
+                }
+                let undo = match &on_disk {
+                    Some(_) => pwr_domain::ToolCall {
+                        name: "apply_replace".into(),
+                        arguments: json!({"path": path, "expected_hash": pwr_domain::hash_bytes(file.as_bytes()), "replacement": current}),
+                        id: None,
+                    },
+                    None => pwr_domain::ToolCall {
+                        name: "delete_path".into(),
+                        // Bound to the file just written, like the overwrite.
+                        arguments: json!({"path": path, "expected_hash": pwr_domain::hash_bytes(file.as_bytes())}),
+                        id: None,
+                    },
+                };
+                let undone = scripted!(
+                    undo,
+                    format!("{path} did not reduce the failing tests; restored what was there.")
+                );
+                match undone {
+                    Ok((report, next)) if report.edited => {
+                        total_actions = total_actions.saturating_add(report.actions);
+                        budget.actions = total_actions;
+                        messages = next;
+                        host.keep_messages(&messages);
+                        last_report = Some(report);
+                    }
+                    // Said plainly: the workspace now holds a file its tests
+                    // did not approve, and the goal that follows must know.
+                    _ => {
+                        note = Some(format!(
+                            "Proposals stopped: {path} did not reduce the failing tests and could not be restored; the proposed version is still in place."
+                        ));
+                        break 'phase;
+                    }
+                }
+                restored += 1;
+                let broke = now
+                    .failures
+                    .difference(&standing.failures)
+                    .cloned()
+                    .collect();
+                refused.insert(path, (file, after.evidence, broke));
+            }
+            idle_passes = if kept.len() == kept_before {
+                idle_passes + 1
+            } else {
+                0
+            };
+        }
+        if budget.proposals > 0 {
+            let mut text = format!(
+                "Before this turn PWR asked for files one at a time and checked each against the owner's tests: {} kept ({}), {restored} restored because the failing tests did not shrink.",
+                kept.len(),
+                if kept.is_empty() {
+                    "none".to_owned()
+                } else {
+                    kept.join(", ")
+                },
+            );
+            text.push_str(&if standing.failing {
+                format!(
+                    " {} tests still fail. Continue with the request from the files as they are now.",
+                    standing.failures.len()
+                )
+            } else {
+                " The checks now pass. Hold the work against the request for anything its tests do not cover, then complete.".to_owned()
+            });
+            if let Some(note) = note {
+                text.push_str(&format!(" {note}"));
+            }
+            messages.push(goal_guidance(text));
+            host.keep_messages(&messages);
         }
     }
     let mut idle_rounds = 0usize;
@@ -675,7 +1063,6 @@ async fn drive<H: SessionHost + ?Sized>(
     // review that changes nothing ends on it without re-running checks.
     let mut reviewed: Option<GoalVerification> = None;
     let mut review_done = false;
-    let mut goal_edited = false;
     loop {
         // Before the turn, on every way round: the limits are not one
         // branch's business.
@@ -723,6 +1110,7 @@ async fn drive<H: SessionHost + ?Sized>(
             // the session and asked about again on the goal's next turn.
             session_grants: Arc::clone(&session_grants),
             goal_mode,
+            scripted: None,
         });
         let outcome = if budgeted {
             // The loop checked the limits just before this turn.
@@ -2144,5 +2532,305 @@ mod tests {
             "{}",
             report.answer
         );
+    }
+
+    // ------------------------------------------------ verified proposals (W2.9)
+
+    /// A workspace on disk with one source file and its test, a model that
+    /// answers a proposal with the next scripted file, and checks that fail
+    /// by what the source file says: `BROKEN` three tests, anything else two,
+    /// `HALF` one, `FIXED` none.
+    struct Proposing {
+        root: tempfile::TempDir,
+        files: Mutex<Vec<String>>,
+        asked: Mutex<Vec<(String, bool)>>,
+        calls: Mutex<Vec<String>>,
+        said: Mutex<Vec<String>>,
+        kept: Mutex<Vec<ChatMessage>>,
+        turns: AtomicUsize,
+        refuse_edits: bool,
+    }
+
+    const SOURCE: &str = "src/dates.ts";
+
+    impl Proposing {
+        fn new(original: Option<&str>, files: &[&str]) -> Self {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(root.path().join("src")).unwrap();
+            std::fs::create_dir_all(root.path().join("test")).unwrap();
+            std::fs::write(
+                root.path().join("test/dates.test.ts"),
+                "import { dueDate } from '../src/dates.ts';\n",
+            )
+            .unwrap();
+            if let Some(original) = original {
+                std::fs::write(root.path().join(SOURCE), original).unwrap();
+            }
+            Self {
+                root,
+                files: Mutex::new(files.iter().map(|file| (*file).to_owned()).collect()),
+                asked: Mutex::default(),
+                calls: Mutex::default(),
+                said: Mutex::default(),
+                kept: Mutex::default(),
+                turns: AtomicUsize::new(0),
+                refuse_edits: false,
+            }
+        }
+
+        fn source(&self) -> Option<String> {
+            std::fs::read_to_string(self.root.path().join(SOURCE)).ok()
+        }
+
+        fn standing(&self) -> GoalVerification {
+            let source = self.source().unwrap_or_default();
+            let failed: &[&str] = if source.contains("FIXED") {
+                &[]
+            } else if source.contains("HALF") {
+                &["a weekend"]
+            } else if source.contains("BROKEN") {
+                &["a weekend", "a weekday", "a holiday"]
+            } else {
+                &["a weekend", "a weekday"]
+            };
+            let failing: Vec<String> = if failed.is_empty() {
+                Vec::new()
+            } else {
+                vec!["node --test".into()]
+            };
+            GoalVerification {
+                passed: failing.is_empty(),
+                technical_passed: failing.is_empty(),
+                acceptance_available: true,
+                failing_acceptance: failing.clone(),
+                failing,
+                failed_tests: failed.iter().map(|name| (*name).to_owned()).collect(),
+                evidence: "test at test/dates.test.ts:11:1".into(),
+                ..Default::default()
+            }
+        }
+
+        fn run(&self, proposals: usize) -> SessionResult {
+            let limits = GoalLimits {
+                proposals,
+                ..Default::default()
+            };
+            let mut request = request(Policy::Goal);
+            request.root = self.root.path().to_path_buf();
+            tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap()
+                .block_on(execute(self, request, limits))
+        }
+    }
+
+    fn body(text: &str) -> String {
+        // Long enough to be a file and not a quote of part of one.
+        format!(
+            "export function dueDate(): string {{\n  return '{text}';\n}}\n{}",
+            "// rule\n".repeat(40)
+        )
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl SessionHost for Proposing {
+        async fn run_turn(
+            &self,
+            input: TurnInput,
+        ) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+            let mut messages = input.messages;
+            let Some(scripted) = input.scripted else {
+                self.turns.fetch_add(1, Ordering::Relaxed);
+                messages.push(ChatMessage::text("assistant", "done"));
+                return Ok((report(0, true), messages));
+            };
+            let arguments = &scripted.call.arguments;
+            let path = self.root.path().join(arguments["path"].as_str().unwrap());
+            self.calls.lock().unwrap().push(scripted.call.name.clone());
+            let mut done = report(1, false);
+            if self.refuse_edits {
+                done.declined = true;
+                return Ok((done, messages));
+            }
+            match scripted.call.name.as_str() {
+                "write_file" => {
+                    assert!(!path.exists(), "write_file never overwrites");
+                    std::fs::write(&path, arguments["content"].as_str().unwrap()).unwrap();
+                }
+                "apply_replace" => {
+                    assert_eq!(
+                        arguments["expected_hash"].as_str().unwrap(),
+                        pwr_domain::hash_bytes(std::fs::read(&path).unwrap()),
+                        "an overwrite is bound to the version it replaces"
+                    );
+                    std::fs::write(&path, arguments["replacement"].as_str().unwrap()).unwrap();
+                }
+                "delete_path" => std::fs::remove_file(&path).unwrap(),
+                other => panic!("unexpected scripted call {other}"),
+            }
+            done.edited = true;
+            done.answer = scripted.said.clone();
+            messages.push(ChatMessage::text("assistant", scripted.said));
+            Ok((done, messages))
+        }
+
+        async fn verify(
+            &self,
+        ) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+            Ok((self.standing(), BTreeMap::new()))
+        }
+
+        async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+            Ok(String::new())
+        }
+
+        async fn author(
+            &self,
+            _: &Path,
+            prompt: String,
+            think: bool,
+        ) -> Result<pwr_provider::ModelStream, String> {
+            self.asked.lock().unwrap().push((prompt, think));
+            let mut files = self.files.lock().unwrap();
+            if files.is_empty() {
+                return Err("no model".into());
+            }
+            let chunk = |content: String, done: bool| {
+                Ok(pwr_domain::ModelChunk {
+                    content,
+                    done,
+                    ..Default::default()
+                })
+            };
+            let reply = format!("```typescript\n{}```\n", files.remove(0));
+            Ok(Box::pin(futures_util::stream::iter([
+                chunk(reply, false),
+                chunk(String::new(), true),
+            ])))
+        }
+
+        fn say(&self, text: &str) {
+            self.said.lock().unwrap().push(text.to_owned());
+        }
+
+        fn keep_messages(&self, messages: &[ChatMessage]) {
+            *self.kept.lock().unwrap() = messages.to_vec();
+        }
+    }
+
+    #[test]
+    fn proposals_are_off_unless_the_workspace_asks_for_them() {
+        let host = Proposing::new(Some(&body("original")), &[&body("FIXED")]);
+        let result = host.run(0);
+        assert!(host.asked.lock().unwrap().is_empty());
+        assert_eq!(host.source().unwrap(), body("original"));
+        assert_eq!(result.budget.proposals, 0);
+    }
+
+    #[test]
+    fn a_proposal_that_shrinks_the_failing_tests_is_kept_and_the_goal_goes_on_from_it() {
+        let host = Proposing::new(Some(&body("original")), &[&body("HALF"), &body("FIXED")]);
+        let result = host.run(4);
+        assert_eq!(host.source().unwrap(), body("FIXED"));
+        assert_eq!(
+            *host.calls.lock().unwrap(),
+            ["apply_replace", "apply_replace"]
+        );
+        assert_eq!(
+            result.budget.proposals, 2,
+            "it stops asking once the checks pass"
+        );
+        let said = host.said.lock().unwrap().join("");
+        assert!(said.contains("Kept src/dates.ts: 1 of the owner's tests still fail"));
+        // The ordinary goal follows, told what was done, and ends it verified.
+        assert!(host.turns.load(Ordering::Relaxed) >= 1);
+        let kept = host.kept.lock().unwrap();
+        let guidance = kept
+            .iter()
+            .find(|message| message.purpose == Some(pwr_domain::MessagePurpose::GoalGuidance))
+            .expect("the model is told what the phase did");
+        assert!(
+            guidance
+                .content
+                .contains("2 kept (src/dates.ts, src/dates.ts), 0 restored")
+        );
+        assert!(guidance.content.contains("The checks now pass."));
+        assert!(matches!(
+            result.end,
+            SessionEnd::Reply { verification: Some(ref verification), .. } if verification.passed
+        ));
+        // The second request showed the checks' output on the file as it stood.
+        let asked = host.asked.lock().unwrap();
+        assert!(asked[1].0.contains("CURRENT src/dates.ts") && asked[1].0.contains("HALF"));
+    }
+
+    #[test]
+    fn a_proposal_that_does_not_help_is_restored_and_named_to_the_next_request() {
+        // One test more fails with it, then one that changes nothing.
+        let host = Proposing::new(
+            Some(&body("original")),
+            &[&body("BROKEN"), &body("other"), &body("FIXED")],
+        );
+        let result = host.run(2);
+        assert_eq!(
+            host.source().unwrap(),
+            body("original"),
+            "both were put back"
+        );
+        assert_eq!(
+            *host.calls.lock().unwrap(),
+            [
+                "apply_replace",
+                "apply_replace",
+                "apply_replace",
+                "apply_replace"
+            ]
+        );
+        assert_eq!(result.budget.proposals, 2, "the allowance is what ends it");
+        let asked = host.asked.lock().unwrap();
+        assert!(asked[1].0.contains("A PREVIOUS src/dates.ts WAS REFUSED"));
+        assert!(asked[1].0.contains("It broke: a holiday"));
+        let kept = host.kept.lock().unwrap();
+        assert!(kept.iter().any(
+            |message| message.content.contains("0 kept (none), 2 restored")
+                && message.content.contains("2 tests still fail")
+        ));
+    }
+
+    #[test]
+    fn a_file_created_by_a_refused_proposal_is_deleted_again() {
+        let host = Proposing::new(None, &[&body("BROKEN")]);
+        host.run(1);
+        assert_eq!(host.source(), None);
+        assert_eq!(*host.calls.lock().unwrap(), ["write_file", "delete_path"]);
+    }
+
+    #[test]
+    fn an_edit_the_person_does_not_allow_ends_the_phase_and_not_the_goal() {
+        let mut host = Proposing::new(Some(&body("original")), &[&body("FIXED"), &body("FIXED")]);
+        host.refuse_edits = true;
+        let result = host.run(4);
+        assert_eq!(host.source().unwrap(), body("original"));
+        assert_eq!(host.calls.lock().unwrap().len(), 1, "it does not ask again");
+        assert_eq!(result.budget.proposals, 1);
+        assert!(
+            host.turns.load(Ordering::Relaxed) >= 1,
+            "the ordinary goal still runs"
+        );
+        assert!(host.kept.lock().unwrap().iter().any(|message| {
+            message
+                .content
+                .contains("Proposals stopped: an edit was not allowed.")
+        }));
+    }
+
+    #[test]
+    fn a_model_that_cannot_be_asked_leaves_the_goal_as_it_was() {
+        let host = Proposing::new(Some(&body("original")), &[]);
+        let result = host.run(3);
+        assert!(host.calls.lock().unwrap().is_empty());
+        assert_eq!(result.budget.proposals, 1);
+        assert!(host.turns.load(Ordering::Relaxed) >= 1);
     }
 }

@@ -3803,6 +3803,54 @@ impl serve::TurnRunner for ConsoleTurns {
         .await
     }
 
+    async fn author(
+        &self,
+        root: &Path,
+        prompt: String,
+        think: bool,
+    ) -> Result<pwr_provider::ModelStream, String> {
+        let root = self.ready(root).await?;
+        let config = load_chat_config(&root).map_err(|error| error.context)?;
+        let model = config.model.clone().ok_or("no model is selected")?;
+        let selection = self
+            .runtime
+            .select(model, Duration::from_secs(config.timeout_secs))
+            .map_err(|error| error.to_string())?;
+        let request = ModelRequest {
+            deployment: selection.deployment.clone(),
+            context_tokens: config.context_tokens.min(32_768),
+            tools: None,
+            seed: None,
+            sampling: BTreeMap::from([
+                ("think".to_owned(), serde_json::json!(think)),
+                // No reasoning cap: the governor reading the stream ends the
+                // thinking, judged against the file asked for. A cap of 1,024
+                // tokens moved the analysis into the answer instead (W2.9).
+                ("reasoning_budget".to_owned(), serde_json::Value::Null),
+                ("max_tokens".to_owned(), serde_json::json!(8_192)),
+                // Beside the conversation's cache, like a review.
+                ("aside".to_owned(), serde_json::json!(true)),
+            ]),
+            messages: vec![
+                ChatMessage::text(
+                    "system",
+                    "You write one source file. You are given the project contract, read-only \
+                     files, what the project's checks really printed, and the file as it stands \
+                     when it exists. Reply with the complete file in one fenced block. The tests \
+                     are right. When the file exists, change only what the failing tests and the \
+                     contract require and copy every other line unchanged. You cannot call tools; \
+                     the tests are run on your file before it is kept.",
+                ),
+                ChatMessage::text("user", prompt),
+            ],
+        };
+        selection
+            .backend
+            .chat_cancellable(request, pwr_provider::Cancel::new())
+            .await
+            .map_err(|error| error.to_string())
+    }
+
     async fn review(&self, root: &Path, prompt: String) -> Result<String, String> {
         self.aside(
             root,
@@ -3974,6 +4022,23 @@ impl serve::TurnRunner for ConsoleTurns {
             })
             .collect();
         failure_fingerprints.sort();
+        // What a proposal is judged by and shown (plan W2.9): the failing
+        // tests by name, and the failing checks' own output.
+        let mut failed_tests = BTreeSet::new();
+        let mut evidence = String::new();
+        for check in report
+            .get("baseline")
+            .and_then(|baseline| baseline.get("checks"))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|check| check["result"]["exit_code"] != 0)
+        {
+            let stdout = check["result"]["stdout"].as_str().unwrap_or_default();
+            let stderr = check["result"]["stderr"].as_str().unwrap_or_default();
+            failed_tests.extend(pwr_verify::failure::fingerprint(stdout, stderr).identifiers);
+            evidence.push_str(&failing_output(stdout, stderr));
+        }
         let checks = report
             .get("baseline")
             .cloned()
@@ -3987,6 +4052,8 @@ impl serve::TurnRunner for ConsoleTurns {
             failure_fingerprints,
             failing_acceptance,
             failing,
+            failed_tests,
+            evidence,
             passed: technical_passed && acceptance_available,
             technical_passed,
             acceptance_available,
@@ -4021,6 +4088,7 @@ impl serve::TurnRunner for ConsoleTurns {
             turn.approvals,
             turn.session_grants,
             turn.goal_mode,
+            turn.scripted,
         )
         .await
     }
@@ -4769,6 +4837,7 @@ impl pwr_orchestrator::executor::SessionHost for ConsoleHost {
             input.approvals,
             input.session_grants,
             input.goal_mode,
+            input.scripted,
         )
         .await
     }
@@ -4846,6 +4915,29 @@ async fn console_turn(
 /// Returns the conversation it produced as well as the outcome, because the
 /// turn appends the assistant's reply and any reads it made, and the console
 /// has to keep them for the next turn.
+/// The part of a failing check's output worth showing to a model asked to
+/// make it pass: stack frames and blank lines out, the end kept when long.
+fn failing_output(stdout: &str, stderr: &str) -> String {
+    const SHOWN: usize = 3_000;
+    let mut text = String::new();
+    for line in stdout.lines().chain(stderr.lines()) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("at ") || trimmed.starts_with("File \"") {
+            continue;
+        }
+        text.push_str(line.trim_end());
+        text.push('\n');
+    }
+    if text.len() > SHOWN {
+        let mut start = text.len() - SHOWN;
+        while !text.is_char_boundary(start) {
+            start += 1;
+        }
+        text = format!("[...]\n{}", &text[start..]);
+    }
+    text
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn chat_turn(
     root: PathBuf,
@@ -4860,6 +4952,9 @@ async fn chat_turn(
     approvals: Arc<dyn pwr_orchestrator::ApprovalPrompt>,
     session_grants: Arc<std::sync::Mutex<Vec<pwr_tools::Approval>>>,
     goal_mode: bool,
+    // One call PWR decided itself, taken through this turn in the model's
+    // place (plan W2.9): everything after the reply is the turn's own.
+    scripted: Option<pwr_orchestrator::executor::ScriptedTurn>,
 ) -> ChatTurnResult {
     {
         let mut checkpoint = continuity
@@ -5148,6 +5243,8 @@ async fn chat_turn(
         catalog
     };
     let tools = provider.render_tools(&catalog);
+    let is_scripted = scripted.is_some();
+    let provider = pwr_orchestrator::executor::Scripted::new(provider, scripted);
     let report = converse::take_turn(
         &provider,
         adapter.as_ref(),
@@ -5181,7 +5278,7 @@ async fn chat_turn(
             said => format!("{said}\n\n{}", reason.said()),
         };
     }
-    if report.edited && !minimal {
+    if report.edited && !minimal && !is_scripted {
         let after_checks = if chat_only {
             Vec::new()
         } else {

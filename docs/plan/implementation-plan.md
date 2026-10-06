@@ -173,9 +173,10 @@ nothing measurable and are not adopted.
   it does today with what is left of its budget.
 - **Steps.** (1) `pwr_verify::failure` names node:test and unittest failures —
   DONE `3ec3587d`. (2) `pwr_orchestrator::proposals`, pure: targets, extraction,
-  governor, verdict, brief — DONE, not yet called by the product. (3) The
-  host's streamed plain generation. (4) The phase in `executor`, its
-  configuration and limits, documents. (5) The same three tasks on the product
+  governor, verdict, brief — DONE `a507e901`. (3) `proposals::propose`, one governed request and a
+  second with reasoning off — DONE `be76f764`. (4) The phase in `executor`
+  behind `goal_budget.proposals`, applied through scripted turns, the
+  front end's plain generation, documents — DONE, not measured. (5) The same three tasks on the product
   path against the shipped agent; an experiment-log entry.
 - **Acceptance.** Kept only if step 5 shows no cell worse than the shipped
   agent and at least one better, at equal token budget, with replicates.
