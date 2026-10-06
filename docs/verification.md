@@ -99,7 +99,8 @@ source location. It is a heuristic, not a taxonomy.
 
 `classify_with_reproduction` re-runs a failing check and compares the **failure
 identity** (a fingerprint of the failing tests or errors for Rust, pytest, Go,
-.NET, Jest and Vitest), not only the exit code (plan W3.3); for other
+.NET, Jest, Vitest, and from 2026-10-06 `node:test` and Python `unittest`), not
+only the exit code (plan W3.3); for other
 toolchains the output's own shape decides and two different failures with
 exit 1 can still look alike.
 
