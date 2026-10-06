@@ -571,6 +571,9 @@ pub struct GoalAids {
     /// of the whole catalogue (plan W2.11). Read by the front end, which
     /// builds the catalogue.
     pub core_tools: bool,
+    /// Ask the proposals phase for edit blocks instead of the whole file
+    /// when the file exists ([`crate::proposals::Transport`]; plan W2.12).
+    pub block_edits: bool,
 }
 
 /// How a request is run: one turn, or turns repeated until the work is
@@ -957,7 +960,13 @@ async fn drive<H: SessionHost + ?Sized>(
                         evidence,
                         broke,
                     });
-                let brief = proposals::brief(
+                let transport = if aids.block_edits {
+                    proposals::Transport::Blocks
+                } else {
+                    proposals::Transport::Whole
+                };
+                let brief = proposals::brief_for(
+                    transport,
                     &path,
                     &contract,
                     &target.context,
@@ -979,7 +988,7 @@ async fn drive<H: SessionHost + ?Sized>(
                     },
                 };
                 let proposal = match bounded!(proposals::propose(
-                    &author, &path, &current, brief, shares, &stop
+                    &author, &path, &current, brief, shares, transport, &stop
                 )) {
                     Ok(proposal) => proposal,
                     Err(problem) => {

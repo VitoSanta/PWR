@@ -251,6 +251,26 @@ predefined tools with bash only, not a large catalogue with a small one.
 - **To measure.** In the campaign that switches W2.9, W2.10 and this on and
   off, one at a time and together, under a token budget.
 
+### W2.12 Proposals as edit blocks
+
+**HYPOTHESIS, implemented behind a switch, not measured (2026-10-06).** A
+proposal is a whole file (W2.9). That is simple to ask for and to check and
+it does not scale: past a few hundred lines the reply does not fit, and each
+copied line can be copied wrong (LFM2.5 broke a line it was not changing,
+three times in three, in the diagnostics). W2.8 already lists the comparison
+of edit formats for the model's own tools; this is the proposals phase's side
+of it.
+
+- **Change.** With `goal_aids.block_edits` on, a proposal for a file that
+  exists is asked for as SEARCH/REPLACE blocks (`proposals::Transport`). A
+  block whose search text is not in the file exactly once is refused, never
+  matched loosely; what the blocks produce is applied, verified and restored
+  exactly as a whole file is. A file that does not exist is always whole. Off
+  by default; no profile turns it on.
+- **To measure.** In the campaign, on the tasks there are (small files, where
+  it can only show whether blocks cost anything), and on a task with a file
+  of several hundred lines, which the battery does not have yet.
+
 No candidate above authorizes a campaign before the baseline/power/provenance
 requirements. F0 owner approval adopted scope, not the numerical F6 thresholds.
 

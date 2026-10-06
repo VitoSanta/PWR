@@ -231,6 +231,10 @@ verification, no second turn.
    **Core tools (HYPOTHESIS, off by default; plan W2.11).** With
    `"goal_aids": {"core_tools": true}` a goal's turns are offered ten tools
    (`converse::CORE_TOOLS`) instead of the whole catalogue. Not measured.
+   **Edit blocks (HYPOTHESIS, off by default; plan W2.12).** With
+   `"goal_aids": {"block_edits": true}` the proposals phase asks for
+   SEARCH/REPLACE blocks instead of the whole of a file that exists; a block
+   that does not match the file exactly once is refused. Not measured.
 2. After each turn:
    - a declined or stopped turn (other than *budget spent*) ends the goal;
    - a turn with no actions and no completion counts as idle; three idle

@@ -420,6 +420,7 @@ pub struct Governor {
     current: String,
     names: Vec<String>,
     tags: &'static [&'static str],
+    transport: Transport,
     thinking_share: Option<f64>,
     share: Option<f64>,
     text: String,
@@ -458,6 +459,7 @@ impl Governor {
                 Vec::new()
             },
             tags,
+            transport: Transport::Whole,
             thinking_share,
             share,
             text: String::new(),
@@ -467,6 +469,15 @@ impl Governor {
             stop: None,
             file: None,
         }
+    }
+
+    /// Reads the reply as edit blocks instead of a whole file.
+    pub fn with_transport(mut self, transport: Transport) -> Self {
+        // A file that does not exist has nothing to search in.
+        if !self.current.trim().is_empty() {
+            self.transport = transport;
+        }
+        self
     }
 
     /// Adds a piece of the reply; `elapsed` is the time since the generation
@@ -491,7 +502,8 @@ impl Governor {
             self.stop = Some(Stop::Answer);
             return self.stop;
         }
-        if writing(&self.text) {
+        if writing(&self.text) || (self.transport == Transport::Blocks && open_block(&self.answer))
+        {
             // Cutting a file half written throws away everything spent on it.
             if self
                 .share
@@ -545,6 +557,14 @@ impl Governor {
     }
 
     fn candidate(&self) -> Option<String> {
+        if self.transport == Transport::Blocks {
+            // Blocks do not say how many there will be: the answer is over
+            // when something that is not a block follows the last one.
+            let (found, followed) = edit_blocks(&self.answer);
+            return (followed && !found.is_empty())
+                .then(|| apply_blocks(&self.current, &self.answer).ok())
+                .flatten();
+        }
         if self.current.trim().is_empty() {
             // Nothing to compare with: a substantial block of the answer, not
             // a draft inside the reasoning.
@@ -684,6 +704,144 @@ pub fn brief(
     parts.join("\n\n") + "\n"
 }
 
+/// How a proposal for a file that exists is written.
+///
+/// A whole file is the simplest thing to ask for and to check, and it does
+/// not scale: past a few hundred lines the reply does not fit, and every line
+/// copied is a chance to copy it wrong (LFM2.5 added a brace to a line it was
+/// not changing, three times in three, diagnostics of 2026-10-05). Blocks
+/// leave what they do not name byte for byte as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Transport {
+    #[default]
+    Whole,
+    Blocks,
+}
+
+const SEARCH: &str = "<<<<<<< SEARCH";
+const DIVIDER: &str = "=======";
+const REPLACE: &str = ">>>>>>> REPLACE";
+
+/// The complete edit blocks of a reply as (search, replace), and whether
+/// anything but blank lines and fences follows the last of them.
+fn edit_blocks(reply: &str) -> (Vec<(String, String)>, bool) {
+    let mut found = Vec::new();
+    let mut followed = false;
+    let mut search: Option<String> = None;
+    let mut replace: Option<String> = None;
+    for line in reply.split_inclusive('\n') {
+        let marker = line.trim_end();
+        match (&mut search, &mut replace) {
+            (None, _) if marker == SEARCH => {
+                search = Some(String::new());
+                followed = false;
+            }
+            (None, _) => {
+                followed |= !found.is_empty() && !marker.is_empty() && !marker.starts_with("```");
+            }
+            (Some(_), None) if marker == DIVIDER => replace = Some(String::new()),
+            (Some(text), None) => text.push_str(line),
+            (Some(_), Some(_)) if marker == REPLACE => {
+                found.push((
+                    search.take().unwrap_or_default(),
+                    replace.take().unwrap_or_default(),
+                ));
+            }
+            (Some(_), Some(text)) => text.push_str(line),
+        }
+    }
+    (found, followed)
+}
+
+/// Whether a reply ends inside an edit block.
+fn open_block(reply: &str) -> bool {
+    let count = |marker: &str| {
+        reply
+            .lines()
+            .filter(|line| line.trim_end() == marker)
+            .count()
+    };
+    count(SEARCH) > count(REPLACE)
+}
+
+/// `current` with a reply's edit blocks applied, or why they cannot be: a
+/// block whose search text is not in the file exactly once is refused, never
+/// matched loosely -- the harness does not guess which lines were meant.
+pub fn apply_blocks(current: &str, reply: &str) -> Result<String, String> {
+    let (found, _) = edit_blocks(reply);
+    if found.is_empty() {
+        return Err("no complete edit block".into());
+    }
+    let mut file = current.to_owned();
+    for (search, replace) in found {
+        let shown = search.lines().next().unwrap_or_default().trim().to_owned();
+        if search.trim().is_empty() {
+            return Err("an edit block searches for nothing".into());
+        }
+        match file.matches(&search).count() {
+            1 => file = file.replacen(&search, &replace, 1),
+            0 => {
+                return Err(format!(
+                    "a SEARCH block is not in the file as written: {shown}"
+                ));
+            }
+            many => return Err(format!("a SEARCH block matches {many} places: {shown}")),
+        }
+    }
+    if file == current {
+        return Err("the edit blocks change nothing".into());
+    }
+    Ok(file)
+}
+
+/// [`brief`], asking for edit blocks when the file exists and `transport`
+/// says so.
+pub fn brief_for(
+    transport: Transport,
+    path: &str,
+    contract: &str,
+    context: &[(String, String)],
+    current: &str,
+    evidence: &str,
+    refused: Option<&Refused<'_>>,
+) -> String {
+    let whole = brief(path, contract, context, current, evidence, refused);
+    if transport == Transport::Whole || current.trim().is_empty() {
+        return whole;
+    }
+    let tag = language(path).map_or("", |(name, _)| name);
+    whole.replacen(
+        &format!("Reply with the complete {path} in one ```{tag} block."),
+        &format!(
+            "Reply with edit blocks only, one for each place to change in {path}, each exactly \
+             in this form:\n{SEARCH}\nlines copied exactly from the current file\n{DIVIDER}\nthe \
+             lines that replace them\n{REPLACE}\nEach SEARCH must match the file exactly and in \
+             one place only. Do not rewrite lines you are not changing."
+        ),
+        1,
+    )
+}
+
+/// [`handoff`] for `transport`; a file that does not exist is always whole.
+pub fn handoff_for(
+    transport: Transport,
+    brief: &str,
+    path: &str,
+    notes: &str,
+    new: bool,
+) -> String {
+    let asked = handoff(brief, path, notes);
+    if transport == Transport::Whole || new {
+        return asked;
+    }
+    let tag = language(path).map_or("", |(name, _)| name);
+    asked.replacen(
+        &format!("Write the complete {path} now. Start your reply with ```{tag}\n"),
+        &format!("Write the edit blocks for {path} now. Start your reply with {SEARCH}\n"),
+        1,
+    )
+}
+
 /// What the model is told when it is asked to stop analysing and write.
 pub fn handoff(brief: &str, path: &str, notes: &str) -> String {
     let tag = language(path).map_or("", |(name, _)| name);
@@ -777,29 +935,38 @@ pub async fn propose<A: Author + ?Sized>(
     current: &str,
     brief: String,
     shares: Shares,
+    transport: Transport,
     stop: &std::sync::atomic::AtomicBool,
 ) -> Result<Proposal, String> {
     let mut proposal = Proposal::default();
-    let mut first = Governor::new(path, current, Some(shares.thinking), Some(shares.reply));
+    let new = current.trim().is_empty();
+    let transport = if new { Transport::Whole } else { transport };
+    // What a reply that ended by itself holds: a block the governor would not
+    // stop on -- a short correction; the checks judge it like any other.
+    let finished = |answer: &str| match transport {
+        Transport::Whole => extract(answer, path),
+        Transport::Blocks => apply_blocks(current, answer).ok(),
+    };
+    let mut first = Governor::new(path, current, Some(shares.thinking), Some(shares.reply))
+        .with_transport(transport);
     let (ended, answer) = read(author.write(brief.clone(), true).await?, &mut first, stop).await?;
     proposal.phases.push(ended);
-    // A reply that ended by itself may hold a block the governor would not
-    // stop on -- a short correction; the checks judge it like any other.
     proposal.file = first.file().map(str::to_owned).or_else(|| {
         (ended == Ended::Finished)
-            .then(|| extract(&answer, path))
+            .then(|| finished(&answer))
             .flatten()
     });
     if proposal.file.is_some() || ended == Ended::Interrupted {
         return Ok(proposal);
     }
-    let mut second = Governor::new(path, current, None, Some(shares.answer));
-    let asked = handoff(&brief, path, &first.notes(1_800));
+    let mut second =
+        Governor::new(path, current, None, Some(shares.answer)).with_transport(transport);
+    let asked = handoff_for(transport, &brief, path, &first.notes(1_800), new);
     let (ended, answer) = read(author.write(asked, false).await?, &mut second, stop).await?;
     proposal.phases.push(ended);
     proposal.file = second.file().map(str::to_owned).or_else(|| {
         (ended == Ended::Finished)
-            .then(|| extract(&answer, path))
+            .then(|| finished(&answer))
             .flatten()
     });
     Ok(proposal)
@@ -1112,9 +1279,160 @@ mod tests {
                 current,
                 "BRIEF\n".to_owned(),
                 SHARES,
+                Transport::Whole,
                 &stop,
             ))
             .unwrap()
+    }
+
+    fn block(search: &str, replace: &str) -> String {
+        format!("{SEARCH}\n{search}{DIVIDER}\n{replace}{REPLACE}\n")
+    }
+
+    #[test]
+    fn edit_blocks_change_what_they_name_and_leave_the_rest_byte_for_byte() {
+        let reply = format!(
+            "Two places.\n```\n{}```\n{}",
+            block(
+                "    if (!isWeekend(date)) left--;\n",
+                "    if (!isWeekend(date)) left -= 1;\n"
+            ),
+            block(
+                "  const date = parse(issued);\n",
+                "  const date = parse(issued); // utc\n"
+            ),
+        );
+        let file = apply_blocks(DATES, &reply).unwrap();
+        assert_eq!(
+            file,
+            DATES
+                .replace("left--", "left -= 1")
+                .replace("parse(issued);", "parse(issued); // utc")
+        );
+        // Refused, never matched loosely.
+        for (reply, why) in [
+            (
+                block("  nothing like this\n", "x\n"),
+                "is not in the file as written: nothing like this",
+            ),
+            (block("}\n", "} // end\n"), "places"),
+            (
+                block("  let left = days;\n", "  let left = days;\n"),
+                "change nothing",
+            ),
+            (block("\n", "x\n"), "searches for nothing"),
+            (
+                format!("{SEARCH}\n  let left = days;\n{DIVIDER}\n  let left = 0;\n"),
+                "no complete edit block",
+            ),
+            (
+                "```typescript\nconst a = 1;\n```".to_owned(),
+                "no complete edit block",
+            ),
+        ] {
+            assert!(
+                apply_blocks(DATES, &reply).unwrap_err().contains(why),
+                "{why}"
+            );
+        }
+    }
+
+    #[test]
+    fn generation_of_blocks_stops_when_something_else_follows_the_last_block() {
+        let first = block(
+            "    if (!isWeekend(date)) left--;\n",
+            "    if (!isWeekend(date)) left -= 1;\n",
+        );
+        let second = block("  let left = days;\n", "  let left = days + 0;\n");
+        let mut governor = Governor::new("src/dates.ts", DATES, None, Some(10.0))
+            .with_transport(Transport::Blocks);
+        // One block, then another: not over yet, and not cut inside a block.
+        assert_eq!(stream(&mut governor, &first, Channel::Answer), None);
+        assert_eq!(
+            governor.feed(
+                &format!("{SEARCH}\n  let left = days;\n"),
+                Channel::Answer,
+                25.0
+            ),
+            None
+        );
+        assert_eq!(
+            governor.feed(
+                &format!("{DIVIDER}\n  let left = days + 0;\n{REPLACE}\n"),
+                Channel::Answer,
+                5.0
+            ),
+            None
+        );
+        assert_eq!(
+            governor.feed(
+                "\nThat is all: the loop counted the issue date.\n",
+                Channel::Answer,
+                5.0
+            ),
+            Some(Stop::Answer)
+        );
+        assert_eq!(
+            governor.file().unwrap(),
+            apply_blocks(DATES, &format!("{first}{second}")).unwrap()
+        );
+        // A file that does not exist is still asked for whole.
+        let new = Governor::new("todo.py", "", None, None).with_transport(Transport::Blocks);
+        assert_eq!(new.transport, Transport::Whole);
+    }
+
+    #[test]
+    fn a_proposal_in_blocks_is_asked_for_and_read_as_blocks_through_both_requests() {
+        let fix = block(
+            "    if (!isWeekend(date)) left--;\n",
+            "    if (!isWeekend(date)) left -= 1;\n",
+        );
+        let author = Scripted::new(vec![
+            vec![(
+                Channel::Reasoning,
+                "Let me recompute the weekday for this date again to be sure. ".repeat(60),
+            )],
+            vec![(Channel::Answer, fix.clone())],
+        ]);
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let asked = brief_for(
+            Transport::Blocks,
+            "src/dates.ts",
+            "rules",
+            &[],
+            DATES,
+            "✖ a weekend",
+            None,
+        );
+        assert!(asked.contains("Reply with edit blocks only") && asked.contains(SEARCH));
+        assert!(!asked.contains("Reply with the complete"));
+        let proposal = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(propose(
+                &author,
+                "src/dates.ts",
+                DATES,
+                asked,
+                SHARES,
+                Transport::Blocks,
+                &stop,
+            ))
+            .unwrap();
+        assert_eq!(proposal.file.unwrap(), DATES.replace("left--", "left -= 1"));
+        assert_eq!(
+            proposal.phases,
+            [Ended::Governor(Stop::Stalled), Ended::Finished]
+        );
+        assert!(
+            author.asked.borrow()[1]
+                .0
+                .ends_with(&format!("Start your reply with {SEARCH}\n"))
+        );
+        // A new file is asked for whole whatever the transport.
+        let whole = brief_for(Transport::Blocks, "todo.py", "c", &[], "", "", None);
+        assert!(whole.contains("Reply with the complete todo.py in one ```python block."));
     }
 
     #[test]

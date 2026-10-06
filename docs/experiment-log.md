@@ -1066,3 +1066,10 @@ the simulated host; no model has run with it.
 Adds `goal_aids.core_tools`, off by default and turned on by no profile. With
 it on, the catalogue a goal's turns are offered is cut to ten tools. A
 hypothesis from practice, not from a measurement; no model has run with it.
+
+### 2026-10-06: a switch for proposals as edit blocks (W2.12)
+
+Adds `goal_aids.block_edits`, off by default and turned on by no profile. With
+it on, the proposals phase asks for SEARCH/REPLACE blocks for a file that
+exists and applies them only when each matches exactly once. Simulated-host
+tests only; no model has run with it.
