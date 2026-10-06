@@ -287,8 +287,13 @@ depend on the machine's speed.
   included; the limit is checked between generations and by the executor. Not
   set, nothing is bounded by it and the count is still reported. With it set
   the proposals phase's shares are tokens, not seconds.
-- **Not charged.** Tool and check execution. A chunk is counted as a token,
-  which is close and not exact.
+- **Not charged.** Tool and check execution.
+- **Counted how.** A finished reply by the engine's own counts (generated
+  tokens, and prompt tokens not resumed from the cache); a reply abandoned
+  part-way by the prompt tokens read so far and four bytes of written text to
+  a token. The first version counted a chunk as a token and read a third of
+  the engine's count on its first run with a model (20,690 against about
+  72,700; pwr-evidence `switch-smoke-20261006-aborted-1`).
 - **To verify.** One goal at full power and the same in Low Power Mode with a
   work limit and a generous wall: the same work spent, different seconds.
 

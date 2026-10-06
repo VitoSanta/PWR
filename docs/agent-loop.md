@@ -292,7 +292,7 @@ dropped, and its edits stayed on disk but out of the conversation.)
 | Review rounds | 1 | Specification review and its continuation |
 | Proposals | the model's profile (absent = off) | Files asked for before the first turn (W2.9); each is one generation or two, an applied one is an action and a full verification that does not count against *Verification runs* |
 | Wall-clock | 3,600 seconds | From baseline through final result |
-| Work | none | Model work in generated tokens, a prompt token read counting an eighth (`converse::WORK_PER_TOKEN`); checked between generations, so one reply can pass it. Counted for every goal, in `_meta.pwr.goalBudget.spent.work`; a limit only when set. With it set, the proposals phase reads its shares in tokens |
+| Work | none | Model work in generated tokens, a prompt token read counting an eighth (`converse::WORK_PER_TOKEN`); by the engine's counts for a finished reply and by an estimate for an abandoned one; checked between generations, so one reply can pass it. Counted for every goal, in `_meta.pwr.goalBudget.spent.work`; a limit only when set. With it set, the proposals phase reads its shares in tokens |
 | Idle rounds | 3 | Existing stalled guard |
 | Same failing set on completion | 3 | Existing blocked guard; W1.5 still open |
 | Checkpoint note | every 10 actions | Progress indication |

@@ -532,29 +532,87 @@ pub enum Harness {
 /// 350 read per second at full power; it is a weight, not a prediction.
 pub const WORK_PER_TOKEN: u64 = 8;
 
-/// Counts one chunk of a reply on a goal's work meter. `read` is the largest
-/// prefill progress seen so far in this generation.
-pub fn meter(
-    work: &std::sync::atomic::AtomicU64,
-    read: &std::cell::Cell<u64>,
-    chunk: &pwr_domain::ModelChunk,
-) {
-    use std::sync::atomic::Ordering;
-    if let Some(progress) = chunk.prefill {
-        let seen = read.get();
-        if progress.processed > seen {
-            read.set(progress.processed);
-            work.fetch_add(progress.processed - seen, Ordering::Relaxed);
+/// One generation's count on a goal's work meter.
+///
+/// While the reply arrives it is estimated, from the prompt tokens the engine
+/// says it has read and from the length of what it writes; when the reply
+/// finishes the estimate is replaced by the engine's own counts. A chunk is
+/// not a token: counted as one, a goal's work read 20,690 where the engine
+/// counted 62,240 generated tokens and 83,900 read, and a 24,000-token
+/// allowance let a goal run for fifty minutes (pwr-evidence
+/// `switch-smoke-20261006-aborted-1`).
+pub struct Metered<'a> {
+    work: &'a std::sync::atomic::AtomicU64,
+    counted: std::cell::Cell<u64>,
+    read: std::cell::Cell<u64>,
+}
+
+/// Bytes of written text taken for one token until the engine says how many.
+const BYTES_PER_TOKEN: u64 = 4;
+
+impl<'a> Metered<'a> {
+    pub fn new(work: &'a std::sync::atomic::AtomicU64) -> Self {
+        Self {
+            work,
+            counted: std::cell::Cell::new(0),
+            read: std::cell::Cell::new(0),
         }
-    } else if !chunk.content.is_empty()
-        || chunk
-            .thinking
-            .as_deref()
-            .is_some_and(|text| !text.is_empty())
-    {
-        // A chunk is about a token; the terminal chunk's exact counts are not
-        // there for a reply that was abandoned, and those must count too.
-        work.fetch_add(WORK_PER_TOKEN, Ordering::Relaxed);
+    }
+
+    fn add(&self, units: u64) {
+        self.counted.set(self.counted.get() + units);
+        self.work
+            .fetch_add(units, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Counts one chunk of the reply as it arrives.
+    pub fn chunk(&self, chunk: &pwr_domain::ModelChunk) {
+        if let Some(progress) = chunk.prefill {
+            let seen = self.read.get();
+            if progress.processed > seen {
+                self.read.set(progress.processed);
+                self.add(progress.processed - seen);
+            }
+            return;
+        }
+        let written = chunk.content.len()
+            + chunk.thinking.as_deref().map_or(0, str::len)
+            + chunk
+                .tool_calls
+                .iter()
+                .map(|call| call.name.len() + call.arguments.to_string().len())
+                .sum::<usize>();
+        self.add(written as u64 * WORK_PER_TOKEN / BYTES_PER_TOKEN);
+    }
+
+    /// Replaces the estimate with the engine's counts, where a finished reply
+    /// carries them. An abandoned reply keeps its estimate: it was work too.
+    pub fn settle(&self, metrics: Option<&pwr_domain::GenerationMetrics>) {
+        use std::sync::atomic::Ordering;
+        let Some(generated) = metrics.and_then(|metrics| metrics.generated_tokens) else {
+            return;
+        };
+        let read =
+            match metrics.map(|metrics| (metrics.prompt_tokens, metrics.cached_prompt_tokens)) {
+                Some((Some(prompt), Some(cached))) => prompt.saturating_sub(cached),
+                _ => self.read.get(),
+            };
+        let exact = generated * WORK_PER_TOKEN + read;
+        let counted = self.counted.replace(exact);
+        if exact >= counted {
+            self.work.fetch_add(exact - counted, Ordering::Relaxed);
+        } else {
+            let _ = self
+                .work
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |work| {
+                    Some(work.saturating_sub(counted - exact))
+                });
+        }
+    }
+
+    /// What this generation has cost so far, in work units.
+    pub fn counted(&self) -> u64 {
+        self.counted.get()
     }
 }
 
@@ -2015,7 +2073,7 @@ async fn take_turn_inner<P: ModelProvider>(
         let reasoning_seen = std::cell::Cell::new(false);
         let streamed_content = std::cell::Cell::new(0usize);
         let first_chunk = std::cell::Cell::new(None::<std::time::Duration>);
-        let prompt_read = std::cell::Cell::new(0u64);
+        let metered = Metered::new(&continuity.work);
         let failed = |turn: &mut u32, outcome: &str, detail: String| {
             *turn = turn.saturating_add(1);
             store
@@ -2049,7 +2107,7 @@ async fn take_turn_inner<P: ModelProvider>(
         let collected = match opened {
             Ok(stream) => tokio::select! {
                 outcome = pwr_provider::collect_reply_with_guard(stream, |chunk| {
-                    meter(&continuity.work, &prompt_read, chunk);
+                    metered.chunk(chunk);
                     if let Some(progress) = chunk.prefill {
                         // Reading the prompt is not the first word of the
                         // answer, and time-to-first-chunk stays about that.
@@ -2123,6 +2181,7 @@ async fn take_turn_inner<P: ModelProvider>(
         // workspace, each having produced most of the files it needed.
         let reply = match collected {
             Ok(reply) => {
+                metered.settle(reply.metrics.as_ref());
                 unparseable = 0;
                 degenerate_replies = 0;
                 backend_faults = 0;

@@ -904,21 +904,21 @@ async fn read(
     stop: &std::sync::atomic::AtomicBool,
 ) -> Result<(Ended, String), String> {
     use futures_util::StreamExt;
-    use std::sync::atomic::Ordering;
     let started = tokio::time::Instant::now();
-    let before = meter.work.load(Ordering::Relaxed);
-    let prompt_read = std::cell::Cell::new(0u64);
+    let metered = crate::converse::Metered::new(meter.work);
     let mut answer = String::new();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| error.to_string())?;
         if stop.load(std::sync::atomic::Ordering::SeqCst) {
             return Ok((Ended::Interrupted, answer));
         }
-        crate::converse::meter(meter.work, &prompt_read, &chunk);
+        metered.chunk(&chunk);
+        if chunk.done {
+            metered.settle(chunk.metrics.as_ref());
+        }
         let elapsed = if meter.by_work {
             // What this reply has cost so far, in generated tokens.
-            (meter.work.load(Ordering::Relaxed) - before) as f64
-                / crate::converse::WORK_PER_TOKEN as f64
+            metered.counted() as f64 / crate::converse::WORK_PER_TOKEN as f64
         } else {
             started.elapsed().as_secs_f64()
         };
@@ -1700,10 +1700,10 @@ mod tests {
 
     #[test]
     fn every_reply_is_counted_on_the_goal_s_meter_and_shares_can_be_read_on_it() {
+        use crate::converse::WORK_PER_TOKEN;
         use std::sync::atomic::{AtomicU64, Ordering};
-        let chunk = |thinking: Option<&str>, content: &str, prefill: Option<u64>| {
+        let chunk = |thinking: Option<&str>, prefill: Option<u64>| {
             Ok(pwr_domain::ModelChunk {
-                content: content.to_owned(),
                 thinking: thinking.map(str::to_owned),
                 prefill: prefill.map(|processed| pwr_domain::PrefillProgress {
                     processed,
@@ -1712,11 +1712,16 @@ mod tests {
                 ..Default::default()
             })
         };
-        let reply = |words: usize| -> pwr_provider::ModelStream {
-            let mut chunks = vec![chunk(None, "", Some(160)), chunk(None, "", Some(400))];
-            chunks.extend((0..words).map(|n| chunk(Some(&format!("thought{n} ")), "", None)));
+        // 400 prompt tokens read in two steps, then `words` pieces of four
+        // bytes each -- a token apiece by the estimate.
+        let reply = |words: usize,
+                     metrics: Option<pwr_domain::GenerationMetrics>|
+         -> pwr_provider::ModelStream {
+            let mut chunks = vec![chunk(None, Some(160)), chunk(None, Some(400))];
+            chunks.extend((0..words).map(|_| chunk(Some("word"), None)));
             chunks.push(Ok(pwr_domain::ModelChunk {
                 done: true,
+                metrics,
                 ..Default::default()
             }));
             Box::pin(futures_util::stream::iter(chunks))
@@ -1729,34 +1734,50 @@ mod tests {
                 .unwrap()
                 .block_on(future)
         };
-        // 400 prompt tokens read and 50 generated: 400 + 50 * 8 on the meter,
-        // whatever the clock did.
+        // A reply that ends without counts keeps its estimate.
         let work = AtomicU64::new(1_000);
         let mut governor = Governor::new("src/dates.ts", DATES, None, None);
         let meter = Meter {
             work: &work,
             by_work: false,
         };
-        let (ended, _) = block_on(read(reply(50), &mut governor, &meter, &stop)).unwrap();
+        let (ended, _) = block_on(read(reply(50, None), &mut governor, &meter, &stop)).unwrap();
         assert_eq!(ended, Ended::Finished);
         assert_eq!(
             work.load(Ordering::Relaxed),
-            1_000 + 400 + 50 * crate::converse::WORK_PER_TOKEN
+            1_000 + 400 + 50 * WORK_PER_TOKEN
+        );
+        // One that ends with the engine's counts is charged those, not the
+        // estimate: here three times the tokens the text suggested, and a
+        // prompt mostly resumed from the cache.
+        let work = AtomicU64::new(1_000);
+        let mut governor = Governor::new("src/dates.ts", DATES, None, None);
+        let meter = Meter {
+            work: &work,
+            by_work: false,
+        };
+        let exact = pwr_domain::GenerationMetrics {
+            prompt_tokens: Some(400),
+            cached_prompt_tokens: Some(300),
+            generated_tokens: Some(150),
+            ..Default::default()
+        };
+        block_on(read(reply(50, Some(exact)), &mut governor, &meter, &stop)).unwrap();
+        assert_eq!(
+            work.load(Ordering::Relaxed),
+            1_000 + 100 + 150 * WORK_PER_TOKEN
         );
         // A thinking share of 100 tokens, read on the meter: the reply is
-        // ended by what it cost -- 50 for the prompt, then 50 generated --
-        // and no time has passed at all.
+        // ended by what it cost -- 50 for the prompt, then 50 written -- and
+        // no time has passed at all. Abandoned, it keeps its estimate.
         let work = AtomicU64::new(0);
         let mut governor = Governor::new("src/dates.ts", DATES, Some(100.0), Some(10_000.0));
         let meter = Meter {
             work: &work,
             by_work: true,
         };
-        let (ended, _) = block_on(read(reply(500), &mut governor, &meter, &stop)).unwrap();
+        let (ended, _) = block_on(read(reply(500, None), &mut governor, &meter, &stop)).unwrap();
         assert_eq!(ended, Ended::Governor(Stop::Share));
-        assert_eq!(
-            work.load(Ordering::Relaxed),
-            400 + 50 * crate::converse::WORK_PER_TOKEN
-        );
+        assert_eq!(work.load(Ordering::Relaxed), 400 + 50 * WORK_PER_TOKEN);
     }
 }

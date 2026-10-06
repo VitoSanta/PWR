@@ -252,18 +252,19 @@ async fn putting_back_a_much_shorter_file_takes_the_guard_s_own_way_round() {
 #[tokio::test]
 async fn a_turn_counts_its_model_s_work_and_does_not_start_a_reply_past_the_allowance() {
     let root = tempfile::tempdir().unwrap();
-    // One reply of one chunk: one generated token on the goal's meter.
+    // One reply of 22 bytes with no counts from the engine: five tokens and a
+    // half by the estimate of four bytes each, on the goal's meter.
     let continuity = converse::Continuity::default();
     let ran = run_with(root.path(), None, &continuity).await;
     assert_eq!(ran.asked, 1);
     assert_eq!(
         continuity.work.load(Ordering::Relaxed),
-        converse::WORK_PER_TOKEN
+        "the model's own answer".len() as u64 * converse::WORK_PER_TOKEN / 4
     );
     // With the allowance already spent the model is not asked again, and the
     // turn says the budget ended it.
     let spent = converse::Continuity {
-        work_limit: Some(converse::WORK_PER_TOKEN),
+        work_limit: Some(continuity.work.load(Ordering::Relaxed)),
         ..continuity.clone()
     };
     let ran = run_with(root.path(), None, &spent).await;
