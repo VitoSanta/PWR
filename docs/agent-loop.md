@@ -223,6 +223,11 @@ verification, no second turn.
    Measured on the product path on 2026-10-06 (two tasks, two models, two
    runs per arm): the numbers, and where it did not help, are in the plan
    item.
+   **Pointers (HYPOTHESIS, off by default; plan W2.10).** With
+   `"goal_aids": {"pointers": true}` in `.pwr/chat-config.json` and an
+   acceptance check failing at the baseline, the goal's first request ends
+   with the files its failing tests use (`proposals::pointers`), said to be
+   where to look and not what is wrong. Not measured.
 2. After each turn:
    - a declined or stopped turn (other than *budget spent*) ends the goal;
    - a turn with no actions and no completion counts as idle; three idle

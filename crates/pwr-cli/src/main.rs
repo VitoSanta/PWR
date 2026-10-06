@@ -1076,6 +1076,8 @@ struct ChatConfig {
     background_summaries: bool,
     /// Goal-wide limits, including baseline verification and review.
     goal_budget: serve::GoalLimits,
+    /// Help a goal is given beyond being run, each off unless asked for.
+    goal_aids: serve::GoalAids,
     /// The engine selected for this workspace. It remains workspace-local so a
     /// GGUF project need not repeat `--backend llama` on every launch.
     #[serde(default)]
@@ -1310,6 +1312,7 @@ impl Default for ChatConfig {
         Self {
             background_summaries: false,
             goal_budget: serve::GoalLimits::default(),
+            goal_aids: serve::GoalAids::default(),
             backend: None,
             require_probe: true,
             model: None,
@@ -3043,6 +3046,11 @@ impl serve::TurnRunner for ConsoleTurns {
             config.model.as_deref(),
             &profiles,
         ))
+    }
+    fn goal_aids(&self, root: &Path) -> serve::GoalAids {
+        load_chat_config(root)
+            .map(|config| config.goal_aids)
+            .unwrap_or_default()
     }
     fn persist_checkpoint(
         &self,
@@ -4939,6 +4947,7 @@ async fn console_turn(
             approvals,
             session_grants,
             policy: Policy::Conversation,
+            aids: serve::GoalAids::default(),
         },
         serve::GoalLimits::default(),
     )
@@ -13654,6 +13663,7 @@ mod tests {
         let config = ChatConfig {
             background_summaries: false,
             goal_budget: serve::GoalLimits::default(),
+            goal_aids: serve::GoalAids::default(),
             backend: None,
             require_probe: true,
             model: Some("example:latest".into()),

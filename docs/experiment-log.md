@@ -1050,3 +1050,13 @@ phase unless the workspace sets `"proposals": 0`. The phase now gives way
 after four proposals in a row (or two per file) keep nothing, not after two
 passes; that rule has not been run with a model. Two runs per cell say which
 way one cell went, not by how much.
+
+### 2026-10-06: a switch to tell a goal where its failing checks point (W2.10)
+
+Adds `goal_aids.pointers` to the workspace configuration, off by default and
+turned on by no profile, so nothing measured so far changes. With it on, a
+goal whose acceptance check fails at the baseline has the files its failing
+tests use appended to its first request. Reason: arXiv 2609.20804's weakest
+model (30B) ended 58 % of its runs while locating the problem, and Ornith 1.5
+9B here read a whole project and edited nothing in ten runs of ten. Covered on
+the simulated host; no model has run with it.

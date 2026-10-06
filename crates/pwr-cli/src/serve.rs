@@ -19,7 +19,7 @@ use pwr_orchestrator::executor::{
     self, GoalLimitReached, Policy, SessionEnd, SessionHost, SessionRequest, SessionResult,
     SharedStepSink, VerifyError,
 };
-pub use pwr_orchestrator::executor::{GoalLimits, GoalVerification, TurnInput};
+pub use pwr_orchestrator::executor::{GoalAids, GoalLimits, GoalVerification, TurnInput};
 use pwr_orchestrator::{ApprovalDecision, ApprovalPrompt};
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -144,6 +144,11 @@ pub trait TurnRunner {
     /// knows better.
     fn goal_limits(&self, _root: &Path) -> Result<GoalLimits, String> {
         Ok(GoalLimits::default())
+    }
+    /// The help a goal in this workspace is given beyond being run; none
+    /// unless the runner knows the workspace asked.
+    fn goal_aids(&self, _root: &Path) -> GoalAids {
+        GoalAids::default()
     }
     /// The workspace's settings a client reads or changes, as JSON.
     async fn settings(&self, root: &Path, request: SettingsRequest) -> Result<Value, String>;
@@ -1984,6 +1989,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             Err(why) if policy != Policy::Conversation => return error_response(id, -32000, &why),
             Err(_) => GoalLimits::default(),
         };
+        let aids = self.runner.goal_aids(&root);
         // What a prompt amounts to is the executor's to decide; this only
         // turns how it ended into the reply the client reads.
         let host = ServerHost {
@@ -2002,6 +2008,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 approvals,
                 session_grants,
                 policy,
+                aids,
             },
             limits,
         )

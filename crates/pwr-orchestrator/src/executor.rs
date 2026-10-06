@@ -559,6 +559,16 @@ pub fn goal_guidance(text: impl Into<String>) -> ChatMessage {
     message
 }
 
+/// Help a goal is given beyond being run. Each is measured on its own and off
+/// unless the workspace asks for it (`goal_aids` in `.pwr/chat-config.json`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GoalAids {
+    /// Tell the goal, in its first request, which files its failing
+    /// acceptance tests use ([`crate::proposals::pointers`]; plan W2.10).
+    pub pointers: bool,
+}
+
 /// How a request is run: one turn, or turns repeated until the work is
 /// verified, paused or out of budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -581,6 +591,7 @@ pub struct SessionRequest {
     pub approvals: Arc<dyn ApprovalPrompt>,
     pub session_grants: Arc<Mutex<Vec<pwr_tools::Approval>>>,
     pub policy: Policy,
+    pub aids: GoalAids,
 }
 
 /// Why the host could not verify.
@@ -744,6 +755,7 @@ async fn drive<H: SessionHost + ?Sized>(
         approvals,
         session_grants,
         policy,
+        aids,
     } = request;
     let goal_mode = policy == Policy::Goal;
     let minimal = policy == Policy::Minimal;
@@ -835,6 +847,18 @@ async fn drive<H: SessionHost + ?Sized>(
             last.content
                 .push_str(&format!("\n\n{}", already_failing_note(&already_failing)));
         }
+    }
+    if aids.pointers
+        && let Some(baseline) = baseline
+            .as_ref()
+            .filter(|baseline| !baseline.failing_acceptance.is_empty())
+        && let Some(note) = crate::proposals::pointers(
+            &crate::proposals::survey(&root, &baseline.evidence),
+            |path| root.join(path).exists(),
+        )
+        && let Some(last) = messages.last_mut().filter(|last| last.role == "user")
+    {
+        last.content.push_str(&format!("\n\n{note}"));
     }
     let mut goal_edited = false;
     // One action of PWR's own, through a turn (see `TurnInput::scripted`).
@@ -1918,6 +1942,7 @@ mod tests {
             approvals: Arc::new(crate::DenyWithoutAsking),
             session_grants: Arc::default(),
             policy,
+            aids: GoalAids::default(),
         }
     }
 
@@ -2812,6 +2837,32 @@ mod tests {
         fn keep_messages(&self, messages: &[ChatMessage]) {
             *self.kept.lock().unwrap() = messages.to_vec();
         }
+    }
+
+    #[test]
+    fn a_goal_is_told_where_its_failing_checks_point_only_when_asked() {
+        let run = |pointers: bool| {
+            let host = Proposing::new(Some(&body("original")), &[]);
+            let mut request = request(Policy::Goal);
+            request.root = host.root.path().to_path_buf();
+            request.aids = GoalAids { pointers };
+            tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .start_paused(true)
+                .build()
+                .unwrap()
+                .block_on(execute(&host, request, GoalLimits::default()));
+            assert!(
+                host.asked.lock().unwrap().is_empty(),
+                "no proposals were asked for"
+            );
+            host.kept.lock().unwrap()[0].content.clone()
+        };
+        let told = run(true);
+        assert!(told.starts_with("make the tests pass"));
+        assert!(told.contains("Where the failing checks point."));
+        assert!(told.contains("- src/dates.ts, used by test/dates.test.ts"));
+        assert!(!run(false).contains("Where the failing checks point."));
     }
 
     #[test]

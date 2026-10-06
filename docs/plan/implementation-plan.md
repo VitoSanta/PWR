@@ -206,6 +206,35 @@ nothing measurable and are not adopted.
   passes before any file exists makes a correct first file look like a
   regression. The stall threshold was set on one task's streams.
 
+### W2.10 Tell a goal where its failing checks point
+
+**HYPOTHESIS, implemented behind a switch, not measured (owner go-ahead
+2026-10-06).** A weak model spends its goal finding where to work. Outside
+PWR (arXiv 2609.20804, a 30B model, SWE-Bench Verified): 58 % of runs ended
+while still locating the problem, 69 % without an edit; a harness-held plan
+raised its success by 11.6 %. On the product path here, 2026-10-06: Ornith 1.5
+9B without the proposals phase read every file of a four-module project in
+its first twelve actions and changed none, 5 of 17 passing in ten runs of ten.
+
+- **Change.** With `goal_aids.pointers` on in `.pwr/chat-config.json` and an
+  acceptance check failing at the baseline, the first request of the goal
+  names the files the failing tests use, from `proposals::survey`, and says
+  it is where to look and not what is wrong. Off by default; no profile turns
+  it on.
+- **To measure.** Ledger, Ornith 1.5 9B with the proposals phase off, against
+  the 5 of 17 baseline; then Qwen3.5 9B, for harm. Kept only with a gain on
+  one and no loss on the other; otherwise removed.
+- **Next, larger.** The same paper's planning scaffold: a plan the model
+  updates through a tool and the harness shows before every generation. The
+  conversation loop has no such tool (`record_progress` belongs to the
+  scripted loop and answers to a plan made up front); adding one touches the
+  catalogue, the action types and the prompt of every generation, and is to
+  be designed on its own.
+- **Demoted by the same evidence: W4.4.** The paper's recoverable elision
+  gave no gain over elision alone; models "almost never" recalled what was
+  elided. Storing tool output past the bound for later reading is no longer
+  NEXT until a run here shows a model asking for it.
+
 No candidate above authorizes a campaign before the baseline/power/provenance
 requirements. F0 owner approval adopted scope, not the numerical F6 thresholds.
 

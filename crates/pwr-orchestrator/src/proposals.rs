@@ -314,6 +314,47 @@ pub fn survey(root: &Path, evidence: &str) -> Vec<Target> {
         .collect()
 }
 
+/// What a goal is told about where its failing checks point: the files the
+/// failing tests use, read from the tests. Mechanical, and said to be: finding
+/// a file in a test is the harness's work, deciding what is wrong in it is not.
+///
+/// A weak model spends a goal finding where to work. Measured outside PWR
+/// (arXiv 2609.20804, a 30B model on SWE-Bench Verified): 58 % of its runs
+/// ended while still locating the problem and 69 % without an edit. Seen here
+/// on the product path, 2026-10-06: Ornith 1.5 9B read every file of a
+/// four-module project in its first twelve actions, ten runs in ten, and
+/// changed none.
+pub fn pointers(targets: &[Target], exists: impl Fn(&str) -> bool) -> Option<String> {
+    const SHOWN: usize = 8;
+    if targets.is_empty() {
+        return None;
+    }
+    let mut note = String::from(
+        "Where the failing checks point. PWR read this from the tests; it is where to look, \
+         not what is wrong:",
+    );
+    for target in targets.iter().take(SHOWN) {
+        let tests = if target.tests.is_empty() {
+            "the tests".to_owned()
+        } else {
+            target.tests.join(", ")
+        };
+        note.push_str(&if exists(&target.path) {
+            format!("\n- {}, used by {tests}", target.path)
+        } else {
+            format!(
+                "\n- {}, which {tests} needs and is not there yet",
+                target.path
+            )
+        });
+    }
+    if targets.len() > SHOWN {
+        note.push_str(&format!("\n- and {} more", targets.len() - SHOWN));
+    }
+    note.push_str("\nBegin with these, and read other files as these lead you to them.");
+    Some(note)
+}
+
 /// The project's own statement of what it must do, when it has one.
 pub fn contract(root: &Path) -> String {
     ["README.md", "README", "readme.md"]
@@ -1214,6 +1255,38 @@ mod tests {
         // Output that names no test file: every test file counts.
         assert_eq!(survey(root, "exit code 1").len(), 3);
         assert_eq!(contract(root), "# ledger\nRules.\n");
+    }
+
+    #[test]
+    fn pointers_name_the_files_and_their_tests_and_say_what_they_are() {
+        let target = |path: &str, tests: &[&str]| Target {
+            path: path.into(),
+            context: Vec::new(),
+            tests: tests.iter().map(|test| (*test).to_owned()).collect(),
+            all_tests: Vec::new(),
+        };
+        let note = pointers(
+            &[
+                target("src/money.ts", &["test/money.test.ts"]),
+                target("todo.py", &["tests/test_todo.py"]),
+            ],
+            |path| path == "src/money.ts",
+        )
+        .unwrap();
+        assert!(note.starts_with("Where the failing checks point."));
+        assert!(note.contains("it is where to look, not what is wrong"));
+        assert!(note.contains("\n- src/money.ts, used by test/money.test.ts"));
+        assert!(note.contains("\n- todo.py, which tests/test_todo.py needs and is not there yet"));
+        assert_eq!(pointers(&[], |_| true), None);
+        let many: Vec<Target> = (0..11)
+            .map(|n| target(&format!("src/f{n}.ts"), &[]))
+            .collect();
+        let note = pointers(&many, |_| true).unwrap();
+        assert!(
+            note.contains("src/f7.ts")
+                && !note.contains("src/f8.ts")
+                && note.contains("and 3 more")
+        );
     }
 
     #[test]
