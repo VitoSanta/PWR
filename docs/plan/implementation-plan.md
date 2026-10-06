@@ -1008,7 +1008,9 @@ rendered preflight and panel integration remain PLANNED.
 
 ### W4.4 Keep large tool output retrievable
 
-**Status:** NEXT · M
+**Status:** LATER · M — demoted 2026-10-06 (see W2.10): arXiv 2609.20804
+measured no gain from making elided output recoverable, because models did
+not ask for it; to be reopened when a run here shows a model that does.
 
 - **Problem.** Tool output is bounded and hashed, but the bytes past the bound
   are not kept, so a model cannot read the part of a long log it needs; a hash
