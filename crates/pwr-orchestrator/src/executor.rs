@@ -693,6 +693,15 @@ const PROPOSAL_SHARE: (f64, f64) = (30.0, 240.0);
 /// Passes over the files with nothing kept before the phase gives way to the
 /// ordinary goal.
 const PROPOSAL_IDLE_PASSES: usize = 2;
+/// How long the checks may run on a proposed file: this many times what they
+/// took at the baseline, within these bounds. A proposal can loop for ever --
+/// the first one measured on the product path did (2026-10-06), and its
+/// verification took 4 min 40 s of a ten-minute goal.
+const PROPOSAL_CHECKS: (u32, std::time::Duration, std::time::Duration) = (
+    10,
+    std::time::Duration::from_secs(20),
+    std::time::Duration::from_secs(300),
+);
 
 async fn drive<H: SessionHost + ?Sized>(
     host: &H,
@@ -784,11 +793,13 @@ async fn drive<H: SessionHost + ?Sized>(
     // The checks already failing when the goal starts, so the goal is
     // neither sent to repair them nor held open by them.
     let mut already_failing: Vec<String> = Vec::new();
+    let baseline_started = tokio::time::Instant::now();
     let baseline = if goal_mode {
         verify!().ok().map(|(baseline, _)| baseline)
     } else {
         None
     };
+    let baseline_took = baseline_started.elapsed();
     if let Some(baseline) = baseline
         .as_ref()
         .filter(|baseline| !baseline.failing.is_empty())
@@ -959,28 +970,29 @@ async fn drive<H: SessionHost + ?Sized>(
                     continue;
                 }
                 goal_edited = true;
-                let after = match bounded!(host.verify()) {
-                    Ok((after, _)) => after,
-                    Err(_) => {
-                        note = Some(format!(
-                            "Proposals stopped: {path} was written and could not be verified; it is still in place."
-                        ));
-                        break 'phase;
-                    }
+                let allowed =
+                    (baseline_took * PROPOSAL_CHECKS.0).clamp(PROPOSAL_CHECKS.1, PROPOSAL_CHECKS.2);
+                // No verdict -- the checks did not finish, or could not run --
+                // is not a pass: the file goes back like any other refusal.
+                let after = match bounded!(tokio::time::timeout(allowed, host.verify())) {
+                    Ok(Ok((after, _))) => Some(after),
+                    _ => None,
                 };
-                let now = proposals::Standing {
+                let now = after.as_ref().map(|after| proposals::Standing {
                     failing: !after.failing.is_empty(),
                     failures: after.failed_tests.clone(),
-                };
-                if proposals::improves(&standing, &now) {
+                });
+                if let (Some(after), Some(now)) = (after.as_ref(), now.as_ref())
+                    && proposals::improves(&standing, now)
+                {
                     host.say(&format!(
                         "Kept {path}: {} of the owner's tests still fail.\n\n",
                         now.failures.len()
                     ));
                     kept.push(path.clone());
                     refused.remove(&path);
-                    standing = now;
-                    evidence = after.evidence;
+                    standing = now.clone();
+                    evidence = after.evidence.clone();
                     continue;
                 }
                 let undo = match &on_disk {
@@ -1019,11 +1031,24 @@ async fn drive<H: SessionHost + ?Sized>(
                 }
                 restored += 1;
                 let broke = now
-                    .failures
-                    .difference(&standing.failures)
-                    .cloned()
-                    .collect();
-                refused.insert(path, (file, after.evidence, broke));
+                    .as_ref()
+                    .map(|now| {
+                        now.failures
+                            .difference(&standing.failures)
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let said = after.map_or_else(
+                    || {
+                        format!(
+                            "The checks did not finish within {} s with this file: something in it may never return.",
+                            allowed.as_secs()
+                        )
+                    },
+                    |after| after.evidence,
+                );
+                refused.insert(path, (file, said, broke));
             }
             idle_passes = if kept.len() == kept_before {
                 idle_passes + 1
@@ -2619,6 +2644,8 @@ mod tests {
             request.root = self.root.path().to_path_buf();
             tokio::runtime::Builder::new_current_thread()
                 .enable_time()
+                // A hung verification is waited out on the clock, not for real.
+                .start_paused(true)
                 .build()
                 .unwrap()
                 .block_on(execute(self, request, limits))
@@ -2678,6 +2705,10 @@ mod tests {
         async fn verify(
             &self,
         ) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+            if self.source().is_some_and(|source| source.contains("HANGS")) {
+                // A file whose tests never return.
+                tokio::time::sleep(std::time::Duration::from_secs(86_400)).await;
+            }
             Ok((self.standing(), BTreeMap::new()))
         }
 
@@ -2796,6 +2827,25 @@ mod tests {
             |message| message.content.contains("0 kept (none), 2 restored")
                 && message.content.contains("2 tests still fail")
         ));
+    }
+
+    #[test]
+    fn a_proposal_whose_checks_never_finish_is_restored_and_the_phase_goes_on() {
+        let host = Proposing::new(Some(&body("original")), &[&body("HANGS"), &body("FIXED")]);
+        let result = host.run(4);
+        // Put back, said to the next request, and the next proposal is kept.
+        assert_eq!(host.source().unwrap(), body("FIXED"));
+        assert_eq!(
+            *host.calls.lock().unwrap(),
+            ["apply_replace", "apply_replace", "apply_replace"]
+        );
+        let asked = host.asked.lock().unwrap();
+        assert!(
+            asked[1]
+                .0
+                .contains("The checks did not finish within 20 s with this file")
+        );
+        assert!(result.budget.started.elapsed() < std::time::Duration::from_secs(120));
     }
 
     #[test]
