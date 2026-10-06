@@ -130,6 +130,24 @@ impl<P: pwr_provider::ModelProvider> pwr_provider::ModelProvider for Scripted<P>
         };
         Ok(Box::pin(futures_util::stream::iter([Ok(chunk)])))
     }
+    /// The model's own way of abandoning a reply, when nothing is scripted.
+    ///
+    /// Every turn's provider is wrapped in this type, and the default
+    /// `chat_cancellable` only drops the stream: without this the MLX engine's
+    /// own cancellation -- which tells the sidecar to stop, during prefill too
+    /// (W5.1) -- was bypassed for every ordinary turn from the commit that
+    /// introduced the wrapper until this one.
+    async fn chat_cancellable(
+        &self,
+        request: pwr_domain::ModelRequest,
+        cancel: pwr_provider::Cancel,
+    ) -> Result<pwr_provider::ModelStream, pwr_provider::ProviderError> {
+        let scripted = self.turn.lock().is_ok_and(|turn| turn.is_some());
+        if scripted {
+            return self.chat(request).await;
+        }
+        self.inner.chat_cancellable(request, cancel).await
+    }
 }
 
 /// Evidence the core gathered after a model declared a goal complete.

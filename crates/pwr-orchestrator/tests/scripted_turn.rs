@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 #[derive(Default)]
 struct Model {
     asked: AtomicUsize,
+    cancellable: AtomicUsize,
 }
 
 #[async_trait]
@@ -26,6 +27,15 @@ impl ModelProvider for &Model {
     }
     async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
         unreachable!()
+    }
+    async fn chat_cancellable(
+        &self,
+        request: ModelRequest,
+        _: pwr_provider::Cancel,
+    ) -> Result<ModelStream, ProviderError> {
+        // A backend with its own way of abandoning a reply, as MLX has.
+        self.cancellable.fetch_add(1, Ordering::Relaxed);
+        self.chat(request).await
     }
     async fn chat(&self, _: ModelRequest) -> Result<ModelStream, ProviderError> {
         self.asked.fetch_add(1, Ordering::Relaxed);
@@ -41,6 +51,7 @@ struct Ran {
     report: converse::TurnReport,
     messages: Vec<ChatMessage>,
     asked: usize,
+    cancellable: usize,
 }
 
 async fn run(root: &std::path::Path, scripted: Option<(&str, serde_json::Value)>) -> Ran {
@@ -93,6 +104,7 @@ async fn run(root: &std::path::Path, scripted: Option<(&str, serde_json::Value)>
         report,
         messages,
         asked: model.asked.load(Ordering::Relaxed),
+        cancellable: model.cancellable.load(Ordering::Relaxed),
     }
 }
 
@@ -179,6 +191,9 @@ async fn with_nothing_scripted_the_model_answers_as_itself() {
     let root = tempfile::tempdir().unwrap();
     let ran = run(root.path(), None).await;
     assert_eq!(ran.asked, 1);
+    // Through the backend's own cancellable entry, not the default one that
+    // only drops the stream: the wrapper is on every turn's path.
+    assert_eq!(ran.cancellable, 1);
     assert_eq!(
         ran.messages.last().unwrap().content,
         "the model's own answer"
