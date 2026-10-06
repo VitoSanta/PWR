@@ -436,6 +436,117 @@ pub fn handoff(brief: &str, path: &str, notes: &str) -> String {
     )
 }
 
+/// Where a proposal's text comes from: a plain generation, no tools.
+#[async_trait::async_trait(?Send)]
+pub trait Author {
+    /// A reply to `prompt` as it is generated; `think` off asks the template
+    /// for an answer without a reasoning phase, where it can.
+    async fn write(&self, prompt: String, think: bool)
+    -> Result<pwr_provider::ModelStream, String>;
+}
+
+/// How long the model may think and write, in seconds: each a share of what
+/// the goal has left, decided by the caller.
+#[derive(Debug, Clone, Copy)]
+pub struct Shares {
+    pub thinking: f64,
+    pub reply: f64,
+    /// For the second request, when the first ended without a file.
+    pub answer: f64,
+}
+
+/// How one generation of a proposal ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ended {
+    Governor(Stop),
+    /// The model finished by itself.
+    Finished,
+    /// The person, or the goal's deadline, stopped it.
+    Interrupted,
+}
+
+/// A file the model proposed, or that it proposed none, and how it got there.
+#[derive(Debug, Default)]
+pub struct Proposal {
+    pub file: Option<String>,
+    pub phases: Vec<Ended>,
+}
+
+/// Reads a reply into `governor` until it says stop, the reply ends or the
+/// person stops it. Dropping the stream is what cancels the generation.
+async fn read(
+    mut stream: pwr_provider::ModelStream,
+    governor: &mut Governor,
+    stop: &std::sync::atomic::AtomicBool,
+) -> Result<(Ended, String), String> {
+    use futures_util::StreamExt;
+    let started = tokio::time::Instant::now();
+    let mut answer = String::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if stop.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok((Ended::Interrupted, answer));
+        }
+        let elapsed = started.elapsed().as_secs_f64();
+        let mut said = None;
+        if let Some(thinking) = chunk.thinking.as_deref().filter(|text| !text.is_empty()) {
+            said = governor.feed(thinking, Channel::Reasoning, elapsed);
+        }
+        if said.is_none() && !chunk.content.is_empty() {
+            answer.push_str(&chunk.content);
+            said = governor.feed(&chunk.content, Channel::Answer, elapsed);
+        }
+        if let Some(stop) = said {
+            return Ok((Ended::Governor(stop), answer));
+        }
+        if chunk.done {
+            break;
+        }
+    }
+    Ok((Ended::Finished, answer))
+}
+
+/// Asks for `path` once, and once more with the model's own notes and its
+/// reasoning off when the first reply holds no file.
+///
+/// The second request is what made the difference measured in W2.9: told to
+/// write now, with what it had already worked out in front of it, Ornith 1.5
+/// produced the file in 7-17 s where it had spent its whole reply analysing.
+/// A template that ignores the reasoning switch (LFM2.5) is not helped by it.
+pub async fn propose<A: Author + ?Sized>(
+    author: &A,
+    path: &str,
+    current: &str,
+    brief: String,
+    shares: Shares,
+    stop: &std::sync::atomic::AtomicBool,
+) -> Result<Proposal, String> {
+    let mut proposal = Proposal::default();
+    let mut first = Governor::new(path, current, Some(shares.thinking), Some(shares.reply));
+    let (ended, answer) = read(author.write(brief.clone(), true).await?, &mut first, stop).await?;
+    proposal.phases.push(ended);
+    // A reply that ended by itself may hold a block the governor would not
+    // stop on -- a short correction; the checks judge it like any other.
+    proposal.file = first.file().map(str::to_owned).or_else(|| {
+        (ended == Ended::Finished)
+            .then(|| extract(&answer, path))
+            .flatten()
+    });
+    if proposal.file.is_some() || ended == Ended::Interrupted {
+        return Ok(proposal);
+    }
+    let mut second = Governor::new(path, current, None, Some(shares.answer));
+    let asked = handoff(&brief, path, &first.notes(1_800));
+    let (ended, answer) = read(author.write(asked, false).await?, &mut second, stop).await?;
+    proposal.phases.push(ended);
+    proposal.file = second.file().map(str::to_owned).or_else(|| {
+        (ended == Ended::Finished)
+            .then(|| extract(&answer, path))
+            .flatten()
+    });
+    Ok(proposal)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -661,6 +772,163 @@ mod tests {
         assert!(
             asked.ends_with("Start your reply with ```typescript\n")
                 && asked.contains("YOUR ANALYSIS SO FAR")
+        );
+    }
+
+    /// Replies scripted in advance; records what it was asked.
+    struct Scripted {
+        replies: std::cell::RefCell<Vec<Vec<(Channel, String)>>>,
+        asked: std::cell::RefCell<Vec<(String, bool)>>,
+    }
+
+    impl Scripted {
+        fn new(replies: Vec<Vec<(Channel, String)>>) -> Self {
+            Self {
+                replies: std::cell::RefCell::new(replies),
+                asked: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl Author for Scripted {
+        async fn write(
+            &self,
+            prompt: String,
+            think: bool,
+        ) -> Result<pwr_provider::ModelStream, String> {
+            self.asked.borrow_mut().push((prompt, think));
+            let reply = self.replies.borrow_mut().remove(0);
+            let mut chunks: Vec<Result<pwr_domain::ModelChunk, pwr_provider::ProviderError>> =
+                reply
+                    .into_iter()
+                    .flat_map(|(channel, text)| {
+                        let chars: Vec<char> = text.chars().collect();
+                        chars
+                            .chunks(9)
+                            .map(|piece| {
+                                let piece: String = piece.iter().collect();
+                                Ok(pwr_domain::ModelChunk {
+                                    content: if channel == Channel::Answer {
+                                        piece.clone()
+                                    } else {
+                                        String::new()
+                                    },
+                                    thinking: (channel == Channel::Reasoning).then_some(piece),
+                                    tool_calls: Vec::new(),
+                                    metrics: None,
+                                    prefill: None,
+                                    done: false,
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+            chunks.push(Ok(pwr_domain::ModelChunk {
+                content: String::new(),
+                thinking: None,
+                tool_calls: Vec::new(),
+                metrics: None,
+                prefill: None,
+                done: true,
+            }));
+            Ok(Box::pin(futures_util::stream::iter(chunks)))
+        }
+    }
+
+    const SHARES: Shares = Shares {
+        thinking: 30.0,
+        reply: 60.0,
+        answer: 60.0,
+    };
+
+    fn run(author: &Scripted, path: &str, current: &str) -> Proposal {
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(propose(
+                author,
+                path,
+                current,
+                "BRIEF\n".to_owned(),
+                SHARES,
+                &stop,
+            ))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_reply_with_the_file_is_one_request_and_ends_at_the_file() {
+        let fixed = DATES.replace("left--", "left -= 1");
+        let author = Scripted::new(vec![vec![
+            (Channel::Reasoning, "The order is wrong.".to_owned()),
+            (
+                Channel::Answer,
+                format!("```typescript\n{fixed}```\nand then a long explanation"),
+            ),
+        ]]);
+        let proposal = run(&author, "src/dates.ts", DATES);
+        assert_eq!(proposal.file.as_deref(), Some(fixed.as_str()));
+        assert_eq!(proposal.phases, [Ended::Governor(Stop::Answer)]);
+        assert_eq!(author.asked.borrow().len(), 1);
+        assert!(author.asked.borrow()[0].1, "the first request may reason");
+    }
+
+    #[test]
+    fn a_reply_that_only_analyses_is_asked_once_more_with_its_notes_and_reasoning_off() {
+        let fixed = DATES.replace("left--", "left -= 1");
+        let author = Scripted::new(vec![
+            vec![(
+                Channel::Reasoning,
+                "Let me recompute the weekday for this date again to be sure. ".repeat(60),
+            )],
+            vec![(Channel::Answer, format!("```typescript\n{fixed}```"))],
+        ]);
+        let proposal = run(&author, "src/dates.ts", DATES);
+        assert_eq!(proposal.file.as_deref(), Some(fixed.as_str()));
+        assert_eq!(
+            proposal.phases,
+            [
+                Ended::Governor(Stop::Stalled),
+                Ended::Governor(Stop::Answer)
+            ]
+        );
+        let asked = author.asked.borrow();
+        assert!(!asked[1].1, "the second request does not reason");
+        assert!(asked[1].0.starts_with("BRIEF\nYOUR ANALYSIS SO FAR"));
+        assert!(asked[1].0.contains("recompute the weekday"));
+    }
+
+    #[test]
+    fn two_replies_without_a_file_are_no_proposal_and_never_a_guess() {
+        let author = Scripted::new(vec![
+            vec![(
+                Channel::Answer,
+                "<tool_call>write_file</tool_call>".to_owned(),
+            )],
+            vec![(
+                Channel::Answer,
+                "```typescript\nexport function dueDate(".to_owned(),
+            )],
+        ]);
+        let proposal = run(&author, "src/dates.ts", DATES);
+        assert_eq!(proposal.file, None);
+        assert_eq!(proposal.phases, [Ended::Finished, Ended::Finished]);
+    }
+
+    #[test]
+    fn a_short_correction_the_model_finished_by_itself_is_still_its_proposal() {
+        let author = Scripted::new(vec![vec![(
+            Channel::Answer,
+            "```typescript\nexport function dueDate(): string { return ''; }\n```".to_owned(),
+        )]]);
+        let proposal = run(&author, "src/dates.ts", DATES);
+        assert_eq!(proposal.phases, [Ended::Finished]);
+        assert_eq!(
+            proposal.file.as_deref(),
+            Some("export function dueDate(): string { return ''; }\n")
         );
     }
 }
