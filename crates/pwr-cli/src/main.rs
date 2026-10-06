@@ -3853,6 +3853,14 @@ impl serve::TurnRunner for ConsoleTurns {
             ("max_tokens".to_owned(), serde_json::json!(8_192)),
             // Beside the conversation's cache, like a review.
             ("aside".to_owned(), serde_json::json!(true)),
+            // A file being corrected repeats most of its own tokens, and is
+            // asked to: a penalty on tokens already present works against
+            // "copy every other line unchanged". With the 1.5 PWR resolves for
+            // Ornith 1.5 from its card's general-use setting, 28-line files
+            // came back as 94 and 144 lines and none helped (product path,
+            // 2026-10-06); the diagnostics that worked had it at zero.
+            ("presence_penalty".to_owned(), serde_json::json!(0.0)),
+            ("repetition_penalty".to_owned(), serde_json::json!(1.0)),
         ]);
         let request = ModelRequest {
             deployment: selection.deployment.clone(),
