@@ -3816,21 +3816,50 @@ impl serve::TurnRunner for ConsoleTurns {
             .runtime
             .select(model, Duration::from_secs(config.timeout_secs))
             .map_err(|error| error.to_string())?;
+        // The sampling a turn of this model would use, resolved the same way.
+        // Without it the request carried no temperature, the MLX engine read
+        // that as zero, and a second request for a file repeated the first
+        // word for word (product-path run, 2026-10-06): the phase keeps the
+        // better of several attempts and had one attempt, several times.
+        let inspection = selection
+            .backend
+            .inspect(&selection.deployment)
+            .await
+            .map_err(|error| error.to_string())?;
+        let profiles =
+            load_model_profiles(Path::new(MODEL_PROFILE_FILE)).map_err(|error| error.context)?;
+        let identity = pwr_domain::DeploymentIdentity::from_inspection(
+            &selection.deployment,
+            &inspection.definition,
+        );
+        let declared = pwr_domain::ModelProfile::select_for(&profiles, &identity);
+        let mut sampling = pwr_orchestrator::TaskProfile::resolve(None, declared).sampling;
+        if selection.backend.backend_id() == "mlx" {
+            enrich_mlx_sampling(
+                &selection.deployment.model_ref,
+                declared,
+                &mut sampling,
+                inspection.definition.metadata.get("generation_config"),
+                true,
+            )
+            .await?;
+        }
+        sampling.extend([
+            ("think".to_owned(), serde_json::json!(think)),
+            // No reasoning cap: the governor reading the stream ends the
+            // thinking, judged against the file asked for. A cap of 1,024
+            // tokens moved the analysis into the answer instead (W2.9).
+            ("reasoning_budget".to_owned(), serde_json::Value::Null),
+            ("max_tokens".to_owned(), serde_json::json!(8_192)),
+            // Beside the conversation's cache, like a review.
+            ("aside".to_owned(), serde_json::json!(true)),
+        ]);
         let request = ModelRequest {
             deployment: selection.deployment.clone(),
             context_tokens: config.context_tokens.min(32_768),
             tools: None,
             seed: None,
-            sampling: BTreeMap::from([
-                ("think".to_owned(), serde_json::json!(think)),
-                // No reasoning cap: the governor reading the stream ends the
-                // thinking, judged against the file asked for. A cap of 1,024
-                // tokens moved the analysis into the answer instead (W2.9).
-                ("reasoning_budget".to_owned(), serde_json::Value::Null),
-                ("max_tokens".to_owned(), serde_json::json!(8_192)),
-                // Beside the conversation's cache, like a review.
-                ("aside".to_owned(), serde_json::json!(true)),
-            ]),
+            sampling,
             messages: vec![
                 ChatMessage::text(
                     "system",
@@ -4916,9 +4945,14 @@ async fn console_turn(
 /// turn appends the assistant's reply and any reads it made, and the console
 /// has to keep them for the next turn.
 /// The part of a failing check's output worth showing to a model asked to
-/// make it pass: stack frames and blank lines out, the end kept when long.
+/// make it pass: stack frames and blank lines out, and of a long one the
+/// beginning and the end.
+///
+/// The end alone was kept at first, 3,000 characters of it: on a suite of
+/// four test files that is the last file's failures, and the model asked for
+/// another file was shown nothing about it (product-path run, 2026-10-06).
 fn failing_output(stdout: &str, stderr: &str) -> String {
-    const SHOWN: usize = 3_000;
+    const SHOWN: usize = 12_000;
     let mut text = String::new();
     for line in stdout.lines().chain(stderr.lines()) {
         let trimmed = line.trim();
@@ -4928,14 +4962,18 @@ fn failing_output(stdout: &str, stderr: &str) -> String {
         text.push_str(line.trim_end());
         text.push('\n');
     }
-    if text.len() > SHOWN {
-        let mut start = text.len() - SHOWN;
-        while !text.is_char_boundary(start) {
-            start += 1;
-        }
-        text = format!("[...]\n{}", &text[start..]);
+    if text.len() <= SHOWN {
+        return text;
     }
-    text
+    let mut head = SHOWN / 2;
+    while !text.is_char_boundary(head) {
+        head -= 1;
+    }
+    let mut tail = text.len() - SHOWN / 2;
+    while !text.is_char_boundary(tail) {
+        tail += 1;
+    }
+    format!("{}[...]\n{}", &text[..head], &text[tail..])
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -11470,6 +11508,19 @@ mod tests {
     use super::*;
     use pwr_domain::ModelChunk;
     use pwr_provider::ProviderError;
+
+    #[test]
+    fn a_long_failing_output_keeps_its_beginning_and_its_end_and_drops_stack_frames() {
+        let short = failing_output(
+            "✖ a weekend (1ms)\n\n    at Test.run (node:internal)\n",
+            "  File \"x.py\", line 3\nAssertionError: 1 != 0\n",
+        );
+        assert_eq!(short, "✖ a weekend (1ms)\nAssertionError: 1 != 0\n");
+        let long: String = (0..2_000).map(|n| format!("line {n} è\n")).collect();
+        let shown = failing_output(&long, "");
+        assert!(shown.starts_with("line 0 è\n") && shown.ends_with("line 1999 è\n"));
+        assert!(shown.contains("[...]") && shown.len() < 12_100);
+    }
 
     // ------------------------------------ which ladder a backend will serve
 
