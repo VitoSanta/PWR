@@ -887,7 +887,7 @@ async fn drive<H: SessionHost + ?Sized>(
                 }
                 let left = (budget.limits.proposals - budget.proposals) as f64;
                 budget.proposals += 1;
-                let path = target.path;
+                let path = target.path.clone();
                 let on_disk = std::fs::read(root.join(&path)).ok();
                 let current = on_disk
                     .as_deref()
@@ -905,7 +905,7 @@ async fn drive<H: SessionHost + ?Sized>(
                     &contract,
                     &target.context,
                     &current,
-                    &evidence,
+                    &proposals::shown(&evidence, &target),
                     was.as_ref(),
                 );
                 // Half of what the goal has left is the ordinary goal's.
@@ -1075,7 +1075,7 @@ async fn drive<H: SessionHost + ?Sized>(
                             allowed.as_secs()
                         )
                     },
-                    |after| after.evidence,
+                    |after| proposals::shown(&after.evidence, &target),
                 );
                 refused.insert(path, (file, said, broke));
             }

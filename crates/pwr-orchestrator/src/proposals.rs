@@ -113,6 +113,57 @@ pub struct Target {
     pub path: String,
     /// Read-only files: the tests that use it and the targets it imports.
     pub context: Vec<(String, String)>,
+    /// The test files that use it, and every test file of the workspace: what
+    /// [`relevant`] needs to tell this file's failures from the others'.
+    pub tests: Vec<String>,
+    pub all_tests: Vec<String>,
+}
+
+/// The part of the checks' output that is about the test files `mine`, when
+/// the output says which test file each failure belongs to; `None` when it
+/// does not.
+///
+/// One check often runs every test of a project. Shown all of it under "the
+/// output on money.ts", Ornith 1.5 put CSV export and invoice printing into
+/// money.ts to make the other files' tests pass: 196 lines for a file of 28
+/// (product path, 2026-10-06). A failure belongs to a test file when the line
+/// that opens it names the file, by path or by its name without extension
+/// (`test at test/money.test.ts:5:1`, `FAIL: test_add (test_todo.Case.test_add)`).
+pub fn relevant(evidence: &str, all_tests: &[String], mine: &[String]) -> Option<String> {
+    fn stem(path: &str) -> &str {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        name.rsplit_once('.').map_or(name, |(stem, _)| stem)
+    }
+    let owner = |line: &str| {
+        all_tests
+            .iter()
+            .find(|path| line.contains(path.as_str()) || line.contains(stem(path)))
+            .map(|path| mine.contains(path))
+    };
+    let mut kept = String::new();
+    let mut keeping = false;
+    for line in evidence.lines() {
+        if let Some(is_mine) = owner(line) {
+            keeping = is_mine;
+        }
+        if keeping {
+            kept.push_str(line);
+            kept.push('\n');
+        }
+    }
+    (!kept.trim().is_empty()).then_some(kept)
+}
+
+/// The checks' output as a request for `target` shows it: its own tests'
+/// part, or all of it said to be all of it.
+pub fn shown(evidence: &str, target: &Target) -> String {
+    relevant(evidence, &target.all_tests, &target.tests).unwrap_or_else(|| {
+        format!(
+            "(Every test of the project, not only those of {}: the output does not say which \
+             is which. Other files are corrected separately.)\n{evidence}",
+            target.path
+        )
+    })
 }
 
 /// Directories a survey never enters.
@@ -246,6 +297,7 @@ pub fn survey(root: &Path, evidence: &str) -> Vec<Target> {
                 .filter(|(_, text)| text.contains(&file))
                 .cloned()
                 .collect();
+            let using = context.iter().map(|(path, _)| path.clone()).collect();
             for (other, text) in paths.iter().zip(&texts) {
                 if *other != paths[index] && !text.is_empty() && texts[index].contains(&name(other))
                 {
@@ -255,6 +307,8 @@ pub fn survey(root: &Path, evidence: &str) -> Vec<Target> {
             Target {
                 path: paths[index].clone(),
                 context,
+                tests: using,
+                all_tests: tests.iter().map(|(path, _)| path.clone()).collect(),
             }
         })
         .collect()
@@ -542,8 +596,9 @@ pub fn brief(
         )
     } else {
         format!(
-            "Correct {path} so the failing tests pass. The tests and the contract are right; \
-             keep what already passes."
+            "Correct {path} so the failing tests that use it pass. The tests and the contract \
+             are right; keep what already passes. Other files are corrected separately: do \
+             not move their work into this one."
         )
     }];
     parts.push(format!(
@@ -917,7 +972,7 @@ mod tests {
             "✖ a weekend",
             Some(&refused),
         );
-        assert!(repair.starts_with("Correct src/dates.ts so the failing tests pass."));
+        assert!(repair.starts_with("Correct src/dates.ts so the failing tests that use it pass."));
         assert!(
             repair.contains("REAL OUTPUT OF THE CHECKS ON THE CURRENT src/dates.ts:\n✖ a weekend")
         );
@@ -1181,5 +1236,39 @@ mod tests {
             "nothing is missing and nothing is imported by path"
         );
         assert_eq!(contract(root), "");
+    }
+
+    #[test]
+    fn a_request_is_shown_its_own_tests_failures_and_not_the_other_files() {
+        let all = [
+            "test/csv.test.ts".to_owned(),
+            "test/money.test.ts".to_owned(),
+        ];
+        let node = "✖ rows end with CRLF (1.0ms)\n✖ rounds half away from zero (0.8ms)\nℹ fail 2\n✖ failing tests:\n\
+                    test at test/csv.test.ts:5:1\n✖ rows end with CRLF (1.0ms)\n  + 'a\\n'\n  - 'a\\r\\n'\n\
+                    test at test/money.test.ts:5:1\n✖ rounds half away from zero (0.8ms)\n  -0 !== -1\n";
+        let mine = ["test/money.test.ts".to_owned()];
+        assert_eq!(
+            relevant(node, &all, &mine).as_deref(),
+            Some(
+                "test at test/money.test.ts:5:1\n✖ rounds half away from zero (0.8ms)\n  -0 !== -1\n"
+            )
+        );
+        // unittest names the module, not the path.
+        let python = "test_add (test_todo.Case.test_add) ... FAIL\nFAIL: test_add (test_todo.Case.test_add)\nAssertionError: 1 != 0\n";
+        let tests = ["tests/test_todo.py".to_owned()];
+        assert_eq!(relevant(python, &tests, &tests).as_deref(), Some(python));
+        // Output that names no test file is shown whole, and said to be whole.
+        assert_eq!(relevant("exit code 1\nboom\n", &all, &mine), None);
+        let target = Target {
+            path: "src/money.ts".into(),
+            context: Vec::new(),
+            tests: mine.to_vec(),
+            all_tests: all.to_vec(),
+        };
+        let whole = shown("exit code 1\nboom\n", &target);
+        assert!(whole.starts_with("(Every test of the project, not only those of src/money.ts"));
+        assert!(whole.ends_with("exit code 1\nboom\n"));
+        assert!(!shown(node, &target).contains("CRLF"));
     }
 }
