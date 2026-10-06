@@ -208,8 +208,11 @@ pub struct GoalLimits {
     pub verification_runs: usize,
     pub review_rounds: usize,
     /// Files PWR may ask the model for, one at a time, before the first turn
-    /// (W2.9). Zero, the default, is off: the phase is experimental.
-    pub proposals: usize,
+    /// (W2.9). Absent, the workspace has not said: the front end takes the
+    /// model's profile, which is off unless it was measured to help that
+    /// model. Zero is off whatever the profile says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposals: Option<usize>,
     #[serde(with = "goal_seconds")]
     pub wall: std::time::Duration,
 }
@@ -221,7 +224,7 @@ impl Default for GoalLimits {
             refused_completions: GOAL_MAX_REFUSED_COMPLETIONS,
             verification_runs: 9, // baseline + six refusals + passing checks before/after review
             review_rounds: 1,
-            proposals: 0,
+            proposals: None,
             wall: GOAL_MAX_WALL,
         }
     }
@@ -690,9 +693,14 @@ impl<H: SessionHost + ?Sized> crate::proposals::Author for HostAuthor<'_, H> {
 /// The least and the most one proposal may take, in seconds, whatever share
 /// of the goal's time falls to it.
 const PROPOSAL_SHARE: (f64, f64) = (30.0, 240.0);
-/// Passes over the files with nothing kept before the phase gives way to the
-/// ordinary goal.
-const PROPOSAL_IDLE_PASSES: usize = 2;
+/// Proposals in a row with nothing kept before the phase gives way to the
+/// ordinary goal: this many, or two for each file if that is more.
+///
+/// It was two passes over the files, which with one file is two proposals:
+/// on a repository to be written from nothing the phase gave up with three
+/// of its five still allowed (product path, 2026-10-06), where the same model
+/// had needed two or three attempts at that file in the diagnostics.
+const PROPOSAL_PATIENCE: usize = 4;
 /// How long the checks may run on a proposed file: this many times what they
 /// took at the baseline, within these bounds. A proposal can loop for ever --
 /// the first one measured on the product path did (2026-10-06), and its
@@ -854,7 +862,8 @@ async fn drive<H: SessionHost + ?Sized>(
     // model for one file at a time, with no tools, and keep a file only when
     // fewer of the owner's tests fail with it. The ordinary goal follows with
     // what is left of the budget and decides the ending as it always has.
-    if budget.limits.proposals > 0
+    let proposals_allowed = budget.limits.proposals.unwrap_or(0);
+    if proposals_allowed > 0
         && let Some(baseline) = baseline
             .as_ref()
             .filter(|baseline| !baseline.failing_acceptance.is_empty())
@@ -869,23 +878,25 @@ async fn drive<H: SessionHost + ?Sized>(
         let mut refused: BTreeMap<String, (String, String, Vec<String>)> = BTreeMap::new();
         let mut kept: Vec<String> = Vec::new();
         let mut restored = 0usize;
-        let mut idle_passes = 0usize;
+        let mut refused_in_a_row = 0usize;
         let mut note: Option<String> = None;
         let author = HostAuthor { host, root: &root };
-        'phase: while standing.failing
-            && budget.proposals < budget.limits.proposals
-            && idle_passes < PROPOSAL_IDLE_PASSES
-        {
+        'phase: while standing.failing && budget.proposals < proposals_allowed {
             let targets = proposals::survey(&root, &evidence);
             if targets.is_empty() {
                 break;
             }
-            let kept_before = kept.len();
+            let patience = PROPOSAL_PATIENCE.max(2 * targets.len());
             for target in targets {
-                if !standing.failing || budget.proposals >= budget.limits.proposals {
+                if !standing.failing || budget.proposals >= proposals_allowed {
                     break;
                 }
-                let left = (budget.limits.proposals - budget.proposals) as f64;
+                if refused_in_a_row >= patience {
+                    break 'phase;
+                }
+                let left = (proposals_allowed - budget.proposals) as f64;
+                // Until something says otherwise, this one is not kept.
+                refused_in_a_row += 1;
                 budget.proposals += 1;
                 let path = target.path.clone();
                 let on_disk = std::fs::read(root.join(&path)).ok();
@@ -990,6 +1001,7 @@ async fn drive<H: SessionHost + ?Sized>(
                         now.failures.len()
                     ));
                     kept.push(path.clone());
+                    refused_in_a_row = 0;
                     refused.remove(&path);
                     standing = now.clone();
                     evidence = after.evidence.clone();
@@ -1079,11 +1091,6 @@ async fn drive<H: SessionHost + ?Sized>(
                 );
                 refused.insert(path, (file, said, broke));
             }
-            idle_passes = if kept.len() == kept_before {
-                idle_passes + 1
-            } else {
-                0
-            };
         }
         if budget.proposals > 0 {
             let mut text = format!(
@@ -2670,7 +2677,7 @@ mod tests {
 
         fn run(&self, proposals: usize) -> SessionResult {
             let limits = GoalLimits {
-                proposals,
+                proposals: Some(proposals),
                 ..Default::default()
             };
             let mut request = request(Policy::Goal);
@@ -2947,5 +2954,51 @@ mod tests {
         assert!(host.calls.lock().unwrap().is_empty());
         assert_eq!(result.budget.proposals, 1);
         assert!(host.turns.load(Ordering::Relaxed) >= 1);
+    }
+
+    #[test]
+    fn one_file_is_asked_for_more_than_twice_before_the_phase_gives_way() {
+        // A repository to write from nothing has one target: two refusals in
+        // a row used to end the phase with most of its allowance unspent.
+        let host = Proposing::new(
+            None,
+            &[
+                &body("BROKEN"),
+                &body("BROKEN two"),
+                &body("BROKEN three"),
+                &body("FIXED"),
+            ],
+        );
+        let result = host.run(6);
+        assert_eq!(host.source().unwrap(), body("FIXED"));
+        assert_eq!(result.budget.proposals, 4);
+    }
+
+    #[test]
+    fn a_phase_that_keeps_nothing_stops_at_its_patience_not_at_its_allowance() {
+        let files: Vec<String> = (0..9).map(|n| body(&format!("BROKEN {n}"))).collect();
+        let files: Vec<&str> = files.iter().map(String::as_str).collect();
+        let host = Proposing::new(Some(&body("original")), &files);
+        let result = host.run(9);
+        assert_eq!(result.budget.proposals, PROPOSAL_PATIENCE);
+        assert_eq!(host.source().unwrap(), body("original"));
+    }
+
+    #[test]
+    fn an_unset_allowance_is_absent_from_the_configuration_and_zero_is_kept() {
+        let limits: GoalLimits = serde_json::from_str("{}").unwrap();
+        assert_eq!(limits.proposals, None);
+        assert!(
+            !serde_json::to_string(&limits)
+                .unwrap()
+                .contains("proposals")
+        );
+        let off: GoalLimits = serde_json::from_str(r#"{"proposals":0}"#).unwrap();
+        assert_eq!(off.proposals, Some(0));
+        assert!(
+            serde_json::to_string(&off)
+                .unwrap()
+                .contains(r#""proposals":0"#)
+        );
     }
 }

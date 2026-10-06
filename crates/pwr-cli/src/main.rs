@@ -3035,9 +3035,14 @@ struct ConsoleTurns {
 #[async_trait::async_trait(?Send)]
 impl serve::TurnRunner for ConsoleTurns {
     fn goal_limits(&self, root: &Path) -> Result<serve::GoalLimits, String> {
-        load_chat_config(root)
-            .map(|config| config.goal_budget)
-            .map_err(|error| error.context)
+        let config = load_chat_config(root).map_err(|error| error.context)?;
+        let profiles =
+            load_model_profiles(Path::new(MODEL_PROFILE_FILE)).map_err(|error| error.context)?;
+        Ok(goal_limits_for(
+            config.goal_budget,
+            config.model.as_deref(),
+            &profiles,
+        ))
     }
     fn persist_checkpoint(
         &self,
@@ -4952,6 +4957,24 @@ async fn console_turn(
 /// Returns the conversation it produced as well as the outcome, because the
 /// turn appends the assistant's reply and any reads it made, and the console
 /// has to keep them for the next turn.
+/// A goal's limits for the workspace's model: where the workspace has not
+/// said how many proposals to allow, what the model's profile says, which is
+/// none unless the phase was measured to help that model (plan W2.9: it
+/// doubled Ornith 1.5 9B's result on a repair task and did nothing for
+/// Qwen3.5 9B, which works well with its tools).
+fn goal_limits_for(
+    mut limits: serve::GoalLimits,
+    model: Option<&str>,
+    profiles: &[pwr_domain::ModelProfile],
+) -> serve::GoalLimits {
+    if limits.proposals.is_none() {
+        limits.proposals = model
+            .and_then(|model| pwr_domain::ModelProfile::select(profiles, model))
+            .and_then(|profile| profile.goal_proposals);
+    }
+    limits
+}
+
 /// The part of a failing check's output worth showing to a model asked to
 /// make it pass: stack frames and blank lines out, and of a long one the
 /// beginning and the end.
@@ -11516,6 +11539,49 @@ mod tests {
     use super::*;
     use pwr_domain::ModelChunk;
     use pwr_provider::ProviderError;
+
+    #[test]
+    fn proposals_follow_the_model_s_profile_unless_the_workspace_says() {
+        let profiles = load_model_profiles(Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../strategies/models.json"
+        )))
+        .map_err(|error| error.context)
+        .unwrap();
+        let unset = serve::GoalLimits::default();
+        let ornith = "ornith-ai/Ornith-1.5-9B-MLX-4bit";
+        assert_eq!(
+            goal_limits_for(unset, Some(ornith), &profiles).proposals,
+            Some(5)
+        );
+        // Measured not to help: nothing declared, so the phase stays off.
+        assert_eq!(
+            goal_limits_for(unset, Some("mlx-community/Qwen3.5-9B-MLX-4bit"), &profiles).proposals,
+            None
+        );
+        assert_eq!(
+            goal_limits_for(unset, Some("a model with no profile"), &profiles).proposals,
+            None
+        );
+        assert_eq!(goal_limits_for(unset, None, &profiles).proposals, None);
+        // The workspace's word is final, off included.
+        let off = serve::GoalLimits {
+            proposals: Some(0),
+            ..unset
+        };
+        assert_eq!(
+            goal_limits_for(off, Some(ornith), &profiles).proposals,
+            Some(0)
+        );
+        let more = serve::GoalLimits {
+            proposals: Some(8),
+            ..unset
+        };
+        assert_eq!(
+            goal_limits_for(more, Some("mlx-community/Qwen3.5-9B-MLX-4bit"), &profiles).proposals,
+            Some(8)
+        );
+    }
 
     #[test]
     fn a_long_failing_output_keeps_its_beginning_and_its_end_and_drops_stack_frames() {

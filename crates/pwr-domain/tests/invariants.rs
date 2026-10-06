@@ -542,6 +542,7 @@ fn profile(selector: &str, maximum: u32) -> ModelProfile {
         reasoning_budgets: None,
         context_source: ParameterSource::OfficialModelCard,
         provenance: "vendor card".into(),
+        goal_proposals: None,
     }
 }
 
@@ -888,6 +889,7 @@ fn profile_selection_prefers_immutable_identity_and_refuses_ties() {
         reasoning_budgets: None,
         context_source: ParameterSource::OfficialModelCard,
         provenance: "fixture".into(),
+        goal_proposals: None,
     };
     let identity = DeploymentIdentity {
         provider: "lmstudio".into(),

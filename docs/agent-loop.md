@@ -187,9 +187,11 @@ verification, no second turn.
 1. Before the first turn, the full verification runs once; checks already
    failing are named in the request so the goal neither repairs them nor is
    held open by them.
-   **Verified proposals (EXPERIMENTAL, off by default; plan W2.9).** When
-   `goal_budget.proposals` is above zero and an acceptance check fails at the
-   baseline, the executor first asks the model for whole files, one at a time
+   **Verified proposals (EXPERIMENTAL; plan W2.9).** On for a model whose
+   profile declares `goal_proposals` (`strategies/models.json`; Ornith 1.5 9B
+   only, where it was measured to help), unless the workspace sets
+   `goal_budget.proposals` itself — a number, or `0` for off. When the
+   allowance is above zero and an acceptance check fails at the baseline, the executor first asks the model for whole files, one at a time
    and with no tools (`executor::drive`, `proposals.rs`):
    - the files are those the owner's tests name and the workspace lacks, then
      the source that failing test files import, a file other targets mention
@@ -205,13 +207,22 @@ verification, no second turn.
      are skipped: the full verification runs instead;
    - the file is kept only if the checks pass or fewer named tests fail and none
      is new (`proposals::improves`); otherwise what was there is restored the
-     same way and the refusal, with the tests it broke, goes into the next
-     request for that file;
-   - it ends when the checks pass, the allowance is spent, two passes keep
-     nothing, an edit is not allowed, or the model cannot be asked. The goal
+     same way — by `delete_path` and `write_file` when the overwrite back
+     would drop more than half of the file and is refused — and the refusal,
+     with the tests it broke, goes into the next request for that file. The
+     checks on a proposal get ten times what the baseline took (20 s to
+     5 min); no verdict is a refusal;
+   - a request is shown the part of the checks' output that belongs to the
+     test files using its target, not the whole suite's
+     (`proposals::relevant`), with the model's own sampling and no presence
+     or repetition penalty;
+   - it ends when the checks pass, the allowance is spent, four proposals in
+     a row (or two per file, if more) keep nothing, an edit is not allowed, or
+     the model cannot be asked. The goal
      then continues below from the files as they are, told what was kept.
-   Measured only outside the product so far; what it needs and where it did
-   not help are in the plan item.
+   Measured on the product path on 2026-10-06 (two tasks, two models, two
+   runs per arm): the numbers, and where it did not help, are in the plan
+   item.
 2. After each turn:
    - a declined or stopped turn (other than *budget spent*) ends the goal;
    - a turn with no actions and no completion counts as idle; three idle
@@ -260,7 +271,7 @@ dropped, and its edits stayed on disk but out of the conversation.)
 | Refused completions | 6 | Every failed completion verification, independent of failure names |
 | Verification runs | 9 | Baseline plus completion verifications |
 | Review rounds | 1 | Specification review and its continuation |
-| Proposals | 0 (off) | Files asked for before the first turn (W2.9); each is one generation or two, an applied one is an action and a full verification that does not count against *Verification runs* |
+| Proposals | the model's profile (absent = off) | Files asked for before the first turn (W2.9); each is one generation or two, an applied one is an action and a full verification that does not count against *Verification runs* |
 | Wall-clock | 3,600 seconds | From baseline through final result |
 | Idle rounds | 3 | Existing stalled guard |
 | Same failing set on completion | 3 | Existing blocked guard; W1.5 still open |
@@ -275,12 +286,13 @@ Workspace overrides live under `goal_budget` in `.pwr/chat-config.json`:
     "refused_completions": 6,
     "verification_runs": 9,
     "review_rounds": 1,
-    "proposals": 0,
     "wall": 3600
   }
 }
 ```
 
+`proposals` is absent by default, which follows the model's profile; set it to
+`0` to switch the phase off for a workspace or to a number to switch it on.
 Missing fields use defaults; unknown budget fields and invalid types are
 configuration errors. Zero means no allowance for that operation. Review remains
 at most once even if the configured cap is larger. A deliberate new prompt

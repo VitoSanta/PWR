@@ -101,8 +101,9 @@
         "minimum": 262144
       },
       "context_source": "pwr_override",
+      "goal_proposals": 5,
       "model_selector": "ornith-ai/Ornith-1.5-9B-MLX-4bit",
-      "provenance": "The upstream Ornith model card recommends temperature 0.6, top_p 0.95, and top_k 20 for general use, for the 9B as for the 35B. Without a profile this deployment ran at 1.0, the value the MLX artifact carries for benchmark reproduction: measured 2026-09-29 building small projects from scratch, it lost three of four tasks to the time budget, one reply reasoning for 16,384 tokens. The 262144-token context is the deployed artifact's advertised limit.",
+      "provenance": "goal_proposals 5: measured 2026-10-06 on the product path (plan W2.9; pwr-evidence product-path-20261006), Goal mode, 600 s goals, two runs per arm: on a 17-test repair task 5 and 5 passing without the phase, 10 and 11 with it; on a repository written from nothing no difference (the phase gave up early there, since changed). The upstream Ornith model card recommends temperature 0.6, top_p 0.95, and top_k 20 for general use, for the 9B as for the 35B. Without a profile this deployment ran at 1.0, the value the MLX artifact carries for benchmark reproduction: measured 2026-09-29 building small projects from scratch, it lost three of four tasks to the time budget, one reply reasoning for 16,384 tokens. The 262144-token context is the deployed artifact's advertised limit.",
       "reasoning": null,
       "sampling": {
         "temperature": {

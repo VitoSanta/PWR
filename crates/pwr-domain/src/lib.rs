@@ -586,6 +586,12 @@ pub struct ModelProfile {
     pub context_source: ParameterSource,
     /// Where these values came from, in words a reader can check.
     pub provenance: String,
+    /// Files PWR may ask this model for, one at a time and with no tools,
+    /// before a goal's first turn (plan W2.9). Set only where the phase was
+    /// measured to help this model on the product path; absent is off. A
+    /// workspace's own `goal_budget.proposals` overrides it either way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_proposals: Option<usize>,
 }
 
 impl ModelProfile {

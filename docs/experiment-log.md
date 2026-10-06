@@ -1033,3 +1033,20 @@ sampling. Simulated-host tests cover keep, restore, deletion of a refused new
 file, a declined edit and an unavailable model; a real turn loop with a
 scripted provider covers policy and hash binding. No model was run on this
 path. Nothing here is a capability claim.
+
+### 2026-10-06: proposals on the product path, and on per model (W2.9)
+
+Measured, then changed. With `goal_budget.proposals` 5 against 0, binary at
+`72b2597c`, 600 s goals, two runs per arm: ledger Ornith 1.5 9B 5, 5 -> 10, 11
+of 17; Qwen3.5 9B 9, 14 -> 8, 12; python-todo (an empty workspace scores 6 of
+14) Ornith 3, 6 -> 6, 6; Qwen 13, 13 -> 14, 13. Evidence and the five stopped
+launches: pwr-evidence `product-path-20261006`.
+
+What a campaign now measures differently: `goal_budget.proposals` is absent by
+default and then follows the model's profile, which declares 5 for
+`ornith-ai/Ornith-1.5-9B-MLX-4bit` and nothing for any other model; a goal
+with that model and a failing acceptance check therefore starts with the
+phase unless the workspace sets `"proposals": 0`. The phase now gives way
+after four proposals in a row (or two per file) keep nothing, not after two
+passes; that rule has not been run with a model. Two runs per cell say which
+way one cell went, not by how much.

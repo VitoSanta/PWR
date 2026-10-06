@@ -149,8 +149,8 @@ fixtures; retain the simpler current interface without evidence.
 
 ### W2.9 Verified proposals as a phase of Goal mode
 
-**EXPERIMENTAL, in progress (owner decision 2026-10-06); off by default until
-measured on the product path.** A small model asked to repair or create a file
+**EXPERIMENTAL (owner decision 2026-10-06). Measured on the product path;
+on per model profile, for Ornith 1.5 9B only.** A small model asked to repair or create a file
 through tool calls spends its budget on serialization and on deciding what to
 do next. Outside the product (pwr-evidence `20261003-small-model-diagnostics`,
 2026-10-05/06, Ornith 1.5 9B and Qwen3.5 9B, MLX 4-bit, 240 s budgets, 2-10
@@ -178,9 +178,30 @@ nothing measurable and are not adopted.
   behind `goal_budget.proposals`, applied through scripted turns, the
   front end's plain generation, documents — DONE, not measured. (5) The same three tasks on the product
   path against the shipped agent; an experiment-log entry.
-- **Acceptance.** Kept only if step 5 shows no cell worse than the shipped
-  agent and at least one better, at equal token budget, with replicates.
-  Otherwise it is removed, not left dormant.
+- **Step 5, measured 2026-10-06** (pwr-evidence `product-path-20261006`;
+  binary at `72b2597c`, Goal mode, 600 s goals, proposals 0 against 5, two
+  runs per arm, acceptance = visible and hidden tests):
+
+  | Task | Model | Phase off | Phase on |
+  |---|---|---|---|
+  | ledger /17 | Ornith 1.5 9B | 5, 5 | 10, 11 |
+  | ledger /17 | Qwen3.5 9B | 9, 14 | 8, 12 |
+  | python-todo /14 (empty: 6) | Ornith 1.5 9B | 3, 6 | 6, 6 |
+  | python-todo /14 (empty: 6) | Qwen3.5 9B | 13, 13 | 14, 13 |
+
+  Five earlier launches were stopped for defects of the integration that
+  simulated hosts could not show, each fixed by one commit: provider-default
+  sampling and truncated evidence, unbounded verification of a proposal and a
+  file left without a verdict, a restore refused by the shrink guard, the
+  presence penalty, and the whole suite's output shown as one file's. Phase-off
+  runs in those launches (ledger, Ornith): six, all 5 of 17.
+- **Acceptance.** The criterion written before measuring — no cell worse, at
+  least one better — is not met across models: one cell is clearly better,
+  two show no difference, and Qwen3.5 9B on ledger is level or slightly
+  below. Owner decision 2026-10-06: the phase is not a default; a model's
+  profile switches it on (`goal_proposals`), and only Ornith 1.5 9B's does.
+  The python-todo cell for Ornith is to be measured again after the change
+  from idle passes to a patience counted in proposals, made after this run.
 - **Known limits.** Needs owner tests whose failures are named. A test that
   passes before any file exists makes a correct first file look like a
   regression. The stall threshold was set on one task's streams.
