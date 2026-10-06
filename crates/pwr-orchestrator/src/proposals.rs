@@ -861,8 +861,15 @@ pub trait Author {
     -> Result<pwr_provider::ModelStream, String>;
 }
 
-/// How long the model may think and write, in seconds: each a share of what
-/// the goal has left, decided by the caller.
+/// The goal's work meter, and whether the governor's shares are read on it.
+pub struct Meter<'a> {
+    pub work: &'a std::sync::atomic::AtomicU64,
+    /// Shares are generated tokens of this reply, not seconds.
+    pub by_work: bool,
+}
+
+/// How long the model may think and write: each a share of what the goal has
+/// left, decided by the caller, in seconds or in tokens ([`Meter::by_work`]).
 #[derive(Debug, Clone, Copy)]
 pub struct Shares {
     pub thinking: f64,
@@ -893,17 +900,28 @@ pub struct Proposal {
 async fn read(
     mut stream: pwr_provider::ModelStream,
     governor: &mut Governor,
+    meter: &Meter<'_>,
     stop: &std::sync::atomic::AtomicBool,
 ) -> Result<(Ended, String), String> {
     use futures_util::StreamExt;
+    use std::sync::atomic::Ordering;
     let started = tokio::time::Instant::now();
+    let before = meter.work.load(Ordering::Relaxed);
+    let prompt_read = std::cell::Cell::new(0u64);
     let mut answer = String::new();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| error.to_string())?;
         if stop.load(std::sync::atomic::Ordering::SeqCst) {
             return Ok((Ended::Interrupted, answer));
         }
-        let elapsed = started.elapsed().as_secs_f64();
+        crate::converse::meter(meter.work, &prompt_read, &chunk);
+        let elapsed = if meter.by_work {
+            // What this reply has cost so far, in generated tokens.
+            (meter.work.load(Ordering::Relaxed) - before) as f64
+                / crate::converse::WORK_PER_TOKEN as f64
+        } else {
+            started.elapsed().as_secs_f64()
+        };
         let mut said = None;
         if let Some(thinking) = chunk.thinking.as_deref().filter(|text| !text.is_empty()) {
             said = governor.feed(thinking, Channel::Reasoning, elapsed);
@@ -929,6 +947,7 @@ async fn read(
 /// write now, with what it had already worked out in front of it, Ornith 1.5
 /// produced the file in 7-17 s where it had spent its whole reply analysing.
 /// A template that ignores the reasoning switch (LFM2.5) is not helped by it.
+#[allow(clippy::too_many_arguments)]
 pub async fn propose<A: Author + ?Sized>(
     author: &A,
     path: &str,
@@ -936,6 +955,7 @@ pub async fn propose<A: Author + ?Sized>(
     brief: String,
     shares: Shares,
     transport: Transport,
+    meter: Meter<'_>,
     stop: &std::sync::atomic::AtomicBool,
 ) -> Result<Proposal, String> {
     let mut proposal = Proposal::default();
@@ -949,7 +969,13 @@ pub async fn propose<A: Author + ?Sized>(
     };
     let mut first = Governor::new(path, current, Some(shares.thinking), Some(shares.reply))
         .with_transport(transport);
-    let (ended, answer) = read(author.write(brief.clone(), true).await?, &mut first, stop).await?;
+    let (ended, answer) = read(
+        author.write(brief.clone(), true).await?,
+        &mut first,
+        &meter,
+        stop,
+    )
+    .await?;
     proposal.phases.push(ended);
     proposal.file = first.file().map(str::to_owned).or_else(|| {
         (ended == Ended::Finished)
@@ -962,7 +988,8 @@ pub async fn propose<A: Author + ?Sized>(
     let mut second =
         Governor::new(path, current, None, Some(shares.answer)).with_transport(transport);
     let asked = handoff_for(transport, &brief, path, &first.notes(1_800), new);
-    let (ended, answer) = read(author.write(asked, false).await?, &mut second, stop).await?;
+    let (ended, answer) =
+        read(author.write(asked, false).await?, &mut second, &meter, stop).await?;
     proposal.phases.push(ended);
     proposal.file = second.file().map(str::to_owned).or_else(|| {
         (ended == Ended::Finished)
@@ -1280,6 +1307,10 @@ mod tests {
                 "BRIEF\n".to_owned(),
                 SHARES,
                 Transport::Whole,
+                Meter {
+                    work: &std::sync::atomic::AtomicU64::new(0),
+                    by_work: false,
+                },
                 &stop,
             ))
             .unwrap()
@@ -1417,6 +1448,10 @@ mod tests {
                 asked,
                 SHARES,
                 Transport::Blocks,
+                Meter {
+                    work: &std::sync::atomic::AtomicU64::new(0),
+                    by_work: false,
+                },
                 &stop,
             ))
             .unwrap();
@@ -1661,5 +1696,67 @@ mod tests {
         assert!(whole.starts_with("(Every test of the project, not only those of src/money.ts"));
         assert!(whole.ends_with("exit code 1\nboom\n"));
         assert!(!shown(node, &target).contains("CRLF"));
+    }
+
+    #[test]
+    fn every_reply_is_counted_on_the_goal_s_meter_and_shares_can_be_read_on_it() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let chunk = |thinking: Option<&str>, content: &str, prefill: Option<u64>| {
+            Ok(pwr_domain::ModelChunk {
+                content: content.to_owned(),
+                thinking: thinking.map(str::to_owned),
+                prefill: prefill.map(|processed| pwr_domain::PrefillProgress {
+                    processed,
+                    total: 400,
+                }),
+                ..Default::default()
+            })
+        };
+        let reply = |words: usize| -> pwr_provider::ModelStream {
+            let mut chunks = vec![chunk(None, "", Some(160)), chunk(None, "", Some(400))];
+            chunks.extend((0..words).map(|n| chunk(Some(&format!("thought{n} ")), "", None)));
+            chunks.push(Ok(pwr_domain::ModelChunk {
+                done: true,
+                ..Default::default()
+            }));
+            Box::pin(futures_util::stream::iter(chunks))
+        };
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let block_on = |future| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap()
+                .block_on(future)
+        };
+        // 400 prompt tokens read and 50 generated: 400 + 50 * 8 on the meter,
+        // whatever the clock did.
+        let work = AtomicU64::new(1_000);
+        let mut governor = Governor::new("src/dates.ts", DATES, None, None);
+        let meter = Meter {
+            work: &work,
+            by_work: false,
+        };
+        let (ended, _) = block_on(read(reply(50), &mut governor, &meter, &stop)).unwrap();
+        assert_eq!(ended, Ended::Finished);
+        assert_eq!(
+            work.load(Ordering::Relaxed),
+            1_000 + 400 + 50 * crate::converse::WORK_PER_TOKEN
+        );
+        // A thinking share of 100 tokens, read on the meter: the reply is
+        // ended by what it cost -- 50 for the prompt, then 50 generated --
+        // and no time has passed at all.
+        let work = AtomicU64::new(0);
+        let mut governor = Governor::new("src/dates.ts", DATES, Some(100.0), Some(10_000.0));
+        let meter = Meter {
+            work: &work,
+            by_work: true,
+        };
+        let (ended, _) = block_on(read(reply(500), &mut governor, &meter, &stop)).unwrap();
+        assert_eq!(ended, Ended::Governor(Stop::Share));
+        assert_eq!(
+            work.load(Ordering::Relaxed),
+            400 + 50 * crate::converse::WORK_PER_TOKEN
+        );
     }
 }

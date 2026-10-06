@@ -271,6 +271,27 @@ of it.
   it can only show whether blocks cost anything), and on a task with a file
   of several hundred lines, which the battery does not have yet.
 
+### W2.13 A goal budget in model work
+
+**IMPLEMENTED 2026-10-06, off unless set; not yet run with a model.** A
+goal's budget was actions and seconds. Seconds measure the machine: under
+macOS Low Power Mode the same goals did about half the model work in the same
+time, and a queue of twenty runs was thrown away (pwr-evidence
+`create-lane-20261005`, 2026-10-06; prefill 200-290 tokens/s against 340-390).
+A campaign that switches features on and off over several nights cannot
+depend on the machine's speed.
+
+- **Change.** `goal_budget.work`: generated tokens, a prompt token read
+  counting an eighth. Every generation of every turn and of the proposals
+  phase is counted from its stream (`converse::meter`), abandoned replies
+  included; the limit is checked between generations and by the executor. Not
+  set, nothing is bounded by it and the count is still reported. With it set
+  the proposals phase's shares are tokens, not seconds.
+- **Not charged.** Tool and check execution. A chunk is counted as a token,
+  which is close and not exact.
+- **To verify.** One goal at full power and the same in Low Power Mode with a
+  work limit and a generous wall: the same work spent, different seconds.
+
 No candidate above authorizes a campaign before the baseline/power/provenance
 requirements. F0 owner approval adopted scope, not the numerical F6 thresholds.
 

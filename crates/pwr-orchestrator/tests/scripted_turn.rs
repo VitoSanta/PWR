@@ -55,6 +55,14 @@ struct Ran {
 }
 
 async fn run(root: &std::path::Path, scripted: Option<(&str, serde_json::Value)>) -> Ran {
+    run_with(root, scripted, &converse::Continuity::default()).await
+}
+
+async fn run_with(
+    root: &std::path::Path,
+    scripted: Option<(&str, serde_json::Value)>,
+    continuity: &converse::Continuity,
+) -> Ran {
     let model = Model::default();
     let provider = Scripted::new(
         &model,
@@ -94,7 +102,7 @@ async fn run(root: &std::path::Path, scripted: Option<(&str, serde_json::Value)>
         Default::default(),
         serde_json::json!([]),
         &AtomicBool::new(false),
-        &converse::Continuity::default(),
+        continuity,
         &DenyWithoutAsking,
         |_| {},
     )
@@ -239,4 +247,26 @@ async fn putting_back_a_much_shorter_file_takes_the_guard_s_own_way_round() {
     .await;
     assert!(written.report.edited);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "const line = 1;\n");
+}
+
+#[tokio::test]
+async fn a_turn_counts_its_model_s_work_and_does_not_start_a_reply_past_the_allowance() {
+    let root = tempfile::tempdir().unwrap();
+    // One reply of one chunk: one generated token on the goal's meter.
+    let continuity = converse::Continuity::default();
+    let ran = run_with(root.path(), None, &continuity).await;
+    assert_eq!(ran.asked, 1);
+    assert_eq!(
+        continuity.work.load(Ordering::Relaxed),
+        converse::WORK_PER_TOKEN
+    );
+    // With the allowance already spent the model is not asked again, and the
+    // turn says the budget ended it.
+    let spent = converse::Continuity {
+        work_limit: Some(converse::WORK_PER_TOKEN),
+        ..continuity.clone()
+    };
+    let ran = run_with(root.path(), None, &spent).await;
+    assert_eq!(ran.asked, 0);
+    assert_eq!(ran.report.stopped, Some(converse::StopReason::BudgetSpent));
 }

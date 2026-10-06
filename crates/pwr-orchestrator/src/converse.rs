@@ -523,6 +523,41 @@ pub enum Harness {
     Minimal,
 }
 
+/// What a generated token costs on a goal's work meter, a prompt token read
+/// costing one. A budget in seconds measures the machine: the same goal under
+/// macOS Low Power Mode did about half the model work in the same ten minutes
+/// and a whole queue of runs had to be thrown away (pwr-evidence, 2026-10-06).
+/// Counted in tokens, the allowance is the same work on any machine. Eight is
+/// the ratio measured on the two 9B models of that campaign, 40 generated and
+/// 350 read per second at full power; it is a weight, not a prediction.
+pub const WORK_PER_TOKEN: u64 = 8;
+
+/// Counts one chunk of a reply on a goal's work meter. `read` is the largest
+/// prefill progress seen so far in this generation.
+pub fn meter(
+    work: &std::sync::atomic::AtomicU64,
+    read: &std::cell::Cell<u64>,
+    chunk: &pwr_domain::ModelChunk,
+) {
+    use std::sync::atomic::Ordering;
+    if let Some(progress) = chunk.prefill {
+        let seen = read.get();
+        if progress.processed > seen {
+            read.set(progress.processed);
+            work.fetch_add(progress.processed - seen, Ordering::Relaxed);
+        }
+    } else if !chunk.content.is_empty()
+        || chunk
+            .thinking
+            .as_deref()
+            .is_some_and(|text| !text.is_empty())
+    {
+        // A chunk is about a token; the terminal chunk's exact counts are not
+        // there for a reply that was abandoned, and those must count too.
+        work.fetch_add(WORK_PER_TOKEN, Ordering::Relaxed);
+    }
+}
+
 /// The control's whole instruction: what it is, where, and how it ends.
 pub fn minimal_system_prompt(root: &std::path::Path) -> String {
     format!(
@@ -582,6 +617,12 @@ pub struct Continuity {
     /// the person attached, never write or run anything. Enforced by the
     /// catalogue the calls are decoded against, not by the prompt.
     pub chat_only: bool,
+    /// Model work done under the current goal, by every generation of every
+    /// turn, in [`WORK_PER_TOKEN`]ths of a generated token. Shared, so the
+    /// goal's executor and its turns count on the same meter.
+    pub work: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Where `work` ends the turn, when the goal has a work allowance.
+    pub work_limit: Option<u64>,
     /// The share of the window at which the conversation compacts itself, in
     /// percent, when the workspace chose one; [`COMPACT_AT`] otherwise.
     pub compact_at_percent: Option<u8>,
@@ -1615,6 +1656,13 @@ async fn take_turn_inner<P: ModelProvider>(
         if actions >= continuity.action_limit.unwrap_or(DEFAULT_ACTIONS_PER_TURN) {
             return stopped(actions, edited, StopReason::BudgetSpent);
         }
+        // Between generations, like the action limit: a reply under way is
+        // let finish, so the allowance can be passed by one reply.
+        if continuity.work_limit.is_some_and(|limit| {
+            continuity.work.load(std::sync::atomic::Ordering::Relaxed) >= limit
+        }) {
+            return stopped(actions, edited, StopReason::BudgetSpent);
+        }
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
             return stopped(actions, edited, StopReason::Interrupted);
         }
@@ -1929,6 +1977,7 @@ async fn take_turn_inner<P: ModelProvider>(
         let reasoning_seen = std::cell::Cell::new(false);
         let streamed_content = std::cell::Cell::new(0usize);
         let first_chunk = std::cell::Cell::new(None::<std::time::Duration>);
+        let prompt_read = std::cell::Cell::new(0u64);
         let failed = |turn: &mut u32, outcome: &str, detail: String| {
             *turn = turn.saturating_add(1);
             store
@@ -1962,6 +2011,7 @@ async fn take_turn_inner<P: ModelProvider>(
         let collected = match opened {
             Ok(stream) => tokio::select! {
                 outcome = pwr_provider::collect_reply_with_guard(stream, |chunk| {
+                    meter(&continuity.work, &prompt_read, chunk);
                     if let Some(progress) = chunk.prefill {
                         // Reading the prompt is not the first word of the
                         // answer, and time-to-first-chunk stays about that.

@@ -231,6 +231,12 @@ pub struct GoalLimits {
     /// model. Zero is off whatever the profile says.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proposals: Option<usize>,
+    /// Model work the goal may do, in generated tokens, a prompt token read
+    /// counting an eighth ([`converse::WORK_PER_TOKEN`]). Absent, the default,
+    /// is no such limit: the wall clock bounds the goal as before. Set, it
+    /// bounds the goal the same on a fast machine and a slow one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work: Option<u64>,
     #[serde(with = "goal_seconds")]
     pub wall: std::time::Duration,
 }
@@ -243,6 +249,7 @@ impl Default for GoalLimits {
             verification_runs: 9, // baseline + six refusals + passing checks before/after review
             review_rounds: 1,
             proposals: None,
+            work: None,
             wall: GOAL_MAX_WALL,
         }
     }
@@ -251,11 +258,31 @@ impl Default for GoalLimits {
 /// A limit a goal reached, and how much of it was spent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GoalLimitReached {
-    Actions { spent: usize, allowed: usize },
-    RefusedCompletions { spent: usize, allowed: usize },
-    Time { spent_secs: u64, allowed_secs: u64 },
-    VerificationRuns { spent: usize, allowed: usize },
-    ReviewRounds { spent: usize, allowed: usize },
+    Actions {
+        spent: usize,
+        allowed: usize,
+    },
+    RefusedCompletions {
+        spent: usize,
+        allowed: usize,
+    },
+    Time {
+        spent_secs: u64,
+        allowed_secs: u64,
+    },
+    VerificationRuns {
+        spent: usize,
+        allowed: usize,
+    },
+    ReviewRounds {
+        spent: usize,
+        allowed: usize,
+    },
+    /// Generated-token equivalents of model work.
+    Work {
+        spent: u64,
+        allowed: u64,
+    },
 }
 
 impl GoalLimits {
@@ -305,6 +332,9 @@ impl GoalLimitReached {
             Self::RefusedCompletions { spent, .. } => format!(
                 "Goal mode paused: the work was declared complete {spent} times and verification refused it each time, Review the checks' output, then continue deliberately."
             ),
+            Self::Work { spent, .. } => format!(
+                "Goal mode paused after about {spent} tokens of model work without verified completion. Review the current changes, then continue deliberately if the objective still needs work."
+            ),
             Self::Time { spent_secs, .. } => format!(
                 "Goal mode paused after {} minutes without verified completion. Review the current changes, then continue deliberately if the objective still needs work.",
                 spent_secs / 60
@@ -325,6 +355,9 @@ impl GoalLimitReached {
             }
             Self::RefusedCompletions { spent, allowed } => {
                 json!({"limit": "refused_completions", "spent": spent, "allowed": allowed})
+            }
+            Self::Work { spent, allowed } => {
+                json!({"limit": "work", "spent": spent, "allowed": allowed})
             }
             Self::Time {
                 spent_secs,
@@ -358,6 +391,8 @@ pub struct GoalBudget {
     pub verifications: usize,
     pub reviews: usize,
     pub proposals: usize,
+    /// The goal's work meter, shared with its turns.
+    pub work: Arc<std::sync::atomic::AtomicU64>,
 }
 impl GoalBudget {
     pub fn new(limits: GoalLimits) -> Self {
@@ -369,11 +404,27 @@ impl GoalBudget {
             verifications: 0,
             reviews: 0,
             proposals: 0,
+            work: Arc::default(),
         }
     }
     pub fn reached(&self) -> Option<GoalLimitReached> {
         self.limits
             .reached(self.actions, self.refused, self.started.elapsed())
+            .or_else(|| {
+                let allowed = self.limits.work?;
+                let spent = self.work_done();
+                (spent >= allowed).then_some(GoalLimitReached::Work { spent, allowed })
+            })
+    }
+    /// Model work done so far, in generated-token equivalents.
+    pub fn work_done(&self) -> u64 {
+        self.work.load(Ordering::Relaxed) / converse::WORK_PER_TOKEN
+    }
+    /// What is left of the work allowance, when there is one.
+    pub fn work_left(&self) -> Option<u64> {
+        self.limits
+            .work
+            .map(|allowed| allowed.saturating_sub(self.work_done()))
     }
     pub fn time_limit(&self) -> GoalLimitReached {
         GoalLimitReached::Time {
@@ -385,7 +436,7 @@ impl GoalBudget {
         self.limits.wall.saturating_sub(self.started.elapsed())
     }
     pub fn snapshot(&self) -> Value {
-        json!({"limits": self.limits, "spent": {"actions": self.actions, "refused_completions": self.refused, "verification_runs": self.verifications, "review_rounds": self.reviews, "proposals": self.proposals, "wall_seconds": self.started.elapsed().as_secs()}})
+        json!({"limits": self.limits, "spent": {"actions": self.actions, "refused_completions": self.refused, "verification_runs": self.verifications, "review_rounds": self.reviews, "proposals": self.proposals, "work": self.work_done(), "wall_seconds": self.started.elapsed().as_secs()}})
     }
 }
 
@@ -676,6 +727,9 @@ pub async fn execute<H: SessionHost + ?Sized>(
     limits: GoalLimits,
 ) -> SessionResult {
     let mut budget = GoalBudget::new(limits);
+    // One meter for the goal: the turns count on the request's own.
+    budget.work = Arc::clone(&request.continuity.work);
+    budget.work.store(0, Ordering::Relaxed);
     let end = drive(host, request, &mut budget).await;
     SessionResult { end, budget }
 }
@@ -729,6 +783,9 @@ impl<H: SessionHost + ?Sized> crate::proposals::Author for HostAuthor<'_, H> {
 /// The least and the most one proposal may take, in seconds, whatever share
 /// of the goal's time falls to it.
 const PROPOSAL_SHARE: (f64, f64) = (30.0, 240.0);
+/// The same bounds in tokens, for a goal bounded by work: what a 9B model
+/// generates in a second at full power on the machine these were set on.
+const PROPOSAL_TOKENS_PER_SECOND: f64 = 40.0;
 /// Proposals in a row with nothing kept before the phase gives way to the
 /// ordinary goal: this many, or two for each file if that is more.
 ///
@@ -878,6 +935,10 @@ async fn drive<H: SessionHost + ?Sized>(
             }
             turn_continuity.action_limit =
                 Some(budget.limits.actions.saturating_sub(total_actions));
+            turn_continuity.work_limit = budget
+                .limits
+                .work
+                .map(|work| work * converse::WORK_PER_TOKEN);
             bounded!(host.run_turn(TurnInput {
                 root: root.clone(),
                 conversation_id,
@@ -974,9 +1035,19 @@ async fn drive<H: SessionHost + ?Sized>(
                     &proposals::shown(&evidence, &target),
                     was.as_ref(),
                 );
-                // Half of what the goal has left is the ordinary goal's.
-                let share = (budget.remaining().as_secs_f64() / 2.0 / left)
-                    .clamp(PROPOSAL_SHARE.0, PROPOSAL_SHARE.1);
+                // Half of what the goal has left is the ordinary goal's. In
+                // tokens when the goal is bounded by work, so that a proposal
+                // is the same proposal on a slower machine; in seconds when
+                // it is bounded by the clock alone.
+                let by_work = budget.limits.work.is_some();
+                let share = match budget.work_left() {
+                    Some(tokens) => (tokens as f64 / 2.0 / left).clamp(
+                        PROPOSAL_SHARE.0 * PROPOSAL_TOKENS_PER_SECOND,
+                        PROPOSAL_SHARE.1 * PROPOSAL_TOKENS_PER_SECOND,
+                    ),
+                    None => (budget.remaining().as_secs_f64() / 2.0 / left)
+                        .clamp(PROPOSAL_SHARE.0, PROPOSAL_SHARE.1),
+                };
                 let shares = proposals::Shares {
                     thinking: share / 2.0,
                     reply: share,
@@ -988,7 +1059,17 @@ async fn drive<H: SessionHost + ?Sized>(
                     },
                 };
                 let proposal = match bounded!(proposals::propose(
-                    &author, &path, &current, brief, shares, transport, &stop
+                    &author,
+                    &path,
+                    &current,
+                    brief,
+                    shares,
+                    transport,
+                    proposals::Meter {
+                        work: &budget.work,
+                        by_work,
+                    },
+                    &stop
                 )) {
                     Ok(proposal) => proposal,
                     Err(problem) => {
@@ -1199,6 +1280,10 @@ async fn drive<H: SessionHost + ?Sized>(
             }
             turn_continuity.action_limit =
                 Some(budget.limits.actions.saturating_sub(total_actions));
+            turn_continuity.work_limit = budget
+                .limits
+                .work
+                .map(|work| work * converse::WORK_PER_TOKEN);
         }
         let turn = host.run_turn(TurnInput {
             root: root.clone(),
@@ -3084,6 +3169,98 @@ mod tests {
             serde_json::to_string(&off)
                 .unwrap()
                 .contains(r#""proposals":0"#)
+        );
+    }
+
+    // ------------------------------------------------ a goal bounded by work
+
+    /// A model that does `0` tokens of work a turn and never says it is done.
+    struct Spends(u64);
+
+    #[async_trait::async_trait(?Send)]
+    impl SessionHost for Spends {
+        async fn run_turn(
+            &self,
+            input: TurnInput,
+        ) -> Result<(TurnReport, Vec<ChatMessage>), String> {
+            // Asked to stop where the meter stands, as the turn itself checks.
+            if input
+                .continuity
+                .work_limit
+                .is_some_and(|limit| input.continuity.work.load(Ordering::Relaxed) >= limit)
+            {
+                panic!("a turn was started with no work left");
+            }
+            input
+                .continuity
+                .work
+                .fetch_add(self.0 * converse::WORK_PER_TOKEN, Ordering::Relaxed);
+            Ok((report(1, false), input.messages))
+        }
+
+        async fn verify(
+            &self,
+        ) -> Result<(GoalVerification, BTreeMap<String, String>), VerifyError> {
+            Ok((GoalVerification::default(), BTreeMap::new()))
+        }
+
+        async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+            Ok(String::new())
+        }
+
+        fn say(&self, _: &str) {}
+
+        fn keep_messages(&self, _: &[ChatMessage]) {}
+    }
+
+    #[test]
+    fn a_goal_with_a_work_allowance_ends_when_the_model_has_done_that_much() {
+        let limits = GoalLimits {
+            work: Some(2_500),
+            ..Default::default()
+        };
+        let result = run(&Spends(1_000), Policy::Goal, limits);
+        assert!(matches!(
+            result.end,
+            SessionEnd::OutOfBudget {
+                reached: GoalLimitReached::Work {
+                    spent: 3_000,
+                    allowed: 2_500
+                },
+                ..
+            }
+        ));
+        assert_eq!(result.budget.snapshot()["spent"]["work"], 3_000);
+        assert_eq!(
+            GoalLimitReached::Work {
+                spent: 3_000,
+                allowed: 2_500
+            }
+            .meta()["limit"],
+            "work"
+        );
+    }
+
+    #[test]
+    fn without_a_work_allowance_work_is_counted_and_bounds_nothing() {
+        let limits = GoalLimits {
+            actions: 3,
+            ..Default::default()
+        };
+        let result = run(&Spends(1_000_000), Policy::Goal, limits);
+        assert!(matches!(
+            result.end,
+            SessionEnd::OutOfBudget {
+                reached: GoalLimitReached::Actions { .. },
+                ..
+            }
+        ));
+        assert_eq!(result.budget.work_done(), 3_000_000);
+        // Absent from a saved configuration, so an older build reads it.
+        assert!(
+            !serde_json::to_string(&GoalLimits::default())
+                .unwrap()
+                .contains("work")
         );
     }
 }

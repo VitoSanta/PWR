@@ -1073,3 +1073,13 @@ Adds `goal_aids.block_edits`, off by default and turned on by no profile. With
 it on, the proposals phase asks for SEARCH/REPLACE blocks for a file that
 exists and applies them only when each matches exactly once. Simulated-host
 tests only; no model has run with it.
+
+### 2026-10-06: a goal can be bounded by model work (W2.13)
+
+Adds `goal_budget.work`, absent by default: with it absent a goal is bounded
+exactly as before, and its model work is now counted and reported in
+`_meta.pwr.goalBudget.spent.work`. With it set, the goal ends when the model
+has generated that many tokens (a prompt token read counting an eighth), and
+the proposals phase reads its shares in tokens. Written so that runs made in
+macOS Low Power Mode are comparable with runs at full power; that property is
+tested on simulated streams and has not been checked with a model.
