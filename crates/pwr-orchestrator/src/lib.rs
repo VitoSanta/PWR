@@ -9,6 +9,7 @@ pub mod executor;
 pub mod graph;
 pub mod personal;
 pub mod plan;
+pub mod proposals;
 pub mod repetition;
 mod run_state;
 pub mod scaffold;

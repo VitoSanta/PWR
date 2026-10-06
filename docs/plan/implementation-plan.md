@@ -147,6 +147,43 @@ invalid-edit reduction, success regression or >5% extra task time; specify
 zero-denominator handling before running. Use meaningful version/ambiguity/edit
 fixtures; retain the simpler current interface without evidence.
 
+### W2.9 Verified proposals as a phase of Goal mode
+
+**EXPERIMENTAL, in progress (owner decision 2026-10-06); off by default until
+measured on the product path.** A small model asked to repair or create a file
+through tool calls spends its budget on serialization and on deciding what to
+do next. Outside the product (pwr-evidence `20261003-small-model-diagnostics`,
+2026-10-05/06, Ornith 1.5 9B and Qwen3.5 9B, MLX 4-bit, 240 s budgets, 2-10
+runs per cell): asking for one whole file at a time, checking it and keeping it
+only when fewer owner tests fail took a 17-test repair task from 5 passing to
+7-8; a governor that judges the stream against the file asked for instead of a
+reasoning-token cap took it to about 13 (first complete runs 17/17). On two
+create-from-scratch tasks under a token-denominated budget the phase was
+steadier than the shipped agent with one model (11-13 of 14 against a bimodal
+5-13), let the other model deliver at all, and showed no difference on the
+third cell. Three further changes to the evidence shown to the model did
+nothing measurable and are not adopted.
+
+- **Change.** Not a second loop: a phase of the executor's Goal policy, after
+  the baseline verification and before the first turn. For each file the
+  failing owner tests need, a plain generation with no tools
+  (`SessionHost`), read by `proposals::Governor`; the file is written through
+  the ordinary edit policy, the full verification runs, and the previous
+  content is restored unless `proposals::improves`. The goal then continues as
+  it does today with what is left of its budget.
+- **Steps.** (1) `pwr_verify::failure` names node:test and unittest failures —
+  DONE `3ec3587d`. (2) `pwr_orchestrator::proposals`, pure: targets, extraction,
+  governor, verdict, brief — DONE, not yet called by the product. (3) The
+  host's streamed plain generation. (4) The phase in `executor`, its
+  configuration and limits, documents. (5) The same three tasks on the product
+  path against the shipped agent; an experiment-log entry.
+- **Acceptance.** Kept only if step 5 shows no cell worse than the shipped
+  agent and at least one better, at equal token budget, with replicates.
+  Otherwise it is removed, not left dormant.
+- **Known limits.** Needs owner tests whose failures are named. A test that
+  passes before any file exists makes a correct first file look like a
+  regression. The stall threshold was set on one task's streams.
+
 No candidate above authorizes a campaign before the baseline/power/provenance
 requirements. F0 owner approval adopted scope, not the numerical F6 thresholds.
 
