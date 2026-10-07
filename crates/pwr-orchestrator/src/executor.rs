@@ -1387,7 +1387,16 @@ async fn drive<H: SessionHost + ?Sized>(
         if report.edited {
             reviewed = None;
         }
-        if report.completed {
+        // After the review the checks have passed and nothing has changed
+        // since: a reply that changes nothing and takes no action is the
+        // model's closing statement, said in words. Seen 2026-10-07 (gpt-oss
+        // 20B, an Angular site built and building): it answered the review
+        // "Complete." three times, was told three times not to stop with
+        // prose, and a finished goal ended "paused: the last 3 check-ins took
+        // no action".
+        let closed_in_words =
+            reviewed.is_some() && !report.edited && report.actions == 0 && report.stopped.is_none();
+        if report.completed || closed_in_words {
             if let Some(verification) = reviewed.take() {
                 if let Some(note) = not_verified_note(&verification) {
                     host.say(&note);
@@ -2202,6 +2211,30 @@ mod tests {
             2,
             "one turn after the review"
         );
+    }
+
+    #[test]
+    fn after_the_review_an_answer_in_words_that_changes_nothing_closes_the_goal() {
+        let passing = GoalVerification {
+            technical_passed: true,
+            acceptance_available: false,
+            summary: "1 of 1 checks passing".into(),
+            ..Default::default()
+        };
+        let mut edited = report(2, true);
+        edited.edited = true;
+        // The reply to the review: no call, no action, "Complete." in prose.
+        let host = Fake::new(
+            vec![edited, report(0, false)],
+            vec![Ok(GoalVerification::default()), Ok(passing)],
+        );
+        let SessionEnd::Reply { verification, .. } =
+            run(&host, Policy::Goal, GoalLimits::default()).end
+        else {
+            panic!("the goal did not reply");
+        };
+        assert!(verification.expect("carries it").technical_passed);
+        assert_eq!(host.ran.load(Ordering::Relaxed), 2, "not asked again");
     }
 
     #[test]
