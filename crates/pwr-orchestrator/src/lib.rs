@@ -1141,6 +1141,76 @@ impl ReadHistory {
         }
     }
 
+    /// A find-and-replace sent with an older hash of a file that is, on
+    /// disk, exactly as this turn last read or wrote it, is given the hash
+    /// the file has now. Returns the hash it replaced, when it did.
+    ///
+    /// The hash is there so that nothing is written over a version nobody
+    /// looked at. Here the version on disk is the one the harness itself
+    /// last showed the deployment -- the result of its own previous edit, or
+    /// its last read -- and the deployment is citing the one before. Seen
+    /// 2026-10-07 across four goals: stale-hash refusals of exactly this
+    /// kind, each a step spent re-reading a file the model had just written.
+    ///
+    /// Only for edits that name the text they change (`replace_text`,
+    /// `apply_patch`): the text must still be there, so a change made
+    /// elsewhere in the file is kept. A whole-file `apply_replace` is not
+    /// touched -- it would write over everything -- and neither is a file
+    /// that changed since the turn last saw it, which is what the guard is
+    /// for.
+    pub fn with_current_hash(
+        &self,
+        policy: &ToolPolicy,
+        action: ActionProposal,
+    ) -> (ActionProposal, Option<String>) {
+        let (path, sent) = match &action {
+            ActionProposal::ReplaceText {
+                path,
+                expected_hash,
+                ..
+            }
+            | ActionProposal::ApplyPatchHunks {
+                path,
+                expected_hash,
+                ..
+            } => (path.clone(), expected_hash.clone()),
+            _ => return (action, None),
+        };
+        let current = policy
+            .resolve(std::path::Path::new(&path))
+            .ok()
+            .filter(|resolved| resolved.is_file())
+            .and_then(|resolved| std::fs::read(resolved).ok())
+            .map(pwr_domain::hash_bytes);
+        let Some(current) = current.filter(|current| {
+            *current != sent && self.known.get(&known_key(&path)) == Some(current)
+        }) else {
+            return (action, None);
+        };
+        let refreshed = match action {
+            ActionProposal::ReplaceText {
+                path,
+                find,
+                replace,
+                ..
+            } => ActionProposal::ReplaceText {
+                path,
+                expected_hash: current,
+                find,
+                replace,
+            },
+            ActionProposal::ApplyPatchHunks { path, hunks, .. } => {
+                ActionProposal::ApplyPatchHunks {
+                    path,
+                    expected_hash: current,
+                    hunks,
+                }
+            }
+            other => other,
+        };
+        (refreshed, Some(sent))
+    }
+
     /// Keeps the file an action is about to read or change, the first time.
     fn remember_original(&mut self, policy: &ToolPolicy, action: &ActionProposal) {
         let path = match action {
@@ -1212,6 +1282,7 @@ pub async fn execute_action_recorded(
     step: u8,
 ) -> Result<serde_json::Value, ActionExecutionError> {
     let action = reads.with_known_hash(policy, action);
+    let (action, stale_hash) = reads.with_current_hash(policy, action);
     reads.remember_original(policy, &action);
     let toolchains_before = matches!(action, ActionProposal::RunCommand { .. })
         .then(|| pwr_tools::toolchain_paths(&policy.root));
@@ -1220,6 +1291,19 @@ pub async fn execute_action_recorded(
         _ => attempt_action(policy, &action, services).await,
     };
     if let Ok(outcome) = &mut result {
+        // Said, so the deployment learns which version it is on: it sent an
+        // older hash and the edit was made against the current file.
+        if let (Some(sent), Some(object)) = (&stale_hash, outcome.as_object_mut()) {
+            object.insert(
+                "hash_note".into(),
+                serde_json::Value::String(format!(
+                    "The expected_hash sent ({}...) was of an earlier version; the file was \
+                     as your last read or edit left it, so the change was applied to that. \
+                     Use new_hash from this result for the next edit.",
+                    sent.chars().take(12).collect::<String>()
+                )),
+            );
+        }
         annotate(outcome, &action, reads, step);
         if let Some(before) = toolchains_before {
             note_new_toolchains(outcome, &policy.root, &before);
@@ -7896,6 +7980,79 @@ mod tests {
         std::fs::write(root.path().join("moved.txt"), "someone else's").unwrap();
         assert!(act!(&delete("moved.txt")).is_err());
         assert!(root.path().join("moved.txt").exists());
+    }
+
+    /// Seen 2026-10-07: a model edits a file, then edits it again citing the
+    /// hash from before its own first edit, and is refused for a version it
+    /// had itself just written.
+    #[tokio::test]
+    async fn an_edit_citing_the_hash_before_the_turn_s_own_last_edit_is_applied() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("app.py");
+        std::fs::write(&file, "a = 1\nb = 2\n").unwrap();
+        let policy = ToolPolicy {
+            root: root.path().to_path_buf(),
+            extra_readable: Vec::new(),
+            protected: Vec::new(),
+            allow_commands: vec![],
+            output_limit: 1024,
+            timeout: Duration::from_secs(1),
+            sandbox: pwr_tools::SandboxPolicy::Disabled,
+            approvals: Vec::new(),
+        };
+        let store = Store::open(":memory:").unwrap();
+        let run_id = new_id();
+        let mut services = pwr_tools::service::ServiceSupervisor::new();
+        let mut reads = ReadHistory::default();
+        macro_rules! act {
+            ($json:expr) => {
+                execute_action_recorded(
+                    &store,
+                    run_id,
+                    &policy,
+                    parse_action_proposal($json).unwrap(),
+                    &mut services,
+                    &mut reads,
+                    0,
+                )
+                .await
+            };
+        }
+        let first = pwr_domain::hash_bytes("a = 1\nb = 2\n");
+        let edit = |hash: &str, find: &str, replace: &str| {
+            format!(
+                r#"{{"capability":"replace_text","path":"app.py","expected_hash":"{hash}","find":"{find}","replace":"{replace}"}}"#
+            )
+        };
+        act!(r#"{"capability":"read_file","path":"app.py"}"#).unwrap();
+        act!(&edit(&first, "a = 1", "a = 10")).unwrap();
+        // The same first hash again: the file is as the turn's own edit left
+        // it, so the second edit lands on that, and says so.
+        let second = act!(&edit(&first, "b = 2", "b = 20")).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "a = 10\nb = 20\n");
+        assert!(
+            second["hash_note"]
+                .as_str()
+                .unwrap()
+                .contains("earlier version")
+        );
+        // An edit with the right hash carries no note.
+        let current = pwr_domain::hash_bytes("a = 10\nb = 20\n");
+        let third = act!(&edit(&current, "a = 10", "a = 11")).unwrap();
+        assert!(third.get("hash_note").is_none());
+
+        // Changed by someone else since: the guard holds.
+        std::fs::write(&file, "a = 11\nb = 20\n# theirs\n").unwrap();
+        assert!(act!(&edit(&first, "b = 20", "b = 21")).is_err());
+        assert!(std::fs::read_to_string(&file).unwrap().contains("# theirs"));
+
+        // A whole-file replacement with an old hash is refused as before.
+        act!(r#"{"capability":"read_file","path":"app.py"}"#).unwrap();
+        let whole = format!(
+            r#"{{"capability":"apply_replace","path":"app.py","expected_hash":"{first}","replacement":"x = 0\n"}}"#
+        );
+        assert!(act!(&whole).is_err());
+        assert!(std::fs::read_to_string(&file).unwrap().contains("# theirs"));
     }
 
     #[tokio::test]

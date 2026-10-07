@@ -1064,6 +1064,7 @@ export class AgentStore {
   private upsertTool(update: any, status: string): void {
     const key: string = update.toolCallId ?? `tool-${Date.now()}`;
     const detail: string | undefined = update._meta?.pwr?.detail;
+    const outcome: string | undefined = update._meta?.pwr?.outcome;
     const diffBlock = (update.content ?? []).find?.((block: any) => block.type === 'diff');
     const failure = (update.content ?? []).find?.((block: any) => block.type === 'content')?.content?.text;
     const location: string | undefined = update.locations?.[0]?.path;
@@ -1098,7 +1099,7 @@ export class AgentStore {
         status: toolStatus(status),
         toolKind: update.kind ?? previous?.toolKind,
         diff: diff ?? previous?.diff,
-        data: { ...previous?.data, ...(path ? { path } : {}) },
+        data: { ...previous?.data, ...(path ? { path } : {}), ...(outcome ? { outcome } : {}) },
         raw: [...(previous?.raw ?? []), update],
         at: previous?.at ?? Date.now(),
       };

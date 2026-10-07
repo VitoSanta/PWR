@@ -3371,7 +3371,15 @@ fn tool_update(root: &Path, turn: u32, step: TurnStep) -> Option<Value> {
             "toolCallId": id,
             "status": "failed",
             "content": [{"type": "content", "content": {"type": "text", "text": why}}],
-            "_meta": {"pwr": {"detail": detail}},
+            "_meta": {"pwr": {"detail": detail, "outcome": "turned_down"}},
+        }),
+        // ACP has one word for both; what kind of failure it was rides beside.
+        ToolPhase::RanAndFailed(why) => json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": id,
+            "status": "failed",
+            "content": [{"type": "content", "content": {"type": "text", "text": why}}],
+            "_meta": {"pwr": {"detail": detail, "outcome": "ran_and_failed"}},
         }),
         // Proposed and never started.
         ToolPhase::Refused(why) => json!({
@@ -3379,7 +3387,7 @@ fn tool_update(root: &Path, turn: u32, step: TurnStep) -> Option<Value> {
             "toolCallId": id,
             "status": "failed",
             "content": [{"type": "content", "content": {"type": "text", "text": why}}],
-            "_meta": {"pwr": {"detail": detail}},
+            "_meta": {"pwr": {"detail": detail, "outcome": "turned_down"}},
         }),
     })
 }

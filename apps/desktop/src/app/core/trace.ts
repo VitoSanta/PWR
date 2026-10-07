@@ -56,9 +56,18 @@ export function isMalformed(entry: Entry): boolean {
   return entry.kind === 'tool' && /did not match its declared schema|could not be read|invalid type|missing field|not valid JSON/i.test(entry.text);
 }
 
+/**
+ * A command that ran to its end and said no -- a build with errors, tests
+ * that fail. The call was right; it is a result, not a refusal, and it is
+ * the ordinary middle of writing code.
+ */
+export function ranAndFailed(entry: Entry): boolean {
+  return entry.kind === 'tool' && entry.status === 'failed' && entry.data?.['outcome'] === 'ran_and_failed';
+}
+
 export function toolCategory(entry: Entry): ToolCategory {
   if (isMalformed(entry)) return 'malformed';
-  if (entry.status === 'failed' && !entry.diff) return 'refused';
+  if (entry.status === 'failed' && !entry.diff && !ranAndFailed(entry)) return 'refused';
   switch (entry.toolKind) {
     case 'read':
       return 'file_read';

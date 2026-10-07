@@ -1574,3 +1574,128 @@ pa-trace-raw {
   color: var(--text-muted);
   font-size: var(--fs-label);
 }
+
+/* A command that ran and reported failure is a result: said in words, in
+   the tone of the rest of the line. Red is kept for what PWR turned down. */
+.action.ran-failed .tool-detail {
+  color: var(--text-muted);
+}
+
+.exit-note {
+  flex: none;
+  color: var(--warning-text, var(--text-muted));
+  font-size: var(--fs-caption, 11px);
+}
+
+/* ------------------------------------------------ the reply as a page
+   2026-10-07. The answer is set as a short document: headings that rank,
+   lists and tables with room, code that stands apart. What the model says
+   between its actions is commentary and is set smaller and quieter, so the
+   eye finds the answer and the work, not a wall of running notes. */
+.step.text .markdown {
+  max-width: 72ch;
+  line-height: 1.65;
+}
+
+.step.text.narration .markdown {
+  color: var(--text-secondary);
+  font-size: var(--fs-body-sm);
+  line-height: 1.55;
+}
+
+.step.text.narration .markdown strong {
+  color: var(--text-secondary);
+}
+
+.markdown h1 {
+  font-size: 1.35em;
+}
+
+.markdown h2 {
+  font-size: 1.18em;
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.markdown h3 {
+  font-size: 1.05em;
+}
+
+.markdown h4 {
+  color: var(--text-secondary);
+  font-size: 1em;
+}
+
+.markdown > h1:first-child,
+.markdown > h2:first-child,
+.markdown > h3:first-child {
+  margin-top: 0;
+}
+
+.markdown li::marker {
+  color: var(--text-muted);
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin: var(--space-1) 0 0;
+}
+
+.markdown a {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.markdown a:hover {
+  text-decoration-color: currentColor;
+}
+
+.markdown blockquote {
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  border-left-width: 3px;
+}
+
+.markdown code {
+  border: 1px solid var(--border-subtle);
+  font-family: var(--mono);
+}
+
+.markdown pre code {
+  border: 0;
+}
+
+/* A table reads as one object: rounded, ruled between rows only, its head
+   set apart, and scrolling sideways by itself when it is too wide. */
+.markdown table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.markdown th,
+.markdown td {
+  padding: 7px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+
+.markdown tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown th {
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+  white-space: nowrap;
+}
+
+.markdown tbody tr:nth-child(even) td {
+  background: var(--surface-inset);
+}

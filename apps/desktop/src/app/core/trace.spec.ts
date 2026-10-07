@@ -1,5 +1,5 @@
 import { Entry } from './model';
-import { actionPhrase, compactTurn, groupSteps, runMetrics, runOutcome, toolCategory } from './trace';
+import { actionPhrase, ranAndFailed, compactTurn, groupSteps, runMetrics, runOutcome, toolCategory } from './trace';
 
 let clock = 0;
 const entry = (kind: Entry['kind'], extra: Partial<Entry> = {}): Entry => ({
@@ -183,5 +183,19 @@ describe('what an action did, in plain words', () => {
   it('falls back to the kind of action, then to the tool, for one it does not know', () => {
     expect(actionPhrase(call('peek_file a.ts', 'a.ts', { toolKind: 'read' })).verb).toBe('Read');
     expect(actionPhrase(call('new_tool', 'x')).verb).toBe('new_tool');
+  });
+});
+
+describe('a command that ran and failed', () => {
+  it('is a result, not a refusal', () => {
+    const red = entry('tool', { title: 'run_command', text: 'npm run build', toolKind: 'execute', status: 'failed', data: { outcome: 'ran_and_failed' } });
+    const denied = entry('tool', { title: 'run_command', text: 'ls', toolKind: 'execute', status: 'failed', data: { outcome: 'turned_down' } });
+    const old = entry('tool', { title: 'run_command', text: 'ls', toolKind: 'execute', status: 'failed' });
+    expect(ranAndFailed(red)).toBe(true);
+    expect(toolCategory(red)).toBe('verification');
+    expect(toolCategory(denied)).toBe('refused');
+    // A core that does not say which it was is read as before.
+    expect(ranAndFailed(old)).toBe(false);
+    expect(toolCategory(old)).toBe('refused');
   });
 });

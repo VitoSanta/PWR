@@ -2,6 +2,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   OnDestroy,
   computed,
@@ -360,6 +361,39 @@ export class FilesCard {
         void this.list();
       });
     });
+    // What PWR changes shows here without the reload button: after every
+    // edit it makes, when its turn ends, and every few seconds while a turn
+    // runs, since a command can create files no edit announces.
+    effect(() => {
+      this.agent.changes();
+      this.agent.turnActive();
+      untracked(() => void this.refresh());
+    });
+    const timer = setInterval(() => {
+      if (this.agent.turnActive()) void this.refresh();
+    }, 4000);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+  }
+
+  /** The listing, or the open file, read again without the loading state:
+   *  nothing flickers, and a failure leaves what was shown. */
+  private async refresh(): Promise<void> {
+    const cwd = this.agent.workspace();
+    if (!cwd) return;
+    try {
+      const open = this.file();
+      if (open) {
+        const again = await this.agent.call('_pwr/file', { cwd, path: open.path });
+        if (this.file()?.path === open.path && again?.text !== open.text) this.file.set(again);
+        return;
+      }
+      const folder = this.folder();
+      const reply = await this.agent.call('_pwr/files', { cwd, path: folder });
+      const entries: FileEntry[] = reply.entries ?? [];
+      if (this.folder() === folder && JSON.stringify(entries) !== JSON.stringify(this.entries())) this.entries.set(entries);
+    } catch {
+      // Left as it was: the reload button says what went wrong.
+    }
   }
 
   protected enter(entry: FileEntry): void {
@@ -517,6 +551,26 @@ export class BrowserCard {
     }
     return found;
   });
+
+  /** The address the card opened by itself, so a person's own is left alone. */
+  private followed = '';
+
+  constructor() {
+    // A server PWR started, or an address the conversation just named, is
+    // opened here without being copied over -- unless the person has put an
+    // address of their own in the bar.
+    effect(() => {
+      const address = normalize(this.suggestions()[0] ?? '');
+      if (!address || address === this.followed) return;
+      untracked(() => {
+        if (this.url() && this.url() !== this.followed) return;
+        this.followed = address;
+        this.error.set('');
+        this.url.set(address);
+        this.show(address);
+      });
+    });
+  }
 
   protected go(raw: string): void {
     const address = normalize(raw);

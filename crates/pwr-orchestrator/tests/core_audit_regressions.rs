@@ -559,7 +559,8 @@ async fn command_failure_is_visible_and_is_not_delivery() {
         &DenyWithoutAsking,
         |step| {
             if let converse::TurnStep::ToolCall(call) = step
-                && let converse::ToolPhase::Failed(why) = call.phase
+                && let converse::ToolPhase::Failed(why) | converse::ToolPhase::RanAndFailed(why) =
+                    call.phase
             {
                 failed = true;
                 failure_detail = why;

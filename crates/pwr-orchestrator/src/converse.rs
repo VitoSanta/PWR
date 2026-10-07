@@ -493,7 +493,14 @@ pub enum ToolPhase {
     Proposed,
     Started,
     Completed,
+    /// The action was not carried out: a guard, the policy or the tool
+    /// itself turned it down with a reason.
     Failed(String),
+    /// A command that ran to its end and reported failure -- a build with
+    /// errors, tests that fail. The call was right; what it ran said no,
+    /// which is the ordinary middle of writing code and not a mistake of
+    /// the model's. Told apart so a front end does not draw both the same.
+    RanAndFailed(String),
     /// Not run: a repeat of a refused action, an approval refused, or a call
     /// that did not decode.
     Refused(String),
@@ -3577,19 +3584,31 @@ async fn take_turn_inner<P: ModelProvider>(
                     on_step(TurnStep::ToolCall(ToolCallStep {
                         id: call_id,
                         capability: capability.clone(),
-                        detail: detail.clone(),
+                        // Where a started service answers, so a front end
+                        // can open it beside the conversation without the
+                        // person copying a port out of the output.
+                        detail: match value.get("port").and_then(serde_json::Value::as_u64) {
+                            Some(port) if capability == "start_service" => {
+                                format!("{detail} -> http://localhost:{port}")
+                            }
+                            _ => detail.clone(),
+                        },
                         path: path.clone(),
                         phase: if crate::repetition::failed(&value) {
-                            ToolPhase::Failed(command_failure_output(&value, None).unwrap_or_else(
-                                || {
-                                    value
-                                        .get("stderr")
-                                        .and_then(serde_json::Value::as_str)
-                                        .filter(|text| !text.trim().is_empty())
-                                        .unwrap_or("tool returned a failure result")
-                                        .to_owned()
-                                },
-                            ))
+                            let ran = value.get("exit_code").is_some_and(|code| !code.is_null());
+                            let said = if ran {
+                                ToolPhase::RanAndFailed
+                            } else {
+                                ToolPhase::Failed
+                            };
+                            said(command_failure_output(&value, None).unwrap_or_else(|| {
+                                value
+                                    .get("stderr")
+                                    .and_then(serde_json::Value::as_str)
+                                    .filter(|text| !text.trim().is_empty())
+                                    .unwrap_or("tool returned a failure result")
+                                    .to_owned()
+                            }))
                         } else {
                             ToolPhase::Completed
                         },

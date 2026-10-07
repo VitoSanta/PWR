@@ -7,6 +7,7 @@ import {
   TraceVisibility,
   Step,
   actionPhrase,
+  ranAndFailed,
   compactTurn,
   duration,
   groupSteps,
@@ -77,7 +78,7 @@ abstract class Foldable {
               @if (busy(step.entries)) {
                 <span class="spinner spinner-sm"></span>
               } @else if (refused(step.entries)) {
-                <pa-icon name="alert" [size]="16" />
+                <pa-icon name="alert" [size]="14" />
               } @else {
                 <pa-icon class="chevron" [class.open]="isOpen(step.key, step.last)" name="chevron-right" [size]="14" />
               }
@@ -85,6 +86,9 @@ abstract class Foldable {
             <span class="actions-summary">{{ summary(step.entries) }}</span>
             @if (retried(step.entries); as retried) {
               <span class="badge">{{ retried }} retried</span>
+            }
+            @if (unsuccessful(step.entries); as runs) {
+              <span class="badge">{{ runs }} failed</span>
             }
             @if (refused(step.entries); as failed) {
               <span class="badge badge-danger">{{ failed }} refused</span>
@@ -102,7 +106,7 @@ abstract class Foldable {
                     </div>
                   </li>
                 } @else {
-                  <li [class]="'action ' + entry.status" [class.malformed]="malformed(entry)">
+                  <li [class]="'action ' + entry.status" [class.malformed]="malformed(entry)" [class.ran-failed]="ranFailed(entry)">
                     <button
                       class="action-row"
                       (click)="toggle(entry.key, false)"
@@ -129,7 +133,9 @@ abstract class Foldable {
                       <!-- Said only when it is not the ordinary case: an action
                            that worked needs no mark, and a column of green
                            dots hid the one that had not. -->
-                      @if (entry.status !== 'done') {
+                      @if (ranFailed(entry)) {
+                        <span class="exit-note" [attr.title]="entry.text">failed</span>
+                      } @else if (entry.status !== 'done') {
                         <span [class]="'status-dot ' + entry.status" role="img" [attr.aria-label]="label(entry)" [attr.title]="label(entry)"></span>
                       }
                     </button>
@@ -167,7 +173,9 @@ abstract class Foldable {
             </div>
           }
           @case ('reply') {
-            <div class="step text" [class.live]="step.entry.status === 'live'">
+            <!-- What the model says on the way is commentary; its last words
+                 are the answer, and are drawn as one. -->
+            <div class="step text" [class.live]="step.entry.status === 'live'" [class.narration]="step.key !== answerKey()">
               <pa-markdown [text]="step.entry.text" [streaming]="step.entry.status === 'live'" />
             </div>
           }
@@ -194,6 +202,11 @@ abstract class Foldable {
 })
 export class TraceSteps extends Foldable {
   readonly steps = input.required<Step[]>();
+  /** The last thing the model said in these steps: the answer, or the newest words while it works. */
+  protected readonly answerKey = computed(() => {
+    const replies = this.steps().filter((step) => step.type === 'entry' && step.entry.kind === 'reply');
+    return replies[replies.length - 1]?.key ?? null;
+  });
   protected readonly malformed = isMalformed;
   protected readonly category = toolCategory;
 
@@ -201,9 +214,19 @@ export class TraceSteps extends Foldable {
     return entries.some((entry) => entry.kind === 'tool' && (entry.status === 'running' || entry.status === 'pending'));
   }
 
-  /** Refused by policy, not calls that failed to decode. */
+  protected readonly ranFailed = ranAndFailed;
+
+  /** Turned down by a guard or the policy: not calls that failed to decode,
+   *  and not commands that ran and reported failure. */
   protected refused(entries: Entry[]): number {
-    return entries.filter((entry) => entry.kind === 'tool' && entry.status === 'failed' && !isMalformed(entry)).length;
+    return entries.filter(
+      (entry) => entry.kind === 'tool' && entry.status === 'failed' && !isMalformed(entry) && !ranAndFailed(entry),
+    ).length;
+  }
+
+  /** Commands that ran and said no: a red build, failing tests. */
+  protected unsuccessful(entries: Entry[]): number {
+    return entries.filter(ranAndFailed).length;
   }
 
   protected retried(entries: Entry[]): number {
