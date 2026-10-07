@@ -1,5 +1,11 @@
 # Experiment log
 
+Public records retain technical findings and negative results. `private-evidence/`
+and `private-manual-workspaces/` identify unpublished, anonymised evidence
+bundles, not paths a reader can resolve in this checkout. Personal originals
+and restore locations are maintained outside the repository. Dated entries
+describe their recorded revisions, not a current release candidate.
+
 Dated entries, newest first, for every experiment and every change that
 alters what a campaign measures (prompt, catalogue, loop, budgets, adapters).
 Each entry names: the hypothesis or question, the conditions compared (commit,
@@ -27,7 +33,7 @@ browser fills and sends a form and reads its confirmation (skipped where no
 browser runs); validation and read-back are covered without one.
 
 First use the same evening (Qwen 3.6 35B, a single page on a local server,
-`~/Desktop/confronto-manuale/pagina-singola-pwr`): the screenshots were read
+`private-manual-workspaces/pagina-singola-pwr`): the screenshots were read
 and used, and no step worked. The page was of another origin than PWR's own
 page, opened from a file, so every step answered "Cannot read properties of
 null"; the model also named a field under `click`, clicked options of a list,
@@ -40,7 +46,7 @@ model's own seven steps, run again on its page, end at its confirmation
 message (`a_page_on_a_local_server_is_acted_on_as_a_person_would`).
 
 *A failure that outlives its repairs.* Manual run of 2026-10-07 (Nemotron 30B
-4-bit, a Python CLI from nothing, `~/Desktop/confronto-manuale/python-cli-pwr`):
+4-bit, a Python CLI from nothing, `private-manual-workspaces/python-cli-pwr`):
 the model wrote `ifoggi_str` for `if oggi_str`, rewrote the file about twenty
 times with the same line, and ended at 2 of 21 acceptance commands and 1 of 10
 tests (OpenCode, same model through Ollama at 262k context: 17 of 21, 14 tests
@@ -113,8 +119,8 @@ not model rankings or an isolated before/after improvement claim; the owner
 acceptance declaration differs from the earlier ledger fixture.
 
 Raw logs, native walk, source/model manifests and trial records:
-`~/Desktop/pwr-evidence/batteries/20261002-stage-frontend/` and
-`~/Desktop/pwr-evidence/runs/battery-20261002-fixed-*/`.
+`private-evidence/batteries/20261002-stage-frontend/` and
+`private-evidence/runs/battery-20261002-fixed-*/`.
 
 ## 2026-10-02 — Ask before a dependency installer writes its protected tree
 
@@ -162,7 +168,7 @@ Campaign amendment: keep the three pre-fix ledger trials and the 9B React trial
 already in flight; subsequent model trials use the corrected binary, fresh
 calibration and unchanged frozen fixtures. A first continuation correctly
 refused an occupied engine lease and did no inference. All intermediate logs
-are retained under `~/Desktop/pwr-evidence/batteries/20261002-stage-frontend/`.
+are retained under `private-evidence/batteries/20261002-stage-frontend/`.
 
 ## 2026-10-02 — Repairs found during the desktop rollback battery
 
@@ -200,8 +206,8 @@ the isolated default-browser rerun and fresh full suite pass. This transient
 is retained in `tools-final-green.log` despite that log's historical name.
 
 Raw red/green regressions, compatibility probes and baseline task results:
-`~/Desktop/pwr-evidence/batteries/20261002-stage-frontend/` and
-`~/Desktop/pwr-evidence/runs/battery-20261002-stage-q35-9b/ts-ledger/`.
+`private-evidence/batteries/20261002-stage-frontend/` and
+`private-evidence/runs/battery-20261002-stage-q35-9b/ts-ledger/`.
 
 ## 2026-10-02 — Desktop rollback battery, sandbox and Full access
 
@@ -235,10 +241,10 @@ Ask request is preserved in its transcript. Later runner digests name the
 metadata extension. Native bundle and runner preparation plus workspace tests
 overlap the first diagnostic trial; latency comparisons are not claimed.
 Raw artifacts and the battery manifest:
-`/Users/vitosantanelli/Desktop/pwr-evidence/batteries/20261002-stage-frontend/`;
-task results: `~/Desktop/pwr-evidence/runs/battery-20261002-stage-*/`.
+`private-evidence/batteries/20261002-stage-frontend/`;
+task results: `private-evidence/runs/battery-20261002-stage-*/`.
 New native bundle:
-`~/Desktop/pwr-evidence/builds/stage-frontend-20261002/PWR.app`.
+`private-evidence/builds/stage-frontend-20261002/PWR.app`.
 The restored Stage frontend exposes Ask/Auto; Full is tested through ACP.
 
 ## 2026-10-02 — Core effects, parsing, memory and real MLX context bounds
@@ -264,8 +270,8 @@ full-suite ID failure and its IDs/seed are retained. Hosted CI and a clean
 installation remain unknown.
 
 Audit and manual-test cases: [core audit](reviews/2026-10-02-core-audit.md).
-Raw evidence: `/Users/vitosantanelli/Desktop/pwr-evidence/logs/core-fixes-20261002/`.
-Prepared local application: `/Users/vitosantanelli/Desktop/pwr-evidence/builds/core-fixes-20261002/PWR.app`;
+Raw evidence: `private-evidence/logs/core-fixes-20261002/`.
+Prepared local application: `private-evidence/builds/core-fixes-20261002/PWR.app`;
 its core/sidecar/bundle hashes and exact source patch are saved in that folder.
 The build includes the pre-existing uncommitted tool sandbox fixes; those
 changes and the unrelated research/docs edits are preserved, not absorbed into
@@ -320,7 +326,7 @@ digests reads no task for tuning; no heldout content was inspected.
 
 **IMPLEMENTED measurement procedure, no campaign run.** By D-2026-10-02-1 the
 runner is the product-path evaluator. A campaign now takes an exclusive lease
-(`~/Desktop/pwr-evidence/engine.lock`) and, before each task, stops if another
+(`private-evidence/engine.lock`) and, before each task, stops if another
 inference engine is running after a minute's wait (`--allow-busy-machine`
 overrides and is recorded): the two-engine runs of 2026-10-01 were discarded by
 hand, and a lease makes the runner refuse them instead. Each `result.json`
@@ -361,7 +367,7 @@ campaign measures that no measurement supported.
   retried three times: a fixture streaming for longer than its bound ended as
   *backend failing* after three full deadlines, "this is the server, not the
   model". On 2026-10-01 one Qwen3.6-35B-A3B response on `rust-semver`
-  (`~/Desktop/pwr-evidence/runs/fix2-q36-35b/rust-semver/mlx-trace.jsonl`)
+  (`private-evidence/runs/fix2-q36-35b/rust-semver/mlx-trace.jsonl`)
   took 799 s: 369 s prefilling 43,406 tokens, then about 415 s writing one
   tool call's arguments (a whole file), during which only content-free
   progress chunks reached the client. A dense or XL model would cross 900 s on
@@ -403,7 +409,7 @@ No defaults were tuned, no weights loaded and no heldout inspected. Ordinary
 aggregate conversation bounds, real cancellation latency and model capability
 remain unknown/PLANNED; full F1 audit is incomplete. Regression/check evidence:
 [executor follow-up](reviews/2026-10-01-audit.md) and
-`~/Desktop/pwr-evidence/logs/mission-20261001-f1-executor/`.
+`private-evidence/logs/mission-20261001-f1-executor/`.
 
 ## 2026-10-01 — F1 sampling source correctness (measurement-changing)
 
@@ -438,7 +444,7 @@ inspection, model download or push.
 **MEASURED final checks:** Rust exit 0, 1,405 reported passed / 0 failed / 5 ignored across 102 target summaries; one reported pass is a Docker socket skip. Clippy with denied warnings, fmt, desktop 107 tests / 13 files and production build, sidecar 41 tests, milestone agreement and diff checks pass. Existing npm dependencies were reused;
 hosted CI, clean npm installation and the Docker case remain unverified.
 Starting process-safety and Semantic Decision Layer hunks remain uncommitted.
-Evidence: `/Users/vitosantanelli/Desktop/pwr-evidence/logs/mission-20261001-f1-sampling/`.
+Evidence: `private-evidence/logs/mission-20261001-f1-sampling/`.
 
 ## 2026-10-01 — F1 context correctness (measurement-changing)
 
@@ -464,7 +470,7 @@ one Docker socket skip; Clippy with denied warnings, fmt, desktop 107 tests /
 13 files and build, sidecar 41 tests, milestone agreement and diff checks pass.
 The overflow regression also passed after a lint-only fixture edit. Hosted CI,
 clean npm installation and the Docker case remain unverified. Evidence/notes:
-`/Users/vitosantanelli/Desktop/pwr-evidence/logs/mission-20261001-f1-context/`;
+`private-evidence/logs/mission-20261001-f1-context/`;
 [context audit follow-up](reviews/2026-10-01-audit.md#f1-context-follow-up--after-f0-adoption).
 
 ## 2026-10-01 — Adopt the local harness mission
@@ -988,7 +994,7 @@ Coherence near that size and prefill cost after a switch are **UNKNOWN**.
 **MEASURED** in the same journal: with the 2026-10-01 prompt rule, the model ran
 `npm exec npm create next-app@latest libro-ecommerce` (after `npx create
 next-app@latest ...`, which ran the unrelated package `create`) and wrote every
-later file under `/Users/.../Libra/libro-ecommerce/`. A generator pointed at `.`
+later file under `<workspace>/libro-ecommerce/`. A generator pointed at `.`
 is no reliable alternative: create-next-app refuses `.pwr/` and the npm-invalid
 name `Libra`. **IMPLEMENTED** (D-2026-10-02-4, `scaffold.rs`): in the full
 harness, after a successful command in a workspace with no project, the one new

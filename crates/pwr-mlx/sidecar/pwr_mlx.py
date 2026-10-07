@@ -74,6 +74,13 @@ from collections import deque
 # for anything from here: a path that is not there fails, it is not fetched.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
+# Metal can terminate a command with ImpactingInteractivity while saving GPU
+# context, even when allocations are below the wired-memory limit. Apply the
+# driver workaround before MLX creates its device (llama.cpp PR #22216).
+# An explicit caller value, including "0", is authoritative.
+if sys.platform == "darwin":
+    os.environ.setdefault("AGX_RELAX_CDM_CTXSTORE_TIMEOUT", "1")
+
 import mlx.core as mx
 import mlx.nn as nn
 from mlx_lm import load, stream_generate
@@ -87,7 +94,7 @@ from mlx_lm.utils import load_tokenizer
 # the engine spike found both choices slowed its in-process prefill well below
 # LM Studio's on the same MLX build.
 PREFILL_STEP = 8192
-PREFILL_MIN_STEP = 256
+PREFILL_MIN_STEP = 16
 # A stop is seen between prefill chunks, so a chunk has to be short in *time*,
 # not only in tokens: a dense 31B model takes minutes over one 8,192-token
 # chunk, and Stop, a model switch and everything else waited behind it with
@@ -98,6 +105,9 @@ PREFILL_MIN_STEP = 256
 # 25-27 s at 8,192).
 PREFILL_CHUNK_SECS = 3.0
 PREFILL_FIRST_STEP = 512
+# Non-fused attention materialises scores proportional to the cache length.
+# Its old 256-token floor could take much longer than the time target.
+PREFILL_UNFUSED_CHUNK_SECS = 1.0
 # The most memory MLX keeps aside, freed but not returned, to reuse for its
 # next buffers. Unbounded by default: seen 2026-10-07 (Nemotron 30B 4-bit,
 # about 17 GB of weights, a long goal on a 64 GB machine) the engine stood at
@@ -768,8 +778,27 @@ class Engine:
         # generation prompt, so the next turn's history can start from it.
         self.checkpoint = None
         self.checkpoint_tokens: list[int] = []
+        self.operation = {}
+
+    def observe(self, phase: str, **fields) -> None:
+        # Sample before GPU work: after a Metal failure querying/evaluating the
+        # damaged device can itself fail. No prompt text enters this record.
+        self.operation = {"phase": phase, "started": time.perf_counter(), **fields,
+                          "active_memory_bytes": int(mx.get_active_memory()),
+                          "cache_memory_bytes": int(mx.get_cache_memory()),
+                          "peak_memory_bytes": int(mx.get_peak_memory())}
+        trace({"event": "operation_begin", **self.diagnostics()})
+
+    def diagnostics(self) -> dict:
+        operation = dict(getattr(self, "operation", {}))
+        began = operation.pop("started", None)
+        if began is not None:
+            operation["elapsed_secs"] = round(time.perf_counter() - began, 3)
+        operation["agx_relax_context_timeout"] = os.environ.get("AGX_RELAX_CDM_CTXSTORE_TIMEOUT")
+        return operation
 
     def load(self, request: dict) -> dict:
+        self.observe("load")
         path = pathlib.Path(request["path"]).expanduser()
         config = json.loads((path / "config.json").read_text())
         self.model = self.tokenizer = self.processor = None
@@ -876,7 +905,7 @@ class Engine:
             return PREFILL_STEP
         keys = offset + PREFILL_STEP
         step = self.score_budget // (self.heads * SCORE_BYTES * keys)
-        return max(PREFILL_MIN_STEP, min(PREFILL_STEP, step // 256 * 256))
+        return max(PREFILL_MIN_STEP, min(PREFILL_STEP, step // PREFILL_MIN_STEP * PREFILL_MIN_STEP))
 
     def prefill(self, tokens: list[int], offset: int, progress=lambda done, total: None, cancelled=lambda: False) -> None:
         start = 0
@@ -887,13 +916,20 @@ class Engine:
             step = min(self.prefill_step(offset + start),
                        getattr(self, "chunk_limit", PREFILL_FIRST_STEP))
             chunk = tokens[start:start + step]
+            self.observe("prefill", offset=offset + start, chunk_tokens=len(chunk))
             began = time.perf_counter()
             self.model(mx.array(chunk)[None], cache=self.cache)
             mx.eval([c.state for c in self.cache])
             took = time.perf_counter() - began
             if took > 0:
-                fitting = int(len(chunk) / took * PREFILL_CHUNK_SECS) // 256 * 256
-                self.chunk_limit = max(PREFILL_MIN_STEP, min(PREFILL_STEP, fitting))
+                target = (PREFILL_CHUNK_SECS if getattr(self, "fused", True)
+                          else PREFILL_UNFUSED_CHUNK_SECS)
+                fitting = int(len(chunk) / took * target) // PREFILL_MIN_STEP * PREFILL_MIN_STEP
+                self.chunk_limit = max(PREFILL_MIN_STEP, min(PREFILL_STEP, step * 2, fitting))
+            trace({"event": "prefill_chunk", **self.diagnostics(),
+                   "duration_secs": round(took, 3),
+                   "active_memory_after_bytes": int(mx.get_active_memory()),
+                   "cache_memory_after_bytes": int(mx.get_cache_memory())})
             start += len(chunk)
         progress(len(tokens), len(tokens))
         mx.clear_cache()
@@ -932,6 +968,7 @@ class Engine:
             else:
                 self.cache = make_prompt_cache(self.model)
         elif self.checkpoint is not None and base[:len(self.checkpoint_tokens)] == self.checkpoint_tokens:
+            self.observe("restore", prompt_tokens=len(base))
             restore(self.cache, self.checkpoint)
             reused = len(self.checkpoint_tokens)
         else:
@@ -954,6 +991,7 @@ class Engine:
         try:
             self.prefill(base[reused:cut], reused, progress, cancelled)
             if keeps_copy:
+                self.observe("checkpoint", prompt_tokens=cut)
                 self.checkpoint = snapshot(self.cache)
             else:
                 self.checkpoint = None
@@ -1046,6 +1084,7 @@ class Engine:
             logits_processors = [*(logits_processors or []), thought]
 
         started = time.perf_counter()
+        self.observe("render")
         full, images = self.render(messages, tools, thinking, True, budget, effort)
         context_tokens = request.get("context_tokens")
         if context_tokens is not None:
@@ -1065,6 +1104,7 @@ class Engine:
                 full, images = self.render(messages, tools, thinking, True, budget, effort)
         base, _ = self.render(messages, tools, thinking, False, budget, effort)
         if isinstance(self.model, VisionText):
+            self.observe("vision", prompt_tokens=len(full))
             self.model.set_prompt(full, images, images and images["digest"])
         if len(full) == len(base) or full[:len(base)] != base:
             # The template does not render the history the same way with and
@@ -1102,6 +1142,7 @@ class Engine:
 
         def stream(prompt_tokens, limit):
             nonlocal generated, finish, written_len, answer, closed
+            self.observe("generation", prompt_tokens=len(full), generated_tokens=generated)
             for response in stream_generate(
                 self.model, self.tokenizer, mx.array(prompt_tokens), max_tokens=limit,
                 sampler=sampler, logits_processors=logits_processors,
@@ -1235,6 +1276,7 @@ def main() -> None:
         if not line:
             continue
         request = {}
+        engine.operation = {}
         try:
             request = json.loads(line)
             ident = request.get("id")
@@ -1259,10 +1301,13 @@ def main() -> None:
             else:
                 emit({"id": ident, "event": "error", "message": f"unknown op {op!r}"})
         except Exception as error:  # the process answers every request, even a failed one
+            diagnostics = engine.diagnostics()
+            trace({"event": "engine_error", "error_type": type(error).__name__, **diagnostics})
             emit({
                 "id": request.get("id"),
                 "event": "error",
-                "message": f"{type(error).__name__}: {error}",
+                "message": f"{type(error).__name__}: {error}; engine diagnostics: {json.dumps(diagnostics)}",
+                "diagnostics": diagnostics,
                 "trace": traceback.format_exc()[-2000:],
             })
 

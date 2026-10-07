@@ -1,5 +1,11 @@
 # Evaluation
 
+`private-evidence/` identifies unpublished evidence bundles, not a local link.
+Dated measurements below remain historical; selected experimental proposals
+measured on 2026-10-06 are recorded in [plan W2.9](plan/implementation-plan.md)
+and the [experiment log](experiment-log.md). No confirmatory same-model
+superiority result is established for the next release.
+
 **Checked against `develop` at `bff93062`, 2026-10-01.** How PWR is measured,
 what has been measured, and what has not. The methodology before this date is
 in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/evaluation.md); the decisive campaign still to run is
@@ -84,7 +90,7 @@ recoverable; plan W8.2 reports them separately.
 ## What has been measured
 
 All of it on the maintainer's M2 Max (64 GB); raw artifacts are git-ignored
-under `experiments/` and `~/Desktop/pwr-evidence/`, so an outside reader
+under `experiments/` and `private-evidence/`, so an outside reader
 cannot re-check them yet (plan W8.5).
 
 | Campaign | Loop | Result | What it shows |
@@ -96,7 +102,7 @@ cannot re-check them yet (plan W8.5).
 | Small apps, 2026-09-29/30 (`corpus/small-apps-v1.json`, 4 tasks) | scripted | gpt-oss-20b 3/4 → 4/4; Qwen3-14B 2/4 → 3/4; Ornith-1.5-9B 1/4 → 3/4; Qwen2.5-Coder-14B 0/4 → 1/4 (first vs last campaign) | Development runs, one trial each, harness changing between them; Qwen3-14B answered the same prompt four ways across four runs |
 
 **2026-10-01, development, app path, hidden tests, one trial per task** (raw
-runs under `~/Desktop/pwr-evidence/runs/`, the discarded ones under
+runs under `private-evidence/runs/`, the discarded ones under
 `runs-contaminated/`):
 
 | Run | Model | Result | Conditions |

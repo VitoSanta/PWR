@@ -2,7 +2,7 @@
 
 ## MEASURED failure
 
-The owner tested Nemotron 3.5 Lightning 30B A3B using the prepared C01–C15 desktop build. Its workspace remained empty while PWR displayed “1 edited” and “Work delivered”. The read-only journal contains a failed write to invented `/Users/roberto/LibriEcommerce`, a tree listing and 45 commands, mostly filesystem discovery and private `.pwr` reads. No project-file creation followed. Evidence: `/Users/vitosantanelli/Desktop/pwr-evidence/logs/libra-manual-20261002/REPORT.md` and `events-summary.json`.
+The owner tested Nemotron 3.5 Lightning 30B A3B using the prepared C01–C15 desktop build. Its workspace remained empty while PWR displayed “1 edited” and “Work delivered”. The read-only journal contains a failed write to invented `/Users/example/LibriEcommerce`, a tree listing and 45 commands, mostly filesystem discovery and private `.pwr` reads. No project-file creation followed. Evidence: `private-evidence/logs/libra-manual-20261002/REPORT.md` and `events-summary.json`.
 
 ## IMPLEMENTED corrections
 

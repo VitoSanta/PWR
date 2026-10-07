@@ -1,7 +1,8 @@
 # The desktop app
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** The product surface:
-what it shows, how it talks to the core, and what the plan changes (the layout is being reworked on a separate branch, `codex/agent-layout-lab`, not merged). The
+**Product surface updated 2026-10-07 against `develop` at `5f6c4f38`.**
+Historical measurements below retain their dates; uncommitted UI changes are
+not described as released behaviour. The
 developer guide (build, layout of the source, design system) is
 [apps/desktop/README.md](../apps/desktop/README.md).
 
@@ -26,13 +27,15 @@ itself — a revert asks the core.
 
 ## What a person sees
 
-- **Focus workspace**: restored to the layout before the editorial redesign.
+- **Focus workspace**: conversation with a resizable tool grid and full-window
+  tool view; tool controls remain available in full screen.
   The conversation fills the window; the top bar opens conversations, model
   controls and tools. Tools can sit beside the conversation or fill a narrow
   window. Existing colour palettes are retained; text uses the system sans
   and code uses the system monospace font.
 - **Conversation**: streamed answers and reasoning; while the engine reads a long prompt the working line says *Reading the conversation · 37 % (12,288 of 33,000 tokens)* (from `_pwr/model_progress`, 2026-10-01); one assistant turn with
-  its actions grouped by phase; three trace views — *Compact* (what PWR is
+  its actions described in plain words and grouped into foldable steps; long
+  messages can be expanded, and turn timestamps are shown. Three trace views — *Compact* (what PWR is
   doing, by phase, and the result), *Detailed* (reasoning, each call, files,
   commands, checks, retries), *Raw Trace* (every event and the core log).
   A reopened conversation shows a reconstructed summary of its actions,
@@ -53,7 +56,12 @@ itself — a revert asks the core.
   use `read_terminal` (with permission), `check_page` (rendered text and console)
   or `look_at` (also a screenshot, for vision models). The browser check loads
   the URL separately from the embedded preview; it does not share its login
-  state. On narrow windows these buttons return focus to the conversation.
+  state. Both page tools accept up to 12 click/type/press steps, including
+  option selection and scrolling. The completed action shows a screenshot
+  in chat, also when a text-only model receives only text. Steps use DOM
+  operations and synthetic events; pages that refuse framing or require
+  trusted native events may not work. On narrow windows these buttons return
+  focus to the conversation.
 - **Conversation controls**: Compact, Detailed and Raw Trace plus runtime
   metrics in the title row. Finished compact turns fold their work under
   an action summary; file-change notes open the Changes tab.
@@ -91,7 +99,7 @@ diagnostics and the graph are secondary (review §13).
 
 ## Tests
 
-107 unit tests in 14 spec files (2026-10-02), run with
+Historical record: 107 unit tests in 14 spec files (2026-10-02), run with
 `npm test -- --watch=false` in `apps/desktop`, and the production build, both
 in CI (`desktop` job). No end-to-end test covers first launch, engine install,
 workspace change or shutdown (plan W7.6). Manual walks are recorded in

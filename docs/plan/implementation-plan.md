@@ -25,8 +25,9 @@ depends on the answer.
 G3 now means the all-tier F6 exit criterion. No item becomes DONE from local
 implementation alone. F1/F2 have begun with the
 [initial audit](../reviews/2026-10-01-audit.md) and
-[partial source survey](../research/competitors.md). Cycle state is in
-[mission-status.md](mission-status.md).
+[partial source survey](../research/competitors.md). Public milestone state is
+in [the roadmap](../roadmap.md); candidate release work is tracked in the
+[next-release checklist](../release/next-release-readiness.md).
 
 The phases map to existing work without dropping W IDs:
 

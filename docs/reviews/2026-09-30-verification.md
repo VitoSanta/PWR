@@ -24,7 +24,7 @@ day: **exit 101, one failure**, the same one the review saw —
 `docker_reaches_its_daemon_only_when_the_engine_is_granted`
 (`crates/pwr-tools/tests/sandbox_and_approvals.rs:1516`). After the grant,
 `docker version` answered *"Cannot connect to the Docker daemon at
-unix:///Users/vitosantanelli/.docker/run/docker.sock. Is the docker daemon
+unix://<user-home>/.docker/run/docker.sock. Is the docker daemon
 running?"*.
 
 **Cause established:** Docker Desktop was not running, and its socket file was

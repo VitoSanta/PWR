@@ -27,7 +27,7 @@ do not attribute their features to a stable tag without checking that tag.
 No upstream code was copied into PWR. Dependency licenses, exact reuse scope
 and NOTICE obligations still need review before any reuse; a top-level license
 is not a transitive supply-chain audit. Retrieved metadata/source copies are
-local evidence under `~/Desktop/pwr-evidence/logs/mission-20261001-f0/upstream/`.
+local evidence under `private-evidence/logs/mission-20261001-f0/upstream/`.
 
 ## Architecture and local deployment evidence
 

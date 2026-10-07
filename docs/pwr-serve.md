@@ -29,7 +29,7 @@ neither confined nor recorded.
 | `session/close` | Drops the session and stops a running turn |
 | `session/prompt` | One turn (or a goal, with `goalMode: true`). Text is the request; `resource_link` and `resource` blocks are attachments (a folder outside the workspace becomes a read-only reference); images only for a vision model. One active turn per session: a second prompt is refused. `harness: "minimal"` (not with `goalMode`) runs the W8.3 control the stack-matrix runner compares PWR against: one turn under the goal's action and time budgets with PWR's harness off, and the reply's `_meta.pwr.harness` says `minimal`; the app never sends it |
 | `session/cancel` (notification) | Stops the turn; the prompt answers `cancelled` |
-| `session/update` (to the client) | `agent_message_chunk` (streamed with `_meta.pwr.live: true`, then final), `agent_thought_chunk` (reasoning), `tool_call` / `tool_call_update` (with `kind`, locations, diffs), `user_message_chunk` on replay, `available_commands_update` |
+| `session/update` (to the client) | `agent_message_chunk` (streamed with `_meta.pwr.live: true`, then final), `agent_thought_chunk` (reasoning), `tool_call` / `tool_call_update` (with `kind`, locations, diffs and optional page screenshot), `user_message_chunk` on replay, `available_commands_update` |
 | `session/request_permission` (to the client) | An approval the policy does not hold; options `allow_once`, `allow_always` (for this session), `reject_once`. There is no `reject_always` |
 
 Tool kinds: `read_file` → `read`; `search`, `find_definition`, `list_tree` →

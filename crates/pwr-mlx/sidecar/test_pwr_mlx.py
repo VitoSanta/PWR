@@ -14,6 +14,74 @@ HERE = pathlib.Path(__file__).resolve()
 ROOT = HERE.parents[3]
 
 
+class MetalContextTimeout(unittest.TestCase):
+    def test_driver_workaround_is_set_before_mlx_import_and_respects_override(self):
+        import os, subprocess, sys
+        # Exercise module startup in a fresh interpreter: setting it after the
+        # Metal device was created would not fix the failing context switch.
+        script = """import builtins, os, sys
+original = builtins.__import__
+def importing(name, *args, **kwargs):
+    if name == 'mlx.core':
+        expected = os.environ.get('EXPECTED_AGX')
+        assert os.environ.get('AGX_RELAX_CDM_CTXSTORE_TIMEOUT') == expected
+    return original(name, *args, **kwargs)
+builtins.__import__ = importing
+import pwr_mlx
+print(os.environ.get('AGX_RELAX_CDM_CTXSTORE_TIMEOUT'))
+"""
+        for explicit in (None, "0", "1"):
+            with self.subTest(explicit=explicit):
+                env = dict(os.environ, PYTHONPATH=str(HERE.parent))
+                env.pop("AGX_RELAX_CDM_CTXSTORE_TIMEOUT", None)
+                if explicit is not None:
+                    env["AGX_RELAX_CDM_CTXSTORE_TIMEOUT"] = explicit
+                expected = explicit or ("1" if sys.platform == "darwin" else "None")
+                if expected != "None":
+                    env["EXPECTED_AGX"] = expected
+                else:
+                    env.pop("EXPECTED_AGX", None)
+                result = subprocess.run([sys.executable, "-c", script], env=env,
+                                        capture_output=True, text=True, timeout=30, check=True)
+                self.assertEqual(result.stdout.strip(), expected)
+
+    def test_failed_device_diagnostics_use_the_pre_operation_sample(self):
+        from unittest.mock import patch
+        from pwr_mlx import Engine
+        engine = Engine()
+        engine.observe("prefill", offset=108000, chunk_tokens=32)
+        before = engine.operation["active_memory_bytes"]
+        with patch("pwr_mlx.mx.get_active_memory", side_effect=RuntimeError("broken GPU")):
+            record = engine.diagnostics()
+        self.assertEqual(record["phase"], "prefill")
+        self.assertEqual(record["chunk_tokens"], 32)
+        self.assertEqual(record["active_memory_bytes"], before)
+        self.assertNotIn("started", record)
+        self.assertGreaterEqual(record["elapsed_secs"], 0)
+
+    def test_metal_fault_answers_with_diagnostics_on_the_json_protocol(self):
+        import subprocess, sys
+        script = """import pwr_mlx
+pwr_mlx.EXIT_GRACE_SECS = 0.5
+class Failed(pwr_mlx.Engine):
+    def chat(self, *args):
+        self.observe('prefill', offset=108000, chunk_tokens=32)
+        raise RuntimeError('[METAL] Command buffer execution failed: Impacting Interactivity')
+pwr_mlx.Engine = Failed
+pwr_mlx.main()
+"""
+        result = subprocess.run([sys.executable, "-c", script], cwd=HERE.parent,
+                                input='{"id": 44, "op": "chat"}\n',
+                                capture_output=True, text=True, timeout=30, check=True)
+        event = json.loads(result.stdout)
+        self.assertEqual(event["id"], 44)
+        self.assertEqual(event["event"], "error")
+        self.assertEqual(event["diagnostics"]["phase"], "prefill")
+        self.assertEqual(event["diagnostics"]["offset"], 108000)
+        self.assertIn("Impacting Interactivity", event["message"])
+        self.assertIn('"chunk_tokens": 32', event["message"])
+
+
 class Trace(unittest.TestCase):
     def test_record_has_a_timestamp_for_chat_scoped_export(self):
         import pwr_mlx
@@ -925,6 +993,28 @@ if __name__ == "__main__":
 
 
 class PrefillCancellation(unittest.TestCase):
+    def test_long_unfused_prefill_can_shrink_below_the_old_256_token_floor(self):
+        import mlx.core as mx
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from pwr_mlx import Engine, PREFILL_FIRST_STEP, PREFILL_UNFUSED_CHUNK_SECS
+        engine = Engine()
+        engine.cache = [SimpleNamespace(state=mx.array([0]))]
+        engine.fused = False
+        engine.prefill_step = lambda offset: 8192
+        clock, sizes = [0.0], []
+
+        def slow(tokens, cache):
+            sizes.append(tokens.shape[1])
+            clock[0] += tokens.shape[1] / 50  # long context: 50 tokens/sec
+
+        engine.model = slow
+        with patch("pwr_mlx.time.perf_counter", side_effect=lambda: clock[0]):
+            engine.prefill(list(range(1000)), 108000)
+        self.assertEqual(sum(sizes), 1000)
+        self.assertEqual(sizes[0], PREFILL_FIRST_STEP)
+        self.assertTrue(all(n <= 50 * PREFILL_UNFUSED_CHUNK_SECS for n in sizes[1:]), sizes)
+
     def test_a_slow_model_gets_short_chunks_so_a_stop_is_seen_soon(self):
         import time
         import mlx.core as mx
@@ -941,14 +1031,14 @@ class PrefillCancellation(unittest.TestCase):
             time.sleep(tokens.shape[1] * 0.002)  # 500 tokens a second
         engine.model = slow
         original = pwr_mlx.PREFILL_CHUNK_SECS
-        pwr_mlx.PREFILL_CHUNK_SECS = 0.3  # 150 tokens' worth: the floor, 256
+        pwr_mlx.PREFILL_CHUNK_SECS = 0.3  # 150 tokens' worth, rounded down
         try:
             engine.prefill(list(range(2000)), 0)
         finally:
             pwr_mlx.PREFILL_CHUNK_SECS = original
         self.assertEqual(sum(sizes), 2000)
         self.assertEqual(sizes[0], pwr_mlx.PREFILL_FIRST_STEP)
-        self.assertTrue(all(size <= 256 for size in sizes[1:-1]), sizes)
+        self.assertTrue(all(size <= 150 for size in sizes[1:-1]), sizes)
 
     def test_a_fast_model_is_let_run_in_big_chunks(self):
         import mlx.core as mx

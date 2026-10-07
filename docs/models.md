@@ -8,9 +8,11 @@ calibration), `crates/pwr-compat` (family conventions),
 
 **What "model-aware" means here.** PWR adapts to a model's *conventions* — its
 chat template, tool-call format, reasoning markers, sampling defaults — and to
-the machine's memory. That is compatibility, and it is implemented. It does
-**not** choose a better agentic strategy per model; nothing measured shows
-that it could yet (review §6).
+the machine's memory. That is compatibility, and it is implemented. It
+does not establish a generally better agentic strategy per model. Since
+2026-10-06, a profile can enable experimental verified proposals; only
+Ornith 1.5 9B enables them after limited product-path measurements with mixed
+results across models ([plan W2.9](plan/implementation-plan.md)).
 
 See [compatibility layers](model-compatibility.md) for the separation between
 reply protocol, artifact policy and execution architecture, with rollout gates.

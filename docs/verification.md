@@ -75,8 +75,13 @@ yields anything wins:
 4. **A build system by marker file** — 19 known: Docker Compose, Cargo, Go,
    Maven, Gradle (Groovy and Kotlin), .NET, Swift, Flutter, Elixir, Poetry,
    Python (`pyproject`, `setup.py`, `requirements.txt`), Ruby, PHP, Make, CMake.
-   For Cargo, *targeted* runs `--lib` or `--bins`, *full* the workspace.
-5. C# projects at the root, then nested Cargo manifests and C# projects.
+   Cargo runs the workspace tests for both scopes in the current registry.
+5. C# solutions/projects at the root, plus nested C# projects a solution does
+   not list. With no root project/check source, search recognised project
+   markers up to three directory levels down, returning at most six nested
+   checks. Build/dependency/hidden directories are skipped; a project directory
+   is not searched further. Explicit checks are preferable for larger or
+   unconventional multi-project workspaces.
 6. Last, for a page with no toolchain: the **web asset check** (`web.rs`). It
    reads the markup as text and follows every `src` and `href` that names a
    local file; another origin, a fragment, a `data:` URL and a **run-time
@@ -190,7 +195,7 @@ under an unchanged contract.
 
 | Defect | Plan | State |
 |---|---|---|
-| Acceptance froze the contract file, not the artifacts it runs | W3.1 | fixed on `develop` (conventions inferred when not declared); CI not run |
+| Acceptance froze the contract file, not the artifacts it runs | W3.1 | fixed on `develop` (conventions inferred when not declared); candidate CI/native verification pending |
 | Post-turn note `✓` regardless of the verdict; verdict appended as an orphan `tool` message | W2.2 | fixed on `develop` |
 | Goal failures compared by check name | W1.5 | fixed on `develop` (fingerprints) |
 | Flakiness judged by exit code | W3.3 | fixed for six toolchains |

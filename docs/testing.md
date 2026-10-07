@@ -53,11 +53,14 @@ requests, three jobs:
 - **`mlx-sidecar`** (macOS 15, Apple silicon): the pinned `mlx` and `mlx-lm`,
   then the sidecar's unit tests, offline.
 
-No inference engine or live model runs in CI. **No push and no CI run has happened since 2026-09-30**: everything above is local evidence, and gate G1 needs the CI run.
+No live model generation runs in CI; the sidecar job uses MLX for offline
+unit tests. The check job also validates public documentation, and the sidecar
+job runs stack-matrix runner tests. The counts above are dated local evidence;
+current candidate/hosted results belong in the [next-release checklist](release/next-release-readiness.md).
 
 The release workflow (`.github/workflows/release-macos.yml`) reuses the CI
 workflow (`workflow_call`) and builds the DMG only after it passes (plan W9.1,
-implemented; never run in anger: no tag has been pushed since).
+implemented; candidate execution must be recorded).
 
 ## What "passed" means
 

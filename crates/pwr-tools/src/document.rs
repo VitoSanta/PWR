@@ -711,13 +711,13 @@ mod tests {
 
     #[test]
     fn text_operators_become_lines_in_reading_order() {
-        let content = b"BT /F1 12 Tf 72 720 Td (Vito Santanelli) Tj 0 -14 Td \
+        let content = b"BT /F1 12 Tf 72 720 Td (Example Developer) Tj 0 -14 Td \
                         [(Software) -250 (Engineer)] TJ ET";
         let mut pdf = b"%PDF-1.4\n1 0 obj\n<< /Length 99 >>\nstream\n".to_vec();
         pdf.extend_from_slice(content);
         pdf.extend_from_slice(b"\nendstream\nendobj\n");
         let extracted = extract(&pdf).unwrap();
-        assert_eq!(extracted.text, "Vito Santanelli\nSoftware Engineer");
+        assert_eq!(extracted.text, "Example Developer\nSoftware Engineer");
     }
 
     /// The gate that keeps a CID-keyed document from arriving as fluent rubbish.
@@ -738,17 +738,17 @@ mod tests {
 
     #[test]
     fn declared_links_come_back_once_each_in_the_order_seen() {
-        let mut pdf = b"%PDF-1.4\n<< /A << /URI (https://github.com/VitoSanta) >> >>\n\
-                        << /A << /URI (https://github.com/VitoSanta) >> >>\n\
-                        << /A << /URI (https://linkedin.com/in/vito-santanelli) >> >>\n"
+        let mut pdf = b"%PDF-1.4\n<< /A << /URI (https://example.org/projects) >> >>\n\
+                        << /A << /URI (https://example.org/projects) >> >>\n\
+                        << /A << /URI (https://example.org/profile) >> >>\n"
             .to_vec();
         pdf.extend_from_slice(b"stream\nBT (x) Tj ET\nendstream\n");
         let extracted = extract(&pdf).unwrap();
         assert_eq!(
             extracted.links,
             vec![
-                "https://github.com/VitoSanta".to_string(),
-                "https://linkedin.com/in/vito-santanelli".to_string()
+                "https://example.org/projects".to_string(),
+                "https://example.org/profile".to_string()
             ]
         );
     }

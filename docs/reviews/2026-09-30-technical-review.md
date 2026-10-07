@@ -38,7 +38,7 @@ Oggi il repository permette di investigare questa domanda. Non permette ancora d
 
 # 1. Perimetro, metodo ed evidenze
 
-Ho esaminato il checkout Git in `/Users/vitosantanelli/Desktop/PWR/PWR`, al commit **`efdd2798` del 30 settembre 2026**. La directory superiore contiene anche `PWR_web`, con due progetti di sito separati: non sono il frontend dell'agente.
+Ho esaminato il checkout Git in `<repository-checkout>`, al commit **`efdd2798` del 30 settembre 2026**. La directory superiore contiene anche `PWR_web`, con due progetti di sito separati: non sono il frontend dell'agente.
 
 La review ha seguito i percorsi produttivi e i principali moduli dei 15 crate Rust, il desktop Angular/Tauri, il sidecar MLX, test, configurazioni, strumenti, documentazione corrente e storica, workflow, distribuzione e apparati di evaluation. Non è una certificazione di ogni riga né un penetration test completo.
 

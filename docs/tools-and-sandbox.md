@@ -20,7 +20,8 @@ those limits fails extraction instead of retrying another decoder unboundedly.
 ## The tool catalogue
 
 Defined once, in `action_tool_catalog` (`crates/pwr-orchestrator/src/lib.rs`).
-The scripted loop offers all of it; a conversation removes two and adds four
+The scripted loop and conversation select different tools from it; the final
+conversation catalogue also depends on the model, client and Goal aids
 (`chat_tool_catalog`, `crates/pwr-orchestrator/src/converse.rs`).
 
 | Tool | What it does | Conversation | Scripted |
@@ -50,19 +51,32 @@ The scripted loop offers all of it; a conversation removes two and adds four
 | `look_at` | Screenshot, rendered DOM text and browser console of a local page, after optional `steps` (click, type, press) carried out on it (**experimental**, vision models only) | ✓ | — |
 | `check_page` | Rendered DOM text and browser console of a local page, after optional `steps`, without an image for the model (text models); the app shows the screenshot | ✓ | — |
 | `read_terminal` | The last lines (200 by default, at most 1,000) of the person's own terminal tabs in the app, read-only and redacted; asked about once per conversation (`terminal_read`, granted by no mode, Full access included); offered only when the client declares it can answer (`_meta.pwr.readTerminal` in `initialize`) | ✓ (desktop) | — |
+| `update_plan` | Record the model's plan and show it before each generation; does not certify finished steps | Goal only, with `goal_aids.plan` | — |
 
 Chat without a workspace offers only `read_file`, `list_tree`, `remember`,
 `recall_project` and `wiki_query`, on attached files.
 
-`complete`'s description tells the model *"Accepted only if deterministic
-verification then passes"*, which is true of Goal mode with an acceptance
-check and not of a conversation turn or a scripted run without a verifier
-(plan W3.4).
+`complete`'s description follows the execution policy. Completing a normal
+turn does not certify delivery: the core reports post-edit checks separately.
+Goal mode requires declared, unchanged acceptance evidence to finish verified;
+absent checks and zero-test runs remain unverified (plan W3.4).
+
+**Page steps, updated 2026-10-07.** `look_at` / `check_page` support up to
+12 click/type/press steps, option selection and scrolling on a local page.
+They use a temporary browser profile, an iframe, DOM clicks/value setters and
+synthetic events; they do not reproduce trusted native mouse/keyboard input.
+Framing restrictions or handlers requiring trusted events can prevent a step.
+A successful tool call can still report a failed step: inspect the result.
+`check_page` sends text to the model but both tools can show a screenshot to
+the client. This is experimental local inspection, not general browser or
+computer automation.
 
 ## Execution
 
-- **No shell.** `run_command` takes an executable and an argument list; no
-  shell ever interprets them. A whole command line sent as the executable with
+- **No implicit shell.** `run_command` takes an executable and an argument
+  list. An explicitly invoked shell still faces permissions and the applicable
+  sandbox; ordinary arguments are not implicitly interpreted by one. A whole
+  command line sent as the executable with
   no arguments, in plain words, is split into program and arguments while the
   call is decoded (`crates/pwr-orchestrator/src/lib.rs`); one that
   contains anything a shell would read differently (quotes, `$`, pipes,

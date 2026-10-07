@@ -8,9 +8,15 @@ whole, in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/arch
 
 ## Start here
 
+The [product overview](product-overview.md) summarises the current development
+features and their limits. It distinguishes published releases from unreleased
+code. The [next-release checklist](release/next-release-readiness.md) records
+the evidence still needed before a new tag or release.
+
 | Document | For |
 |---|---|
 | [README](../README.md) | What PWR is, install, status |
+| [Product overview](product-overview.md) | Current features, intended use and unreleased changes |
 | [MASTER_SPEC](../MASTER_SPEC.md) | The product and research contract: promise, thesis, principles, evidence words |
 | [Implementation plan](plan/implementation-plan.md) | Every work item, with acceptance criteria and tests, and the gates |
 | [Roadmap](roadmap.md) | The plan in NOW / NEXT / LATER / NOT NOW, with milestone status |
@@ -39,7 +45,6 @@ whole, in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/arch
 | Document | Covers |
 |---|---|
 | [Evaluation](evaluation.md) | The measuring machinery, what has been measured, rules for a claim |
-| [Mission status](plan/mission-status.md) | Current cycle, evidence, next step and owner stops; F0 adopted 2026-10-01 |
 | [Initial mission audit](reviews/2026-10-01-audit.md) | Reproduced local checks, verified findings and unexamined F1 coverage |
 | [Competitor sources](research/competitors.md) | Partial F2 source/revision/license survey; no matched capability comparison |
 | [Experiment log](experiment-log.md) | Dated experiments and measurement-changing changes |
@@ -50,6 +55,7 @@ whole, in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/arch
 | [Risks](risks.md) | The principal risks and their mitigations |
 | [Glossary](glossary.md) | The words, one sense each |
 | [Release records](release/) | Release notes, readiness audits, Mac verification passes |
+| [Next release](release/next-release-readiness.md) | Candidate checks, packaging and unresolved release work |
 | [Reviews](reviews/README.md) | External reviews and audits, and their verification |
 | [thresholds.md](thresholds.md) / `thresholds.json` | The evaluation bars the code reads (historical reasoning, still operative) |
 | [Product screenshots](product-screenshots/README.md) | The v0.1.0 screenshot set |
@@ -74,3 +80,13 @@ whole, in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/arch
    says where it went.
 6. The milestone table in the roadmap is generated from `milestones.json` by
    `scripts/milestones.py`; CI fails if they differ.
+7. **Public documentation is for users and contributors.** Personal editorial
+   plans, session handoffs, local restore instructions and machine-specific
+   release working notes belong outside the checkout. Keep public technical
+   findings, negative results and reproducible conditions; remove personal
+   paths and private profile data. Unpublished evidence is identified as such,
+   rather than linked to a maintainer's filesystem.
+8. Historical reviews and release records describe their dated revisions;
+   they are not current readiness evidence. Run
+   `python3 scripts/check-public-docs.py` before a documentation change is
+   proposed for release.

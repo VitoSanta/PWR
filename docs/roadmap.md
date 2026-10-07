@@ -1,6 +1,6 @@
 # Roadmap
 
-**As of 2026-10-02.** The order of work under the mission adopted on 2026-10-01. The detail
+**Source status reviewed 2026-10-07.** The order of work under the mission adopted on 2026-10-01. The detail
 of every item — problem, evidence, change, acceptance, tests — is in the
 [implementation plan](plan/implementation-plan.md); this page is the summary a
 reader needs first. The roadmap before this date, with its reconciliations and
@@ -11,7 +11,7 @@ release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/309266d
 - **Released:** v0.2.0-alpha (2026-09-28), macOS on Apple silicon, as a
   prerelease. Fixes since then are on `develop` and recorded in
   [release/v0.2.x-mac-verification.md](release/v0.2.x-mac-verification.md).
-- **On `develop`, not released and not pushed:** local commits since the
+- **On `develop`, not released:** local commits since the
   documentation baseline (`0776ff4f`): most of gate G1, the session executor, and
   the model-compatibility and recovery work of 2026-10-01 (adapters for the
   Mistral, Liquid and Granite families and a Qwen3-Coder format, tool-call ids
@@ -23,8 +23,9 @@ release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/309266d
 - **Unproven:** that the harness makes a small model resolve more tasks than a
   simple loop. Development runs on the app's path (2026-10-01) show a signal on
   one deployment (3/8 → 6/8, one trial) and clear failures on hard tasks; no
-  `heldout` task has been run on the current harness, and no baseline arm exists
-  yet.
+  confirmatory held-out comparison is recorded. The minimal control arm now
+  exists; experimental proposals measurements have mixed model/task outcomes
+  ([plan W2.9](plan/implementation-plan.md)).
 
 ## Milestones
 
@@ -34,11 +35,11 @@ release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/309266d
 | Milestone | Status | Evidence recorded | What remains before advancement |
 |---|---|---|---|
 | G0 Documents match the code | **passed 2026-09-30** | Documentation rewritten from the code at 0776ff4f (plan W0.1); every claim of the 2026-09-30 review verified (docs/reviews/2026-09-30-verification.md); older documents archived whole. | Keep it true: a change that alters described behaviour updates the document in the same commit. |
-| G1 Effects are safe and honestly reported | **in progress: implemented on develop, hosted CI not run** | Implemented on develop with regression tests (not pushed, hosted CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, Goal budgets and frozen acceptance artifacts, context/sampling correctness repairs, a response timeout that bounds silence rather than length, managed cancellation and interrupted verification, policy-specific completion catalogues, honest empty/zero-test evidence and failure snapshots. Local suites after the 2026-10-02 review of the F1 commits and the W8.3 control: Rust 1,438 reported passed / 5 ignored (one Docker skip); desktop 107 and sidecar 41 at the executor cycle (no desktop or sidecar change since); evidence in docs/reviews/2026-10-01-audit.md. W3.4 implemented. Still open: W3.2 (CI proposals), W1.10 (aggregate ordinary budget), separate lifecycle cancellation, W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated). | A push and green hosted CI on macOS; the native-app walk; the open items above. Local suites include preserved unrelated working-tree changes; clean npm installation and Docker remain unverified. |
-| G2 One execution path | **in progress: the app, the console and Goal mode share one executor; the evaluator does not** | `executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol. | By D-2026-10-02-1 the product-path evaluator is the stack-matrix runner (it drives `pwr serve` as the app does); `pwr eval run` / `pwr run` stay as the declared scripted research harness. Remaining: the runner's engine lease and provenance, frozen split manifest, arms (PWR, W8.3 minimal control, competitors) and paired analysis; W2.1 for the scripted runner's result. |
+| G1 Effects are safe and honestly reported | **in progress: candidate validation pending** | IMPLEMENTED on develop: version-bound/atomic edits, command protections, Goal budgets, frozen acceptance, context/sampling correctness repairs, managed cancellation, zero-test reporting and structured conversation outcomes. Dated local suites are recorded in docs/reviews/ and docs/experiment-log.md; their counts do not certify a later candidate. Additional page/repair/runtime work landed through 2026-10-07. No candidate gate is advanced by the documentation review. | Freeze a candidate and obtain its complete local/hosted macOS checks, explicit skip coverage and native-app walk. Remaining work includes W3.2 (CI proposals), W1.10 (ordinary aggregate budget), W4.2 (exact preflight), W2.1 (scripted result migration) and documented lifecycle/evidence gaps. Release packaging/licence work is in the next-release checklist. |
+| G2 One execution path | **in progress: shared product executor; scripted research path separate** | `executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol. | IMPLEMENTED product-path runner tooling: engine lease/provenance, frozen splits, minimal control and paired/power analysis. Still needed: validated competitor endpoints/arms, controlled campaigns and the declared scripted-result migration (W2.1). The runner is the designated product-path evaluator (D-2026-10-02-1); no EvalHost migration is implied. |
 | G3 All-tier mission exit before Windows | **not started** | PLANNED under the owner-approved contract of 2026-10-01 (D-2026-10-01-2). No product-path confirmatory comparison or all-tier baseline exists. | W8.3 same-engine simple loop; W2.4/G2 parity; initial S/M/L/XL baseline and prospective power; owner-approved numerical thresholds; frozen W8.4/F6 against the simple loop and at least two eligible competitors per tier, with all capacity, daily-use, lightness, reliability and audit criteria satisfied; W8.5 publish evidence. |
 
-Campaign evidence: no campaign has measured the current product path against a baseline. The last paired comparison (R2 rerun, 2026-09-15, scripted loop) found no uplift on one deployment (11/30 vs 11/30) and an unconfirmed one on another (18 vs 13, p = 0.227). On the app's own path (stack matrix, 2026-10-01, development runs, one trial per task) Qwen3.6-35B-A3B went from 3/8 to 6/8 `dev` tasks after the review round also ran without a declared acceptance check: a signal, not a result; no `heldout` task has been run on the current harness (docs/evaluation.md). All of it stays on the maintainer's machine under experiments/ and ~/Desktop/pwr-evidence/.
+Campaign evidence: no confirmatory current-product comparison against a simple loop or competitors is recorded. Historical paired R2 (2026-09-15, scripted loop) found 11/30 vs 11/30 on one deployment and 13 vs 18 on another (p = 0.227). Product-path development runs on 2026-10-01 showed 3/8 to 6/8 final outcomes on one deployment, one trial per task; limited proposals measurements on 2026-10-06 had mixed model/task results (plan W2.9). These do not establish general uplift. Raw artifacts remain unpublished; candidate evidence is tracked separately in docs/release/next-release-readiness.md.
 <!-- /generated:milestones -->
 
 ## NOW — safe effects and honest results
@@ -58,7 +59,7 @@ Campaign evidence: no campaign has measured the current product path against a b
 | W5.2 | Background summaries off by default and pre-emptible | On `develop` |
 | W7.2, W7.4, W7.5 | 3D graph out of the default product; confinement on every turn; graphical defects | W7.2, W7.4 on `develop`; W7.5 ongoing |
 | W8.1, W8.2 | Strict pairing by default; unattended success reported apart from nudged success | W8.1 on `develop`; **W8.2 open** |
-| W9.1 | Releases built from a commit that passed the CI gates | On `develop`; never run |
+| W9.1 | Releases built from a commit that passed the CI gates | Implemented; validate for the selected candidate |
 
 Gate **G1** closes this phase: it needs a push and a green CI run.
 

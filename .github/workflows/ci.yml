@@ -74,6 +74,9 @@ jobs:
       - name: Formatting
         run: cargo fmt --all -- --check
 
+      - name: Public documentation and fixture hygiene
+        run: python3 scripts/check-public-docs.py
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 

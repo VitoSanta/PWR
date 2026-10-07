@@ -17,9 +17,9 @@ inference were loaded. Tokenizer-only measurements included the actual
 without; gpt-oss used 2,958 versus 740. A 4,096-token window can therefore be
 exceeded before any conversation history, despite the character estimate.
 
-Raw audit evidence: `/Users/vitosantanelli/Desktop/pwr-evidence/logs/core-audit-20261002/`
+Raw audit evidence: `private-evidence/logs/core-audit-20261002/`
 (`REPORT.md`, manifest, parser/effect/data probes and tokenizer counts).
-Repair evidence: `/Users/vitosantanelli/Desktop/pwr-evidence/logs/core-fixes-20261002/`.
+Repair evidence: `private-evidence/logs/core-fixes-20261002/`.
 The manifest and baseline patch record pre-existing tool sandbox and research
 changes; they are preserved and excluded from this correction commit.
 

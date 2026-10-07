@@ -32,6 +32,10 @@ PYTHONPATH=crates/pwr-mlx/sidecar "$PWR_MLX_PYTHON" -m unittest discover -s crat
 python3 -m unittest discover -s evidence/stack-matrix/runner
 ```
 
+```bash
+python3 scripts/check-public-docs.py
+```
+
 Judge each by its exit code, not by reading its output.
 
 **The Rust suite is not hermetic.** Several tests exercise the macOS sandbox
@@ -75,6 +79,12 @@ where an earlier version was wrong, say so.
 
 ## Evidence and claims
 
+- **Public and personal records are separate.** Keep user/contributor docs,
+  technical plans, anonymised audit findings and scoped measurements in the
+  repository. Keep editorial plans, private session handoffs, local backup
+  instructions, credentials and raw personal traces outside the checkout.
+  Preserve useful originals before moving or redacting them; public fixtures
+  use example identities and describe any transformation.
 - **A claim carries a status word** — IMPLEMENTED, EXPERIMENTAL, PLANNED,
   HYPOTHESIS, MEASURED — or says `unknown` ([MASTER_SPEC](MASTER_SPEC.md#evidence-vocabulary)).
 - **Numbers come with their conditions**: counts, deployment, commit, corpus

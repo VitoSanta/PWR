@@ -34,6 +34,24 @@ endpoint at all. Libraries pinned: `mlx 0.32.3` (0.32.0 until 2026-10-01), `mlx-
 `mlx-embeddings 0.1.0`, `mlx-vlm 0.7.2` (0.6.17 until 2026-10-05; 0.7.2 loads 1-bit weights), in a private environment the app
 installs (`apps/desktop/src-tauri/src/engine.rs`; [distribution.md](distribution.md)).
 
+**Updated 2026-10-07:** the free-buffer cache is capped at 2 GiB by default
+(`PWR_MLX_CACHE_GB`) and cleared after a completed generation. Weights and KV
+cache are active allocations and are not bounded by this setting. Request
+diagnostics record active/cache memory; long-task effectiveness is unmeasured.
+Managed installation markers with obsolete package pins offer reinstallation.
+
+On macOS the sidecar sets `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` **before importing
+MLX**, preserving an explicitly supplied value (including `0`). This is the
+[driver workaround adopted by llama.cpp](https://github.com/ggml-org/llama.cpp/pull/22216)
+for `kIOGPUCommandBufferCallbackErrorImpactingInteractivity`: a GPU context
+switch timeout, which is not by itself evidence of out-of-memory. It is a
+workaround, not a guarantee against every Metal failure or excessive active
+allocation. An already running engine must restart to use the setting.
+Metal execution errors still discard the damaged sidecar and reload on retry.
+Errors now include the operation phase, elapsed time and memory sampled before
+the operation; that sample is not the failed operation's peak. Optional
+`PWR_MLX_TRACE` records per-prefill-chunk duration and before/after memory.
+
 Operations: `load` (weights, with optional RoPE scaling; the vision encoder
 through `mlx-vlm` when the model has one), `chat`, `attention` (whether the
 model's attention is fused, and the score buffer it would need), `cancel`,
@@ -60,9 +78,11 @@ What it owns:
   checkpoint copy. Background `aside` requests (summaries, reviews) do not
   evict the conversation's cache. The cache is **per model**: a model switch is
   a full cold prefill of the conversation.
-- **Prefill** in chunks bounded **in time**: the first is 512 tokens, then as
-  many (at most 8,192, at least 256) as take about 3 s at the speed just
-  measured, so a Stop is seen within seconds (it waited 33 s on Gemma 4 12B and
+- **Prefill** uses adaptive chunks: the first is 512 tokens, then as
+  many (at most 8,192, at least 16) as target about 3 s for fused attention
+  or 1 s for non-fused attention at the speed just measured. Growth is limited
+  to twice the previous chunk. These are time targets, not a bound on each
+  GPU kernel; cancellation is observed between chunks (it waited 33 s on Gemma 4 12B and
   minutes on a 31B behind one 8,192-token chunk; measured 2026-10-01: 32.7 s →
   2.3 s). The chunk also shrinks with the context where attention materialises
   its scores (a fixed 8,192-token step once asked for 41.9 GB at 160k tokens). It reports `prefill` events as it goes, and **observes a

@@ -1,5 +1,10 @@
 # Stack matrix
 
+`private-evidence/` below is an anonymised label for evidence outside this
+checkout, not a required filesystem location. Configure `PWR_EVIDENCE_BIN`,
+`PWR_EVIDENCE_RESULTS` and `PWR_EVIDENCE_LEASE` for your own directories; the
+runner source defines their defaults. Raw campaign traces are not published here.
+
 PWR on real tasks across languages, frameworks, databases and tools, run the
 way a person runs it: the desktop app's protocol (`pwr serve --stdio`), one
 conversation per task in goal mode, the permission questions answered by a
@@ -41,11 +46,11 @@ mode or Full access that is not reported as unconfined. Use separate run ids
 for the two policies, so completed trials cannot be reused across them.
 
 `runner/pin.sh` builds the release binary and pins it with the MLX sidecar
-it reads (`~/Desktop/pwr-evidence/bin/pwr-<rev>` and `sidecar-<rev>/`), so a
+it reads (`private-evidence/bin/pwr-<rev>` and `sidecar-<rev>/`), so a
 rebuild or an edit during a campaign does not change what is measured.
 `PWR_BIN` selects the pinned binary -- the runner uses the sidecar pinned
 beside it and records its digest -- and `PWR_EVIDENCE_MODEL` the model.
-Each task writes, under `~/Desktop/pwr-evidence/runs/<run>/<task>/`, the full
+Each task writes, under `private-evidence/runs/<run>/<task>/`, the full
 protocol transcript, the result, the diff against the seed and the verifier's
 output.
 
@@ -59,7 +64,7 @@ sampling, tools, sandbox and budgets with PWR's harness off. One arm per run;
 different harness than the one asked for. Compare runs with `analyze.py`.
 
 **One engine at a time.** A campaign takes an exclusive lease on
-`~/Desktop/pwr-evidence/engine.lock` (`PWR_EVIDENCE_LEASE`) and is refused
+`private-evidence/engine.lock` (`PWR_EVIDENCE_LEASE`) and is refused
 while another holds it. Before each task it looks for other inference engines
 (a PWR MLX worker, `mlx_lm.server`, `llama-server`, an Ollama runner or a model
 Ollama has loaded), waits up to a minute for the previous task's to exit, and

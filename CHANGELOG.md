@@ -5,8 +5,11 @@ Statuses such as *experimental* mean what they say: usable, still changing.
 
 ## Unreleased (`develop`)
 
-Recorded in detail, with what was checked, in
-[docs/release/v0.2.x-mac-verification.md](docs/release/v0.2.x-mac-verification.md).
+Development changes through 2026-10-07. These changes are not in the
+published v0.2.0-alpha DMG. Dated checks are recorded in
+[Mac verification](docs/release/v0.2.x-mac-verification.md) and the
+[experiment log](docs/experiment-log.md); they are not evidence for a new
+candidate. See [next-release readiness](docs/release/next-release-readiness.md).
 
 ### Direction and documentation
 
@@ -16,7 +19,7 @@ Recorded in detail, with what was checked, in
   models better is to be tested once, on the app's own path, before more is
   built on it ([MASTER_SPEC](MASTER_SPEC.md), [plan](docs/plan/implementation-plan.md)).
 - The documentation was rewritten from the code. Earlier documents are kept
-  whole in `docs/archive/`. Windows moves after the decisive comparison.
+  in [Git history](https://github.com/VitoSanta/PWR/tree/309266d5/docs/archive). Windows moves after the decisive comparison.
 
 ### Agent
 
@@ -31,7 +34,7 @@ Recorded in detail, with what was checked, in
   (plan W1.2).
 - Gemma 4 and gpt-oss calibrate and run in agent mode (tool-call adapters,
   engine diagnostics kept off the protocol, a stop at the model's closing
-  marker; Quick Calibration suite 5).
+  marker; calibration subsequently revised to suite 6).
 - For every model: unresolved imports answered with the install to run; edit
   results show the changed lines; `complete` over unread results, or before
   anything was done, is held once; a command that failed the same way twice is
@@ -39,7 +42,7 @@ Recorded in detail, with what was checked, in
   more one-reading repairs of malformed calls.
 - Ornith-1.5-9B uses its vendor's temperature.
 
-### Effects and verification (not yet in a release; CI not run)
+### Effects and verification (unreleased)
 
 - **Commands cannot change what the edit tools refuse**: frozen acceptance
   files, installed dependencies and their parents are denied inside the
@@ -75,18 +78,42 @@ Recorded in detail, with what was checked, in
   which now asks whether a model can *use* tools, not which one it reaches for
   first; a failure measured through an adapter that later changed is void.
 - **Sampling is never greedy by default**: a model with no declared sampling
-  uses 0.6 / 0.95 / 20, a card that lists one set per mode gives its thinking,
-  coding set, and each value says where it came from.
-- **Long conversations**: compaction at 32,768 tokens by default (a
-  hypothesis); a clean start after two replies in a row that fall apart; a
+  uses 0.6 / 0.95 / 20. Model-card recommendations are scoped conservatively:
+  an unknown active mode does not select an assumed thinking/coding recipe.
+  Each effective value says where it came from.
+- **Long conversations**: compaction at 75% of the granted context window, with
+  no default token ceiling (the temporary 32k ceiling was withdrawn); a clean
+  start after two replies in a row that fall apart; a
   presence penalty that can actually see a repeated passage after a reply
   looped; a note when one file has been rewritten twelve times; the action limit
   per turn is 100 (it was 26) and `actions_per_turn` changes it.
 - **MLX 0.32.3** (was 0.32.0): attention and quantized-matmul fixes; Gemma 4
-  prefill about 8–10 % faster. An app already installed keeps its engine until it
-  is reinstalled.
+  prefill about 8–10 % faster in the recorded local check, not a universal
+  speed claim. The managed-engine marker is checked against current package
+  pins; obsolete managed installs offer reinstallation.
+- **mlx-vlm 0.7.2** (was 0.6.17): support for loading the documented 1-bit
+  artifact path. The MLX free-buffer cache defaults to 2 GiB, configurable by
+  `PWR_MLX_CACHE_GB`, and is cleared after each completed generation. This is
+  not a total-memory or KV-cache cap; long-run effectiveness is unmeasured.
+- The MLX sidecar applies the macOS GPU context-switch timeout workaround
+  before importing MLX (`AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1`, explicit overrides
+  preserved). Non-fused prefill targets one second and can shrink below the
+  former 256-token floor. GPU errors include pre-operation memory/phase
+  diagnostics; optional tracing records per-chunk timings. This mitigates
+  `Impacting Interactivity`, rather than treating it as proof of exhausted RAM.
 - The app shows how far the engine has read the prompt ("Reading the
   conversation · 37 %") instead of looking stuck.
+
+### Goal support (experimental)
+
+- Verified proposals run as an executor phase, using ordinary edit policy and
+  restoring proposals that do not improve the verification verdict. Enabled
+  by profile only for Ornith 1.5 9B; recorded results are mixed across models.
+- Optional model-work budget (`goal_budget.work`) and off-by-default
+  `goal_aids` switches: failure pointers, ten-tool catalogue, SEARCH/REPLACE
+  proposals, persistent plan and paced reasoning. Benefits remain unmeasured.
+- A repeated-repair notice quotes the actual failing lines after three
+  file-change/failed-command cycles; advisory, not a proven loop recovery.
 
 ### Sandbox and permissions
 
@@ -103,11 +130,24 @@ Recorded in detail, with what was checked, in
 - A reopened conversation shows a reconstructed summary of its actions and
   each turn's own model.
 
+- Terminal analysis can read recent user-terminal output with a dedicated
+  permission. Local page checks return rendered text/console and, for vision
+  models, an image. Page tools support up to 12 click/type/press steps, option
+  selection and scrolling; their screenshot is shown in the conversation.
+  These are local DOM interactions with framing/trusted-event limitations.
+- Actions use plain descriptions, long messages fold, and turn timestamps
+  are visible. Failed commands are distinguished from policy refusals.
+
 ### Evaluation
 
 - `pwr eval run --reasoning-effort` bounds reasoning as the app does (Medium by
   default; `off` is the old behaviour and must be declared as the treatment).
 - `pwr eval compare` is strict by default.
+- The product-path runner records provenance, holds an exclusive engine lease,
+  freezes task splits and supports a same-engine minimal control and paired
+  analysis. No confirmatory superiority result is implied.
+- Check discovery reaches nested projects; additional zero-test and
+  pass-without-tests signatures keep absent evidence explicit.
 - New corpus `corpus/small-apps-v1.json`.
 - The stack-matrix runner drives the app's own protocol with hidden tests, and
   `runner/watch.py` follows a run token by token.

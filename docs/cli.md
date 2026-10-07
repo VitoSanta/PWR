@@ -68,6 +68,7 @@ Slash commands inside `pwr chat` and the app: `/changes`, `/verify`,
 | `PWR_ALLOW_UNCONFINED=1` | Run commands unconfined where no sandbox can be built (recorded `sandboxed: false`) |
 | `PWR_SEMANTIC_RETRIEVAL=1` | Experimental semantic ranking (`PWR_EMBED_PYTHON`, `PWR_EMBED_SIDECAR` for its encoder) |
 | `PWR_BROWSER` | Explicit browser for `look_at`; on macOS the default prefers an installed Playwright Chromium headless shell, then Chrome/Chromium/Edge |
+| `PWR_MLX_CACHE_GB` | MLX free-buffer cache limit in GiB (2 by default); not a total-RAM, weight or KV-cache limit |
 | `PWR_MLX_TRACE` | Engine request tracing: every request's last messages and the model's raw output, appended as JSON lines (holds model text; never published) |
 | `PWR_EMBED_MODEL`, `PWR_EMBED_POOLING` | The embedding model and pooling for semantic retrieval |
 | `PWR_HARNESS_REV` | The harness revision a campaign records (declared by the runner) |
@@ -92,7 +93,7 @@ does ([evaluation.md](evaluation.md#the-stack-matrix)).
 python3 evidence/stack-matrix/runner/run.py list
 python3 evidence/stack-matrix/runner/run.py reference [TASK …]        # prove tasks sound
 sh evidence/stack-matrix/runner/pin.sh                                 # pin the release binary and its sidecar
-PWR_BIN=~/Desktop/pwr-evidence/bin/pwr-<rev> PWR_EVIDENCE_MODEL=<ref> \
+PWR_BIN="/path/to/pinned-bin/pwr-<rev>" PWR_EVIDENCE_MODEL=<ref> \
   python3 evidence/stack-matrix/runner/run.py run --run <name> [--split dev] [TASK …]
 python3 evidence/stack-matrix/runner/watch.py                          # follow the newest run token by token
 ```

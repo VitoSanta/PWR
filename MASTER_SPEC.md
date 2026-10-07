@@ -76,7 +76,7 @@ is declarative and must earn its cost in a controlled comparison.
 
 | Phase | Work and completion evidence |
 |---|---|
-| F0 | Read governance and dirty changes; reproduce local checks; draft this contract and its decision; owner approval before commit; create mission status |
+| F0 | Establish the source/check baseline and proposed contract; maintainer review before adoption; record public decisions and milestone state |
 | F1 | Audit engines, context, loops, tools, effects, checks, persistence, UI, evaluation and code; record promise, actual source, behavioral evidence, severity and gaps; obtain initial performance and dev capability baseline |
 | F2 | In parallel with F1, verify current competitors and primary literature; record revision/date/license, local support limits and hypotheses in the detailed plan |
 | F3 | Eval uses the app executor with parity tests; minimal same-engine control; competitor endpoints verified; frozen dev/heldout split and provenance; prospective power analysis |
@@ -97,8 +97,8 @@ a task to improve a score.
 Each cycle records the problem/evidence, hypothesis, design with simpler
 alternative, failing test, minimal implementation, local CI-equivalent
 checks, controlled measure and keep/revise/remove decision. Update the
-appropriate existing documents and mission status in the same small local
-commit; report the outcome and its limits to the owner in Italian. No visible
+appropriate existing technical documents and milestone state in the same
+change; record the outcome and its limits for contributors. No visible
 feature removal without owner approval. A mechanism failing its controlled
 comparison is removed under that approval rule, with a negative result logged.
 
@@ -162,29 +162,28 @@ the evidence and propose a revision; do not declare success. Historical
 substitute for this gate. Amend them and build fingerprints only through the
 existing threshold-change process if required by an approved campaign.
 
-## Operational continuity and owner stops
+## Contributor records and release policy
 
-`docs/plan/mission-status.md` (at most about 150 lines) records phase, active
-cycle, last commit, next step, hypotheses, queue and pending owner decisions.
-Resume from the mandate, status, MASTER_SPEC, decisions and detailed plan.
-Keep W0–W10 traceability; use existing documents and archive superseded ones.
+Keep W0–W10 traceability in the implementation plan and public milestone state
+in `docs/milestones.json`. Release candidate checks belong in
+`docs/release/next-release-readiness.md`. Preserve historical technical findings
+and negative results; distinguish them from current candidate evidence.
 
-Code, comments, documents and commits are in English; owner updates are in
-Italian. Preserve and understand other sessions' dirty changes before edits.
-Ask when they are unclear. Subagents may research/audit in parallel, but the
-lead verifies their findings before recording them.
+Public source, comments and contributor documents use English. Personal
+editorial material, session handoffs, machine schedules and restore instructions
+are maintained outside the repository. Public reports use anonymised evidence
+identifiers and explicitly say when raw artifacts are unpublished.
 
-Long campaigns/performance runs go in the night queue or require the owner to
-say the Mac is free. Brief daytime runs still check for an active campaign;
-only one inference engine at a time. Download at most 150 GB of new models,
-leaving at least 60 GB free; ask beyond that. Remove only models downloaded by
-this mission that are no longer needed; ask for other models.
+Contributions preserve unrelated working-tree changes. Performance campaigns
+must use an exclusive engine lease and report machine load; only one inference
+engine runs at a time for comparable timing measurements. Model downloads and
+private artifacts are not source files.
 
-Push only `develop` and only to obtain CI evidence for a gate. No main push,
-tag, release or force-push; releases require explicit instruction. Stop for
-F0 adoption, F6 numerical thresholds, visible feature removal, unclear dirty
-changes, or external/irreversible actions outside this authorized scope.
-
+Changes land on `develop`; the release process is documented in
+[distribution](docs/distribution.md). A version tag builds a draft prerelease
+after CI; publication is a separate maintainer decision. Neither a document
+update nor a local suite pass advances a release gate without its required
+evidence.
 
 ## Evidence vocabulary
 

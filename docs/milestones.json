@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "assessed_on": "2026-10-02",
+  "assessed_on": "2026-10-07",
   "note": "The single source of milestone status. The roadmap's status table is generated from this file by `scripts/milestones.py`; nothing else asserts a milestone's state. Milestones are the gates of docs/plan/implementation-plan.md. The research milestones M0-M6 of 2026-09-06 are kept in docs/archive/milestones-2026-09-06.json.",
-  "campaign_evidence": "no campaign has measured the current product path against a baseline. The last paired comparison (R2 rerun, 2026-09-15, scripted loop) found no uplift on one deployment (11/30 vs 11/30) and an unconfirmed one on another (18 vs 13, p = 0.227). On the app's own path (stack matrix, 2026-10-01, development runs, one trial per task) Qwen3.6-35B-A3B went from 3/8 to 6/8 `dev` tasks after the review round also ran without a declared acceptance check: a signal, not a result; no `heldout` task has been run on the current harness (docs/evaluation.md). All of it stays on the maintainer's machine under experiments/ and ~/Desktop/pwr-evidence/",
+  "campaign_evidence": "no confirmatory current-product comparison against a simple loop or competitors is recorded. Historical paired R2 (2026-09-15, scripted loop) found 11/30 vs 11/30 on one deployment and 13 vs 18 on another (p = 0.227). Product-path development runs on 2026-10-01 showed 3/8 to 6/8 final outcomes on one deployment, one trial per task; limited proposals measurements on 2026-10-06 had mixed model/task results (plan W2.9). These do not establish general uplift. Raw artifacts remain unpublished; candidate evidence is tracked separately in docs/release/next-release-readiness.md",
   "milestones": [
     {
       "id": "G0",
@@ -14,16 +14,16 @@
     {
       "id": "G1",
       "name": "Effects are safe and honestly reported",
-      "status": "in progress: implemented on develop, hosted CI not run",
-      "evidence": "Implemented on develop with regression tests (not pushed, hosted CI not run): execution-time overwrite hash fixed, atomic writes, protections in the command sandbox, Goal budgets and frozen acceptance artifacts, context/sampling correctness repairs, a response timeout that bounds silence rather than length, managed cancellation and interrupted verification, policy-specific completion catalogues, honest empty/zero-test evidence and failure snapshots. Local suites after the 2026-10-02 review of the F1 commits and the W8.3 control: Rust 1,438 reported passed / 5 ignored (one Docker skip); desktop 107 and sidecar 41 at the executor cycle (no desktop or sidecar change since); evidence in docs/reviews/2026-10-01-audit.md. W3.4 implemented. Still open: W3.2 (CI proposals), W1.10 (aggregate ordinary budget), separate lifecycle cancellation, W4.2 (exact preflight), W4.4, W2.1 (scripted runner not migrated).",
-      "remaining": "A push and green hosted CI on macOS; the native-app walk; the open items above. Local suites include preserved unrelated working-tree changes; clean npm installation and Docker remain unverified."
+      "status": "in progress: candidate validation pending",
+      "evidence": "IMPLEMENTED on develop: version-bound/atomic edits, command protections, Goal budgets, frozen acceptance, context/sampling correctness repairs, managed cancellation, zero-test reporting and structured conversation outcomes. Dated local suites are recorded in docs/reviews/ and docs/experiment-log.md; their counts do not certify a later candidate. Additional page/repair/runtime work landed through 2026-10-07. No candidate gate is advanced by the documentation review.",
+      "remaining": "Freeze a candidate and obtain its complete local/hosted macOS checks, explicit skip coverage and native-app walk. Remaining work includes W3.2 (CI proposals), W1.10 (ordinary aggregate budget), W4.2 (exact preflight), W2.1 (scripted result migration) and documented lifecycle/evidence gaps. Release packaging/licence work is in the next-release checklist."
     },
     {
       "id": "G2",
       "name": "One execution path",
-      "status": "in progress: the app, the console and Goal mode share one executor; the evaluator does not",
+      "status": "in progress: shared product executor; scripted research path separate",
       "evidence": "`executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol.",
-      "remaining": "By D-2026-10-02-1 the product-path evaluator is the stack-matrix runner (it drives `pwr serve` as the app does); `pwr eval run` / `pwr run` stay as the declared scripted research harness. Remaining: the runner's engine lease and provenance, frozen split manifest, arms (PWR, W8.3 minimal control, competitors) and paired analysis; W2.1 for the scripted runner's result."
+      "remaining": "IMPLEMENTED product-path runner tooling: engine lease/provenance, frozen splits, minimal control and paired/power analysis. Still needed: validated competitor endpoints/arms, controlled campaigns and the declared scripted-result migration (W2.1). The runner is the designated product-path evaluator (D-2026-10-02-1); no EvalHost migration is implied."
     },
     {
       "id": "G3",

@@ -46,7 +46,7 @@ Next to `.pwr/`, `.pwr-scratch/` is the commands' `HOME` and `TMPDIR`, and
 |---|---|---|
 | `models/<owner>/<name>/` | Data | Downloaded models (`PWR_MLX_MODELS` moves it) |
 | `model-evidence/<hash>.json` | Evidence | Local Quick Calibrations, with the adapter revision that read the replies (`PWR_EVIDENCE_DIR` moves it) |
-| `models/<owner>/<name>/.pwr-card-sampling.json` | Cache | The sampling a model card recommends, pinned to the revision (schema 3; a "none found" is looked for again after a day) |
+| `models/<owner>/<name>/.pwr-card-sampling.json` | Cache | The sampling a model card recommends, pinned to repository, revision and requested mode (schema 4; a "none found" is looked for again after a day) |
 | `models/<owner>/<name>/.pwr-user-sampling.json` | Configuration | Sampling values the person set in the Sampling dialog |
 | `profile.json` | Configuration | The person's profile |
 | `memory.json` | Configuration | Global memories |

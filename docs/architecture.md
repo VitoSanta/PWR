@@ -63,8 +63,9 @@ workspace, one event log).
 | `pwr-observe` | Export of a run's log and reports read back from it | 895 |
 | `pwr-store` | SQLite migrations and the append-only, hash-chained event log | 517 |
 
-The Cargo workspace has 16 members (the 15 crates and the desktop shell's) (`Cargo.toml`). `unsafe_code` is forbidden
-workspace-wide.
+The root Cargo workspace has 15 crate members (`Cargo.toml`). The desktop
+Tauri shell has its own workspace/manifest under `apps/desktop/src-tauri`.
+`unsafe_code` is forbidden by the root workspace lint policy.
 
 ## The production path
 

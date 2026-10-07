@@ -1,6 +1,7 @@
 # Building and distributing
 
-**Checked against `develop` at `bff93062`, 2026-10-01.**
+**Packaging source reviewed 2026-10-07 at `develop` `5f6c4f38`.**
+The next candidate is not frozen; see [release readiness](release/next-release-readiness.md).
 
 ## What ships
 
@@ -45,21 +46,26 @@ writes `dist/release/`. It publishes nothing.
 The workflow `.github/workflows/release-macos.yml`, on a `v*` tag, first reuses
 the whole CI workflow (`checks`), and only then runs that script, taking the
 version from the tag and the notes from `docs/release/<tag>-release-notes.md`,
-and creates a draft prerelease. It has not run since it was changed.
+and creates a draft prerelease. Its execution must be verified for the
+selected candidate; historical CI is not new artifact evidence.
 
 ## Reproducibility gaps
 
 | Gap | Evidence | Plan |
 |---|---|---|
-| The release workflow ran no tests; nothing tied the artifact to a commit that passed CI | now `needs: checks` | W9.1 — implemented, never run |
+| The release workflow requires the reused CI jobs before packaging; candidate execution and artifact provenance still need verification | `needs: checks` | W9.1 / next-release checklist |
 | The engine installs its four direct pins (`mlx==0.32.3`, `mlx-lm==0.31.3`, `mlx-embeddings==0.1.0`, `mlx-vlm==0.7.2`) with no lock of their transitive dependencies and no hashes | `engine.rs`, `scripts/setup-mlx.sh` | W9.2 |
-| **`mlx` was raised from 0.32.0 to 0.32.3 on 2026-10-01** (attention, quantized-matmul and eval-state fixes; the sidecar's 39 tests pass; Gemma 4 prefill 8–10 % faster; four architectures pass Quick Calibration). `mlx-lm` stays at 0.31.3 (0.32.0, out the same day, needs `mlx>=0.32.2` and `transformers>=5.7`; not evaluated). An app already installed keeps the version it installed until its engine is reinstalled: the readiness check does not compare the marker's pins with the app's, so there is no upgrade path for existing installs yet | `engine.rs`, [experiment-log.md](experiment-log.md) | W9.2 |
+| Managed-engine package pins are compared with the installation marker. Obsolete pins offer reinstallation; a candidate upgrade/cancel/retry walk is still needed. Explicit environment/checkout interpreters have separate discovery semantics | `marker_current` / `find` in `engine.rs` | W9.2 / native upgrade check |
 | Python is `3.11`, not a patch release | `engine.rs` | W9.2 |
 | CI's sidecar job installs only `mlx` and `mlx-lm` | `ci.yml` | W9.2 |
 | No licence or supply-chain inventory ships with the release | — | W9.3 |
 | Not notarized | — | W9.4 |
 
 Cargo and npm dependencies are locked (`Cargo.lock`, `apps/desktop/package-lock.json`).
+
+The release script does not enforce a clean Git tree or produce full build
+provenance. Freeze and record the candidate commit before running it. Version
+agreement alone does not prove that an artifact contains the reviewed source.
 
 ## Branches
 

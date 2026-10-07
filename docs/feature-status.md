@@ -1,7 +1,8 @@
 # Feature status
 
 What exists, what state it is in, and what the plan does with it. Checked
-against `develop` at `bff93062` on 2026-10-01. Classes follow the review's
+against `develop` at `5f6c4f38`, with selected status updates on 2026-10-07.
+Dated measurements keep their original provenance. Classes follow the review's
 feature audit (§14): **KEEP**, **IMPROVE**, **SIMPLIFY**, **MERGE**,
 **REMOVE** (from the default product), **EXPERIMENTAL**, **MISSING**. Status
 words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
@@ -27,15 +28,15 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | Permissive campaign comparison as default | REMOVE (as default) | IMPLEMENTED: strict default, legacy explicitly noncausal | `pwr_eval::compare` | W8.1, W10.3 |
 | Semantic retrieval (embedding fusion) | EXPERIMENTAL | Opt-in (`PWR_SEMANTIC_RETRIEVAL=1`) | `crates/pwr-cli/src/semantic.rs` | Later (W4.7) |
 | `look_at` and image input | EXPERIMENTAL | Offered to vision models only | `look_at_tool`, `converse.rs` | Later |
-| `read_terminal` (the person's terminal tabs, read-only) | EXPERIMENTAL | IMPLEMENTED 2026-10-02 at the owner's request; desktop only, asked once per conversation, redacted | `read_terminal_tool`, `converse.rs`; `_pwr/terminal/read` in `serve.rs`; `TerminalService.read` | Measure use in manual runs |
+| `read_terminal` (the person's terminal tabs, read-only) | EXPERIMENTAL | IMPLEMENTED 2026-10-02; desktop only, asked once per conversation, redacted | `read_terminal_tool`, `converse.rs`; `_pwr/terminal/read` in `serve.rs`; `TerminalService.read` | Measure use in manual runs |
 | Evidence-state compaction | EXPERIMENTAL | Scripted loop only (`--context-policy`) | `crates/pwr-orchestrator/src/evidence.rs` | W4.7 |
 | Goal review by the same model | EXPERIMENTAL | IMPLEMENTED, one round; since 2026-10-01 also when only technical checks pass and no acceptance is declared (the common case). 3/8 → 6/8 on one deployment, one trial per task: a signal, not a result | `review_prompt`, `executor.rs` | Kept, labelled as an opinion, not verification; to be measured (W8) |
 | llama.cpp / GGUF | EXPERIMENTAL | CLI only; server started per generation | `crates/pwr-llama` | Later |
 | Quick Calibration | KEEP (as a compatibility smoke test) | IMPLEMENTED, nine requests, suite `quick-calibration-6`: a model passes when it makes one valid call to an offered tool and uses a result; which tool it reaches for is a non-critical check. A verdict records the adapter that read the replies | `crates/pwr-models/src/calibration.rs` | Not a capability predictor |
 | Exact token preflight | MISSING | — | — | W4.2 |
-| Goal-wide budget | KEEP | IMPLEMENTED (W1.4, working tree): actions, refusals, verification/review caps, wall-clock | `GoalBudget`, `GoalLimits` in `executor.rs`; workspace `goal_budget` | — |
+| Goal-wide budget | KEEP | IMPLEMENTED (W1.4): actions, refusals, verification/review caps, wall-clock | `GoalBudget`, `GoalLimits` in `executor.rs`; workspace `goal_budget` | — |
 | Shared recovery budget | MISSING | Independent recovery limits remain | — | W2.6 |
-| Frozen verifier artifacts | KEEP | IMPLEMENTED (working tree): persisted hashes, per-file authorization, before/after check validation | `pwr-verify::acceptance`, `Checkpoint`, `verify_goal` | W3.1 |
+| Frozen verifier artifacts | KEEP | IMPLEMENTED: persisted hashes, per-file authorization, before/after check validation | `pwr-verify::acceptance`, `Checkpoint`, `verify_goal` | W3.1 |
 | One structured outcome | IMPROVE | PARTIAL: conversation/ACP/UI migrated; scripted runner and CLI JSON pending | `pwr-domain::TurnOutcome` | W2.1 |
 | Comparative benchmark on the product path | MISSING | — | — | W8 |
 | Retrievable large tool output | MISSING | Output is bounded and hashed; bytes past the bound are dropped | — | W4.4 |
@@ -44,4 +45,9 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | Recovery from collapsed replies (presence penalty over 1,024 tokens, clean-start compaction, a note on a file rewritten 12 times) | EXPERIMENTAL | IMPLEMENTED 2026-10-01, effect unmeasured | `converse.rs`, `stall.rs` | W8 |
 | Prefill progress shown while a first word is awaited | KEEP | IMPLEMENTED 2026-10-01 | `_pwr/model_progress`, `conversation.ts` | W5.5 |
 | Stack-matrix runner with hidden tests, verified in Docker; `watch.py` to follow a run | KEEP (research) | IMPLEMENTED | `evidence/stack-matrix/` | W8 |
+| Verified proposals | EXPERIMENTAL | IMPLEMENTED; profile-on only for Ornith 1.5 9B; mixed limited product-path results | `proposals.rs`, `executor.rs`, `strategies/models.json` | W2.9 |
+| Optional model-work budget and Goal aids | EXPERIMENTAL | IMPLEMENTED; work limit only when set; pointers/core tools/block edits/plan/paced reasoning off by default, benefits unmeasured | `GoalLimits`, `GoalAids`, `converse.rs` | W2.10–W2.15 |
+| Page steps and screenshot in chat | EXPERIMENTAL | IMPLEMENTED; up to 12 DOM steps, local-server form/selection/scroll support; framing and synthetic-event limits | `look_at_after`, `serve.rs`, desktop trace | W2.17 |
+| Repeated-repair notice | EXPERIMENTAL | IMPLEMENTED; advisory after three change/failure cycles, task effect unmeasured | `repetition::StillFailing` | W2.16 |
+| MLX free-buffer cache cap | KEEP | IMPLEMENTED; 2 GiB default, separate from active weights/KV; long-run effect unmeasured | `pwr_mlx.py`, `PWR_MLX_CACHE_GB` | Runtime diagnosis |
 | Warning before switching model in a long conversation | MISSING | — | — | — |

@@ -27,9 +27,9 @@ It is built for **bounded changes in existing repositories** — diagnosing and 
 - **Use two models at once.** One engine at a time on a Mac: a second one overruns the GPU's memory and both write nonsense. Switching model in a long conversation re-reads it from the start, which takes minutes.
 - **Run anywhere but macOS on Apple silicon.** Windows is planned after the core is proven ([decision](docs/decisions.md)).
 
-**Fixed on `develop`, not yet in a release** (the latest release, v0.2.0-alpha, still has these limits; CI has not run on them): commands could change files the edit tools refuse; an overwrite could replace an edit made after the model read the file; writes were not atomic; a goal could be reported verified after its tests were changed. See the [changelog](CHANGELOG.md) and the [plan](docs/plan/implementation-plan.md#w1--safe-predictable-effects).
+**Fixed on `develop`, not yet in a release** (the published v0.2.0-alpha artifact still has these limits; the next candidate needs its own CI and native-app verification): commands could change files the edit tools refuse; an overwrite could replace an edit made after the model read the file; writes were not atomic; a goal could be reported verified after its tests were changed. See the [changelog](CHANGELOG.md) and the [plan](docs/plan/implementation-plan.md#w1--safe-predictable-effects).
 
-Known limits are listed where the behaviour is described; start from the [documentation index](docs/README.md).
+For the current development features and their limits, read the [product overview](docs/product-overview.md). Release candidate work is tracked in the [next-release checklist](docs/release/next-release-readiness.md). Known limits are also listed where each behaviour is described in the [documentation index](docs/README.md).
 
 ## Install
 

@@ -22,7 +22,7 @@ the app never writes to a workspace itself. It is the supported desktop client.
   Manager**; the context indicator (`Context 42% · 54k / 128k`) opens the
   context panel -- what fills the window (estimated), the auto-compaction
   threshold, the last compaction and **Compact now**
-  ([`docs/models-and-context.md`](../../docs/models-and-context.md)).
+  ([models](../../docs/models.md) and [context](../../docs/context.md)).
 - **Model Manager**: this machine's memory, GPU, disk and engine; a search of
   Hugging Face for MLX models, with further pages available through
   **Load more models**; each variant is rated for this machine
@@ -30,9 +30,10 @@ the app never writes to a workspace itself. It is the supported desktop client.
   (or `PWR_MLX_MODELS`), with progress and cancel; the models on this Mac,
   with delete. GGUF search appears only when the core runs llama.cpp, which a
   release build on macOS never does.
-- **Run controls** in the floating tools bar: **Goal** mode keeps working
-  across check-ins until verified; **Auto-approve** is off for Ask and amber
-  when automatic. The composer still warns when commands are not sandboxed.
+- **Run controls**: Goal mode continues within its budgets; Protected,
+  Standard and Full access select the effect policy. Full access is explicitly
+  identified because commands are not sandboxed. Acceptance requires declared
+  checks; a goal without them can end unverified.
 - **Chat mode**: "Chat without a workspace" talks to the model with no
   project open; it reads only the files, folders and images attached, and
   cannot edit or run anything (C.26). "Open a workspace" goes back.

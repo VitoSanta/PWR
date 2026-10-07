@@ -13,5 +13,9 @@ esiste perché una di queste tracce è stata letta a mano una volta.
 Le stringhe oltre i 400 caratteri e gli elenchi oltre gli otto elementi sono
 sostituiti dalla loro dimensione: nessun rilevatore li legge, e una fixture che
 portasse un CV, tre componenti e ogni listato di cartella sarebbe un corpus
-committato per sbaglio. Tutto il resto — tipi di evento, capability, percorsi,
-stati, contatori del backend — è intatto.
+committato per sbaglio. Il 7 ottobre 2026 nomi e URL del profilo personale
+residuo sono stati sostituiti con `Example Developer` e URL `example.org`.
+Tipi di evento, capability, percorsi del progetto, stati e contatori del
+backend restano intatti. Gli hash originali degli eventi sono metadati della
+traccia di origine: queste fixture ridotte e anonimizzate non sono prove di
+integrità della catena originale.
