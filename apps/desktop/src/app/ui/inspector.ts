@@ -186,9 +186,10 @@ import { KnowledgeCard } from './workbench/knowledge';
     </aside>
     @if (work.focusMode() && layout.right() === 'docked' && !work.focused()) {
       <!-- One edge for all the tools: every card follows the width it sets. -->
+      <!-- In the gap beside the cards, not over their edge. -->
       <pa-resize-handle
         edge="left"
-        [offset]="0"
+        [offset]="-10"
         label="Resize the tools"
         [width]="work.columnWidth()"
         [min]="work.minWidth()"
