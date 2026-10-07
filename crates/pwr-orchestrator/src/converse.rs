@@ -2716,6 +2716,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 actions += 1;
                 let outcome = match crate::board::Board::parse(&call.arguments) {
                     Ok(board) => {
+                        malformed_calls = 0;
                         on_step(TurnStep::Note(board.shown()));
                         let steps = board.steps.len();
                         if let Ok(mut plan) = plan.lock() {
@@ -2723,7 +2724,20 @@ async fn take_turn_inner<P: ModelProvider>(
                         }
                         serde_json::json!({"plan": "recorded", "steps": steps})
                     }
-                    Err(problem) => serde_json::json!({"not_recorded": problem}),
+                    Err(problem) => {
+                        // A plan refused again and again is a call that never
+                        // decodes, and is bounded as one: gpt-oss 20B spent a
+                        // whole goal on forty-five of them.
+                        malformed_calls += 1;
+                        if malformed_calls >= UNPARSEABLE_CALLS_BEFORE_GIVING_UP {
+                            messages.push(tool_message(
+                                call,
+                                serde_json::json!({"not_recorded": problem}),
+                            ));
+                            return stopped(actions, edited, StopReason::Unparseable);
+                        }
+                        serde_json::json!({"not_recorded": problem})
+                    }
                 };
                 messages.push(tool_message(call, outcome));
                 continue;

@@ -32,6 +32,9 @@ pub struct Board {
     pub steps: Vec<(String, Status)>,
 }
 
+/// What a plan that cannot be read is answered with: the thing itself.
+const EXAMPLE: &str = "every step needs its text and its status, like this: {\"steps\": [{\"step\": \"fix the rounding\", \"status\": \"in_progress\"}, {\"step\": \"run the tests\", \"status\": \"pending\"}]}";
+
 /// More steps than this is a document, not a plan to hold in view.
 pub const MAX_STEPS: usize = 12;
 pub const TOOL: &str = "update_plan";
@@ -52,16 +55,23 @@ impl Board {
         }
         let mut board = Vec::new();
         for entry in steps {
-            let text = entry
-                .get("step")
-                .and_then(Value::as_str)
+            // The names a plan's fields go by. gpt-oss 20B wrote `title` and
+            // `state`, then `name` and `state`, forty-five times in forty-seven
+            // replies against a refusal that named `step`: a field's name is
+            // not what a plan is refused for.
+            let text = ["step", "title", "name", "description", "task", "text"]
+                .iter()
+                .find_map(|key| entry.get(*key).and_then(Value::as_str))
                 .map(str::trim)
                 .filter(|text| !text.is_empty())
-                .ok_or("every step needs a non-empty `step`")?;
-            let status = match entry.get("status").and_then(Value::as_str) {
-                Some("pending") => Status::Pending,
-                Some("in_progress") => Status::InProgress,
-                Some("completed") => Status::Completed,
+                .ok_or(EXAMPLE)?;
+            let status = match ["status", "state"]
+                .iter()
+                .find_map(|key| entry.get(*key).and_then(Value::as_str))
+            {
+                Some("pending" | "todo" | "not_started") => Status::Pending,
+                Some("in_progress" | "in-progress" | "active" | "doing") => Status::InProgress,
+                Some("completed" | "done" | "complete") => Status::Completed,
                 other => {
                     return Err(format!(
                         "a step's status is pending, in_progress or completed, not {}",
@@ -173,6 +183,18 @@ mod tests {
     }
 
     #[test]
+    fn a_plan_is_read_whatever_its_fields_are_called() {
+        // What gpt-oss 20B sent, both ways.
+        for plan in [
+            serde_json::json!({"steps": [{"title": "Run tests to confirm failures", "state": "in_progress"}]}),
+            serde_json::json!({"steps": [{"name": "Run tests", "state": "in_progress"}, {"name": "Fix", "state": "todo"}]}),
+            serde_json::json!({"steps": [{"description": "Run tests", "status": "done"}]}),
+        ] {
+            assert!(Board::parse(&plan).is_ok(), "{plan}");
+        }
+    }
+
+    #[test]
     fn a_plan_that_cannot_be_held_to_is_refused_in_words() {
         for (arguments, why) in [
             (serde_json::json!({}), "takes `steps`"),
@@ -185,8 +207,8 @@ mod tests {
                 steps(&[("a", "in_progress"), ("b", "in_progress")]),
                 "this plan has 2",
             ),
-            (steps(&[("a", "doing")]), "not doing"),
-            (steps(&[("  ", "in_progress")]), "non-empty `step`"),
+            (steps(&[("a", "soon")]), "not soon"),
+            (steps(&[("  ", "in_progress")]), "like this: {\"steps\""),
         ] {
             assert!(Board::parse(&arguments).unwrap_err().contains(why), "{why}");
         }
