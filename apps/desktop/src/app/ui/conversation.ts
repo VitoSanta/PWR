@@ -252,7 +252,11 @@ export class Conversation {
     const quiet = Math.floor((this.now() - this.store.lastEventAt()) / 1000);
     const chat = this.store.chatMode();
     const reading = this.store.prefill();
-    if (reading && this.now() - reading.at < 60_000) {
+    // Only while there is something left to read. The engine reports the
+    // tokens it has to read after what its cache already holds, so a step
+    // that adds one short tool result says "6 of 6": shown for the minute
+    // after it, that read as a model stuck at 99% of six tokens.
+    if (reading && reading.processed < reading.total && this.now() - reading.at < 60_000) {
       const percent = Math.min(99, Math.floor((reading.processed / reading.total) * 100));
       return `Reading the conversation · ${percent}% (${reading.processed.toLocaleString('en-US')} of ${reading.total.toLocaleString('en-US')} tokens)`;
     }
