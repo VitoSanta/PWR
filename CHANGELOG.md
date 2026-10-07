@@ -3,13 +3,15 @@
 PWR is an open-source coding agent for local models, in continuous evolution.
 Statuses such as *experimental* mean what they say: usable, still changing.
 
-## Unreleased (`develop`)
+## v0.3.0-alpha — 2026-10-07
 
-Development changes through 2026-10-07. These changes are not in the
-published v0.2.0-alpha DMG. Dated checks are recorded in
-[Mac verification](docs/release/v0.2.x-mac-verification.md) and the
-[experiment log](docs/experiment-log.md); they are not evidence for a new
-candidate. See [next-release readiness](docs/release/next-release-readiness.md).
+Mac alpha for Apple silicon. A model can act on the page it built and is
+shown what it saw; Goal mode verifies more and is bounded on every path;
+three permission modes; the desktop's tools are one resizable grid. Summary
+and limits are in the [release notes](docs/release/v0.3.0-alpha-release-notes.md);
+dated checks are in [Mac verification](docs/release/v0.2.x-mac-verification.md),
+the [experiment log](docs/experiment-log.md) and the
+[readiness checklist](docs/release/next-release-readiness.md).
 
 ### Direction and documentation
 
@@ -42,7 +44,7 @@ candidate. See [next-release readiness](docs/release/next-release-readiness.md).
   more one-reading repairs of malformed calls.
 - Ornith-1.5-9B uses its vendor's temperature.
 
-### Effects and verification (unreleased)
+### Effects and verification
 
 - **Commands cannot change what the edit tools refuse**: frozen acceptance
   files, installed dependencies and their parents are denied inside the

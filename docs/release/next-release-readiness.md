@@ -44,8 +44,14 @@ suite 1,585 passed, 0 failed, 5 ignored in 107 binaries; hosted macOS CI green
 on attempt 2 after one sandbox test failed on attempt 1 and passed unchanged.
 On the version commit: formatting, the public-docs check, the roadmap check, a
 workspace build, a clean `npm ci`, 109 desktop tests and the production build.
-Clippy, the sidecar tests and hosted CI on the version commit itself are still
-to be recorded, as are the stack-matrix runner tests.
+Also on the version commit (`fb3de503`): Clippy clean, the sidecar's 87 tests,
+and `scripts/release-macos.sh` built and verified `PWR-macOS-arm64.dmg`
+(SHA-256 `16f683382dcc8a06e1295fa052fc5f98012b7bb5723fcc0d6a2141b532d865c3`,
+a local build; the published artifact is built by the tag workflow and has
+its own checksum). The stack-matrix runner tests were not run. The manual
+native-app list below was exercised only in part on 2026-10-07: browser
+steps, screenshot in chat, tool grid, Full access and a goal without declared
+acceptance; fresh install, upgrade, Stop and session resume were not.
 
 Commands and interpretation are in [testing](../testing.md) and
 [CONTRIBUTING](../../CONTRIBUTING.md). No full candidate suite, hosted CI,
