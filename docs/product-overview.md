@@ -1,9 +1,7 @@
 # Product overview
 
-**Development snapshot: 2026-10-07, `develop` at `90fe0dd4`.** This page
-describes committed product behaviour. The latest published release remains
-**v0.2.0-alpha (2026-09-28)**; unreleased changes below are not in that DMG.
-Uncommitted interface changes are not release evidence.
+**Release v0.3.0-alpha, 2026-10-07.** This page describes the behaviour of
+that release. The previous release was v0.2.0-alpha (2026-09-28).
 
 ## Purpose and intended use
 
@@ -95,8 +93,8 @@ diagnosis; the long-run effect of this change remains unmeasured.
 - Focus tools use a resizable grid and terminal tabs; the conversation has
   simpler action descriptions, folding, timestamps and stable scrolling.
 
-See the [changelog](../CHANGELOG.md) for the unreleased record and
-[release v0.2.0-alpha](release/v0.2.0-alpha-release-notes.md) for what shipped.
+See the [changelog](../CHANGELOG.md) and the
+[v0.3.0-alpha release notes](release/v0.3.0-alpha-release-notes.md).
 
 ## Experimental Goal support
 

@@ -8,8 +8,9 @@ release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/6da514a
 
 ## Where things stand
 
-- **Released:** v0.2.0-alpha (2026-09-28), macOS on Apple silicon, as a
-  prerelease. Fixes since then are on `develop` and recorded in
+- **Released:** v0.3.0-alpha (2026-10-07), macOS on Apple silicon, as a
+  prerelease ([notes](release/v0.3.0-alpha-release-notes.md)). Checks made
+  between the two releases are recorded in
   [release/v0.2.x-mac-verification.md](release/v0.2.x-mac-verification.md).
 - **On `develop`, not released:** local commits since the
   documentation baseline (`4ae7c5f1`): most of gate G1, the session executor, and

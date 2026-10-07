@@ -8,8 +8,8 @@ The next candidate is not frozen; see [release readiness](release/next-release-r
 A DMG for Apple-silicon Macs (`PWR-macOS-arm64.dmg`) with `SHA256SUMS.txt`,
 published as a GitHub prerelease. The app is **ad-hoc signed, not notarized**:
 macOS may block the first open, and the README gives Apple's documented
-*Open Anyway* procedure. Latest: **v0.2.0-alpha** (tag `v0.2.0-alpha`,
-2026-09-28); release notes in [release/](release/).
+*Open Anyway* procedure. Latest: **v0.3.0-alpha** (tag `v0.3.0-alpha`,
+2026-10-07); release notes in [release/](release/).
 
 On first launch the app installs its engine: a private Python environment with
 the pinned packages, about 1.2 GB, in

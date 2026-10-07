@@ -9,7 +9,7 @@ PWR is an open-source desktop app and Rust core that turns a local language mode
 
 It is built for **bounded changes in existing repositories** — diagnosing and fixing a bug, a small feature, a limited refactor — with small and medium models on your own machine, with no cloud API and no account.
 
-> **Latest release: [v0.2.0-alpha](https://github.com/VitoSanta/PWR/releases/tag/v0.2.0-alpha)** (2026-09-28), a prerelease for macOS on Apple silicon. PWR runs a model's output as commands against your files: read [SECURITY.md](SECURITY.md) first, use it on repositories you can recover, and watch what it does. It is a supervised agent, not an autonomous one.
+> **Latest release: [v0.3.0-alpha](https://github.com/VitoSanta/PWR/releases/tag/v0.3.0-alpha)** (2026-10-07), a prerelease for macOS on Apple silicon. PWR runs a model's output as commands against your files: read [SECURITY.md](SECURITY.md) first, use it on repositories you can recover, and watch what it does. It is a supervised agent, not an autonomous one.
 
 ## What it does today
 
@@ -27,15 +27,15 @@ It is built for **bounded changes in existing repositories** — diagnosing and 
 - **Use two models at once.** One engine at a time on a Mac: a second one overruns the GPU's memory and both write nonsense. Switching model in a long conversation re-reads it from the start, which takes minutes.
 - **Run anywhere but macOS on Apple silicon.** Windows is planned after the core is proven ([decision](docs/decisions.md)).
 
-**Fixed on `develop`, not yet in a release** (the published v0.2.0-alpha artifact still has these limits; the next candidate needs its own CI and native-app verification): commands could change files the edit tools refuse; an overwrite could replace an edit made after the model read the file; writes were not atomic; a goal could be reported verified after its tests were changed. See the [changelog](CHANGELOG.md) and the [plan](docs/plan/implementation-plan.md#w1--safe-predictable-effects).
+**Fixed in v0.3.0-alpha** (v0.2.0-alpha still has these limits): commands could change files the edit tools refuse; an overwrite could replace an edit made after the model read the file; writes were not atomic; a goal could be reported verified after its tests were changed. See the [changelog](CHANGELOG.md) and the [plan](docs/plan/implementation-plan.md#w1--safe-predictable-effects).
 
-For the current development features and their limits, read the [product overview](docs/product-overview.md). Release candidate work is tracked in the [next-release checklist](docs/release/next-release-readiness.md). Known limits are also listed where each behaviour is described in the [documentation index](docs/README.md).
+For the features and their limits, read the [product overview](docs/product-overview.md) and the [release notes](docs/release/v0.3.0-alpha-release-notes.md). What was and was not checked for this release is in the [release checklist](docs/release/next-release-readiness.md). Known limits are also listed where each behaviour is described in the [documentation index](docs/README.md).
 
 ## Install
 
 Requires a Mac with Apple silicon (M1 or later). A model needs free memory roughly the size of its download plus room for context; the Model Manager rates each variant for your machine.
 
-1. Download [PWR-macOS-arm64.dmg](https://github.com/VitoSanta/PWR/releases/download/v0.2.0-alpha/PWR-macOS-arm64.dmg) and [SHA256SUMS.txt](https://github.com/VitoSanta/PWR/releases/download/v0.2.0-alpha/SHA256SUMS.txt) from the [release](https://github.com/VitoSanta/PWR/releases/tag/v0.2.0-alpha). Beside the DMG, run `shasum -a 256 -c SHA256SUMS.txt`, then open it and drag **PWR** to **Applications**.
+1. Download [PWR-macOS-arm64.dmg](https://github.com/VitoSanta/PWR/releases/download/v0.3.0-alpha/PWR-macOS-arm64.dmg) and [SHA256SUMS.txt](https://github.com/VitoSanta/PWR/releases/download/v0.3.0-alpha/SHA256SUMS.txt) from the [release](https://github.com/VitoSanta/PWR/releases/tag/v0.3.0-alpha). Beside the DMG, run `shasum -a 256 -c SHA256SUMS.txt`, then open it and drag **PWR** to **Applications**.
 2. The alpha is ad-hoc signed and not notarized. If macOS blocks the first open and you trust your copy, use **System Settings → Privacy & Security → Open Anyway** ([Apple's procedure](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac)). Do not disable Gatekeeper.
 3. On first launch PWR installs its engine: a private Python environment with pinned MLX packages, about 1.2 GB, in `~/Library/Application Support/ai.pwr.desktop/engine`. No system Python or Xcode is needed.
 4. Open the **Model Manager** from the model chip and download a model. Then open a folder, trust it, and ask.
