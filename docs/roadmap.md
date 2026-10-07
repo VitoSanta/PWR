@@ -4,7 +4,7 @@
 of every item — problem, evidence, change, acceptance, tests — is in the
 [implementation plan](plan/implementation-plan.md); this page is the summary a
 reader needs first. The roadmap before this date, with its reconciliations and
-release plans, is in the [archive](archive/roadmap.md).
+release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/roadmap.md).
 
 ## Where things stand
 

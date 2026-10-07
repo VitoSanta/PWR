@@ -4,7 +4,7 @@ Rewritten on 2026-09-30 from the code at `develop` `0776ff4f`, after the
 [technical review](reviews/2026-09-30-technical-review.md) was checked claim by
 claim ([verification](reviews/2026-09-30-verification.md)). Each current
 document names the revision it describes. Everything written before is kept,
-whole, in the [archive](archive/README.md).
+whole, in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/README.md).
 
 ## Start here
 
@@ -63,10 +63,13 @@ whole, in the [archive](archive/README.md).
    HYPOTHESIS, MEASURED) or say `unknown`. Numbers carry their conditions.
 3. **Known defects are written where the behaviour is described**, with the
    plan item that fixes them.
-4. **Nothing is deleted.** A superseded document moves to `archive/` with a
-   line in its index saying what replaced it.
+4. **Nothing is lost.** A superseded document is removed with the commit that
+   replaces it, and that commit's message says what replaced it; the text
+   stays in the history. The documents written before 2026-09-30 were kept
+   in `docs/archive/` until 2026-10-07 and are read
+   [at the last commit that held them](https://github.com/VitoSanta/PWR/tree/309266d5/docs/archive).
 5. **Code comments cite backlog IDs** (`C.22`, `D.E2E-21`, `R.4`…): they refer
-   to the [archived backlog](archive/backlog.md); where the item is still open,
+   to the [archived backlog](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md); where the item is still open,
    the plan's [carry-over table](plan/implementation-plan.md#old-backlog-every-open-item)
    says where it went.
 6. The milestone table in the roadmap is generated from `milestones.json` by

@@ -85,8 +85,11 @@ where an earlier version was wrong, say so.
   one a change is.
 - **Durable decisions** are entries in [docs/decisions.md](docs/decisions.md).
   The ADR series stays closed at ADR-012.
-- **Nothing is deleted from the record.** A superseded document moves to
-  `docs/archive/` with a line in its index.
+- **Nothing is lost from the record.** A superseded document is removed by
+  the commit that replaces it, whose message says what replaced it. The
+  `docs/archive/` this repository kept until 2026-10-07 is read
+  [at commit 309266d5](https://github.com/VitoSanta/PWR/tree/309266d5/docs/archive); a mention of `docs/archive/…` in a comment or
+  an older document means that tree.
 
 ## Things this project is deliberate about
 

@@ -2,7 +2,7 @@
 
 **Checked against `develop` at `bff93062`, 2026-10-01.** How PWR is measured,
 what has been measured, and what has not. The methodology before this date is
-in the [archive](archive/evaluation.md); the decisive campaign still to run is
+in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/evaluation.md); the decisive campaign still to run is
 specified in the [implementation plan, W8](plan/implementation-plan.md#w8--the-decisive-benchmark).
 
 ## The question
@@ -21,10 +21,11 @@ app's path.
 - **Corpora** (`corpus/*.json`): frozen tasks with a statement, a workspace, a
   visible and a hidden verifier, and for many a reference solution and a wrong
   implementation that must fail. `pwr check-corpus` checks a corpus is fair
-  before it is used. Present: `external-v1/v2`, `generation-v1`,
-  `longhaul-v1`, `longhorizon-v1/v2`, `m5-frozen-v1`, `m6-hard-v1`,
-  `realistic-v1` (it includes a deliberate prompt-injection file), `vague-v1`,
-  `small-apps-v1`.
+  before it is used. Present: `external-v1/v2`, `longhorizon-v1`,
+  `m5-frozen-v1`, `m6-hard-v1`, `small-apps-v1`. Removed on 2026-10-07, read
+  by nothing but the scripts of campaigns already void (they are in the
+  history at `309266d5`): `generation-v1`, `longhaul-v1`, `longhorizon-v2`,
+  `realistic-v1`, `vague-v1`.
 - **Arms** (`--arm`): `b1` is PWR's scripted loop; `b0` a conventional loop;
   `b2` a fixed localize–repair–validate workflow
   (`crates/pwr-orchestrator/src/baseline.rs`). All share tools, policy, reply

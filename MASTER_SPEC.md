@@ -1,7 +1,7 @@
 # PWR: product and research contract
 
 **Adopted 2026-10-01**, approved by the owner after F0 review. Replaces the
-[2026-09-30 contract](docs/archive/MASTER_SPEC-2026-09-30.md) through
+[2026-09-30 contract](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/MASTER_SPEC-2026-09-30.md) through
 [D-2026-10-01-2](docs/decisions.md#d-2026-10-01-2--mission-expansion-and-windows-exit-gate).
 This is the mission and evidence contract; it does not claim that its
 PLANNED destination has been implemented or measured.
@@ -212,6 +212,6 @@ the evidence in the same edit.
 4. The current technical documents indexed in [docs/README.md](docs/README.md)
    — what the code does, at a named revision.
 5. [SECURITY.md](SECURITY.md) — the operational boundary.
-6. Everything in [docs/archive/](docs/archive/README.md) and
+6. Everything in [docs/archive/](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/README.md) and
    [docs/reviews/](docs/reviews/README.md) — evidence about earlier revisions,
    never a description of the current one.

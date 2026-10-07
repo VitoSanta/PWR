@@ -2,7 +2,7 @@
 
 **Checked against `develop` at `bff93062`, 2026-10-01** (`crates/pwr-cli/src/serve.rs`). The design history of this protocol, including its
 phases and the decision to adopt ACP, is in the
-[archived version](archive/pwr-serve.md).
+[archived version](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/pwr-serve.md).
 
 ## Transport
 

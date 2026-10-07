@@ -3,8 +3,8 @@
 **Adopted 2026-09-30.** Built from the [technical review of
 2026-09-30](../reviews/2026-09-30-technical-review.md) after every one of its
 claims was checked against the code ([verification](../reviews/2026-09-30-verification.md)).
-It replaces the [v0.3.0-alpha plan](../archive/v0.3.0-alpha-plan.md) and the
-[backlog](../archive/backlog.md) as the order of work: every item still open in
+It replaces the [v0.3.0-alpha plan](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/v0.3.0-alpha-plan.md) and the
+[backlog](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md) as the order of work: every item still open in
 either is placed below (see [Carried over](#carried-over-from-earlier-plans)),
 none is dropped silently.
 
@@ -455,7 +455,7 @@ blocks unlink/rename of protected ancestors while allowing sibling writes.
   documents described two permission modes where there are three, several
   said no-verifier completion is refused, CONTRIBUTING described CI wrongly.
 - **Change.** The documentation set was rewritten from the code at `0776ff4f`;
-  every earlier document was moved, whole, to [archive/](../archive/README.md).
+  every earlier document was moved, whole, to [archive/](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/README.md).
 - **Done when.** Every current document names the revision it was checked
   against; `docs/README.md` indexes them; no current document links into the
   archive as if it were current.
@@ -1592,7 +1592,7 @@ historical evidence, not an active prohibition.
 
 ### Old backlog, every open item
 
-The backlog's last reconciliation (2026-09-27, [archive/backlog.md](../archive/backlog.md))
+The backlog's last reconciliation (2026-09-27, [archive/backlog.md](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md))
 left these items *parziale* or *proposto*. Each is placed here.
 
 | Item | Placement |

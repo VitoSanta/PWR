@@ -7,8 +7,8 @@ deployment, corpus revision, arm, seeds), the outcome with counts —
 including an inconclusive or negative one — and what was kept, revised or
 removed. Raw artifacts are cited by path even when they are not public.
 
-Entries through 2026-09-17 are in the [archived log](archive/experiment-log.md);
-the archived [roadmap](archive/roadmap.md) and [backlog](archive/backlog.md)
+Entries through 2026-09-17 are in the [archived log](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/experiment-log.md);
+the archived [roadmap](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/roadmap.md) and [backlog](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md)
 hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
@@ -1112,3 +1112,13 @@ The same reading, not acted on: 21 calls that did not fit their tool's schema
 `replacement`, `run_command` with `args` as a map), 13 patches whose hunk was
 already applied, 13 runs of a file that does not exist, 8 refusals by the
 shrink guard, 7 stale hashes.
+
+### 2026-10-07: the archive and the unused corpora leave the tree
+
+By the maintainer's decision. `docs/archive/` (69 documents written before
+2026-09-30), five corpora nothing in the code or the suites reads, and nine
+analysis scripts of the September campaigns are removed; all of it is in the
+history at `309266d5`, and the links to archived documents now point there.
+The rule "nothing is deleted" in CONTRIBUTING and docs/README becomes
+"nothing is lost": the commit that replaces a document says what replaced it.
+No behaviour changes.
