@@ -230,6 +230,158 @@ impl FailedRuns {
     }
 }
 
+/// Changes to one file, each followed by a failed run, after which the model
+/// is shown the lines the failure names as they stand on disk.
+pub const STILL_FAILING_LIMIT: usize = 3;
+/// Lines of the workspace quoted with that notice.
+const QUOTED_LINES: usize = 3;
+
+/// One file changed again and again with a run failing after each change.
+///
+/// [`Echoes`] and [`FailedRuns`] both start over at a successful file change,
+/// since a change is what a repair looks like. Seen 2026-10-07 (Nemotron 30B,
+/// a Python CLI from nothing): the model wrote `x ifoggi_str else None` for
+/// `x if oggi_str else None`, the tests failed on that line, and it rewrote
+/// the whole file some twenty times with the same line in it -- every write
+/// allowed, every failure "new" -- reasoning about a space it could not see
+/// it was not writing, until the engine ran out of memory. What it never did
+/// was look at the line as the file has it, or write it another way.
+#[derive(Debug, Default)]
+pub struct StillFailing {
+    /// The file changed since the last run, if one was.
+    changed: Option<String>,
+    /// The file the streak is about, and how many of its changes a failed
+    /// run has followed.
+    file: Option<String>,
+    survived: usize,
+    /// The runs that failed in this streak: one of them passing ends it,
+    /// where an `ls` that works says nothing about the failure.
+    failing: Vec<String>,
+}
+
+impl StillFailing {
+    /// A file was changed.
+    pub fn changed(&mut self, path: &str) {
+        self.changed = Some(path.to_owned());
+    }
+
+    /// Records a run; returns the file and the count when another change to
+    /// it has just been followed by a failure, at the limit and at each
+    /// multiple of it.
+    pub fn observe(&mut self, fingerprint: &str, failed: bool) -> Option<(String, usize)> {
+        if !failed {
+            if self.failing.iter().any(|run| run == fingerprint) {
+                *self = Self::default();
+            }
+            return None;
+        }
+        if !self.failing.iter().any(|run| run == fingerprint) {
+            self.failing.push(fingerprint.to_owned());
+        }
+        let changed = self.changed.take()?;
+        if self.file.as_deref() == Some(changed.as_str()) {
+            self.survived += 1;
+        } else {
+            self.file = Some(changed.clone());
+            self.survived = 1;
+        }
+        (self.survived >= STILL_FAILING_LIMIT && self.survived.is_multiple_of(STILL_FAILING_LIMIT))
+            .then_some((changed, self.survived))
+    }
+}
+
+/// The places a failure names -- `File "a.py", line 12`, `src/a.rs:12:5`,
+/// `a.ts(12,5)` -- that are files of the workspace, with that line as the
+/// file has it now. Whatever the language: a path the output writes beside a
+/// line number.
+pub fn named_lines(root: &std::path::Path, output: &str) -> Vec<String> {
+    let mut found: Vec<(String, usize)> = Vec::new();
+    let mut note = |path: &str, line: &str| {
+        let path = path.trim_matches(|c: char| "\"'`()[]<>,".contains(c));
+        let path = path.strip_prefix("./").unwrap_or(path);
+        let digits: String = line.chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(line) = digits.parse::<usize>()
+            && line > 0
+            && !path.is_empty()
+            && !found.iter().any(|(seen, at)| seen == path && *at == line)
+        {
+            found.push((path.to_owned(), line));
+        }
+    };
+    for text in output.lines() {
+        // Python: `File "path", line N`.
+        if let Some((before, after)) = text.split_once("\", line ")
+            && let Some((_, path)) = before.rsplit_once("File \"")
+        {
+            note(path, after);
+        }
+        for word in text.split_whitespace() {
+            // `path:N` and `path:N:M`.
+            let mut parts = word.split(':');
+            if let (Some(path), Some(line)) = (parts.next(), parts.next())
+                && path.contains('.')
+            {
+                note(path, line);
+            }
+            // `path(N,M)`, as tsc and MSBuild write it.
+            if let Some((path, rest)) = word.split_once('(')
+                && path.contains('.')
+            {
+                note(path, rest);
+            }
+        }
+    }
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    found
+        .into_iter()
+        .filter_map(|(path, line)| {
+            let file = std::path::Path::new(&path);
+            let file = if file.is_absolute() {
+                file.to_path_buf()
+            } else {
+                root.join(file)
+            };
+            let inside = file
+                .canonicalize()
+                .is_ok_and(|real| real.starts_with(&canonical));
+            if !inside {
+                return None;
+            }
+            let text = std::fs::read_to_string(&file).ok()?;
+            let written = text.lines().nth(line - 1)?;
+            let shown = file
+                .strip_prefix(root)
+                .or_else(|_| file.strip_prefix(&canonical))
+                .unwrap_or(&file)
+                .display()
+                .to_string();
+            let written: String = written.chars().take(300).collect();
+            Some(format!("{shown}:{line}: {written}"))
+        })
+        .take(QUOTED_LINES)
+        .collect()
+}
+
+/// Said with a failure that outlived several changes to one file.
+pub fn still_failing_notice(file: &str, changes: usize, lines: &[String]) -> String {
+    let quoted = if lines.is_empty() {
+        "Read the lines this failure names with read_file before changing anything else.".to_owned()
+    } else {
+        format!(
+            "These are the lines this failure names, exactly as the file has them now:\n{}\n\
+             Compare them character by character with what you meant to write.",
+            lines.join("\n")
+        )
+    };
+    format!(
+        "`{file}` has been changed {changes} times in a row and a run has failed after each \
+         change: the changes are not reaching what fails. {quoted} Do not rewrite the file \
+         again. Change only the failing line with replace_text; if a line keeps coming out \
+         different from what you intend, write it another way -- a different construct, \
+         shorter lines, other names."
+    )
+}
+
 /// A result without what differs between two runs of the same failure: the
 /// hash of its output and how long it took.
 ///
@@ -366,5 +518,78 @@ mod echo_tests {
             echoes.observe(&format!("other{n}"), &same);
         }
         assert_eq!(echoes.observe("a", &same), None);
+    }
+    #[test]
+    fn a_file_changed_again_and_again_with_a_failure_after_each_is_named() {
+        let mut still = StillFailing::default();
+        // A failure with no change before it is not counted.
+        assert_eq!(still.observe("test", true), None);
+        for _ in 0..STILL_FAILING_LIMIT - 1 {
+            still.changed("a.py");
+            assert_eq!(still.observe("test", true), None);
+        }
+        still.changed("a.py");
+        assert_eq!(
+            still.observe("test", true),
+            Some(("a.py".to_owned(), STILL_FAILING_LIMIT))
+        );
+        // Not said again at every run, and a run that passes starts over.
+        still.changed("a.py");
+        assert_eq!(still.observe("test", true), None);
+        // A different command passing says nothing about this failure.
+        assert_eq!(still.observe("ls", false), None);
+        still.changed("a.py");
+        still.changed("a.py");
+        assert_eq!(still.observe("test", true), None);
+        still.changed("a.py");
+        assert_eq!(
+            still.observe("test", true),
+            Some(("a.py".to_owned(), 2 * STILL_FAILING_LIMIT))
+        );
+        assert_eq!(still.observe("test", false), None);
+        still.changed("a.py");
+        assert_eq!(still.observe("test", true), None);
+        // Another file is another streak.
+        let mut other = StillFailing::default();
+        for file in ["a.py", "a.py", "b.py"] {
+            other.changed(file);
+            assert_eq!(other.observe("test", true), None);
+        }
+    }
+
+    #[test]
+    fn the_lines_a_failure_names_are_quoted_as_the_file_has_them() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("src")).unwrap();
+        std::fs::write(
+            root.path().join("src/a.py"),
+            "import os\nx = y ifz else None\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("b.ts"),
+            "const a = 1;\nconst b: string = a;\n",
+        )
+        .unwrap();
+        let output = format!(
+            "  File \"{}\", line 2\n    x = y ifz else None\nSyntaxError: invalid syntax\n\
+             b.ts(2,7): error TS2322\nerror at ./src/a.py:1:3 and /etc/hosts:1 and gone.py:4\n",
+            root.path().join("src/a.py").display()
+        );
+        assert_eq!(
+            named_lines(root.path(), &output),
+            vec![
+                "src/a.py:2: x = y ifz else None",
+                "b.ts:2: const b: string = a;",
+                "src/a.py:1: import os",
+            ]
+        );
+        let notice = still_failing_notice("src/a.py", 3, &named_lines(root.path(), &output));
+        assert!(
+            notice.contains("src/a.py:2: x = y ifz else None"),
+            "{notice}"
+        );
+        assert!(notice.contains("Do not rewrite the file again"), "{notice}");
+        assert!(still_failing_notice("a", 3, &[]).contains("read_file"));
     }
 }

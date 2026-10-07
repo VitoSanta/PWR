@@ -1699,3 +1699,24 @@ pa-trace-raw {
 .markdown tbody tr:nth-child(even) td {
   background: var(--surface-inset);
 }
+
+/* The screenshot a look at a page took, under its action. */
+.action .shot {
+  display: block;
+  margin: 6px 0 8px 22px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: zoom-in;
+  max-width: min(360px, calc(100% - 22px));
+}
+.action .shot.large {
+  cursor: zoom-out;
+  max-width: calc(100% - 22px);
+}
+.action .shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}

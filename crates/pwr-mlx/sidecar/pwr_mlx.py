@@ -98,6 +98,12 @@ PREFILL_MIN_STEP = 256
 # 25-27 s at 8,192).
 PREFILL_CHUNK_SECS = 3.0
 PREFILL_FIRST_STEP = 512
+# The most memory MLX keeps aside, freed but not returned, to reuse for its
+# next buffers. Unbounded by default: seen 2026-10-07 (Nemotron 30B 4-bit,
+# about 17 GB of weights, a long goal on a 64 GB machine) the engine stood at
+# 50 GB, the system swapped, and Metal ended a generation with "Impacting
+# Interactivity". What the model and its cache hold is not touched by this.
+CACHE_LIMIT_BYTES = int(float(os.environ.get("PWR_MLX_CACHE_GB", "2")) * 1024**3)
 # Attention scores are held in the activation dtype (bf16 or fp16).
 SCORE_BYTES = 2
 # A generation that keeps writing the same passage is stopped rather than left
@@ -1182,7 +1188,11 @@ class Engine:
                "prefilled_tokens": len(base) - reused,
                "prefill_s": round(prefilled - started, 3),
                "copied_cache": self.checkpoint is not None,
-               "peak_memory_gb": round(mx.get_peak_memory() / 1e9, 2)})
+               "peak_memory_gb": round(mx.get_peak_memory() / 1e9, 2),
+               "active_memory_gb": round(mx.get_active_memory() / 1e9, 2),
+               "cache_memory_gb": round(mx.get_cache_memory() / 1e9, 2)})
+        # A generation's buffers are not the next one's: given back now.
+        mx.clear_cache()
         return {
             "event": "done",
             "finish_reason": finish if finish in (
@@ -1205,6 +1215,7 @@ class Engine:
                 "prefill_secs": round(prefilled - started, 3),
                 "generation_secs": round(done - prefilled, 3),
                 "peak_memory_bytes": int(mx.get_peak_memory()),
+                "active_memory_bytes": int(mx.get_active_memory()),
             },
         }
 
@@ -1213,6 +1224,7 @@ def main() -> None:
     # mlx-lm prints memory warnings during generation. stdout is our JSON-lines
     # transport, so send library diagnostics to stderr before any model work.
     sys.stdout = sys.stderr
+    mx.set_cache_limit(CACHE_LIMIT_BYTES)
     engine = Engine()
     inbox = Inbox(sys.stdin)
     while True:

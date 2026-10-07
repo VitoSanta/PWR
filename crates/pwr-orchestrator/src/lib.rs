@@ -2403,8 +2403,12 @@ fn remember_verification(
 fn action_fingerprint(action: &ActionProposal) -> String {
     match action {
         ActionProposal::Remember { text, .. } => format!("remember:{text}"),
-        ActionProposal::LookAt { target, .. } => format!("look_at:{target}"),
-        ActionProposal::CheckPage { target } => format!("check_page:{target}"),
+        ActionProposal::LookAt { target, steps, .. } => {
+            format!("look_at:{target}:{}", steps.len())
+        }
+        ActionProposal::CheckPage { target, steps } => {
+            format!("check_page:{target}:{}", steps.len())
+        }
         ActionProposal::ReadTerminal { lines } => {
             format!("read_terminal:{}", lines.unwrap_or_default())
         }

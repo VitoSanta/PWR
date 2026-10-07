@@ -13,6 +13,42 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-07 — A page can be acted on before it is looked at; a failure that outlives its repairs is quoted; the engine's spare memory is capped
+
+**IMPLEMENTED; none of the three measured on a campaign.**
+
+*Steps on a page.* `look_at` and `check_page` take up to twelve `steps`
+(`click`, `type` + `into`, `press`) carried out before the look, so a form or a
+menu can be tried and not only loaded. The result says what each step did and
+what the page shows after them. The screenshot of either tool now reaches the
+client with the completed tool call (an ACP image block) and the app draws it
+under the action, for a model that does not read images too. Tests: a real
+browser fills and sends a form and reads its confirmation (skipped where no
+browser runs); validation and read-back are covered without one.
+
+*A failure that outlives its repairs.* Manual run of 2026-10-07 (Nemotron 30B
+4-bit, a Python CLI from nothing, `~/Desktop/confronto-manuale/python-cli-pwr`):
+the model wrote `ifoggi_str` for `if oggi_str`, rewrote the file about twenty
+times with the same line, and ended at 2 of 21 acceptance commands and 1 of 10
+tests (OpenCode, same model through Ollama at 262k context: 17 of 21, 14 tests
+passing, 25m52s). `Echoes` and `FailedRuns` start over at each file change, so
+nothing named the loop. `StillFailing` counts changes to one file each followed
+by a failed run; at three, and every three after, the result carries the lines
+the failure names as the file has them (`named_lines`: Python, `path:N`,
+`path(N,M)`) and asks for a one-line change written another way. Advisory:
+nothing is refused. Whether it breaks this loop is not known until the task is
+run again.
+
+*Engine memory.* In the same run the sidecar stood at 50 GB (17 GB compressed)
+on a 64 GB machine four minutes after a reload, swap was 9.2 of 10 GB, and
+Metal ended two generations with `Impacting Interactivity`. The cause was not
+isolated. MLX's spare-buffer cache had no limit and was cleared only after a
+load and a prefill; it is now capped (`PWR_MLX_CACHE_GB`, 2 by default) and
+cleared after each generation, and each request records active and cache
+memory so the next long run shows where the memory is.
+
+---
+
 ## 2026-10-02 — Preserve the core contract after the Stage frontend rollback
 
 **IMPLEMENTED frontend compatibility repairs; diagnostic battery in progress.**

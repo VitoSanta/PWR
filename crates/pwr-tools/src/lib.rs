@@ -106,12 +106,19 @@ pub enum ActionProposal {
         width: Option<u32>,
         #[serde(default)]
         height: Option<u32>,
+        /// What to do on the page before it is looked at: click, type,
+        /// press a key ([`PageStep`]).
+        #[serde(default)]
+        steps: Vec<PageStep>,
     },
     /// What a page on this machine shows as text and what it logged: its
     /// HTTP status, title, visible text and console messages -- `look_at`
     /// without the image, for a model that does not read images.
     CheckPage {
         target: String,
+        /// As for `look_at`.
+        #[serde(default)]
+        steps: Vec<PageStep>,
     },
     /// The recent output of the person's own terminal tabs in the app,
     /// read-only: what their dev server, build or tests printed. Answered by
@@ -413,7 +420,7 @@ impl ActionProposal {
             Self::LookAt { target, .. } if target.trim().is_empty() => Err(ToolError::Denied(
                 "look_at needs a target: a local server's URL or an HTML file's path".into(),
             )),
-            Self::CheckPage { target } if target.trim().is_empty() => Err(ToolError::Denied(
+            Self::CheckPage { target, .. } if target.trim().is_empty() => Err(ToolError::Denied(
                 "check_page needs a target: a local server's URL or an HTML file's path".into(),
             )),
             Self::FetchUrl { url, .. } if url.is_empty() => {
@@ -4587,6 +4594,143 @@ pub async fn look_at(
     width: Option<u32>,
     height: Option<u32>,
 ) -> Result<LookResult, ToolError> {
+    look_at_after(policy, target, width, height, &[]).await
+}
+
+/// One thing done on a page before it is looked at: a click on what a
+/// selector or a visible text names, text typed into a field, or a key
+/// pressed where the focus is. Exactly one of `click`, `type` and `press`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageStep {
+    /// A CSS selector, or the text of a button or link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub click: Option<String>,
+    /// The text to type; `into` says where.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_text: Option<String>,
+    /// The field to type into: a CSS selector, or its label, placeholder or
+    /// name. The focused field when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub into: Option<String>,
+    /// A key, by its DOM name: `Enter`, `Escape`, `Tab`...
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub press: Option<String>,
+}
+
+/// The most steps one look carries out.
+pub const PAGE_STEPS: usize = 12;
+
+/// The page a browser is opened on when there are steps to carry out: the
+/// target in a frame that fills the window, and a script that waits for it,
+/// does each step as a person's hands would -- a real click, a value set the
+/// way typing sets it, with the events frameworks listen for -- and leaves,
+/// for the text PWR reads back, what each step did and what the page then
+/// shows. The browser has no profile, sees only this machine, and is closed
+/// after the look; it is started without the same-origin rule so this page
+/// can reach into the one it frames.
+fn steps_page(url: &str, steps: &[PageStep]) -> String {
+    let url = serde_json::to_string(url).unwrap_or_default();
+    let steps = serde_json::to_string(steps).unwrap_or_default();
+    format!(
+        r#"<!doctype html><meta charset="utf-8"><title>PWR</title>
+<style>html,body{{margin:0;height:100%}}iframe{{border:0;width:100%;height:100%;display:block}}</style>
+<iframe id="page"></iframe><pre id="pwr-steps" hidden></pre><pre id="pwr-text" hidden></pre>
+<script>
+const steps = {steps};
+const frame = document.getElementById('page');
+const said = [];
+const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+function find(doc, what, fields) {{
+  try {{ const hit = doc.querySelector(what); if (hit) return hit; }} catch (_) {{}}
+  const wanted = what.trim().toLowerCase();
+  const pool = fields
+    ? [...doc.querySelectorAll('input,textarea,select,[contenteditable="true"]')]
+    : [...doc.querySelectorAll('button,a,[role="button"],input[type="submit"],input[type="button"],summary,label,[onclick]')];
+  const names = (el) => [el.innerText, el.value, el.placeholder, el.name, el.id, el.getAttribute('aria-label'),
+    ...(el.labels ? [...el.labels].map((label) => label.innerText) : [])]
+    .filter(Boolean).map((text) => String(text).trim().toLowerCase());
+  return pool.find((el) => names(el).includes(wanted)) || pool.find((el) => names(el).some((name) => name.includes(wanted)));
+}}
+function type(el, text) {{
+  el.focus();
+  if (el.isContentEditable) {{ el.textContent = text; }}
+  else {{
+    const proto = el instanceof frame.contentWindow.HTMLTextAreaElement ? frame.contentWindow.HTMLTextAreaElement.prototype
+      : el instanceof frame.contentWindow.HTMLSelectElement ? frame.contentWindow.HTMLSelectElement.prototype
+      : frame.contentWindow.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);
+  }}
+  for (const name of ['input', 'change']) el.dispatchEvent(new frame.contentWindow.Event(name, {{ bubbles: true }}));
+  el.blur(); el.focus();
+}}
+async function run() {{
+  await new Promise((done) => {{ frame.addEventListener('load', done, {{ once: true }}); frame.src = {url}; }});
+  await pause(600);
+  for (const [index, step] of steps.entries()) {{
+    const doc = frame.contentDocument, n = index + 1;
+    try {{
+      if (step.click != null) {{
+        const el = find(doc, step.click, false);
+        if (!el) {{ said.push(`step ${{n}}: nothing to click matches "${{step.click}}"`); continue; }}
+        el.scrollIntoView({{ block: 'center' }}); el.click();
+        said.push(`step ${{n}}: clicked "${{step.click}}"`);
+      }} else if (step.type != null) {{
+        const el = step.into != null ? find(doc, step.into, true) : doc.activeElement;
+        if (!el || el === doc.body) {{ said.push(`step ${{n}}: no field matches "${{step.into ?? 'the focus'}}"`); continue; }}
+        type(el, step.type);
+        said.push(`step ${{n}}: typed into "${{step.into ?? 'the focused field'}}"`);
+      }} else if (step.press != null) {{
+        const el = doc.activeElement || doc.body;
+        for (const name of ['keydown', 'keypress', 'keyup'])
+          el.dispatchEvent(new frame.contentWindow.KeyboardEvent(name, {{ key: step.press, bubbles: true, cancelable: true }}));
+        if (step.press === 'Enter' && el.form) el.form.requestSubmit ? el.form.requestSubmit() : el.form.submit();
+        said.push(`step ${{n}}: pressed ${{step.press}}`);
+      }} else {{ said.push(`step ${{n}}: names no click, type or press`); }}
+    }} catch (error) {{ said.push(`step ${{n}} failed: ${{error && error.message}}`); }}
+    await pause(450);
+  }}
+  await pause(300);
+  const doc = frame.contentDocument;
+  document.title = doc.title;
+  document.getElementById('pwr-steps').textContent = said.join('\n');
+  document.getElementById('pwr-text').textContent = doc.body ? doc.body.innerText : '';
+}}
+run().catch((error) => {{ document.getElementById('pwr-steps').textContent = 'the steps could not be carried out: ' + (error && error.message); }});
+</script>"#
+    )
+}
+
+/// [`look_at`], after carrying out `steps` on the page.
+pub async fn look_at_after(
+    policy: &ToolPolicy,
+    target: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+    steps: &[PageStep],
+) -> Result<LookResult, ToolError> {
+    if steps.len() > PAGE_STEPS {
+        return Err(ToolError::Denied(format!(
+            "{} steps is more than one look carries out ({PAGE_STEPS}); do the first ones, look, and go on from what the page shows",
+            steps.len()
+        )));
+    }
+    if let Some(wrong) = steps.iter().position(|step| {
+        [
+            step.click.is_some(),
+            step.type_text.is_some(),
+            step.press.is_some(),
+        ]
+        .iter()
+        .filter(|set| **set)
+        .count()
+            != 1
+    }) {
+        return Err(ToolError::Denied(format!(
+            "step {} must have exactly one of `click`, `type` (with `into`) and `press`",
+            wrong + 1
+        )));
+    }
     let width = width.unwrap_or(1280).clamp(320, 1920);
     let height = height.unwrap_or(800).clamp(240, 1600);
     let target = target.trim();
@@ -4660,15 +4804,32 @@ pub async fn look_at(
         "--disable-breakpad".into(),
         format!("--user-data-dir={}", scratch.join("profile").display()),
         format!("--window-size={width},{height}"),
-        "--virtual-time-budget=3000".into(),
+        // Each step is given time to act and the page to answer it.
+        format!("--virtual-time-budget={}", 3000 + 1200 * steps.len()),
         format!("--screenshot={}", shot.display()),
         // What the page logs, and its DOM once its scripts ran, from the
         // same load as the image.
         "--enable-logging=stderr".into(),
         "--v=0".into(),
         "--dump-dom".into(),
-        url.clone(),
     ];
+    let mut args = args;
+    // With steps, the browser opens PWR's own page, which frames the target
+    // and acts on it ([`steps_page`]); to reach into the frame it is started
+    // without the same-origin rule, on this one throwaway profile.
+    let acting = scratch.join("steps.html");
+    if steps.is_empty() {
+        args.push(url.clone());
+    } else {
+        std::fs::write(&acting, steps_page(&url, steps))?;
+        args.push("--disable-web-security".into());
+        args.push("--allow-file-access-from-files".into());
+        args.push(
+            url::Url::from_file_path(&acting)
+                .map_err(|_| ToolError::Denied("the steps could not be prepared".into()))?
+                .to_string(),
+        );
+    }
     let browser_path = browser.to_string_lossy().into_owned();
     let temporary = Path::new(BROWSER_SCRATCH).join(format!(
         "{:08x}",
@@ -4756,7 +4917,19 @@ pub async fn look_at(
         .collect();
     let dom = std::fs::read_to_string(&dom_file).unwrap_or_default();
     let _ = std::fs::remove_file(&dom_file);
-    let (title, text) = visible_text(&dom);
+    let _ = std::fs::remove_file(&acting);
+    let (title, text) = if steps.is_empty() {
+        visible_text(&dom)
+    } else {
+        // What the steps did, then what the page shows after them.
+        let (title, _) = visible_text(&dom);
+        let done = kept_text(&dom, "pwr-steps");
+        let shown = kept_text(&dom, "pwr-text");
+        (
+            title,
+            format!("{done}\n\nThe page after the steps:\n{shown}"),
+        )
+    };
     let text = policy.redact(&text).0;
     let text = if text.chars().count() > PAGE_TEXT_CHARS {
         let kept: String = text.chars().take(PAGE_TEXT_CHARS).collect();
@@ -4784,6 +4957,27 @@ pub async fn look_at(
         text,
         console,
     })
+}
+
+/// The text [`steps_page`] left in the element with this id, read back from
+/// the DOM the browser printed.
+fn kept_text(dom: &str, id: &str) -> String {
+    let Some(at) = dom.find(&format!("id=\"{id}\"")) else {
+        return String::new();
+    };
+    let rest = &dom[at..];
+    let Some(open) = rest.find('>') else {
+        return String::new();
+    };
+    let body = &rest[open + 1..];
+    let body = &body[..body.find("</pre>").unwrap_or(body.len())];
+    body.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+        .trim()
+        .to_owned()
 }
 
 /// The HTTP status a local server answers a page with, or `None` for a file
@@ -8670,5 +8864,107 @@ mod tests {
         let policy = PolicyProfile::Development.build(PathBuf::from("/tmp"));
         assert!(!policy.network_allowed());
         assert!(policy.allow_commands.contains(&"cargo".into()));
+    }
+}
+
+#[cfg(test)]
+mod page_step_tests {
+    use super::*;
+
+    fn step(json: &str) -> PageStep {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_step_is_one_click_one_typing_or_one_key() {
+        let typed = step(r#"{"type": "Vito", "into": "Nome"}"#);
+        assert_eq!(typed.type_text.as_deref(), Some("Vito"));
+        assert_eq!(typed.into.as_deref(), Some("Nome"));
+        assert!(serde_json::from_str::<PageStep>(r#"{"hover": "x"}"#).is_err());
+        let policy = PolicyProfile::Development.build(PathBuf::from("/tmp"));
+        let run = |steps: Vec<PageStep>| {
+            let policy = policy.clone();
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async move { look_at_after(&policy, "x.html", None, None, &steps).await })
+        };
+        // Refused before any browser is looked for.
+        let both = run(vec![step(r#"{"click": "a", "press": "Enter"}"#)]).unwrap_err();
+        assert!(both.to_string().contains("step 1 must have exactly one"));
+        let none = run(vec![step(r#"{"click": "a"}"#), step(r#"{"into": "b"}"#)]).unwrap_err();
+        assert!(none.to_string().contains("step 2 must have exactly one"));
+        let many = run(vec![step(r#"{"click": "a"}"#); PAGE_STEPS + 1]).unwrap_err();
+        assert!(many.to_string().contains("more than one look carries out"));
+    }
+
+    #[test]
+    fn what_the_steps_left_is_read_back_from_the_printed_page() {
+        let page = steps_page(
+            "http://localhost:4200/a?b=\"c\"",
+            &[step(r#"{"click": "Invia"}"#)],
+        );
+        assert!(page.contains(r#"[{"click":"Invia"}]"#), "{page}");
+        assert!(page.contains(r#"frame.src = "http://localhost:4200/a?b=\"c\"""#));
+        let dom = "<pre id=\"pwr-steps\" hidden=\"\">step 1: clicked \"Invia\"\n</pre>\
+                   <pre id=\"pwr-text\" hidden=\"\">Grazie &amp; a presto &lt;3</pre>";
+        assert_eq!(kept_text(dom, "pwr-steps"), "step 1: clicked \"Invia\"");
+        assert_eq!(kept_text(dom, "pwr-text"), "Grazie & a presto <3");
+        assert_eq!(kept_text(dom, "absent"), "");
+    }
+
+    #[tokio::test]
+    async fn a_form_is_filled_and_sent_before_the_page_is_looked_at() {
+        if browser_executable().is_none() {
+            eprintln!("PWR-SKIP a_form_is_filled_and_sent_before_the_page_is_looked_at no browser");
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("form.html"),
+            "<!doctype html><title>Contatti</title><form id=f>\
+             <input placeholder=\"Nome\"><button type=submit>Invia</button></form><p id=out></p>\
+             <script>f.addEventListener('submit', (e) => { e.preventDefault(); \
+             out.textContent = 'Grazie, ' + f.querySelector('input').value; });</script>",
+        )
+        .unwrap();
+        let mut policy = PolicyProfile::Safe.build(root.path().to_path_buf());
+        policy.timeout = std::time::Duration::from_secs(60);
+        let steps = [
+            step(r#"{"type": "Vito", "into": "Nome"}"#),
+            step(r#"{"click": "Invia"}"#),
+            step(r#"{"click": "Non esiste"}"#),
+        ];
+        let look = match look_at_after(&policy, "form.html", None, None, &steps).await {
+            Ok(look) => look,
+            // The host's browser wrote nothing (a runner with no display).
+            Err(error) if error.to_string().contains("could not be captured") => {
+                eprintln!(
+                    "PWR-SKIP a_form_is_filled_and_sent_before_the_page_is_looked_at the browser showed nothing"
+                );
+                return;
+            }
+            Err(error) => panic!("{error}"),
+        };
+        assert!(
+            look.text.contains("step 1: typed into \"Nome\""),
+            "{}",
+            look.text
+        );
+        assert!(
+            look.text.contains("step 2: clicked \"Invia\""),
+            "{}",
+            look.text
+        );
+        assert!(
+            look.text
+                .contains("step 3: nothing to click matches \"Non esiste\""),
+            "{}",
+            look.text
+        );
+        assert!(look.text.contains("Grazie, Vito"), "{}", look.text);
+        assert_eq!(look.title.as_deref(), Some("Contatti"));
+        assert!(look.image.is_file());
     }
 }

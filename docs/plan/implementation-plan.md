@@ -336,6 +336,31 @@ a routine step planned the whole site again.
 - **Tested.** `paced_reasoning_is_lower_only_after_an_action_that_worked`.
 - **Not known.** Whether it costs quality, on any model.
 
+### W2.16 A failure that outlives its repairs is shown as the file has it
+
+**HYPOTHESIS, implemented, not measured (2026-10-07).** One manual goal
+(Nemotron 30B, a Python CLI from nothing) rewrote one file about twenty times
+with the same malformed line and ended at 2 of 21 acceptance commands; no
+detector named it, each starting over at a file change.
+
+- **Change.** `repetition::StillFailing` counts changes to one file each
+  followed by a failed run. At three, and every three after, the run's result
+  carries the lines the failure names as they stand on disk
+  (`repetition::named_lines`) and asks for a one-line change written another
+  way. Nothing is refused.
+- **Tested.** `a_file_changed_again_and_again_with_a_failure_after_each_is_named`,
+  `the_lines_a_failure_names_are_quoted_as_the_file_has_them`.
+- **Not known.** Whether a model in that loop leaves it when told.
+
+### W2.17 Steps on a page before it is looked at
+
+**IMPLEMENTED (2026-10-07), not measured.** `look_at` and `check_page` take up
+to twelve `steps` (click, type, press); the screenshot reaches the app with
+the completed call. Tested by `a_form_is_filled_and_sent_before_the_page_is_looked_at`
+and `a_completed_look_carries_the_screenshot_to_the_client`.
+- **Not known.** How often small models use steps well; pages that refuse to
+  be framed (`X-Frame-Options`) cannot be acted on.
+
 ## How to read this plan
 
 Each work item has an ID (`W<stream>.<n>`), a status, and these parts:

@@ -3305,6 +3305,9 @@ pub fn tool_kind(capability: &str) -> &'static str {
     }
 }
 
+/// The largest screenshot sent to the client with a completed look.
+const SHOWN_IMAGE_BYTES: usize = 6 * 1024 * 1024;
+
 /// A tool call's id, unique across a session's turns.
 fn tool_call_id(turn: u32, call: u64) -> String {
     format!("turn{turn}-call{call}")
@@ -3357,6 +3360,23 @@ fn tool_update(root: &Path, turn: u32, step: TurnStep) -> Option<Value> {
                     })
                 })
                 .collect();
+            // What a look at a page saw, for the engineer to see too.
+            let mut content = content;
+            if matches!(call.capability.as_str(), "look_at" | "check_page")
+                && let Some(image) = call.path.as_deref().filter(|path| path.ends_with(".png"))
+                && let Ok(bytes) = std::fs::read(root.join(image))
+                && bytes.len() <= SHOWN_IMAGE_BYTES
+            {
+                use base64::Engine;
+                content.push(json!({
+                    "type": "content",
+                    "content": {
+                        "type": "image",
+                        "mimeType": "image/png",
+                        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+                    },
+                }));
+            }
             json!({
                 "sessionUpdate": "tool_call_update",
                 "toolCallId": id,
@@ -6447,6 +6467,41 @@ mod tests {
                 estimated: false,
             })
             .is_none()
+        );
+    }
+
+    #[test]
+    fn a_completed_look_carries_the_screenshot_to_the_client() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".pwr/images")).unwrap();
+        std::fs::write(root.path().join(".pwr/images/a.png"), b"png").unwrap();
+        let done = |capability: &str, path: Option<&str>| {
+            tool_update(
+                root.path(),
+                1,
+                TurnStep::ToolCall(ToolCallStep {
+                    id: 1,
+                    capability: capability.into(),
+                    detail: "http://localhost:4200".into(),
+                    path: path.map(str::to_owned),
+                    phase: ToolPhase::Completed,
+                    diff: None,
+                }),
+            )
+            .unwrap()
+        };
+        let update = done("check_page", Some(".pwr/images/a.png"));
+        assert_eq!(update["content"][0]["content"]["type"], "image");
+        assert_eq!(update["content"][0]["content"]["mimeType"], "image/png");
+        assert_eq!(update["content"][0]["content"]["data"], "cG5n");
+        assert!(
+            acp_type("SessionNotification").is_valid(&json!({"sessionId": "s", "update": update}))
+        );
+        // No image where none was taken, and none for any other tool's file.
+        assert_eq!(done("look_at", None)["content"], json!([]));
+        assert_eq!(
+            done("read_file", Some(".pwr/images/a.png"))["content"],
+            json!([])
         );
     }
 

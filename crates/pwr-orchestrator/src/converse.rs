@@ -940,7 +940,8 @@ pub fn look_at_tool() -> ToolDefinition {
                       to you with the page's HTTP status, title, visible text and what it logged \
                       to the browser console, uncaught errors and failed loads included. Use it \
                       to check what a page you built looks like -- layout, text, what is visible \
-                      -- and whether it fails. Start a server first with start_service if the \
+                      -- and whether it fails; with `steps` it first clicks, types and presses \
+                      keys on the page, so a form or a menu can be tried. Start a server first with start_service if the \
                       page needs one."
             .into(),
         input_schema: serde_json::json!({
@@ -949,6 +950,19 @@ pub fn look_at_tool() -> ToolDefinition {
                 "target": {"type": "string", "description": "http://localhost:PORT/path, or a workspace-relative .html file"},
                 "width": {"type": "integer", "description": "Viewport width in pixels, 320-1920; 1280 when omitted."},
                 "height": {"type": "integer", "description": "Viewport height in pixels, 240-1600; 800 when omitted."},
+                "steps": {
+                    "type": "array",
+                    "description": "Optional: what to do on the page before it is looked at, in order, as a person would -- at most 12. Each step is one of {\"click\": \"a CSS selector, or the text of a button or link\"}, {\"type\": \"the text\", \"into\": \"a CSS selector, or the field's label, placeholder or name\"}, {\"press\": \"Enter\"}. The result says what each step did and shows the page after them.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "click": {"type": "string"},
+                            "type": {"type": "string"},
+                            "into": {"type": "string"},
+                            "press": {"type": "string"},
+                        },
+                    },
+                },
             },
             "required": ["target"],
         }),
@@ -970,13 +984,27 @@ pub fn check_page_tool() -> ToolDefinition {
                       what it shows: its HTTP status, title, visible text, and what it logged to \
                       the browser console, uncaught errors and failed loads included. Use it to \
                       check that a page you built loads without errors, or to find why it does \
-                      not. Start the server first with start_service, or use the URL the \
+                      not; with `steps` it first clicks, types and presses keys on the page, \
+                      so a form or a menu can be tried. Start the server first with start_service, or use the URL the \
                       engineer gave."
             .into(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
                 "target": {"type": "string", "description": "http://localhost:PORT/path, or a workspace-relative .html file"},
+                "steps": {
+                    "type": "array",
+                    "description": "Optional: what to do on the page before it is looked at, in order, as a person would -- at most 12. Each step is one of {\"click\": \"a CSS selector, or the text of a button or link\"}, {\"type\": \"the text\", \"into\": \"a CSS selector, or the field's label, placeholder or name\"}, {\"press\": \"Enter\"}. The result says what each step did and shows the page after them.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "click": {"type": "string"},
+                            "type": {"type": "string"},
+                            "into": {"type": "string"},
+                            "press": {"type": "string"},
+                        },
+                    },
+                },
             },
             "required": ["target"],
         }),
@@ -1725,6 +1753,7 @@ async fn take_turn_inner<P: ModelProvider>(
     let mut refused_streak = crate::repetition::RefusalStreak::new();
     let mut echoes = crate::repetition::Echoes::default();
     let mut failed_runs = crate::repetition::FailedRuns::default();
+    let mut still_failing = crate::repetition::StillFailing::default();
     let mut held_empty_completion = false;
     let mut failed_file_change = false;
     let mut successful_file_change = false;
@@ -3013,6 +3042,8 @@ async fn take_turn_inner<P: ModelProvider>(
                     })
                 };
                 on_step(step(ToolPhase::Started));
+                // The screenshot a look at a page took, for the engineer's chat.
+                let mut shown: Option<std::path::PathBuf> = None;
                 let outcome = match &action {
                     ActionProposal::Remember { text, scope } => {
                         let scope = scope.clone().unwrap_or_else(|| {
@@ -3067,19 +3098,22 @@ async fn take_turn_inner<P: ModelProvider>(
                         target,
                         width,
                         height,
-                    } => pwr_tools::look_at(&policy, target, *width, *height)
+                        steps,
+                    } => pwr_tools::look_at_after(&policy, target, *width, *height, steps)
                         .await
                         .map_err(|error| error.to_string())
                         .and_then(|look| {
+                            shown = Some(look.image.clone());
                             serde_json::to_value(look).map_err(|error| error.to_string())
                         }),
                     // The same look, without the image: the model does not
-                    // read one.
-                    ActionProposal::CheckPage { target } => {
-                        pwr_tools::look_at(&policy, target, None, None)
+                    // read one. The engineer is still shown it.
+                    ActionProposal::CheckPage { target, steps } => {
+                        pwr_tools::look_at_after(&policy, target, None, None, steps)
                             .await
                             .map_err(|error| error.to_string())
                             .and_then(|look| {
+                                shown = Some(look.image.clone());
                                 serde_json::to_value(look).map_err(|error| error.to_string())
                             })
                             .map(|mut value| {
@@ -3099,7 +3133,25 @@ async fn take_turn_inner<P: ModelProvider>(
                 };
                 match outcome {
                     Ok(value) => {
-                        on_step(step(ToolPhase::Completed));
+                        let mut done = step(ToolPhase::Completed);
+                        if let TurnStep::ToolCall(done) = &mut done {
+                            done.path = shown.as_deref().map(|image| {
+                                image
+                                    .strip_prefix(&policy.root)
+                                    .or_else(|_| {
+                                        image.strip_prefix(
+                                            policy
+                                                .root
+                                                .canonicalize()
+                                                .unwrap_or_else(|_| policy.root.clone()),
+                                        )
+                                    })
+                                    .unwrap_or(image)
+                                    .to_string_lossy()
+                                    .into_owned()
+                            });
+                        }
+                        on_step(done);
                         // The screenshot goes to the model with the result,
                         // its path kept out of the text it reads.
                         let image = value
@@ -3444,6 +3496,34 @@ async fn take_turn_inner<P: ModelProvider>(
                     {
                         echoes.inputs_changed();
                         failed_runs.inputs_changed();
+                        if let Some(path) = &path {
+                            still_failing.changed(path);
+                        }
+                    }
+                    // A file changed again and again with a failure after
+                    // each change: the failing lines are shown as they stand.
+                    if full
+                        && capability == "run_command"
+                        && let Some((file, changes)) =
+                            still_failing.observe(&fingerprint, crate::repetition::failed(&value))
+                    {
+                        let output = ["stdout", "stderr", "output", "failure"]
+                            .iter()
+                            .filter_map(|field| value.get(field)?.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let lines = crate::repetition::named_lines(&policy.root, &output);
+                        if let Some(object) = value.as_object_mut() {
+                            object.insert(
+                                "still_failing".into(),
+                                serde_json::Value::String(crate::repetition::still_failing_notice(
+                                    &file, changes, &lines,
+                                )),
+                            );
+                        }
+                        on_step(TurnStep::Refused(format!(
+                            "{capability}: still failing after {changes} changes to {file}"
+                        )));
                     }
                     // Reads are left to `ReadHistory`, which already names a
                     // re-read of an unchanged file.
@@ -5165,7 +5245,7 @@ mod tests {
         };
         assert!(matches!(
             crate::action_from_tool_call(&call).unwrap(),
-            ActionProposal::LookAt { ref target, width: Some(800), height: None } if target == "http://localhost:4200/"
+            ActionProposal::LookAt { ref target, width: Some(800), height: None, ref steps } if steps.is_empty() && target == "http://localhost:4200/"
         ));
         assert_eq!(tool_call_detail(&call), "http://localhost:4200/");
     }

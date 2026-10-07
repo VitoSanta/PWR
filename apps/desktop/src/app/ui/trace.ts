@@ -142,6 +142,12 @@ abstract class Foldable {
                     @if (entry.diff && isOpen(entry.key, false)) {
                       <pa-diff [diff]="entry.diff" />
                     }
+                    @if (entry.data?.['image']; as image) {
+                      <!-- What the model was shown of the page. -->
+                      <button class="shot" [class.large]="isOpen(entry.key + ':shot', false)" (click)="toggle(entry.key + ':shot', false)" [attr.aria-label]="isOpen(entry.key + ':shot', false) ? 'Shrink the screenshot' : 'Enlarge the screenshot'">
+                        <img [src]="image" alt="The page as the browser drew it" />
+                      </button>
+                    }
                   </li>
                 }
               }

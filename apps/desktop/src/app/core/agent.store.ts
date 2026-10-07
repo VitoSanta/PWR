@@ -1067,6 +1067,13 @@ export class AgentStore {
     const outcome: string | undefined = update._meta?.pwr?.outcome;
     const diffBlock = (update.content ?? []).find?.((block: any) => block.type === 'diff');
     const failure = (update.content ?? []).find?.((block: any) => block.type === 'content')?.content?.text;
+    // What a look at a page saw: drawn under the action, and kept out of the
+    // raw trace, where its bytes would bury everything else.
+    const shot = (update.content ?? []).find?.((block: any) => block.type === 'content' && block.content?.type === 'image')?.content;
+    const image: string | undefined = shot?.data ? `data:${shot.mimeType ?? 'image/png'};base64,${shot.data}` : undefined;
+    const logged = image
+      ? { ...update, content: update.content.map((block: any) => (block.content?.type === 'image' ? { ...block, content: { ...block.content, data: `[${shot.data.length} base64 characters]` } } : block)) }
+      : update;
     const location: string | undefined = update.locations?.[0]?.path;
     const path = location ? relative(location, this.workspace()) : undefined;
     const diff: FileDiff | undefined = diffBlock
@@ -1099,8 +1106,8 @@ export class AgentStore {
         status: toolStatus(status),
         toolKind: update.kind ?? previous?.toolKind,
         diff: diff ?? previous?.diff,
-        data: { ...previous?.data, ...(path ? { path } : {}), ...(outcome ? { outcome } : {}) },
-        raw: [...(previous?.raw ?? []), update],
+        data: { ...previous?.data, ...(path ? { path } : {}), ...(outcome ? { outcome } : {}), ...(image ? { image } : {}) },
+        raw: [...(previous?.raw ?? []), logged],
         at: previous?.at ?? Date.now(),
       };
       if (index < 0) return [...entries, next];

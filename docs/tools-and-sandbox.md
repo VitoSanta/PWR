@@ -47,8 +47,8 @@ The scripted loop offers all of it; a conversation removes two and adds four
 | `remember` | Propose a memory; the person saves it | ✓ | — |
 | `recall_project` | Another project's wiki overview and log | ✓ | — |
 | `wiki_query` | Ask the project graph | ✓ | — |
-| `look_at` | Screenshot, rendered DOM text and browser console of a local page (**experimental**, vision models only) | ✓ | — |
-| `check_page` | Rendered DOM text and browser console of a local page, without an image (text models) | ✓ | — |
+| `look_at` | Screenshot, rendered DOM text and browser console of a local page, after optional `steps` (click, type, press) carried out on it (**experimental**, vision models only) | ✓ | — |
+| `check_page` | Rendered DOM text and browser console of a local page, after optional `steps`, without an image for the model (text models); the app shows the screenshot | ✓ | — |
 | `read_terminal` | The last lines (200 by default, at most 1,000) of the person's own terminal tabs in the app, read-only and redacted; asked about once per conversation (`terminal_read`, granted by no mode, Full access included); offered only when the client declares it can answer (`_meta.pwr.readTerminal` in `initialize`) | ✓ (desktop) | — |
 
 Chat without a workspace offers only `read_file`, `list_tree`, `remember`,
