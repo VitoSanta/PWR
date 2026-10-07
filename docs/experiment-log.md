@@ -1092,3 +1092,23 @@ with the plan as the model last wrote it, or with a line saying there is none
 yet. The conversation that is kept does not contain it. The scaffold is the
 one arXiv 2609.20804 measured on a 30B model; nothing here has run with a
 model.
+
+### 2026-10-07: a refused inspection command names the tool that does it
+
+Read from the product-path runs of 2026-10-06 and 07 (three models, the
+ledger, todo and notes tasks): of 311 actions that failed, 94 were tests
+failing, which is the work, and 70 were requests to run a program the
+workspace does not declare, refused because no person was there to allow
+them. The most asked for were `ls` (14), `sh` (10) and `find` (7): mostly
+an action spent to ask for what `list_tree`, `read_file` and `search` do
+without asking. The refusal now ends by naming that tool
+(`pwr_tools::tool_instead_of`); what a person is asked, and what is allowed,
+is unchanged. Tested through the real turn
+(`a_refused_listing_command_is_answered_with_the_tool_that_lists`); whether a
+model then takes the tool has not been measured.
+
+The same reading, not acted on: 21 calls that did not fit their tool's schema
+(`replace_text` without `path` or `find`, `apply_replace` without
+`replacement`, `run_command` with `args` as a map), 13 patches whose hunk was
+already applied, 13 runs of a file that does not exist, 8 refusals by the
+shrink guard, 7 stale hashes.

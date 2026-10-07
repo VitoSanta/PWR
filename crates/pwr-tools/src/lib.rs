@@ -1699,6 +1699,26 @@ pub fn unlisted_program(
     ))
 }
 
+/// The tool that does what a command-line utility was asked to do, when there
+/// is one: said to a model whose command was refused, so that it does not
+/// spend its next actions asking again for another utility.
+///
+/// Counted over the product-path runs of 2026-10-06/07 (pwr-evidence, three
+/// models): of 48 requests to run a program the workspace does not declare,
+/// 23 were `ls`, `find`, `cat` or `wc` -- each a question put to the person
+/// for something `list_tree`, `read_file` or `search` does with no question.
+pub fn tool_instead_of(executable: &str) -> Option<&'static str> {
+    let name = executable.rsplit('/').next().unwrap_or(executable);
+    Some(match name {
+        "ls" | "find" | "tree" | "dir" => "list_tree lists a folder",
+        "cat" | "head" | "tail" | "less" | "more" | "wc" | "nl" => {
+            "read_file reads a file, whole or a window of it"
+        }
+        "grep" | "rg" | "ag" | "ack" => "search finds text in the workspace",
+        _ => return None,
+    })
+}
+
 /// What an action requires, and a description a person can judge.
 ///
 /// One place, so the loop can ask before acting rather than each tool

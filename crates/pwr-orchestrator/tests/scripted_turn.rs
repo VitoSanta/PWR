@@ -271,3 +271,44 @@ async fn a_turn_counts_its_model_s_work_and_does_not_start_a_reply_past_the_allo
     assert_eq!(ran.asked, 0);
     assert_eq!(ran.report.stopped, Some(converse::StopReason::BudgetSpent));
 }
+
+#[tokio::test]
+async fn a_refused_listing_command_is_answered_with_the_tool_that_lists() {
+    // `ls` is not one of the workspace's programs, nobody allows it, and the
+    // refusal names what does the same with no question asked.
+    let root = tempfile::tempdir().unwrap();
+    let ran = run(
+        root.path(),
+        Some((
+            "run_command",
+            serde_json::json!({"executable": "ls", "args": ["-la"]}),
+        )),
+    )
+    .await;
+    let refusal = ran
+        .messages
+        .iter()
+        .find(|message| message.content.contains("a person refused this"))
+        .expect("the refusal is in the conversation");
+    assert!(
+        refusal.content.contains("list_tree lists a folder"),
+        "{}",
+        refusal.content
+    );
+    // A program with no such tool is refused as before, with nothing added.
+    let other = run(
+        root.path(),
+        Some((
+            "run_command",
+            serde_json::json!({"executable": "make", "args": ["all"]}),
+        )),
+    )
+    .await;
+    assert!(
+        other
+            .messages
+            .iter()
+            .any(|message| message.content.contains("a person refused this")
+                && !message.content.contains("No program is needed"))
+    );
+}

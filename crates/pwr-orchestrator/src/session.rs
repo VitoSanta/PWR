@@ -111,7 +111,13 @@ pub async fn gate(
                 // Enforced here rather than left to the tool to notice: a tool
                 // that forgot to re-check would make the gate advisory. Still a
                 // tool result -- ending the run would discard work already done.
-                let denial = format!("a person refused this: {description}");
+                let mut denial = format!("a person refused this: {description}");
+                // What the refusal knows: the tool that needs no asking.
+                if let ActionProposal::RunCommand { executable, .. } = action
+                    && let Some(tool) = pwr_tools::tool_instead_of(executable)
+                {
+                    denial.push_str(&format!(". No program is needed for it: {tool}."));
+                }
                 store
                     .append_event(
                         Some(id),
