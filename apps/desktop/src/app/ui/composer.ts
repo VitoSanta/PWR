@@ -391,7 +391,11 @@ export class Composer implements OnInit, OnDestroy {
     // above it always keeps room.
     const max = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(window.innerHeight * 0.3)));
     const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
-    this.expanded.set(wanted > MIN_HEIGHT + 8);
+    // Taller once the text wraps, and one line again only when it is empty:
+    // the tall layout gives the text the whole width, where it fits on one
+    // line again, so deciding by height alone flipped the two at every key.
+    if (!box.value) this.expanded.set(false);
+    else if (wanted > MIN_HEIGHT + 8) this.expanded.set(true);
     box.style.height = `${Math.min(wanted, max)}px`;
     box.style.overflowY = wanted > max ? 'auto' : 'hidden';
   }

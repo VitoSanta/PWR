@@ -81,12 +81,15 @@ import { KnowledgeCard } from './workbench/knowledge';
         class="workbench-body"
         [class.maximized]="!!work.focused()"
         [class.cols-2]="work.focusMode() && work.grid() === 2"
+        [style.grid-template-columns]="twoColumns() ? columnsTemplate() : null"
+        [style.grid-template-rows]="twoColumns() ? rowsTemplate() : null"
       >
         @for (card of work.visible(); track card.id; let first = $first; let last = $last; let index = $index) {
           <section
             class="wb-card"
             [class.collapsed]="card.collapsed"
             [class.fills]="!card.collapsed"
+            [class.spans]="twoColumns() && last && index % 2 === 0"
             [attr.aria-label]="info(card.id).label"
             [style.flex-grow]="card.collapsed ? 0 : cardWeight(card.id) * 100"
             [style.view-transition-name]="'wb-' + card.id"
@@ -182,6 +185,40 @@ import { KnowledgeCard } from './workbench/knowledge';
             }
           </div>
         }
+        @if (twoColumns() && !work.focused()) {
+          <!-- Side by side: the gaps between the cards are what is dragged. -->
+          <div
+            class="wb-grid-split column"
+            role="separator"
+            tabindex="0"
+            aria-orientation="vertical"
+            aria-label="Resize the two columns of tools"
+            [style.left]="columnHandleLeft()"
+            [style.height]="columnHandleHeight()"
+            (pointerdown)="startGridResize($event, 'column', 0)"
+            (pointermove)="moveGridResize($event)"
+            (pointerup)="endGridResize($event)"
+            (pointercancel)="endGridResize($event)"
+            (lostpointercapture)="endGridResize($event)"
+            (keydown)="keyGridResize($event, 'column', 0)"
+          ></div>
+          @for (boundary of rowBoundaries(); track boundary) {
+            <div
+              class="wb-grid-split row"
+              role="separator"
+              tabindex="0"
+              aria-orientation="horizontal"
+              aria-label="Resize the rows of tools"
+              [style.top]="rowHandleTop(boundary)"
+              (pointerdown)="startGridResize($event, 'row', boundary)"
+              (pointermove)="moveGridResize($event)"
+              (pointerup)="endGridResize($event)"
+              (pointercancel)="endGridResize($event)"
+              (lostpointercapture)="endGridResize($event)"
+              (keydown)="keyGridResize($event, 'row', boundary)"
+            ></div>
+          }
+        }
       </div>
     </aside>
     @if (work.focusMode() && layout.right() === 'docked' && !work.focused()) {
@@ -231,6 +268,121 @@ export class Inspector {
     totalHeight: number;
     totalWeight: number;
   } | null = null;
+
+  /** Side by side: the first column's share of the width, and each row's weight. */
+  private readonly split = signal<number>(loadNumber('pwr:tools-split', 0.5, 0.2, 0.8));
+  private readonly rowWeights = signal<number[]>(loadRows());
+  private gridOrigin: {
+    pointerId: number;
+    kind: 'column' | 'row';
+    boundary: number;
+    start: number;
+    extent: number;
+    first: number;
+    pair: number;
+  } | null = null;
+
+  protected readonly twoColumns = computed(() => this.work.focusMode() && this.work.grid() === 2);
+  private readonly rowCount = computed(() => Math.ceil(this.work.visible().length / 2));
+  private readonly weights = computed(() =>
+    Array.from({ length: this.rowCount() }, (_, row) => this.rowWeights()[row] ?? 1),
+  );
+  /** The gaps between rows, numbered by the row above them. */
+  protected readonly rowBoundaries = computed(() => Array.from({ length: Math.max(0, this.rowCount() - 1) }, (_, row) => row));
+  protected readonly columnsTemplate = computed(() => `minmax(0, ${this.split()}fr) minmax(0, ${1 - this.split()}fr)`);
+  protected readonly rowsTemplate = computed(() => this.weights().map((weight) => `minmax(0, ${weight}fr)`).join(' '));
+  protected readonly columnHandleLeft = computed(() => `calc((100% - ${GAP}px) * ${this.split()})`);
+  /** The column gap stops above a last card that takes its row whole. */
+  protected readonly columnHandleHeight = computed(() => {
+    const odd = this.work.visible().length % 2 === 1;
+    return odd && this.rowCount() > 1 ? this.rowHandleTop(this.rowCount() - 2) : '100%';
+  });
+
+  /** Where the gap under `row` starts, from the rows' weights. */
+  protected rowHandleTop(row: number): string {
+    const weights = this.weights();
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    const above = weights.slice(0, row + 1).reduce((sum, weight) => sum + weight, 0);
+    return `calc((100% - ${(weights.length - 1) * GAP}px) * ${above / total} + ${row * GAP}px)`;
+  }
+
+  protected startGridResize(event: PointerEvent, kind: 'column' | 'row', boundary: number): void {
+    if (event.button !== 0) return;
+    const handle = event.currentTarget as HTMLElement;
+    const body = handle.parentElement;
+    if (!body) return;
+    const box = body.getBoundingClientRect();
+    if (kind === 'column') {
+      this.gridOrigin = { pointerId: event.pointerId, kind, boundary, start: box.left, extent: box.width - GAP, first: 0, pair: 1 };
+    } else {
+      const weights = this.weights();
+      const total = weights.reduce((sum, weight) => sum + weight, 0);
+      const room = box.height - (weights.length - 1) * GAP;
+      const pair = weights[boundary] + weights[boundary + 1];
+      this.gridOrigin = {
+        pointerId: event.pointerId,
+        kind,
+        boundary,
+        // Where this pair of rows starts, and the room the two share.
+        start: event.clientY - (room * weights[boundary]) / total,
+        extent: (room * pair) / total,
+        first: weights[boundary],
+        pair,
+      };
+    }
+    handle.setPointerCapture(event.pointerId);
+    this.layout.resizing.set(true);
+    event.preventDefault();
+  }
+
+  protected moveGridResize(event: PointerEvent): void {
+    const origin = this.gridOrigin;
+    if (!origin || origin.pointerId !== event.pointerId || origin.extent <= 0) return;
+    if (origin.kind === 'column') {
+      this.split.set(clamp((event.clientX - origin.start - GAP / 2) / origin.extent, 0.2, 0.8));
+    } else {
+      const least = Math.min(0.45, 120 / origin.extent);
+      const share = clamp((event.clientY - origin.start) / origin.extent, least, 1 - least);
+      this.setRowPair(origin.boundary, origin.pair * share, origin.pair);
+    }
+  }
+
+  protected endGridResize(event: PointerEvent): void {
+    if (this.gridOrigin?.pointerId !== event.pointerId) return;
+    this.gridOrigin = null;
+    this.layout.resizing.set(false);
+    this.saveGrid();
+  }
+
+  protected keyGridResize(event: KeyboardEvent, kind: 'column' | 'row', boundary: number): void {
+    const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
+    if (!step || (kind === 'column') !== (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return;
+    if (kind === 'column') {
+      this.split.set(clamp(this.split() + step * 0.04, 0.2, 0.8));
+    } else {
+      const weights = this.weights();
+      const pair = weights[boundary] + weights[boundary + 1];
+      this.setRowPair(boundary, clamp(weights[boundary] + step * pair * 0.06, pair * 0.2, pair * 0.8), pair);
+    }
+    this.saveGrid();
+    event.preventDefault();
+  }
+
+  private setRowPair(boundary: number, first: number, pair: number): void {
+    const weights = this.weights().slice();
+    weights[boundary] = first;
+    weights[boundary + 1] = pair - first;
+    this.rowWeights.set(weights);
+  }
+
+  private saveGrid(): void {
+    try {
+      localStorage.setItem('pwr:tools-split', String(this.split()));
+      localStorage.setItem('pwr:tools-rows', JSON.stringify(this.rowWeights()));
+    } catch {
+      // Keep the current sizes when storage is unavailable.
+    }
+  }
 
   private readonly byId = new Map(CARDS.map((card) => [card.id, card]));
   private readonly badges = computed<Partial<Record<CardId, number>>>(() => ({
@@ -341,5 +493,30 @@ export class Inspector {
   protected open(id: CardId): void {
     this.launcher.set(false);
     this.work.show(id);
+  }
+}
+
+/** The gap between two cards of the grid, which is what is dragged. */
+const GAP = 14;
+
+function clamp(value: number, least: number, most: number): number {
+  return Math.max(least, Math.min(most, value));
+}
+
+function loadNumber(key: string, fallback: number, least: number, most: number): number {
+  try {
+    const saved = Number(localStorage.getItem(key));
+    return Number.isFinite(saved) && saved > 0 ? clamp(saved, least, most) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function loadRows(): number[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem('pwr:tools-rows') ?? '[]');
+    return Array.isArray(saved) && saved.every((weight) => typeof weight === 'number' && weight > 0) ? saved : [];
+  } catch {
+    return [];
   }
 }

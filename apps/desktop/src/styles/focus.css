@@ -350,8 +350,61 @@
   align-self: start;
 }
 
-.focus-workbench .workbench-body.cols-2 .wb-card:last-child:nth-child(odd) {
+.focus-workbench .workbench-body.cols-2 .wb-card.spans {
   grid-column: 1 / -1;
+}
+
+/* The gaps of the grid are its handles: the one between the columns sets
+   their widths, the ones between rows their heights. */
+.focus-workbench .workbench-body.cols-2 {
+  position: relative;
+}
+
+.focus-workbench .wb-grid-split {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.focus-workbench .wb-grid-split.column {
+  top: 0;
+  width: 14px;
+  cursor: col-resize;
+}
+
+.focus-workbench .wb-grid-split.row {
+  right: 0;
+  left: 0;
+  height: 14px;
+  cursor: row-resize;
+}
+
+.focus-workbench .wb-grid-split::after {
+  content: '';
+  position: absolute;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.focus-workbench .wb-grid-split.column::after {
+  top: calc(50% - 22px);
+  left: 6px;
+  width: 2px;
+  height: 44px;
+}
+
+.focus-workbench .wb-grid-split.row::after {
+  top: 6px;
+  left: calc(50% - 22px);
+  width: 44px;
+  height: 2px;
+}
+
+.focus-workbench .wb-grid-split:hover::after,
+.focus-workbench .wb-grid-split:focus-visible::after {
+  opacity: 1;
 }
 
 /* The one handle of the tools, on the grid's left edge, clear of the cards'
