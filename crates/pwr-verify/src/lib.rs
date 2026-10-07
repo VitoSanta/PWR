@@ -228,11 +228,15 @@ pub fn required_executables(root: &std::path::Path) -> Vec<String> {
         .filter(|system| root.join(system.marker).is_file())
         .map(|system| system.executable.to_string())
         .collect();
-    if !nested_cargo_manifests(root).is_empty() {
-        executables.push("cargo".into());
-    }
-    if !csharp_targets(root, "").is_empty() || !nested_csharp_targets(root).is_empty() {
+    if !csharp_targets(root, "").is_empty() {
         executables.push("dotnet".into());
+    }
+    // The projects below the root, whatever they are written in.
+    for (executable, _) in nested_checks(root, "full") {
+        if executable == "npm" {
+            executables.push("node".into());
+        }
+        executables.push(executable);
     }
     // A JavaScript project's runner is npm, and its runtime is node.
     if root.join("package.json").is_file() {
@@ -624,23 +628,32 @@ pub fn discover_checks(
     }
     let root_csharp = csharp_targets(root, "");
     if !root_csharp.is_empty() {
-        return Ok(dotnet_checks(root_csharp));
+        // A solution speaks for the projects it lists, and only for those.
+        // Seen 2026-10-07: a solution file written by hand listed none, so
+        // `dotnet test spese.sln` opened nothing and exited 0 while the test
+        // project beside it did not even load. Every project below the root
+        // that no solution names is checked on its own.
+        let listed: String = root_csharp
+            .iter()
+            .filter(|target| target.ends_with(".sln") || target.ends_with(".slnx"))
+            .filter_map(|solution| std::fs::read_to_string(root.join(solution)).ok())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .replace('\\', "/");
+        let unlisted: Vec<(String, Vec<String>)> = nested_checks(root, scope)
+            .into_iter()
+            .filter(|(executable, args)| {
+                executable == "dotnet"
+                    && args.get(1).is_some_and(|project| {
+                        project.ends_with(".csproj") && !solution_lists(&listed, project)
+                    })
+            })
+            .collect();
+        let mut checks = dotnet_checks(root_csharp);
+        checks.extend(unlisted);
+        return Ok(checks);
     }
-    let mut nested_checks: Vec<_> = nested_cargo_manifests(root)
-        .into_iter()
-        .map(|manifest| {
-            (
-                "cargo".to_owned(),
-                vec![
-                    "test".to_owned(),
-                    "--manifest-path".to_owned(),
-                    manifest,
-                    "--workspace".to_owned(),
-                ],
-            )
-        })
-        .collect();
-    nested_checks.extend(dotnet_checks(nested_csharp_targets(root)));
+    let nested_checks = nested_checks(root, scope);
     if !nested_checks.is_empty() {
         return Ok(nested_checks);
     }
@@ -659,31 +672,170 @@ pub fn discover_checks(
     Ok(Vec::new())
 }
 
-/// A new workspace often starts empty and gains one small Rust project below
-/// its root. Inspect immediate real directories only; never follow a symlink
-/// or recurse into build outputs and unrelated repositories.
-fn nested_cargo_manifests(root: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return Vec::new();
-    };
-    let mut manifests = entries
-        .flatten()
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .filter_map(|entry| {
-            let name = entry.file_name();
-            let name = name.to_str()?;
-            if name.starts_with('.') || name == "target" || name == "node_modules" {
-                return None;
+/// How deep below the root a project is looked for: `src/App/App.csproj` and
+/// `packages/web/package.json` are two levels down.
+const NESTED_DEPTH: usize = 3;
+/// How many nested projects are checked. A workspace with more states how it
+/// is verified, or should.
+const NESTED_PROJECTS: usize = 6;
+
+/// The checks of the projects that sit below the root, when nothing at the
+/// root says how the workspace is verified: for every language the registry
+/// knows, not for one.
+///
+/// Seen 2026-10-07: a .NET goal laid out as `src/Spese/Spese.csproj` and
+/// `tests/Spese.Tests/Spese.Tests.csproj`, as its request asked, ended
+/// "this workspace declares no checks" -- projects were looked for one level
+/// down, and only Cargo's and C#'s. Nothing built or tested what the model
+/// wrote, no review ran, and a test project that did not load went unseen.
+///
+/// Each check is the tool's own way of running elsewhere (`npm --prefix`,
+/// `go -C`, `mvn -f`, `make -C`...), so the command PWR shows is one a person
+/// can paste at the root. A folder that holds a project is not searched
+/// further: what is under it is that project's.
+fn nested_checks(root: &std::path::Path, scope: &str) -> Vec<(String, Vec<String>)> {
+    let mut checks = Vec::new();
+    let mut level = vec![(root.to_path_buf(), String::new())];
+    for _ in 0..NESTED_DEPTH {
+        let mut next = Vec::new();
+        for (folder, prefix) in &level {
+            let Ok(entries) = std::fs::read_dir(folder) else {
+                continue;
+            };
+            let mut children: Vec<(std::path::PathBuf, String)> = entries
+                .flatten()
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                .filter_map(|entry| {
+                    let name = entry.file_name().to_str()?.to_owned();
+                    let skipped = name.starts_with('.')
+                        || matches!(
+                            name.as_str(),
+                            "target"
+                                | "node_modules"
+                                | "bin"
+                                | "obj"
+                                | "dist"
+                                | "build"
+                                | "out"
+                                | "vendor"
+                                | "venv"
+                                | "__pycache__"
+                        );
+                    (!skipped).then(|| (entry.path(), format!("{prefix}{name}")))
+                })
+                .collect();
+            children.sort();
+            for (path, relative) in children {
+                let found = project_checks(&path, &relative, scope);
+                if found.is_empty() {
+                    next.push((path, format!("{relative}/")));
+                } else if checks.len() < NESTED_PROJECTS {
+                    checks.extend(found);
+                }
             }
-            entry
-                .path()
-                .join("Cargo.toml")
-                .is_file()
-                .then(|| format!("{name}/Cargo.toml"))
-        })
-        .collect::<Vec<_>>();
-    manifests.sort();
-    manifests
+        }
+        level = next;
+    }
+    checks.truncate(NESTED_PROJECTS);
+    checks
+}
+
+/// The checks of the project in `folder`, which is `relative` from the root,
+/// written to be run from the root; empty when it holds no project PWR knows
+/// how to run from there.
+fn project_checks(
+    folder: &std::path::Path,
+    relative: &str,
+    scope: &str,
+) -> Vec<(String, Vec<String>)> {
+    let own = |words: &[&str]| {
+        words
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect::<Vec<_>>()
+    };
+    if let Some(scripts) = std::fs::read_to_string(folder.join("package.json"))
+        .ok()
+        .and_then(|manifest| serde_json::from_str::<serde_json::Value>(&manifest).ok())
+        .and_then(|manifest| manifest.get("scripts").cloned())
+    {
+        let has = |name: &str| {
+            scripts
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+        };
+        let mut checks = Vec::new();
+        if has("build") {
+            checks.push((
+                "npm".to_owned(),
+                own(&["--prefix", relative, "run", "build"]),
+            ));
+        }
+        if has("test") {
+            let mut args = own(&["--prefix", relative, "test"]);
+            args.extend(own(if folder.join("angular.json").is_file() {
+                &["--", "--watch=false"]
+            } else {
+                &["--silent"]
+            }));
+            checks.push(("npm".to_owned(), args));
+        }
+        if !checks.is_empty() {
+            return checks;
+        }
+    }
+    let csharp = csharp_targets(folder, &format!("{relative}/"));
+    if !csharp.is_empty() {
+        return dotnet_checks(csharp);
+    }
+    for system in BUILD_SYSTEMS {
+        if !folder.join(system.marker).is_file() {
+            continue;
+        }
+        let args = match scope {
+            "full" if !system.full.is_empty() => system.full,
+            _ => system.targeted,
+        };
+        let marker = format!("{relative}/{}", system.marker);
+        // Where the tool is told to work, by its own option.
+        let placed: Option<Vec<String>> = match system.name {
+            "cargo" => Some(own(&["test", "--manifest-path", &marker, "--workspace"])),
+            "go" => Some([own(&["-C", relative]), own(args)].concat()),
+            "maven" => Some([own(&["-f", &marker]), own(args)].concat()),
+            "gradle" | "gradle-kotlin" => Some([own(&["-p", relative]), own(args)].concat()),
+            "dotnet" => Some(own(&["test", relative, "--nologo"])),
+            "swift" => Some(own(&["test", "--package-path", relative])),
+            "poetry" => Some([own(&["-C", relative]), own(args)].concat()),
+            "python" | "python-legacy" | "python-requirements" => {
+                Some([own(args), own(&[relative])].concat())
+            }
+            "php" => Some([own(&[&format!("--working-dir={relative}")]), own(args)].concat()),
+            "make" => Some([own(&["-C", relative]), own(args)].concat()),
+            "cmake" => Some([own(&["--test-dir", relative]), own(args)].concat()),
+            "docker-compose" | "docker-compose-legacy-name" => {
+                Some(own(&["compose", "-f", &marker, "config", "-q"]))
+            }
+            // Tools with no way to be pointed at another folder are not
+            // guessed at: the workspace can declare its checks.
+            _ => None,
+        };
+        if let Some(args) = placed {
+            return vec![(system.executable.to_owned(), args)];
+        }
+    }
+    Vec::new()
+}
+
+/// Whether a solution's text names `project` as one of its projects: the
+/// path in quotes on a `Project(...) = "name", "path", "{guid}"` line, or
+/// the `Path` of a `.slnx` element. A path merely mentioned is not listed.
+fn solution_lists(solutions: &str, project: &str) -> bool {
+    solutions.lines().any(|line| {
+        let line = line.trim_start();
+        (line.starts_with("Project(") || line.starts_with("<Project"))
+            && line.contains(&format!("\"{project}\""))
+    })
 }
 
 /// Prefer a solution over its individual projects so tests shared across
@@ -716,28 +868,6 @@ fn csharp_targets(directory: &std::path::Path, prefix: &str) -> Vec<String> {
     };
     selected.sort();
     selected
-}
-
-fn nested_csharp_targets(root: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return Vec::new();
-    };
-    let mut targets = Vec::new();
-    for entry in entries.flatten() {
-        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            continue;
-        }
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        if name.starts_with('.') || name == "target" || name == "node_modules" {
-            continue;
-        }
-        targets.extend(csharp_targets(&entry.path(), &format!("{name}/")));
-    }
-    targets.sort();
-    targets
 }
 
 fn dotnet_checks(targets: Vec<String>) -> Vec<(String, Vec<String>)> {

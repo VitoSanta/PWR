@@ -1187,3 +1187,35 @@ as the call (`harmony_call_read_from_reasoning`); after the review a reply
 in words that changes nothing closes the goal; a command's result says the
 folder it ran in; the explanation of "not verified" is said once and in one
 sentence; and reasoning can be paced (plan W2.15, off by default).
+
+### 2026-10-07: a .NET command-line app from nothing, twice, and what verified nothing
+
+The maintainer's third manual task: Nemotron 3.5 Lightning 30B, an expense
+tracker in .NET 10 laid out as `src/Spese` and `tests/Spese.Tests`, judged
+by one script of nineteen commands with their expected output and exit
+codes. OpenCode 2.0.20 on Ollama (32k context): the app does not compile,
+0 of 19. PWR, first run, nine minutes: 13 of 19. PWR, second run, thirty-
+four minutes: 14 of 19. One run each.
+
+What the two PWR runs showed, and what was changed after each:
+
+- First run. The projects were two levels below the root, where only Cargo
+  and C# were looked for and only one level down: "this workspace declares
+  no checks", so nothing was built or tested by PWR and, the review running
+  only after passing checks, nothing was reviewed. Checks are now found
+  below the root for every build system the registry knows
+  (`nested_checks`), and a goal with no check at all is still reviewed.
+- Second run. The model wrote a solution file by hand, in no format
+  `dotnet` reads; `dotnet test spese.sln` opened no project, exited 0 and
+  was the goal's one passing check, while the test project beside it did
+  not load. A test runner that counts must now say it ran a test
+  (`evidence::passed_without_tests`), a solution no longer hides the
+  projects it does not list, and the .NET CLI is run in English so that
+  its counts and failures can be read on a machine set to another language.
+- Both runs ended with a summary that was untrue in part ("ten xUnit tests
+  pass"). Nothing checks a summary's sentences.
+
+Also from these runs: the closing answer is now the fuller of what the
+model wrote and its `complete` rationale; why a goal is not verified is
+said once in the no-checks case too. None of this has been run with a
+model yet.

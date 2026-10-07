@@ -1438,7 +1438,19 @@ async fn drive<H: SessionHost + ?Sized>(
             // passed, not verified" with an explicit README rule unmet
             // (blank lines ignored; `--keep 1` deleting older copies), no
             // review having run.
+            // And where the workspace has no check at all, the review is the
+            // only reading the work gets. Seen 2026-10-07 (Nemotron 30B, a
+            // .NET command-line app): nothing could be run, so no review
+            // ran either, and a goal ended on the model's word with two
+            // stated rules unmet and no solution file.
+            let unverifiable = !verification.acceptance_available
+                && verification.failing.is_empty()
+                && matches!(
+                    verification.checks,
+                    Some(pwr_domain::ChecksOutcome::Unavailable { .. })
+                );
             let reviewable = verification.passed
+                || unverifiable
                 || (verification.technical_passed
                     && !verification.acceptance_available
                     && verification.contract_changed.is_empty());
@@ -1458,18 +1470,35 @@ async fn drive<H: SessionHost + ?Sized>(
                 let prompt = review_prompt(&root, &person_requests(&messages), &changed);
                 // The second reading takes about a minute and streams
                 // nothing: said, so a person does not take it for a hang.
-                host.say(if prompt.is_some() {
-                    "The checks pass. Reviewing the work against the request before \
-                     finishing: first the specification is read against the code \
-                     once more, rule by rule (about a minute)."
-                } else {
-                    "The checks pass. Reviewing the work against the request before finishing."
+                host.say(match (unverifiable, prompt.is_some()) {
+                    (true, _) => {
+                        "This workspace has no checks to run. Reviewing the work against the \
+                         request before finishing: the specification is read against the \
+                         code, rule by rule (about a minute)."
+                    }
+                    (false, true) => {
+                        "The checks pass. Reviewing the work against the request before \
+                         finishing: first the specification is read against the code \
+                         once more, rule by rule (about a minute)."
+                    }
+                    (false, false) => {
+                        "The checks pass. Reviewing the work against the request before finishing."
+                    }
                 });
                 let findings = match prompt {
                     Some(prompt) => bounded!(host.review(&root, prompt)).ok(),
                     None => None,
                 };
-                messages.push(goal_guidance(review_guidance(findings.as_deref())));
+                let guidance = review_guidance(findings.as_deref());
+                messages.push(goal_guidance(if unverifiable {
+                    guidance.replacen(
+                        "The checks pass.",
+                        "This workspace has no checks to run, so nothing has confirmed the work.",
+                        1,
+                    )
+                } else {
+                    guidance
+                }));
             } else if !verification.contract_changed.is_empty() || verification.passed {
                 return SessionEnd::Reply {
                     report,
@@ -2209,6 +2238,39 @@ mod tests {
         );
         assert!(
             said.contains("not verified because this workspace has no declared"),
+            "{said}"
+        );
+        assert_eq!(
+            host.ran.load(Ordering::Relaxed),
+            2,
+            "one turn after the review"
+        );
+    }
+
+    #[test]
+    fn a_goal_with_no_checks_at_all_is_still_reviewed_before_it_ends() {
+        let nothing_to_run = GoalVerification {
+            checks: Some(pwr_domain::ChecksOutcome::Unavailable {
+                why: "this workspace declares no checks".into(),
+            }),
+            summary: "this workspace declares no checks".into(),
+            ..Default::default()
+        };
+        let mut edited = report(2, true);
+        edited.edited = true;
+        let host = Fake::new(
+            vec![edited, report(1, true)],
+            vec![Ok(GoalVerification::default()), Ok(nothing_to_run)],
+        );
+        let SessionEnd::Reply { verification, .. } =
+            run(&host, Policy::Goal, GoalLimits::default()).end
+        else {
+            panic!("the goal did not reply");
+        };
+        assert!(!verification.expect("carries it").passed);
+        let said = host.said.lock().unwrap().join("\n");
+        assert!(
+            said.contains("no checks to run. Reviewing the work"),
             "{said}"
         );
         assert_eq!(

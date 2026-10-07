@@ -3992,15 +3992,15 @@ impl serve::TurnRunner for ConsoleTurns {
             .into_iter()
             .flatten()
             .filter(|check| {
+                let command = check["command"].as_str().unwrap_or_default();
+                let output = format!(
+                    "{}\n{}",
+                    check["result"]["stdout"].as_str().unwrap_or_default(),
+                    check["result"]["stderr"].as_str().unwrap_or_default()
+                );
                 check["result"]["exit_code"] == 0
-                    && pwr_verify::evidence::ran_zero_tests(
-                        check["command"].as_str().unwrap_or_default(),
-                        &format!(
-                            "{}\n{}",
-                            check["result"]["stdout"].as_str().unwrap_or_default(),
-                            check["result"]["stderr"].as_str().unwrap_or_default()
-                        ),
-                    )
+                    && (pwr_verify::evidence::ran_zero_tests(command, &output)
+                        || pwr_verify::evidence::passed_without_tests(command, &output))
             })
             .map(|check| {
                 format!(

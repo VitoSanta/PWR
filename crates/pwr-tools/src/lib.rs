@@ -2654,6 +2654,7 @@ impl ToolPolicy {
                 .current_dir(&self.root)
                 .env("PATH", path)
                 .env("DOTNET_NOLOGO", "1")
+                .env("DOTNET_CLI_UI_LANGUAGE", "en")
                 .env("NO_COLOR", "1")
                 .env("FORCE_COLOR", "0")
                 .env("CI", "1");
@@ -2670,6 +2671,10 @@ impl ToolPolicy {
             // .NET's first-run banner and telemetry, which every run would meet
             // again with HOME in the workspace.
             .env("DOTNET_NOLOGO", "1")
+            // The SDK speaks the system's language otherwise, and what a
+            // check printed is read for failing tests and for how many ran:
+            // "Superati: 10" is not a count PWR knows (seen 2026-10-07).
+            .env("DOTNET_CLI_UI_LANGUAGE", "en")
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
             .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
             // A build here starts its own nodes, never one left running

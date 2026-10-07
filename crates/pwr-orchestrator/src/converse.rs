@@ -532,6 +532,24 @@ pub enum Harness {
 /// 350 read per second at full power; it is a weight, not a prediction.
 pub const WORK_PER_TOKEN: u64 = 8;
 
+/// What a turn that ends with `complete` or `decline` answers: the call's
+/// rationale, unless the model wrote more beside the call than inside it.
+///
+/// Seen 2026-10-07 (Nemotron 30B closing a .NET goal): 2,101 characters of
+/// summary -- the files, the results, what was left undone, as a formatted
+/// list -- written next to a `complete` whose rationale was a 680-character
+/// paragraph. The paragraph was the answer and the summary was shown as a
+/// passing remark, folded away with the reasoning. Both say the same thing;
+/// the fuller one is what the person asked for.
+pub fn closing_answer(narrative: &str, rationale: &str) -> String {
+    let (narrative, rationale) = (narrative.trim(), rationale.trim());
+    if narrative.chars().count() > rationale.chars().count() {
+        narrative.to_owned()
+    } else {
+        rationale.to_owned()
+    }
+}
+
 /// The reasoning effort of the next generation when the effort is paced.
 ///
 /// The person's level where judgment is needed -- the first step of a turn,
@@ -2955,7 +2973,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 *declined = matches!(action, ActionProposal::Decline { .. });
                 return Ok(TurnReport {
                     outcome: Default::default(),
-                    answer: rationale.clone(),
+                    answer: closing_answer(&reply.narrative, rationale),
                     actions,
                     edited,
                     completed: matches!(action, ActionProposal::Complete { .. }),
@@ -4195,6 +4213,17 @@ fn tool_message(call: &pwr_domain::ToolCall, outcome: serde_json::Value) -> Chat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_closing_turn_answers_with_the_fuller_of_what_was_said_and_the_rationale() {
+        let summary = "Fatto.\n\n| File | Esito |\n| --- | --- |\n| Program.cs | compila |";
+        assert_eq!(closing_answer(summary, "Tutto fatto."), summary);
+        assert_eq!(closing_answer("  \n", "Tutto fatto."), "Tutto fatto.");
+        assert_eq!(
+            closing_answer("Ok.", "The build passes and the tests run."),
+            "The build passes and the tests run."
+        );
+    }
 
     #[test]
     fn paced_reasoning_is_lower_only_after_an_action_that_worked() {

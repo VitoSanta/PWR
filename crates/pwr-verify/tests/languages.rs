@@ -362,3 +362,131 @@ fn malformed_check_declarations_never_fall_back_to_inferred_checks() {
         );
     }
 }
+
+/// A project laid out below the root -- `src/App`, `tests/App.Tests`,
+/// `packages/web` -- is found whatever it is written in, and its check is the
+/// tool's own way of running in that folder.
+#[test]
+fn projects_below_the_root_are_checked_in_any_language() {
+    let dotnet = project(&[
+        ("src/Spese/Spese.csproj", "<Project/>"),
+        ("tests/Spese.Tests/Spese.Tests.csproj", "<Project/>"),
+        ("src/Spese/obj/x/Ghost.csproj", "<Project/>"),
+    ]);
+    assert_eq!(
+        discover_checks(dotnet.path(), "full").unwrap(),
+        vec![
+            (
+                "dotnet".to_string(),
+                strings(&["test", "src/Spese/Spese.csproj", "--nologo"])
+            ),
+            (
+                "dotnet".to_string(),
+                strings(&["test", "tests/Spese.Tests/Spese.Tests.csproj", "--nologo"])
+            ),
+        ]
+    );
+    assert!(required_executables(dotnet.path()).contains(&"dotnet".to_string()));
+
+    let mixed = project(&[
+        (
+            "packages/web/package.json",
+            r#"{"scripts":{"build":"vite build","test":"vitest"}}"#,
+        ),
+        ("services/api/go.mod", "module api"),
+        ("tools/report/pyproject.toml", "[project]"),
+        ("crate/Cargo.toml", "[package]"),
+    ]);
+    let checks = discover_checks(mixed.path(), "targeted").unwrap();
+    for expected in [
+        (
+            "cargo",
+            vec!["test", "--manifest-path", "crate/Cargo.toml", "--workspace"],
+        ),
+        ("npm", vec!["--prefix", "packages/web", "run", "build"]),
+        ("npm", vec!["--prefix", "packages/web", "test", "--silent"]),
+        ("go", vec!["-C", "services/api", "test", "./..."]),
+        ("pytest", vec!["-q", "tools/report"]),
+    ] {
+        assert!(
+            checks.contains(&(expected.0.to_string(), strings(&expected.1))),
+            "{expected:?} not in {checks:?}"
+        );
+    }
+    let needed = required_executables(mixed.path());
+    for program in ["cargo", "npm", "node", "go", "pytest"] {
+        assert!(
+            needed.contains(&program.to_string()),
+            "{program} not in {needed:?}"
+        );
+    }
+}
+
+/// What the root says comes first, and a project's own folders are its own.
+#[test]
+fn nested_projects_do_not_displace_the_root_and_are_not_searched_inside() {
+    let rooted = project(&[
+        ("go.mod", "module x"),
+        ("tools/gen/Cargo.toml", "[package]"),
+    ]);
+    let checks = discover_checks(rooted.path(), "full").unwrap();
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0].0, "go");
+    let inside = project(&[
+        ("app/Cargo.toml", "[workspace]"),
+        ("app/member/Cargo.toml", "[package]"),
+    ]);
+    assert_eq!(discover_checks(inside.path(), "full").unwrap().len(), 1);
+}
+
+/// A solution at the root covers the projects it lists; one that lists none
+/// -- written by hand, in no format `dotnet` reads -- covers nothing, and the
+/// projects below it are checked themselves.
+#[test]
+fn a_solution_does_not_hide_the_projects_it_does_not_list() {
+    let broken = project(&[
+        (
+            "spese.sln",
+            "Project = \"src/Spese/Spese.csproj\" = {GUID-1}\nEndProject\n",
+        ),
+        ("src/Spese/Spese.csproj", "<Project/>"),
+        ("tests/Spese.Tests/Spese.Tests.csproj", "<Project/>"),
+    ]);
+    assert_eq!(
+        discover_checks(broken.path(), "full").unwrap(),
+        vec![
+            (
+                "dotnet".to_string(),
+                strings(&["test", "spese.sln", "--nologo"])
+            ),
+            (
+                "dotnet".to_string(),
+                strings(&["test", "src/Spese/Spese.csproj", "--nologo"])
+            ),
+            (
+                "dotnet".to_string(),
+                strings(&["test", "tests/Spese.Tests/Spese.Tests.csproj", "--nologo"])
+            ),
+        ]
+    );
+    let whole = project(&[
+        (
+            "Spese.sln",
+            "Project(\"{FAE0}\") = \"Spese\", \"src\\Spese\\Spese.csproj\", \"{1}\"\nEndProject\n\
+             Project(\"{FAE0}\") = \"Spese.Tests\", \"tests\\Spese.Tests\\Spese.Tests.csproj\", \"{2}\"\nEndProject\n",
+        ),
+        ("src/Spese/Spese.csproj", "<Project/>"),
+        ("tests/Spese.Tests/Spese.Tests.csproj", "<Project/>"),
+    ]);
+    assert_eq!(
+        discover_checks(whole.path(), "full").unwrap(),
+        vec![(
+            "dotnet".to_string(),
+            strings(&["test", "Spese.sln", "--nologo"])
+        )]
+    );
+}
+
+fn strings(words: &[&str]) -> Vec<String> {
+    words.iter().map(|word| (*word).to_string()).collect()
+}

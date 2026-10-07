@@ -2249,10 +2249,10 @@ fn adopted_verifier(outcome: &serde_json::Value) -> Option<(String, Vec<String>)
 /// message, and a diagnostic the parser did not recognise must not disappear
 /// because of that.
 fn check_ran_zero_tests(check: &pwr_verify::CheckRecord) -> bool {
-    pwr_verify::evidence::ran_zero_tests(
-        &check.command,
-        &format!("{}\n{}", check.result.stdout, check.result.stderr),
-    )
+    let output = format!("{}\n{}", check.result.stdout, check.result.stderr);
+    pwr_verify::evidence::ran_zero_tests(&check.command, &output)
+        || (check.result.exit_code == Some(0)
+            && pwr_verify::evidence::passed_without_tests(&check.command, &output))
 }
 
 fn failing_check_report(check: &pwr_verify::CheckRecord) -> serde_json::Value {

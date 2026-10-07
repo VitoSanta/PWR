@@ -2377,9 +2377,15 @@ impl<R: TurnRunner + 'static> Server<R> {
             // that the checks passed and why that is not a verification
             // (`not_verified_note`); said again here, a finished goal ended
             // with the same paragraph twice around the model's last words.
+            let unavailable = !verification.acceptance_available
+                && verification.failing.is_empty()
+                && matches!(
+                    verification.checks,
+                    Some(pwr_domain::ChecksOutcome::Unavailable { .. })
+                );
             let already_said = !verification.passed
-                && verification.technical_passed
-                && !verification.acceptance_available;
+                && !verification.acceptance_available
+                && (verification.technical_passed || unavailable);
             if verification.passed {
                 answer.push_str("\n\nGoal verified by declared acceptance checks:\n");
             } else if verification.technical_passed && !already_said {
@@ -2388,6 +2394,11 @@ impl<R: TurnRunner + 'static> Server<R> {
                 );
             }
             if !already_said {
+                // Its own paragraph: joined to the answer it read as one
+                // sentence run into the next.
+                if !verification.passed && !verification.technical_passed {
+                    answer.push_str("\n\n");
+                }
                 answer.push_str(&verification.summary);
             }
         }
@@ -5407,10 +5418,14 @@ mod tests {
             ..Default::default()
         };
         let (messages, runs) = goal_prompt(runner).await;
+        // The work and, since nothing can be run, one turn after the review
+        // that reads it against the request: never a loop of "verification
+        // failed, try again".
         assert_eq!(
-            runs, 1,
+            runs, 2,
             "no checks were treated as repeated verification failures"
         );
+        assert!(says(&messages, "no checks to run. Reviewing the work"));
         assert!(!says(&messages, "The checks pass"));
         assert!(!says(&messages, "Technical checks passed"));
         assert!(says(&messages, "Independent verification unavailable"));
