@@ -13,8 +13,8 @@ deployment, corpus revision, arm, seeds), the outcome with counts —
 including an inconclusive or negative one — and what was kept, revised or
 removed. Raw artifacts are cited by path even when they are not public.
 
-Entries through 2026-09-17 are in the [archived log](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/experiment-log.md);
-the archived [roadmap](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/roadmap.md) and [backlog](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md)
+Entries through 2026-09-17 are in the [archived log](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/experiment-log.md);
+the archived [roadmap](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/roadmap.md) and [backlog](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/backlog.md)
 hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
@@ -71,7 +71,7 @@ memory so the next long run shows where the memory is.
 ## 2026-10-02 — Preserve the core contract after the Stage frontend rollback
 
 **IMPLEMENTED frontend compatibility repairs; diagnostic battery in progress.**
-Comparing the restored frontend with the pre-rollback `167bf7f7` identified
+Comparing the restored frontend with the pre-rollback `773720ff` identified
 functional regressions beyond the visual changes. Stage's CSS, layout, assets
 and dependencies remain intact. Memory proposals now retain their originating
 workspace and scope, show that origin, reject unknown workspace origins and
@@ -101,8 +101,8 @@ fixture failure is retained separately.
 Frontend validation: **103 tests in 15 files pass**, with the behavioral red
 logs retained. Production build and `git diff --check` pass. There is no core,
 sidecar or sampling change in this repair, so the real-model battery remains
-pinned to `7d024539`. Frontend builds/tests overlap the diagnostic trials;
-latency comparisons are not claimed. A native walk of `7d024539` already
+pinned to `876112ac`. Frontend builds/tests overlap the diagnostic trials;
+latency comparisons are not claimed. A native walk of `876112ac` already
 confirmed Goal and Full → Auto → Ask / Full → Ask against the saved core
 configuration, using empty model roots and a disposable workspace. The app
 quit cleanly and personal last-workspace/trust files were restored. The new
@@ -125,7 +125,7 @@ Raw logs, native walk, source/model manifests and trial records:
 ## 2026-10-02 — Ask before a dependency installer writes its protected tree
 
 **IMPLEMENTED; real-model follow-up pending.** During the pre-fix 9B React
-trial on `8b3b33dd`, `npm install` first timed out offline, then failed with
+trial on `2b36ad6d`, `npm install` first timed out offline, then failed with
 EPERM on node_modules after network permission was granted. No dependency
 question was offered. The model tried shell commands and another package
 manager, then hit repeat guards. A real offline local npm install reproduced
@@ -156,10 +156,10 @@ issue, retained in `frontend-full-first-green-failed.log`. The baseline 30B Goal
 rendered as Finished; unverified goals now show a paused state with their
 verification evidence, and changed acceptance contracts show a failure. Two
 additional regressions failed before these repairs. The production frontend
-build passes. Native walk remains pending. The initial rollback `8b3b33dd` remains an exact
+build passes. Native walk remains pending. The initial rollback `2b36ad6d` remains an exact
 frontend copy; the repaired version has these small functional differences.
 
-Separately, 28 checks through the corrected `7943ce79` ACP binary passed:
+Separately, 28 checks through the corrected `29200a51` ACP binary passed:
 file preview bounds and escape refusals, profile persistence, memory CRUD and
 workspace isolation, wiki/project management and reported Ask/Auto/Full policy.
 These use disposable homes/workspaces and no inference.
@@ -173,7 +173,7 @@ are retained under `private-evidence/batteries/20261002-stage-frontend/`.
 ## 2026-10-02 — Repairs found during the desktop rollback battery
 
 **IMPLEMENTED correctness repairs; model effectiveness still UNKNOWN.**
-The live baseline remains pinned to `8b3b33dd`. The first 9B billing task
+The live baseline remains pinned to `2b36ad6d`. The first 9B billing task
 ended at the 60-minute Goal guard, unverified: 83 actions, 21 failed/refused,
 and a failing independent verifier. This is a diagnostic observation, not a
 model ranking. It exposed two core defects reproduced before repair:
@@ -213,7 +213,7 @@ Raw red/green regressions, compatibility probes and baseline task results:
 
 **IMPLEMENTED measurement procedure; live battery in progress, effectiveness
 UNKNOWN.** At the owner's request, the Angular frontend was restored exactly
-from `stage` (`c44e1dce`) on `develop` (`8b3b33dd`), retaining the Rust core.
+from `stage` (`c44e1dce`) on `develop` (`2b36ad6d`), retaining the Rust core.
 The product-path evaluator now accepts `--permission-mode ask|auto|full` and
 records the core's actual policy and confinement in `provenance.permissions`.
 It refuses policy mismatches and reuse of a completed trial under another
@@ -221,7 +221,7 @@ policy. Ask remains the default. Regression checks exercise all three policies
 against a stand-in core, refuse wrong reported confinement before prompting
 and refuse relabelling a legacy Ask result as Full.
 
-The diagnostic battery pins the binary and sidecar at `8b3b33dd`, uses existing
+The diagnostic battery pins the binary and sidecar at `2b36ad6d`, uses existing
 local MLX artifacts Qwen3.5-9B 4-bit, Gemma 4 12B 4-bit and Qwen3-Coder-30B-A3B
 4-bit, and MLX 0.32.3 / mlx-lm 0.31.3 on the maintainer's M2 Max, 64 GB.
 All three fresh Quick Calibrations pass the agent-critical checks. Four frozen
@@ -251,7 +251,7 @@ The restored Stage frontend exposes Ask/Auto; Full is tested through ACP.
 
 **IMPLEMENTED correctness repair; capability and performance effects UNKNOWN.**
 Owner authorized applying the core audit before their manual test and a later
-battery. Parent `95e7bed020a0c519338d03787254987d620f4fed`; no model inference or
+battery. Parent `9debbaef6bb8c1e9d286ce14e429095772edfa0a`; no model inference or
 campaign. C01–C14 cover durable intent identities, uncertain command effects,
 no automatic permission replay, complete tool transcripts, conservative Qwen
 and Mistral parsing, bounded/origin-safe memory, current source hashes and an
@@ -306,7 +306,7 @@ Mac free and Docker running.
 MASTER_SPEC statistics (Wilson, bootstrap over tasks, exact McNemar or paired
 sign-flip with repeats, Holm) and lists unequal provenance; `power` sizes a
 campaign with the exact McNemar power. Applied to `fix2-q36-35b` (binary
-`9385a010`) and `fix3-q36-35b` (`7afe9fdc`), Qwen3.6-35B-A3B, 8 dev tasks, one
+`6115b14a`) and `fix3-q36-35b` (`e65a06b3`), Qwen3.6-35B-A3B, 8 dev tasks, one
 trial: first cycle 3/8 vs 4/8 (p = 1.0); final 3/8 vs 6/8, difference -0.375,
 bootstrap 95% [-0.875, 0.125], exact McNemar p = 0.375. The review-round change
 of 2026-10-01 stays a hypothesis; most of its gain came after nudges. Tests:
@@ -356,13 +356,13 @@ still reports the time limit at 2 s. Local: fmt, Clippy, Rust 1,429 passed /
 
 ## 2026-10-02 — Review of the F1 commits: response bound on silence, unreachable compaction trigger
 
-**IMPLEMENTED corrections of two behaviour changes made at `c24028f5` and
-`84b4654c`; MEASURED deterministic regressions, no model experiment.** A
+**IMPLEMENTED corrections of two behaviour changes made at `145783a0` and
+`069ae68b`; MEASURED deterministic regressions, no model experiment.** A
 review of the four F1 commits reproduced their checks (Rust 1,424 passed /
 5 ignored / one Docker skip, fmt, Clippy) and found two changes to what a
 campaign measures that no measurement supported.
 
-- **Response timeout.** `c24028f5` made the 900-second response timeout an
+- **Response timeout.** `145783a0` made the 900-second response timeout an
   absolute deadline over opening and streaming. A timeout is a backend fault,
   retried three times: a fixture streaming for longer than its bound ended as
   *backend failing* after three full deadlines, "this is the server, not the
@@ -378,7 +378,7 @@ campaign measures that no measurement supported.
   Stop. Control: the absolute deadline on the same fixtures. Regressions:
   `configured_response_bound_covers_opening_and_silence`,
   `a_response_that_keeps_making_progress_outlives_the_bound` (failed before).
-- **Compaction trigger.** `84b4654c` stopped refusing an objective above the
+- **Compaction trigger.** `069ae68b` stopped refusing an objective above the
   compaction trigger, but a turn of several steps then compacted on every step:
   objective 6,000 characters, trigger 1,024, window 16,384, five 3.2 KB reads
   -- two compactions (the first grew the prompt 2,390 → 2,704 estimated
@@ -390,8 +390,8 @@ campaign measures that no measurement supported.
   failed before; the second also with only its post-compaction branch removed).
 
 Not changed: `COMPACTIONS_PER_TURN` (2), the 900-second default, the retry
-count, sampling. The review also found that `312070c6` withdrew the per-mode
-card reading of `b14982f0` without a measurement; on the installed models the
+count, sampling. The review also found that `57ef101e` withdrew the per-mode
+card reading of `86426237` without a measurement; on the installed models the
 resolved values do not change (Qwen3.6 has a declared profile; Qwen3.5 cards
 fall to the 0.6/0.95/20 floor, the same values), so nothing was reverted.
 Capability effects: unknown.
@@ -399,7 +399,7 @@ Capability effects: unknown.
 ## 2026-10-02 — F1 executor cancellation and verification correctness
 
 **IMPLEMENTED correctness repair, not a capability experiment.** Parent
-`312070c6`. The existing chosen response timeout now covers runtime opening
+`57ef101e`. The existing chosen response timeout now covers runtime opening
 and streaming. Stop/drop signal managed worker cancellation; Stop also reaches
 context preparation, permissions, baseline/closing checks and Goal review.
 Protocol EOF releases permission waiters. Empty or recognized zero-test checks
@@ -414,7 +414,7 @@ remain unknown/PLANNED; full F1 audit is incomplete. Regression/check evidence:
 ## 2026-10-01 — F1 sampling source correctness (measurement-changing)
 
 **IMPLEMENTED A05 correction; MEASURED deterministic regressions, no model experiment.**
-Parent `84b4654c`. Before the fix, the parser accepted unscoped benchmark/coding
+Parent `069ae68b`. Before the fix, the parser accepted unscoped benchmark/coding
 prose, fenced continuation values, mode-bound recipes under unknown mode and
 out-of-range top_k; cache schema 3 reused those chosen recipes. Additional
 failing regressions exposed excluded-label continuation, section-end, HTML and
@@ -449,7 +449,7 @@ Evidence: `private-evidence/logs/mission-20261001-f1-sampling/`.
 ## 2026-10-01 — F1 context correctness (measurement-changing)
 
 **IMPLEMENTED; MEASURED deterministic regressions, no model experiment.**
-Parent `b9db2eab`, product conversation executor, fake providers plus real
+Parent `d95ba6e2`, product conversation executor, fake providers plus real
 Settings dispatch. A01–A04 and adjacent count/no-op/audit defects were reproduced
 before their respective fixes. Preparation errors no longer become grants;
 physical fit differs from the policy trigger; productive compactions exhaust a
@@ -488,7 +488,7 @@ mission commit.
 ## 2026-10-01 — Mission F0 baseline checks and pure sampling reproduction
 
 **MEASURED local checks, not model capability.** At
-`ae1e36c1e5dbe80f7fa3ee781072948b106a0208` on the owner's M2 Max with the
+`19e7a4723a19a16b5aac9a543717cd655f65840c` on the owner's M2 Max with the
 preexisting process-safety/research working-tree changes preserved: Rust exit
 0, 1,372 reported passed / 5 ignored, including one host-dependent Docker skip;
 desktop 107 tests and production build; sidecar 41 tests on Python 3.11.15,
@@ -660,7 +660,7 @@ and only syntax-checked it is asked once to run it; a command failing the
 same way twice is not run a third time; five failed runs after edits → hand
 over; `file://` placeholders named; an `npx` that fetched a missing package
 says so; a conversation's `complete` before anything was done is asked about
-once (`1d657268`); format repairs (invented tool names and argument
+once (`48ee04e9`); format repairs (invented tool names and argument
 spellings with one reading, quoted `cwd`, Qwen2.5's fenced and unterminated
 calls, `<|endoftext|>` as a stop token); Ornith-1.5-9B's profile at the
 vendor's temperature 0.6; `eval run --reasoning-effort`.
@@ -705,7 +705,7 @@ ran greedy (manual pass, 2026-09-29/30), which Qwen's cards warn leads to
 endless repetition, the commonest failure of a small model in the loop.
 
 **Effect on comparisons.** Campaigns run before this revision (harness
-`414d3ae1`) used greedy for these models; they are not paired with later ones
+`883922ea`) used greedy for these models; they are not paired with later ones
 unless the sampling is declared as the treatment. The A/B is run on the dev
 split (`base-q35-9b-a` before, the `fix-*` runs after).
 
@@ -715,7 +715,7 @@ A turn stopped at 26 actions and a goal's per-step allowance was capped at 26
 inside one `take_turn`, whatever the goal allowed. A manual pass stopped a
 working model mid-build. The default is now 100 and `actions_per_turn` sets it;
 the stall detectors, not this number, stop a loop that repeats. Campaigns
-through the app path at `414d3ae1` or earlier have the old cap.
+through the app path at `883922ea` or earlier have the old cap.
 
 ## 2026-09-30 — Compaction ceiling (measurement-changing, HYPOTHESIS)
 
@@ -1007,7 +1007,7 @@ the owner repeats the task.
 ## 2026-10-02 — The first folder that becomes a project is the root, by hand too (measurement-changing)
 
 **MEASURED** in the owner's third Libra session (a fresh empty folder
-`Libra/libra`, build `2a639ab4`): no generator this time. The model made
+`Libra/libra`, build `96cf5326`): no generator this time. The model made
 `libro-ecommerce/` (`make_directory`, then `mkdir -p` in `sh -c`), wrote 13
 files under it, ran `cd ./libro-ecommerce && npm install ...` (twice stopped at
 the 120 s command timeout), and the generator-only rule moved nothing; the
@@ -1092,7 +1092,7 @@ path. Nothing here is a capability claim.
 ### 2026-10-06: proposals on the product path, and on per model (W2.9)
 
 Measured, then changed. With `goal_budget.proposals` 5 against 0, binary at
-`72b2597c`, 600 s goals, two runs per arm: ledger Ornith 1.5 9B 5, 5 -> 10, 11
+`7d1c0a7e`, 600 s goals, two runs per arm: ledger Ornith 1.5 9B 5, 5 -> 10, 11
 of 17; Qwen3.5 9B 9, 14 -> 8, 12; python-todo (an empty workspace scores 6 of
 14) Ornith 3, 6 -> 6, 6; Qwen 13, 13 -> 14, 13. Evidence and the five stopped
 launches: pwr-evidence `product-path-20261006`.
@@ -1173,7 +1173,7 @@ shrink guard, 7 stale hashes.
 By the maintainer's decision. `docs/archive/` (69 documents written before
 2026-09-30), five corpora nothing in the code or the suites reads, and nine
 analysis scripts of the September campaigns are removed; all of it is in the
-history at `309266d5`, and the links to archived documents now point there.
+history at `6da514ab`, and the links to archived documents now point there.
 The rule "nothing is deleted" in CONTRIBUTING and docs/README becomes
 "nothing is lost": the commit that replaces a document says what replaced it.
 No behaviour changes.

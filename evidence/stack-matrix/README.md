@@ -104,8 +104,8 @@ before it runs.
 Read on the development runs of 2026-10-01 (Qwen3.6-35B-A3B, 8 dev tasks,
 one trial each), the "3/8 to 6/8" after the review-round change is 3/8 to 4/8
 at the first cycle and 3/8 to 6/8 only after nudges; final difference -0.375,
-bootstrap [-0.875, 0.125], exact McNemar p = 0.375, binaries `9385a010` and
-`7afe9fdc`. A signal worth testing, not a measured effect.
+bootstrap [-0.875, 0.125], exact McNemar p = 0.375, binaries `6115b14a` and
+`e65a06b3`. A signal worth testing, not a measured effect.
 
 ## Tasks kept outside the repository
 

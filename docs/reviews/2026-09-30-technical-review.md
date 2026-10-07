@@ -2,12 +2,12 @@
 
 > Recorded verbatim, in the language it was delivered in (Italian), so the plan
 > built on it can always be checked against what it actually said. The review
-> was made against commit `efdd2798`. Every claim was re-checked against
-> `develop` at `0776ff4f` before anything was planned: the verdicts, the two
+> was made against commit `6dcb4cf4`. Every claim was re-checked against
+> `develop` at `4ae7c5f1` before anything was planned: the verdicts, the two
 > corrections and the problems the review missed are in
 > [2026-09-30-verification.md](2026-09-30-verification.md). What follows from
 > it is in the [implementation plan](../plan/implementation-plan.md).
-> Line numbers below are the reviewer's, at `efdd2798`; the verification gives
+> Line numbers below are the reviewer's, at `6dcb4cf4`; the verification gives
 > the current ones.
 
 ---
@@ -38,7 +38,7 @@ Oggi il repository permette di investigare questa domanda. Non permette ancora d
 
 # 1. Perimetro, metodo ed evidenze
 
-Ho esaminato il checkout Git in `<repository-checkout>`, al commit **`efdd2798` del 30 settembre 2026**. La directory superiore contiene anche `PWR_web`, con due progetti di sito separati: non sono il frontend dell'agente.
+Ho esaminato il checkout Git in `<repository-checkout>`, al commit **`6dcb4cf4` del 30 settembre 2026**. La directory superiore contiene anche `PWR_web`, con due progetti di sito separati: non sono il frontend dell'agente.
 
 La review ha seguito i percorsi produttivi e i principali moduli dei 15 crate Rust, il desktop Angular/Tauri, il sidecar MLX, test, configurazioni, strumenti, documentazione corrente e storica, workflow, distribuzione e apparati di evaluation. Non è una certificazione di ogni riga né un penetration test completo.
 

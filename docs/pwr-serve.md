@@ -1,8 +1,8 @@
 # `pwr serve` — the protocol between the app and the core
 
-**Checked against `develop` at `bff93062`, 2026-10-01** (`crates/pwr-cli/src/serve.rs`). The design history of this protocol, including its
+**Checked against `develop` at `aa1d0707`, 2026-10-01** (`crates/pwr-cli/src/serve.rs`). The design history of this protocol, including its
 phases and the decision to adopt ACP, is in the
-[archived version](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/pwr-serve.md).
+[archived version](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/pwr-serve.md).
 
 ## Transport
 

@@ -5,8 +5,8 @@ A senior engineer reviewed the repository read-only and delivered a report
 thesis and a prioritised roadmap). Every claim that could be checked against
 the code or the artifacts was checked the same day, before anything was
 adopted. This file records the verdicts; the actions are in
-[`backlog.md`](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md) (Part R) and the order in
-[`roadmap.md`](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/roadmap.md).
+[`backlog.md`](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/backlog.md) (Part R) and the order in
+[`roadmap.md`](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/roadmap.md).
 
 Verdicts: **confirmed** (the code or an artifact says so), **partly** (true
 with a qualification), **outdated** (true of an earlier state), **new** (found

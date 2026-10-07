@@ -1,6 +1,6 @@
 # The desktop app
 
-**Product surface updated 2026-10-07 against `develop` at `5f6c4f38`.**
+**Product surface updated 2026-10-07 against `develop` at `90fe0dd4`.**
 Historical measurements below retain their dates; uncommitted UI changes are
 not described as released behaviour. The
 developer guide (build, layout of the source, design system) is

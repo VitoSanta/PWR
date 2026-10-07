@@ -1,6 +1,6 @@
 # Product overview
 
-**Development snapshot: 2026-10-07, `develop` at `5f6c4f38`.** This page
+**Development snapshot: 2026-10-07, `develop` at `90fe0dd4`.** This page
 describes committed product behaviour. The latest published release remains
 **v0.2.0-alpha (2026-09-28)**; unreleased changes below are not in that DMG.
 Uncommitted interface changes are not release evidence.

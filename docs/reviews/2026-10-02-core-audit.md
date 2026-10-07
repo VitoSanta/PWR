@@ -4,7 +4,7 @@
 asked for a review of memory, system-prompt construction, tool parsing,
 context windows and retry flow, then authorized applying the corrections
 before their manual test and a later battery test. Audit parent:
-`95e7bed020a0c519338d03787254987d620f4fed` (`develop`). This is a maintainer
+`9debbaef6bb8c1e9d286ce14e429095772edfa0a` (`develop`). This is a maintainer
 engineering audit, not an external review or an agent capability result.
 
 ## Conditions and evidence

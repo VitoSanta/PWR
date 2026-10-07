@@ -1,6 +1,6 @@
 # Models
 
-**Checked against `develop`, 2026-10-01; sampling correctness parent `84b4654c`.** How PWR finds, rates,
+**Checked against `develop`, 2026-10-01; sampling correctness parent `069ae68b`.** How PWR finds, rates,
 downloads and adapts to models, and what its model evidence does and does not
 show. Code: `crates/pwr-models` (catalogue, fit, downloads, profiles,
 calibration), `crates/pwr-compat` (family conventions),

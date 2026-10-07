@@ -1,6 +1,6 @@
 # Building and distributing
 
-**Packaging source reviewed 2026-10-07 at `develop` `5f6c4f38`.**
+**Packaging source reviewed 2026-10-07 at `develop` `90fe0dd4`.**
 The next candidate is not frozen; see [release readiness](release/next-release-readiness.md).
 
 ## What ships

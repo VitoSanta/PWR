@@ -4279,7 +4279,7 @@ fn an_objective_above_the_compaction_trigger_can_fit_the_physical_window() {
 }
 
 /// The same objective over a turn of several steps. Measured 2026-10-02 at
-/// `c24028f5`: the turn compacted twice -- the first compaction grew the
+/// `145783a0`: the turn compacted twice -- the first compaction grew the
 /// prompt from 2,389 to 2,703 estimated tokens, since the objective is kept
 /// verbatim -- and stopped after three of five reads on its compaction budget,
 /// with a 16,384-token window mostly empty.

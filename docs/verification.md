@@ -1,10 +1,10 @@
 # Verification
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** How PWR finds a
+**Checked against `develop` at `aa1d0707`, 2026-10-01.** How PWR finds a
 repository's checks, when it runs them, what a result is allowed to claim, and
 where the contract is incomplete. Crate: `crates/pwr-verify`.
 
-## What changed since the baseline (`0776ff4f`)
+## What changed since the baseline (`4ae7c5f1`)
 
 A goal freezes `.pwr/checks.json` and the selected verifier artifacts before
 baseline verification. Declare them explicitly when possible:

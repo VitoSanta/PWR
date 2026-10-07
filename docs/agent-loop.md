@@ -81,7 +81,7 @@ The runtime honors the chosen response timeout (`timeout_secs`, 900 seconds by
 default) as a bound on silence: opening a response, and then each wait for its
 next chunk, may take at most that long. A reply that keeps arriving is not cut,
 however long it is; `max_tokens`, the loop detector and Stop bound its length.
-(The absolute deadline introduced in `c24028f5` also cut healthy replies, and
+(The absolute deadline introduced in `145783a0` also cut healthy replies, and
 was replaced: one Qwen3.6-35B-A3B response took 799 s on 2026-10-01.)
 On MLX a content-free chunk counts as life, since the worker sends one while it
 generates tool-call arguments, and the worker bounds its own engine's silence at

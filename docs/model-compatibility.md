@@ -20,7 +20,7 @@ being measured.
 Gemma native thought delimiters are recognized by both capability planning and
 the sidecar reasoning tracker. Previously a Gemma thought could exhaust the
 whole output cap while its thinking budget was not enforced; the ledger trace
-on 34fef36b contains a 30K-character thought lasting about 327 seconds. The
+on b29c2712 contains a 30K-character thought lasting about 327 seconds. The
 existing reasoning budget and finalization path now apply to this protocol.
 The Gemma thought guard also honors `thinking=false` after tool results: the
 canonical template emits no closed thinking prefix there, so relying on the
@@ -134,7 +134,7 @@ The CLI review system instruction now agrees with the executor's rule-by-rule
 MET/NOT MET checklist. Previously it demanded only violations and prohibited
 reporting any met rule, contradicting the checklist. Review remains required;
 checks, budgets, findings extraction and acceptance gates are unchanged. The
-35B ledger trace on db012699 had passing independent checks but timed out
+35B ledger trace on 2c616d90 had passing independent checks but timed out
 after review feedback, including a questionable claim that changing a locally
 created Date mutated inputs. Aligning instructions removes the contradiction;
 it does not certify every reviewer finding or guarantee shorter completion.

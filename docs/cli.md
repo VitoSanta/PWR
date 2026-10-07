@@ -1,6 +1,6 @@
 # The command line
 
-**Checked against `develop` at `bff93062`, 2026-10-01**, from the binary's own
+**Checked against `develop` at `aa1d0707`, 2026-10-01**, from the binary's own
 `--help`, which remains the authority on flags. The command line is the
 development and research surface; the product is the [desktop app](desktop.md),
 which drives the same core through `pwr serve`.

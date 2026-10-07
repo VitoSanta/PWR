@@ -6,7 +6,7 @@ passes are recorded.
 
 ## Suites
 
-**MEASURED F1 sampling cycle, 2026-10-01, parent `84b4654c` plus reviewed
+**MEASURED F1 sampling cycle, 2026-10-01, parent `069ae68b` plus reviewed
 sampling fixes and preexisting process-safety changes:** Rust exit 0, 1,405
 reported passed / 0 failed / 5 ignored across 102 target summaries; one
 Docker-dependent test skipped (included in reported successes). Desktop 107

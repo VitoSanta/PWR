@@ -5,7 +5,7 @@ The ten principal risks, from the [review of 2026-09-30](reviews/2026-09-30-tech
 and tied to the plan item that mitigates it. Likelihoods are qualitative, for
 the intended use; none is a measured rate. Reviewed when a plan gate passes.
 
-| # | Risk | Likelihood | Impact | Evidence (baseline `0776ff4f`; state at `bff93062`, 2026-10-01) | Mitigation | State |
+| # | Risk | Likelihood | Impact | Evidence (baseline `4ae7c5f1`; state at `aa1d0707`, 2026-10-01) | Mitigation | State |
 |---|---|---|---|---|---|---|
 | 1 | **False acceptance** — a goal reported verified after its tests were weakened | High | Critical | Goal acceptance hashed `.pwr/checks.json` only; the artifacts it runs are now frozen too (declared or inferred), a changed one stops the goal, even under Full access; a dependency chain conventions cannot see is still not covered | W3.1, W1.3; W8.4 counts false acceptance | Partly mitigated (local, CI not run) |
 | 2 | **Damage to the person's work** — a stale rewrite overwrites a newer edit | Medium-high | Critical | Overwrites are now bound to the version the conversation read (W1.1, done); writes go through a temporary file and a re-checked move (W1.2, done); the instant between the re-check and the move remains | — | Mitigated (W1.1, W1.2) |

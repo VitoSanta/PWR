@@ -1,7 +1,7 @@
 # Feature status
 
 What exists, what state it is in, and what the plan does with it. Checked
-against `develop` at `5f6c4f38`, with selected status updates on 2026-10-07.
+against `develop` at `90fe0dd4`, with selected status updates on 2026-10-07.
 Dated measurements keep their original provenance. Classes follow the review's
 feature audit (§14): **KEEP**, **IMPROVE**, **SIMPLIFY**, **MERGE**,
 **REMOVE** (from the default product), **EXPERIMENTAL**, **MISSING**. Status

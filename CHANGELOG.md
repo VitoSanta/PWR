@@ -21,7 +21,7 @@ the [experiment log](docs/experiment-log.md) and the
   models better is to be tested once, on the app's own path, before more is
   built on it ([MASTER_SPEC](MASTER_SPEC.md), [plan](docs/plan/implementation-plan.md)).
 - The documentation was rewritten from the code. Earlier documents are kept
-  in [Git history](https://github.com/VitoSanta/PWR/tree/309266d5/docs/archive). Windows moves after the decisive comparison.
+  in [Git history](https://github.com/VitoSanta/PWR/tree/6da514ab/docs/archive). Windows moves after the decisive comparison.
 
 ### Agent
 

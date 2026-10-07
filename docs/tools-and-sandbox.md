@@ -1,10 +1,10 @@
 # Tools, policy and the sandbox
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** What the agent can do,
+**Checked against `develop` at `aa1d0707`, 2026-10-01.** What the agent can do,
 what bounds it, and where the bounds end. The operational summary for users is
 [SECURITY.md](../SECURITY.md); this page is the engineering account.
 
-## What changed since the baseline (`0776ff4f`)
+## What changed since the baseline (`4ae7c5f1`)
 
 Commands and file tools share frozen acceptance paths and installed-dependency
 protection. Parent deletion/renaming and workspace symlink aliases are guarded;

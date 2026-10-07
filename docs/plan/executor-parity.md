@@ -1,6 +1,6 @@
 # Executor parity: what the scripted loop does that the app's turn does not
 
-**Checked against `develop` at `66582cc6`, 2026-09-30.** The first step of plan
+**Checked against `develop` at `f4449a0a`, 2026-09-30.** The first step of plan
 [W2.4](implementation-plan.md#w24-converge-the-scripted-runner-onto-the-executor):
 an inventory of every behaviour of the scripted loop (`pwr run`, `pwr eval run
 --arm b1`) and of the conversation turn the app ships, with where each lives

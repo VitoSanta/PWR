@@ -1,6 +1,6 @@
 # Architecture
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** What the code is, not
+**Checked against `develop` at `aa1d0707`, 2026-10-01.** What the code is, not
 what it should become; the changes are in the
 [implementation plan](plan/implementation-plan.md) and referred to by item.
 

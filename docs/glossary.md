@@ -1,7 +1,7 @@
 # Glossary
 
 The words the current documents use, in one sense each. The earlier glossary
-is [archived](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/glossary.md).
+is [archived](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/glossary.md).
 
 ## Models and engines
 

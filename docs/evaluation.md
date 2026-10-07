@@ -6,9 +6,9 @@ measured on 2026-10-06 are recorded in [plan W2.9](plan/implementation-plan.md)
 and the [experiment log](experiment-log.md). No confirmatory same-model
 superiority result is established for the next release.
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** How PWR is measured,
+**Checked against `develop` at `aa1d0707`, 2026-10-01.** How PWR is measured,
 what has been measured, and what has not. The methodology before this date is
-in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/evaluation.md); the decisive campaign still to run is
+in the [archive](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/evaluation.md); the decisive campaign still to run is
 specified in the [implementation plan, W8](plan/implementation-plan.md#w8--the-decisive-benchmark).
 
 ## The question
@@ -30,7 +30,7 @@ app's path.
   before it is used. Present: `external-v1/v2`, `longhorizon-v1`,
   `m5-frozen-v1`, `m6-hard-v1`, `small-apps-v1`. Removed on 2026-10-07, read
   by nothing but the scripts of campaigns already void (they are in the
-  history at `309266d5`): `generation-v1`, `longhaul-v1`, `longhorizon-v2`,
+  history at `6da514ab`): `generation-v1`, `longhaul-v1`, `longhorizon-v2`,
   `realistic-v1`, `vague-v1`.
 - **Arms** (`--arm`): `b1` is PWR's scripted loop; `b0` a conventional loop;
   `b2` a fixed localize–repair–validate workflow

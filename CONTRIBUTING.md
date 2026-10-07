@@ -98,7 +98,7 @@ where an earlier version was wrong, say so.
 - **Nothing is lost from the record.** A superseded document is removed by
   the commit that replaces it, whose message says what replaced it. The
   `docs/archive/` this repository kept until 2026-10-07 is read
-  [at commit 309266d5](https://github.com/VitoSanta/PWR/tree/309266d5/docs/archive); a mention of `docs/archive/…` in a comment or
+  [at commit 6da514ab](https://github.com/VitoSanta/PWR/tree/6da514ab/docs/archive); a mention of `docs/archive/…` in a comment or
   an older document means that tree.
 
 ## Things this project is deliberate about

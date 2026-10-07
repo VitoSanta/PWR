@@ -98,7 +98,7 @@ which weight/quantization equivalences cannot be met across MLX/GGUF formats.
 `documented` means the linked upstream material above, not a PWR-local run.
 PWR entries refer to the [initial code/test audit](../reviews/2026-10-01-audit.md).
 
-| Dimension | PWR at ae1e36c1 + starting diff | mini-SWE-agent | Aider | OpenCode | Codex CLI local |
+| Dimension | PWR at 19e7a472 + starting diff | mini-SWE-agent | Aider | OpenCode | Codex CLI local |
 |---|---|---|---|---|---|
 | Local model transport | IMPLEMENTED managed MLX; EXPERIMENTAL per-call llama server | documented pluggable model provider; endpoint parity unknown | documented compatible endpoint/Ollama | documented compatible endpoint/Ollama | documented local providers; Responses required |
 | Tool/edit interface | IMPLEMENTED typed calls, hashes, replace/patch/write | documented bash-only | documented multiple edit formats | documented read/edit/search/patch; inspected normalization fallback | exact pinned architecture unknown in this pass |

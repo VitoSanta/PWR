@@ -200,10 +200,10 @@ before verification. The current same-model review round is not evidence for
 multi-candidate semantic ranking. [Model calibration](../models.md#quick-calibration)
 checks compatibility, not selection quality or agentic uplift.
 
-The archived [research hypotheses H6 and H7](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/local-agent-research.md)
+The archived [research hypotheses H6 and H7](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/local-agent-research.md)
 concern adaptive policy selection and scoped workers; they share the need for
 strong fixed controls and complete overhead accounting, but do not establish
-this mechanism. Archived [model selection/routing](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/adaptive-runtime/MODEL_SELECTION_AND_ROUTING.md)
+this mechanism. Archived [model selection/routing](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/adaptive-runtime/MODEL_SELECTION_AND_ROUTING.md)
 selects a deployment, whereas this proposal selects proposals produced by a
 generator. The [current routing decision](../decisions.md#d-2026-09-30-3--what-is-not-built-now)
 remains unchanged; this research note neither enables routing nor requires it.

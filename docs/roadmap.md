@@ -4,7 +4,7 @@
 of every item — problem, evidence, change, acceptance, tests — is in the
 [implementation plan](plan/implementation-plan.md); this page is the summary a
 reader needs first. The roadmap before this date, with its reconciliations and
-release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/roadmap.md).
+release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/roadmap.md).
 
 ## Where things stand
 
@@ -12,7 +12,7 @@ release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/309266d
   prerelease. Fixes since then are on `develop` and recorded in
   [release/v0.2.x-mac-verification.md](release/v0.2.x-mac-verification.md).
 - **On `develop`, not released:** local commits since the
-  documentation baseline (`0776ff4f`): most of gate G1, the session executor, and
+  documentation baseline (`4ae7c5f1`): most of gate G1, the session executor, and
   the model-compatibility and recovery work of 2026-10-01 (adapters for the
   Mistral, Liquid and Granite families and a Qwen3-Coder format, tool-call ids
   for Gemma, a sampling floor, a clean start after collapsed replies…).
@@ -34,7 +34,7 @@ release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/309266d
 
 | Milestone | Status | Evidence recorded | What remains before advancement |
 |---|---|---|---|
-| G0 Documents match the code | **passed 2026-09-30** | Documentation rewritten from the code at 0776ff4f (plan W0.1); every claim of the 2026-09-30 review verified (docs/reviews/2026-09-30-verification.md); older documents archived whole. | Keep it true: a change that alters described behaviour updates the document in the same commit. |
+| G0 Documents match the code | **passed 2026-09-30** | Documentation rewritten from the code at 4ae7c5f1 (plan W0.1); every claim of the 2026-09-30 review verified (docs/reviews/2026-09-30-verification.md); older documents archived whole. | Keep it true: a change that alters described behaviour updates the document in the same commit. |
 | G1 Effects are safe and honestly reported | **in progress: candidate validation pending** | IMPLEMENTED on develop: version-bound/atomic edits, command protections, Goal budgets, frozen acceptance, context/sampling correctness repairs, managed cancellation, zero-test reporting and structured conversation outcomes. Dated local suites are recorded in docs/reviews/ and docs/experiment-log.md; their counts do not certify a later candidate. Additional page/repair/runtime work landed through 2026-10-07. No candidate gate is advanced by the documentation review. | Freeze a candidate and obtain its complete local/hosted macOS checks, explicit skip coverage and native-app walk. Remaining work includes W3.2 (CI proposals), W1.10 (ordinary aggregate budget), W4.2 (exact preflight), W2.1 (scripted result migration) and documented lifecycle/evidence gaps. Release packaging/licence work is in the next-release checklist. |
 | G2 One execution path | **in progress: shared product executor; scripted research path separate** | `executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol. | IMPLEMENTED product-path runner tooling: engine lease/provenance, frozen splits, minimal control and paired/power analysis. Still needed: validated competitor endpoints/arms, controlled campaigns and the declared scripted-result migration (W2.1). The runner is the designated product-path evaluator (D-2026-10-02-1); no EvalHost migration is implied. |
 | G3 All-tier mission exit before Windows | **not started** | PLANNED under the owner-approved contract of 2026-10-01 (D-2026-10-01-2). No product-path confirmatory comparison or all-tier baseline exists. | W8.3 same-engine simple loop; W2.4/G2 parity; initial S/M/L/XL baseline and prospective power; owner-approved numerical thresholds; frozen W8.4/F6 against the simple loop and at least two eligible competitors per tier, with all capacity, daily-use, lightness, reliability and audit criteria satisfied; W8.5 publish evidence. |

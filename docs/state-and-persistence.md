@@ -1,6 +1,6 @@
 # State and persistence
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** Every place PWR keeps
+**Checked against `develop` at `aa1d0707`, 2026-10-01.** Every place PWR keeps
 state, what kind of state it is, and what may be deleted. The review found the
 stores overlapping without a clear hierarchy (§3.4); this map is the first
 step of plan W6.2, which then enforces it.

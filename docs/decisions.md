@@ -3,7 +3,7 @@
 Durable decisions, dated, newest first. A decision is changed only by a new
 entry that names the one it replaces and the evidence that changed it. The
 ADR series (ADR-001 to ADR-012) and the decisions scattered through the old
-roadmap and backlog are in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/README.md); where one of them
+roadmap and backlog are in the [archive](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/README.md); where one of them
 still holds it is restated here.
 
 ---
@@ -227,7 +227,7 @@ weakened test is not safe to measure on real repositories.
 ## D-2026-09-30-4 — Windows moves after the decision
 
 **Decision.** The Windows engine, command isolation on Windows and a Windows
-installer — the main item of the [v0.3.0-alpha plan](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/v0.3.0-alpha-plan.md)
+installer — the main item of the [v0.3.0-alpha plan](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/v0.3.0-alpha-plan.md)
 of 2026-09-28 — move to *Later*, after G3. macOS stays the only platform with
 a sandbox and the only supported one.
 
@@ -240,10 +240,10 @@ W1–W3 items are platform-neutral in design and do not block a port.
 
 ## D-2026-09-30-5 — Documents describe the code, at a revision
 
-**Decision.** The documentation was rewritten from the code at `0776ff4f`.
+**Decision.** The documentation was rewritten from the code at `4ae7c5f1`.
 Current documents say what the code does and name the revision they were
 checked against; plans live only in the implementation plan and the roadmap;
-older documents moved, whole, to [archive/](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/README.md). The rule in
+older documents moved, whole, to [archive/](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/README.md). The rule in
 CONTRIBUTING that superseded text keeps its body is kept, by the archive.
 
 **Why.** Current documents contradicted the code and each other (verification

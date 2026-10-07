@@ -1,10 +1,10 @@
 # PWR documentation
 
-Rewritten on 2026-09-30 from the code at `develop` `0776ff4f`, after the
+Rewritten on 2026-09-30 from the code at `develop` `4ae7c5f1`, after the
 [technical review](reviews/2026-09-30-technical-review.md) was checked claim by
 claim ([verification](reviews/2026-09-30-verification.md)). Each current
 document names the revision it describes. Everything written before is kept,
-whole, in the [archive](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/README.md).
+whole, in the [archive](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/README.md).
 
 ## Start here
 
@@ -73,9 +73,9 @@ the evidence still needed before a new tag or release.
    replaces it, and that commit's message says what replaced it; the text
    stays in the history. The documents written before 2026-09-30 were kept
    in `docs/archive/` until 2026-10-07 and are read
-   [at the last commit that held them](https://github.com/VitoSanta/PWR/tree/309266d5/docs/archive).
+   [at the last commit that held them](https://github.com/VitoSanta/PWR/tree/6da514ab/docs/archive).
 5. **Code comments cite backlog IDs** (`C.22`, `D.E2E-21`, `R.4`…): they refer
-   to the [archived backlog](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md); where the item is still open,
+   to the [archived backlog](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/backlog.md); where the item is still open,
    the plan's [carry-over table](plan/implementation-plan.md#old-backlog-every-open-item)
    says where it went.
 6. The milestone table in the roadmap is generated from `milestones.json` by

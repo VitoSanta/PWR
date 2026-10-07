@@ -2,7 +2,7 @@
 
 PWR runs a language model's output as commands against a repository on your
 machine. That is its purpose and its risk, so this document says plainly where
-the boundary is and where it ends. **Checked against `develop` at `0776ff4f`,
+the boundary is and where it ends. **Checked against `develop` at `4ae7c5f1`,
 2026-09-30.** The engineering detail is in
 [docs/tools-and-sandbox.md](docs/tools-and-sandbox.md).
 

@@ -1,6 +1,6 @@
 # Inference
 
-**Checked against `develop` at `bff93062`, 2026-10-01.** How PWR runs models:
+**Checked against `develop` at `aa1d0707`, 2026-10-01.** How PWR runs models:
 the provider boundary, PWR's own MLX engine, the experimental llama.cpp path,
 the working window, what the engine's libraries are known to get wrong, and
 where it is slow or fragile.

@@ -8,7 +8,7 @@
       "id": "G0",
       "name": "Documents match the code",
       "status": "passed 2026-09-30",
-      "evidence": "Documentation rewritten from the code at 0776ff4f (plan W0.1); every claim of the 2026-09-30 review verified (docs/reviews/2026-09-30-verification.md); older documents archived whole.",
+      "evidence": "Documentation rewritten from the code at 4ae7c5f1 (plan W0.1); every claim of the 2026-09-30 review verified (docs/reviews/2026-09-30-verification.md); older documents archived whole.",
       "remaining": "Keep it true: a change that alters described behaviour updates the document in the same commit."
     },
     {

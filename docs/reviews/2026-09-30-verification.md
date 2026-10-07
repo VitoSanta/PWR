@@ -1,8 +1,8 @@
 # Verification of the 2026-09-30 technical review
 
-**Checked 2026-09-30 against `develop` at `0776ff4f`** — two commits after the
-reviewed `efdd2798` (`1d657268` holds a conversation's `complete` once when
-nothing was written, run or read; `0776ff4f` records the small-model
+**Checked 2026-09-30 against `develop` at `4ae7c5f1`** — two commits after the
+reviewed `6dcb4cf4` (`48ee04e9` holds a conversation's `complete` once when
+nothing was written, run or read; `4ae7c5f1` records the small-model
 campaigns). Nothing was taken on the review's word: every claim that names
 code was opened at the current revision, and every number that names an
 experiment was found in the experiment's own report.
@@ -39,7 +39,7 @@ counts (94 desktop tests in 12 files, 37 sidecar tests) are the latest.
 
 ## Claims, section by section
 
-| # | Review claim | Verdict | Evidence at `0776ff4f` | Plan |
+| # | Review claim | Verdict | Evidence at `4ae7c5f1` | Plan |
 |---|---|---|---|---|
 | 2.1 | Post-turn verification runs in the caller, after `take_turn` returns | confirmed | `crates/pwr-cli/src/main.rs:4851-4926` (`run_chat_turn`): `take_turn` at 4833, checks at 4855+ | W2.3 |
 | 2.2 | Goal mode is an outer loop in `serve.rs` | confirmed | `crates/pwr-cli/src/serve.rs:1966-2236` | W2.3 |
@@ -48,7 +48,7 @@ counts (94 desktop tests in 12 files, 37 sidecar tests) are the latest.
 | 3.2 | Two loops with different planning, completion, compaction, recovery, catalogue | confirmed | README and `docs/release/v0.2.x-mac-verification.md` ("some fixes exist in one only"); conversation catalogue drops `record_progress`, `propose_verifier` and adds `remember`, `recall_project`, `wiki_query`, `look_at` (`converse.rs:619-645`) | W2.4 |
 | 3.3 | `pwr-models` depends on the orchestrator for window arithmetic | confirmed | `crates/pwr-models/Cargo.toml:14`; `crates/pwr-models/src/fit.rs:30` uses `pwr_orchestrator::window` | W2.5 |
 | 3.4 | Overlapping state without a clear ownership hierarchy | confirmed | Event log, checkpoints, snapshots, ledgers, wiki, graph, summaries, project registry, embeddings, index — mapped in [state-and-persistence.md](../state-and-persistence.md) | W6.2 |
-| 4.1 | `complete` behind other calls of the same reply is refused | confirmed | `COMPLETION_OVER_UNSEEN_RESULTS`, `converse.rs:2482`; since `1d657268` also `COMPLETION_WITH_NOTHING_DONE`, `converse.rs:2476` | — |
+| 4.1 | `complete` behind other calls of the same reply is refused | confirmed | `COMPLETION_OVER_UNSEEN_RESULTS`, `converse.rs:2482`; since `48ee04e9` also `COMPLETION_WITH_NOTHING_DONE`, `converse.rs:2476` | — |
 | 4.2 | P1: `GOAL_MAX_ACTIONS = 208` is checked only in the branch after `if report.completed` | confirmed | const `serve.rs:450`; check `serve.rs:2182` is an `else if` of `if report.completed` (2028). A goal whose completions are refused with *alternating* failure sets never reaches it; there is no wall-clock limit | W1.4 |
 | 4.3 | P1: compaction keeps the first request to 800 chars, later requests to 200-char lines, at most 12 | confirmed | `FIRST_REQUEST_CHARS`, `MAX_REQUESTS`, `LINE_CHARS`, `crates/pwr-orchestrator/src/compaction.rs:48-54`. The checkpoint keeps a revision *number* for steering, not the objective's text (`conversation.rs:52`) | W4.1 |
 | 4.4 | P2: many detectors, each with its own limit, no shared recovery budget | confirmed | `converse.rs:60-131` (empty turns 3, unparseable 3, compactions 2, check-in 26, backend faults 3, finalization retries 1), `repetition.rs:21-193` (refusals 3, echoes 3/10, repeated failure 2, failed runs 5), `stall.rs` `NO_PROGRESS_LIMIT` | W2.6 |

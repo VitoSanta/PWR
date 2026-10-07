@@ -3,8 +3,8 @@
 **Adopted 2026-09-30.** Built from the [technical review of
 2026-09-30](../reviews/2026-09-30-technical-review.md) after every one of its
 claims was checked against the code ([verification](../reviews/2026-09-30-verification.md)).
-It replaces the [v0.3.0-alpha plan](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/v0.3.0-alpha-plan.md) and the
-[backlog](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md) as the order of work: every item still open in
+It replaces the [v0.3.0-alpha plan](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/v0.3.0-alpha-plan.md) and the
+[backlog](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/backlog.md) as the order of work: every item still open in
 either is placed below (see [Carried over](#carried-over-from-earlier-plans)),
 none is dropped silently.
 
@@ -81,7 +81,7 @@ regressions failed before (CompactionBudget after three of five reads).
 - **Tests before fix.** Benchmark recipe, prose coding, next-line fence,
   HTML formatting, conflicting modes with off/on/unknown active mode. Zero
   excluded-source acceptance; preserve legitimate explicit recommendations.
-- **IMPLEMENTED, PARTIAL (2026-10-01; parent `84b4654c`).** Named sampling
+- **IMPLEMENTED, PARTIAL (2026-10-01; parent `069ae68b`).** Named sampling
   scopes, excluded ancestry, matching fences/HTML/indented code, complete
   recipe comparison, explicit tri-state parser and mode/repository/revision
   cache schema 4. Product enrichment deliberately uses unknown mode because
@@ -173,14 +173,14 @@ nothing measurable and are not adopted.
   content is restored unless `proposals::improves`. The goal then continues as
   it does today with what is left of its budget.
 - **Steps.** (1) `pwr_verify::failure` names node:test and unittest failures —
-  DONE `3ec3587d`. (2) `pwr_orchestrator::proposals`, pure: targets, extraction,
-  governor, verdict, brief — DONE `a507e901`. (3) `proposals::propose`, one governed request and a
-  second with reasoning off — DONE `be76f764`. (4) The phase in `executor`
+  DONE `d644026c`. (2) `pwr_orchestrator::proposals`, pure: targets, extraction,
+  governor, verdict, brief — DONE `49be80a2`. (3) `proposals::propose`, one governed request and a
+  second with reasoning off — DONE `08d89f3f`. (4) The phase in `executor`
   behind `goal_budget.proposals`, applied through scripted turns, the
   front end's plain generation, documents — DONE, not measured. (5) The same three tasks on the product
   path against the shipped agent; an experiment-log entry.
 - **Step 5, measured 2026-10-06** (pwr-evidence `product-path-20261006`;
-  binary at `72b2597c`, Goal mode, 600 s goals, proposals 0 against 5, two
+  binary at `7d1c0a7e`, Goal mode, 600 s goals, proposals 0 against 5, two
   runs per arm, acceptance = visible and hidden tests):
 
   | Task | Model | Phase off | Phase on |
@@ -417,7 +417,7 @@ A gate is recorded as passed in [roadmap.md](../roadmap.md) and
 
 ## Working-tree implementation ledger — 2026-09-30
 
-This ledger describes code integrated in `8deb4ba3` on `develop` (not pushed, CI
+This ledger describes code integrated in `3716cecb` on `develop` (not pushed, CI
 not run), not completed gates. No item below is marked DONE without a green CI
 run and complete acceptance evidence; "Integration commit" in the last column
 is now satisfied and the remaining evidence is what else it names. G1, G2
@@ -497,8 +497,8 @@ blocks unlink/rename of protected ancestors while allowing sibling writes.
   (verification N7, 9.4, 16.2): the README named a superseded release, two
   documents described two permission modes where there are three, several
   said no-verifier completion is refused, CONTRIBUTING described CI wrongly.
-- **Change.** The documentation set was rewritten from the code at `0776ff4f`;
-  every earlier document was moved, whole, to [archive/](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/README.md).
+- **Change.** The documentation set was rewritten from the code at `4ae7c5f1`;
+  every earlier document was moved, whole, to [archive/](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/README.md).
 - **Done when.** Every current document names the revision it was checked
   against; `docs/README.md` indexes them; no current document links into the
   archive as if it were current.
@@ -679,7 +679,7 @@ platform coverage remain bounded by the protections below.
 
 ### W1.4 A goal budget that bounds every path
 
-**Status:** NOW · integrated in 8deb4ba3; CI pending
+**Status:** NOW · integrated in 3716cecb; CI pending
 
 - **Problem.** `GOAL_MAX_ACTIONS` is checked only when the model did *not*
   complete, so refused completions with alternating failures loop without
@@ -1330,7 +1330,7 @@ but keep Full access as the actual selected policy, expose its switch and
 identify it in the composer. Store and DOM regressions exercise Full → Auto →
 Ask and Full → Ask. Unverified Goal replies and changed acceptance contracts
 retain their evidence and no longer show generic Finished summaries; two
-additional red/green regressions cover these. The native `7d024539` walk
+additional red/green regressions cover these. The native `876112ac` walk
 confirms these controls against saved core policy. Follow-up compatibility
 repairs preserve proposal origin, typed verification/confinement evidence,
 terminal reading and safe asynchronous startup, acceptance review and prefill
@@ -1635,7 +1635,7 @@ historical evidence, not an active prohibition.
 
 ### Old backlog, every open item
 
-The backlog's last reconciliation (2026-09-27, [archive/backlog.md](https://github.com/VitoSanta/PWR/blob/309266d5/docs/archive/backlog.md))
+The backlog's last reconciliation (2026-09-27, [archive/backlog.md](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/backlog.md))
 left these items *parziale* or *proposto*. Each is placed here.
 
 | Item | Placement |

@@ -4,7 +4,7 @@
 model, how it is counted, how it is compacted, and where repository knowledge
 comes from.
 
-## What changed since the baseline (`0776ff4f`)
+## What changed since the baseline (`4ae7c5f1`)
 
 - **The objective is kept whole.** Full human objectives and steering revisions
   live in the persisted checkpoint, independent of the compressible history,

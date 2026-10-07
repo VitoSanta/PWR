@@ -1,6 +1,6 @@
 # Next macOS alpha release — preparation checklist
 
-**Source review: 2026-10-07, `develop` at `5f6c4f38`. Status: preparation,
+**Source review: 2026-10-07, `develop` at `90fe0dd4`. Status: preparation,
 not ready to tag.** No new version, candidate commit, DMG or release is
 designated by this document. The three uncommitted interface files present
 during the review must be reviewed together with subsequent changes before
@@ -38,13 +38,13 @@ Do not promote a historical audit's counts into a current test result.
 - [ ] Obtain hosted macOS CI for the same candidate commit; identify skips
   and investigate failures rather than counting skipped cases as exercised.
 
-Recorded 2026-10-07 on `e0a41a7c`, the commit before the version change (the
+Recorded 2026-10-07 on `14f532ae`, the commit before the version change (the
 version commit changes manifests, locks and release notes only): full Rust
 suite 1,585 passed, 0 failed, 5 ignored in 107 binaries; hosted macOS CI green
 on attempt 2 after one sandbox test failed on attempt 1 and passed unchanged.
 On the version commit: formatting, the public-docs check, the roadmap check, a
 workspace build, a clean `npm ci`, 109 desktop tests and the production build.
-Also on the version commit (`fb3de503`): Clippy clean, the sidecar's 87 tests,
+Also on the version commit (`fb59195a`): Clippy clean, the sidecar's 87 tests,
 and `scripts/release-macos.sh` built and verified `PWR-macOS-arm64.dmg`
 (SHA-256 `16f683382dcc8a06e1295fa052fc5f98012b7bb5723fcc0d6a2141b532d865c3`,
 a local build; the published artifact is built by the tag workflow and has
