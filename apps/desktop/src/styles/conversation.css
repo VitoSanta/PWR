@@ -1459,3 +1459,118 @@ pa-trace-raw {
 .turn-finished {
   margin-top: 8px;
 }
+
+/* ------------------------------------------------ a quieter conversation
+   2026-10-07. The reply is text and a few plain lines of work, as a terminal
+   agent's is: no card around the actions, no rail with a node for every
+   step, no mark on what simply worked. The person's message is folded when
+   it would push the reply off the screen. Compact, Detailed and Raw Trace
+   differ in how much they say, not in how they are drawn. */
+.message-user-group {
+  max-width: min(84%, 720px);
+}
+
+.message-user {
+  border: 0;
+  border-radius: var(--radius-panel);
+}
+
+.message-user-text.clamped {
+  max-height: 9.6em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 62%, transparent);
+}
+
+.message-more {
+  display: block;
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.message-more:hover {
+  color: var(--text-primary);
+}
+
+/* The work sits under the name, with no rail and no nodes. */
+.turn-body {
+  margin-left: 0;
+  padding-left: 30px;
+  border-left: 0;
+}
+
+.turn.live .turn-body {
+  border-image: none;
+}
+
+.step::before,
+.step.phases::before {
+  display: none;
+}
+
+/* Actions and phases: lines of text, not a card. */
+.step.actions,
+.step.phases,
+.step.actions.busy,
+.step.phases.busy {
+  border: 0;
+  background: none;
+}
+
+.actions-head,
+.phase-head {
+  min-height: 26px;
+  padding-inline: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}
+
+.actions-icon {
+  width: 14px;
+}
+
+.action-list {
+  margin-left: 6px;
+  padding: 2px 0 2px var(--space-3);
+  border-top: 0;
+  border-left: 1px solid var(--border-subtle);
+  border-radius: 0;
+}
+
+.action-row {
+  min-height: 26px;
+  padding-inline: var(--space-1);
+  border-radius: var(--radius-inline);
+}
+
+.tool-icon {
+  width: 16px;
+  height: 16px;
+  background: none;
+  color: var(--text-muted);
+}
+
+/* The verb is prose; what it acted on stays in the fixed-width face a path
+   and a command are read in. */
+.tool-title {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-family: inherit;
+}
+
+.phase + .phase {
+  border-top: 0;
+}
+
+.phase-detail {
+  padding-left: var(--space-3);
+}
+
+.step.working {
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}

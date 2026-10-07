@@ -6,6 +6,7 @@ import {
   TRACE_VISIBILITIES,
   TraceVisibility,
   Step,
+  actionPhrase,
   compactTurn,
   duration,
   groupSteps,
@@ -78,7 +79,7 @@ abstract class Foldable {
               } @else if (refused(step.entries)) {
                 <pa-icon name="alert" [size]="16" />
               } @else {
-                <pa-icon name="check-circle" [size]="16" />
+                <pa-icon class="chevron" [class.open]="isOpen(step.key, step.last)" name="chevron-right" [size]="14" />
               }
             </span>
             <span class="actions-summary">{{ summary(step.entries) }}</span>
@@ -88,7 +89,6 @@ abstract class Foldable {
             @if (refused(step.entries); as failed) {
               <span class="badge badge-danger">{{ failed }} refused</span>
             }
-            <pa-icon class="chevron" [class.open]="isOpen(step.key, step.last)" name="chevron-right" [size]="16" />
           </button>
           @if (isOpen(step.key, step.last)) {
             <ul class="action-list">
@@ -110,8 +110,13 @@ abstract class Foldable {
                       [attr.aria-expanded]="entry.diff ? isOpen(entry.key, false) : null"
                     >
                       <span class="tool-icon"><pa-icon [name]="icon(entry)" [size]="14" /></span>
-                      <span class="tool-title">{{ malformed(entry) ? 'malformed call' : verb(entry) }}</span>
-                      <span class="tool-detail" [attr.title]="entry.text">{{ entry.text }}</span>
+                      @if (malformed(entry)) {
+                        <span class="tool-title">Unreadable call</span>
+                        <span class="tool-detail" [attr.title]="entry.text">{{ entry.text }}</span>
+                      } @else {
+                        <span class="tool-title">{{ phrase(entry).verb }}</span>
+                        <span class="tool-detail" [attr.title]="entry.title + ' — ' + entry.text">{{ phrase(entry).object }}</span>
+                      }
                       @if (category(entry) === 'verification') {
                         <span class="badge badge-info">check</span>
                       }
@@ -121,7 +126,12 @@ abstract class Foldable {
                           <span class="del">−{{ stats(entry).removed }}</span>
                         </span>
                       }
-                      <span [class]="'status-dot ' + entry.status" role="img" [attr.aria-label]="label(entry)" [attr.title]="label(entry)"></span>
+                      <!-- Said only when it is not the ordinary case: an action
+                           that worked needs no mark, and a column of green
+                           dots hid the one that had not. -->
+                      @if (entry.status !== 'done') {
+                        <span [class]="'status-dot ' + entry.status" role="img" [attr.aria-label]="label(entry)" [attr.title]="label(entry)"></span>
+                      }
                     </button>
                     @if (entry.diff && isOpen(entry.key, false)) {
                       <pa-diff [diff]="entry.diff" />
@@ -212,7 +222,9 @@ export class TraceSteps extends Foldable {
     if (ran) parts.push(`${ran} ran`);
     const other = tools.length - read - edited - ran;
     if (other > 0) parts.push(`${other} other`);
-    return `${tools.length} action${tools.length === 1 ? '' : 's'}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
+    // One kind of action is said by its own name; several, with the total.
+    if (parts.length === 1) return parts[0].replace(/^(\d+) (\w+)$/, (_, n, what) => ({ read: `Read ${n} file${n === '1' ? '' : 's'}`, edited: `Edited ${n} file${n === '1' ? '' : 's'}`, ran: `Ran ${n} command${n === '1' ? '' : 's'}`, other: `${n} action${n === '1' ? '' : 's'}` })[what as string] ?? `${n} ${what}`);
+    return `${tools.length} actions · ${parts.join(' · ')}`;
   }
 
   /** The steps say the core's own reason beside the plain one. */
@@ -224,9 +236,7 @@ export class TraceSteps extends Foldable {
     return `${retryLabel(String(entry.data?.['cause'] ?? ''))}${count} — ${entry.text}`;
   }
 
-  protected verb(entry: Entry): string {
-    return entry.title.split(' ')[0];
-  }
+  protected readonly phrase = actionPhrase;
 
   protected icon(entry: Entry): IconName {
     return TOOL_ICONS[entry.toolKind ?? 'other'] ?? 'circle-dot';

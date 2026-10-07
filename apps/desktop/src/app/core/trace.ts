@@ -86,6 +86,66 @@ export function toolPath(entry: Entry): string | null {
   return rest ?? null;
 }
 
+/** What an action did, said as a person would: a verb and what it acted on. */
+export interface ActionPhrase {
+  verb: string;
+  object: string;
+}
+
+const TOOL_VERBS: Record<string, string> = {
+  read_file: 'Read',
+  list_tree: 'Listed',
+  search: 'Searched for',
+  find_definition: 'Looked up',
+  extract_document: 'Read',
+  replace_text: 'Edited',
+  apply_patch: 'Edited',
+  apply_replace: 'Rewrote',
+  make_directory: 'Created folder',
+  delete_path: 'Deleted',
+  move_path: 'Moved',
+  restore_file: 'Restored',
+  run_command: 'Ran',
+  start_service: 'Started',
+  stop_service: 'Stopped',
+  fetch_url: 'Fetched',
+  look_at: 'Looked at',
+  check_page: 'Checked',
+  read_terminal: 'Read the terminal',
+  vcs_status: 'Checked git status',
+  vcs_diff: 'Read the git diff',
+  update_plan: 'Updated the plan',
+};
+
+const KIND_VERBS: Record<string, string> = {
+  read: 'Read',
+  search: 'Searched',
+  edit: 'Edited',
+  delete: 'Deleted',
+  move: 'Moved',
+  execute: 'Ran',
+  fetch: 'Fetched',
+};
+
+/**
+ * Detailed says what happened, not which tool was called: `write_file
+ * src/app.ts` reads "Created src/app.ts", `make_directory Arguments: path`
+ * reads "Created folder src". The tool's own name stays in Raw Trace.
+ */
+export function actionPhrase(entry: Entry): ActionPhrase {
+  const tool = entry.title.split(' ')[0];
+  const path = entry.diff?.path ?? (typeof entry.data?.['path'] === 'string' ? (entry.data['path'] as string) : '');
+  // A call's text is its argument where it has one; "Arguments: path" is the
+  // core naming the argument's key, which says nothing.
+  const text = /^Arguments:/.test(entry.text) ? '' : entry.text;
+  let verb = TOOL_VERBS[tool] ?? KIND_VERBS[entry.toolKind ?? ''] ?? tool;
+  if (tool === 'write_file') verb = entry.diff && !entry.diff.oldText ? 'Created' : 'Wrote';
+  let object = path || text;
+  if (tool === 'list_tree' && (!object || object === '.')) object = 'the workspace';
+  if (entry.toolKind === 'execute' || tool === 'search' || tool === 'fetch_url') object = text || object;
+  return { verb, object };
+}
+
 /**
  * A phase's steps: consecutive actions fold into one group, and a retry or
  * a recovery between them stays inside it. Generation figures and the core's

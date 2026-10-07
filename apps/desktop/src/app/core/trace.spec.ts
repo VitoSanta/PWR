@@ -1,5 +1,5 @@
 import { Entry } from './model';
-import { compactTurn, groupSteps, runMetrics, runOutcome, toolCategory } from './trace';
+import { actionPhrase, compactTurn, groupSteps, runMetrics, runOutcome, toolCategory } from './trace';
 
 let clock = 0;
 const entry = (kind: Entry['kind'], extra: Partial<Entry> = {}): Entry => ({
@@ -159,5 +159,29 @@ describe('Goal completion evidence', () => {
     expect(outcome.text).toContain('acceptance checks changed');
     expect(outcome.tone).toBe('failed');
     expect(outcome.detail).toContain('test/acceptance.ts');
+  });
+});
+
+describe('what an action did, in plain words', () => {
+  const call = (title: string, text: string, extra: Partial<Entry> = {}) => entry('tool', { title, text, ...extra });
+
+  it('says the verb and what it acted on, not the tool', () => {
+    const diff = (oldText: string) => ({ path: 'src/app.ts', oldText, newText: 'x' });
+    expect(actionPhrase(call('write_file src/app.ts', 'src/app.ts', { toolKind: 'edit', diff: diff('') }))).toEqual({ verb: 'Created', object: 'src/app.ts' });
+    expect(actionPhrase(call('write_file src/app.ts', 'src/app.ts', { toolKind: 'edit', diff: diff('old') }))).toEqual({ verb: 'Wrote', object: 'src/app.ts' });
+    expect(actionPhrase(call('apply_patch src/app.ts', 'src/app.ts', { toolKind: 'edit', diff: diff('old') })).verb).toBe('Edited');
+    expect(actionPhrase(call('run_command', 'npm run build', { toolKind: 'execute' }))).toEqual({ verb: 'Ran', object: 'npm run build' });
+    expect(actionPhrase(call('read_file src/a.ts', 'src/a.ts', { toolKind: 'read' }))).toEqual({ verb: 'Read', object: 'src/a.ts' });
+  });
+
+  it('leaves out the name of an argument and names the workspace', () => {
+    expect(actionPhrase(call('make_directory', 'Arguments: path', { toolKind: 'edit', data: { path: 'src/Spese' } }))).toEqual({ verb: 'Created folder', object: 'src/Spese' });
+    expect(actionPhrase(call('make_directory', 'Arguments: path', { toolKind: 'edit' }))).toEqual({ verb: 'Created folder', object: '' });
+    expect(actionPhrase(call('list_tree', '.', { toolKind: 'search' }))).toEqual({ verb: 'Listed', object: 'the workspace' });
+  });
+
+  it('falls back to the kind of action, then to the tool, for one it does not know', () => {
+    expect(actionPhrase(call('peek_file a.ts', 'a.ts', { toolKind: 'read' })).verb).toBe('Read');
+    expect(actionPhrase(call('new_tool', 'x')).verb).toBe('new_tool');
   });
 });

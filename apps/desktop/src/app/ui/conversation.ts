@@ -73,7 +73,12 @@ type Item =
             @case ('user') {
               <article class="message-user-group" aria-label="Your message">
                 <div class="message-user">
-                <div class="message-user-text selectable">{{ item.entry.text }}</div>
+                <div class="message-user-text selectable" [class.clamped]="long(item.entry.text) && !unfolded().has(item.key)">{{ item.entry.text }}</div>
+                @if (long(item.entry.text)) {
+                  <button class="message-more" (click)="unfold(item.key)" [attr.aria-expanded]="unfolded().has(item.key)">
+                    {{ unfolded().has(item.key) ? 'Show less' : 'Show all' }}
+                  </button>
+                }
                 @if (item.entry.attachments?.length) {
                   <div class="attachment-chips">
                     @for (path of item.entry.attachments; track path) {
@@ -135,8 +140,12 @@ type Item =
                 <header class="turn-head">
                   <pa-brand-mark class="turn-avatar" />
                   <strong>PWR</strong>
-                  <span class="turn-meta truncate">{{ store.modelName() }}</span>
-                  <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }} · started {{ clock(item.startedAt) }}</span>
+                  <!-- The model is in the bar above; said again here only in
+                       Raw Trace, which is read for exactly that kind of fact. -->
+                  @if (store.traceVisibility() === 'raw') {
+                    <span class="turn-meta truncate">{{ store.modelName() }} · started {{ clock(item.startedAt) }}</span>
+                  }
+                  <span class="turn-meta num">{{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }}</span>
                 </header>
                 <div class="turn-body">
                   @switch (store.traceVisibility()) {
@@ -158,7 +167,7 @@ type Item =
                     </div>
                   }
                   @if (item.live) {
-                    <div class="step working" role="status">
+                    <div class="step working" role="status" [attr.title]="workingHelp()">
                       <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
                       {{ workingLabel() }}
                     </div>
@@ -262,11 +271,32 @@ export class Conversation {
     }
     if (quiet < 5) return chat ? 'Thinking' : 'Working';
     const minutes = Math.floor(quiet / 60);
-    const seconds = String(quiet % 60).padStart(2, '0');
-    return chat
-      ? `Thinking · no new output for ${minutes}m ${seconds}s — reading the message and what is attached`
-      : `Working · no new output for ${minutes}m ${seconds}s — checks, reading the prompt, or a long file being written`;
+    const waited = minutes ? `${minutes}m ${String(quiet % 60).padStart(2, '0')}s` : `${quiet}s`;
+    return `${chat ? 'Thinking' : 'Working'} · quiet for ${waited}`;
   });
+
+  /** What a quiet stretch usually is, for whoever hovers to ask. */
+  protected readonly workingHelp = computed(() =>
+    this.store.chatMode()
+      ? 'No new output: the model is reading the message and what is attached.'
+      : 'No new output: checks are running, the prompt is being read, or a long file is being written.',
+  );
+
+  /** The messages the person opened in full. */
+  protected readonly unfolded = signal<ReadonlySet<string>>(new Set());
+
+  /** A message long enough to push the reply off the screen is folded. */
+  protected long(text: string): boolean {
+    return text.length > 700 || text.split('\n').length > 9;
+  }
+
+  protected unfold(key: string): void {
+    this.unfolded.update((open) => {
+      const next = new Set(open);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }
 
   constructor() {
     // The clock only matters for a running turn's duration and quiet time.
