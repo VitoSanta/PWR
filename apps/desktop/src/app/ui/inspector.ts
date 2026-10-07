@@ -77,7 +77,11 @@ import { KnowledgeCard } from './workbench/knowledge';
       </header>
       }
 
-      <div class="workbench-body" [class.maximized]="!!work.focused()">
+      <div
+        class="workbench-body"
+        [class.maximized]="!!work.focused()"
+        [class.cols-2]="work.focusMode() && work.grid() === 2"
+      >
         @for (card of work.visible(); track card.id; let first = $first; let last = $last; let index = $index) {
           <section
             class="wb-card"
@@ -85,21 +89,8 @@ import { KnowledgeCard } from './workbench/knowledge';
             [class.fills]="!card.collapsed"
             [attr.aria-label]="info(card.id).label"
             [style.flex-grow]="card.collapsed ? 0 : cardWeight(card.id)"
-            [style.--card-w.px]="work.focusMode() ? work.widthOf(card.id) : null"
             [style.view-transition-name]="'wb-' + card.id"
           >
-            @if (work.focusMode() && layout.right() === 'docked') {
-              <pa-resize-handle
-                edge="left"
-                [offset]="0"
-                [label]="'Resize ' + info(card.id).label"
-                [width]="work.widthOf(card.id)"
-                [min]="bounds.min"
-                [max]="work.maxWidth()"
-                [initial]="bounds.initial"
-                (resize)="work.setWidth(card.id, $event)"
-              />
-            }
             <header class="wb-card-head" (dblclick)="work.maximize(card.id)">
                 <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
                   <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
@@ -111,6 +102,16 @@ import { KnowledgeCard } from './workbench/knowledge';
                 </button>
               <span class="spacer"></span>
               <span class="wb-card-actions">
+                @if (work.focusMode() && !work.focused() && work.visible().length > 1) {
+                  <button
+                    class="icon-btn icon-btn-sm"
+                    (click)="work.setColumns(work.columns() === 2 ? 1 : 2)"
+                    [attr.aria-label]="work.columns() === 2 ? 'Stack the tools' : 'Tools side by side'"
+                    [paTooltip]="work.columns() === 2 ? 'Stack the tools' : 'Tools side by side'"
+                  >
+                    <pa-icon [name]="work.columns() === 2 ? 'rows' : 'columns'" [size]="14" />
+                  </button>
+                }
                 @if (!work.focused() && work.visible().length > 1) {
                   <button class="icon-btn icon-btn-sm" (click)="work.move(card.id, -1)" [disabled]="first" aria-label="Move up" paTooltip="Move up">
                     <pa-icon name="chevron-up" [size]="14" />
@@ -123,7 +124,7 @@ import { KnowledgeCard } from './workbench/knowledge';
                     class="icon-btn icon-btn-sm"
                     (click)="work.maximize(card.id)"
                     [attr.aria-label]="work.focused() === card.id ? 'Restore' : 'Maximise'"
-                    [paTooltip]="work.focused() === card.id ? 'Show the other cards' : 'Fill the column'"
+                    [paTooltip]="work.focused() === card.id ? (work.focusMode() ? 'Leave full screen · Esc' : 'Show the other cards') : (work.focusMode() ? 'Full screen' : 'Fill the column')"
                   >
                     <pa-icon [name]="work.focused() === card.id ? 'minimize' : 'maximize'" [size]="14" />
                   </button>
@@ -146,10 +147,11 @@ import { KnowledgeCard } from './workbench/knowledge';
               </div>
             }
           </section>
-          @if (work.focusMode() && !last && !card.collapsed && !work.visible()[index + 1].collapsed) {
+          @if (work.focusMode() && work.grid() === 2) {
+            <!-- Side by side: the grid's own gap separates the cards. -->
+          } @else if (work.focusMode() && !last && !card.collapsed && !work.visible()[index + 1].collapsed) {
             <div
               class="wb-splitter"
-              [style.--card-w.px]="narrower(card.id, work.visible()[index + 1].id)"
               role="separator"
               tabindex="0"
               aria-orientation="horizontal"
@@ -182,6 +184,19 @@ import { KnowledgeCard } from './workbench/knowledge';
         }
       </div>
     </aside>
+    @if (work.focusMode() && layout.right() === 'docked' && !work.focused()) {
+      <!-- One edge for all the tools: every card follows the width it sets. -->
+      <pa-resize-handle
+        edge="left"
+        [offset]="0"
+        label="Resize the tools"
+        [width]="work.columnWidth()"
+        [min]="work.minWidth()"
+        [max]="work.maxWidth()"
+        [initial]="bounds.initial"
+        (resize)="work.setWidth($event)"
+      />
+    }
     @if (layout.right() === 'docked' && !work.focusMode()) {
       <pa-resize-handle
         edge="left"
@@ -232,11 +247,6 @@ export class Inspector {
 
   protected badge(id: CardId): number {
     return this.badges()[id] ?? 0;
-  }
-
-  /** A line between two cards spans the narrower, so it never hangs past a card. */
-  protected narrower(first: CardId, second: CardId): number {
-    return Math.min(this.work.widthOf(first), this.work.widthOf(second));
   }
 
   protected cardWeight(id: CardId): number {

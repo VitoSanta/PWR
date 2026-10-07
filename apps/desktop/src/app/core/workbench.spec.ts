@@ -61,57 +61,54 @@ describe('WorkbenchStore', () => {
     expect(work.isOpen('files')).toBe(true);
   });
 
-  it('gives each Focus card its own width, and docks the column by the widest', () => {
-    localStorage.setItem('pwr:card-widths', '{}');
+  it('gives the Focus tools one width that every card follows', () => {
+    for (const key of ['pwr:tools-width', 'pwr:tools-columns', 'pwr:card-widths']) localStorage.removeItem(key);
     const work = TestBed.inject(WorkbenchStore);
     const layout = TestBed.inject(LayoutService);
     layout.viewport.set(1600);
     layout.leftFixed.set(72);
     work.focusMode.set(true);
     work.show('knowledge');
-    work.setWidth('knowledge', 600);
-    expect(work.widthOf('knowledge')).toBe(600);
-    // Resizing one card leaves the others as they were.
-    expect(work.widthOf('review')).toBe(RIGHT.initial);
+    work.setWidth(600);
     expect(work.columnWidth()).toBe(600);
     TestBed.tick();
     expect(layout.rightWidth()).toBe(600);
     // Never so wide the conversation loses its least width, never under a card's least.
-    work.setWidth('knowledge', 5000);
-    expect(work.widthOf('knowledge')).toBe(1600 - 72 - MAIN_MIN);
-    work.setWidth('review', 10);
-    expect(work.widthOf('review')).toBe(RIGHT.min);
-    // A narrower window: the wide card gives way before the tools take the page.
-    layout.viewport.set(1100);
-    TestBed.tick();
-    expect(layout.rightWidth()).toBe(1100 - 72 - MAIN_MIN);
-    expect(JSON.parse(localStorage.getItem('pwr:card-widths')!)).toEqual({
-      knowledge: 968,
-      review: RIGHT.min,
-    });
-    // A card opened later takes the column's width, and resizing it moves no other.
-    work.show('terminal');
-    expect(work.widthOf('terminal')).toBe(968);
-    work.setWidth('terminal', 500);
-    expect(work.widthOf('knowledge')).toBe(968);
-    expect(work.widthOf('review')).toBe(RIGHT.min);
+    work.setWidth(5000);
+    expect(work.columnWidth()).toBe(1600 - 72 - MAIN_MIN);
+    work.setWidth(10);
+    expect(work.columnWidth()).toBe(RIGHT.min);
+    expect(localStorage.getItem('pwr:tools-width')).toBe(String(RIGHT.min));
   });
 
-  it('keeps the width the column had for the cards already open, the first time', () => {
-    localStorage.removeItem('pwr:card-widths');
-    localStorage.setItem(
-      'pwr:workbench',
-      JSON.stringify({ open: [{ id: 'files', collapsed: false }], maximized: null }),
-    );
-    localStorage.setItem(
-      'pwr:layout',
-      JSON.stringify({ leftOpen: true, rightOpen: true, leftWidth: 288, rightWidth: 400 }),
-    );
+  it('stands the tools side by side when asked, and only when there are two', () => {
+    for (const key of ['pwr:tools-width', 'pwr:tools-columns', 'pwr:card-widths']) localStorage.removeItem(key);
     const work = TestBed.inject(WorkbenchStore);
-    expect(work.widthOf('files')).toBe(400);
-    // A card opened later follows it, rather than the default.
-    expect(work.widthOf('terminal')).toBe(400);
-    localStorage.removeItem('pwr:layout');
+    const layout = TestBed.inject(LayoutService);
+    layout.viewport.set(1800);
+    layout.leftFixed.set(0);
+    work.focusMode.set(true);
+    // One tool has the whole column, whatever was asked.
+    work.setColumns(2);
+    expect(work.grid()).toBe(1);
+    work.show('terminal');
+    expect(work.grid()).toBe(2);
+    // Two columns are given room for two cards, and never less than two leasts.
+    expect(work.columnWidth()).toBeGreaterThanOrEqual(760);
+    work.setWidth(100);
+    expect(work.columnWidth()).toBe(RIGHT.min * 2);
+    expect(localStorage.getItem('pwr:tools-columns')).toBe('2');
+    work.setColumns(1);
+    expect(work.grid()).toBe(1);
+    expect(work.columnWidth()).toBe(RIGHT.initial);
+  });
+
+  it('starts from the widest the cards had when each had its own width', () => {
+    localStorage.removeItem('pwr:tools-width');
+    localStorage.setItem('pwr:card-widths', JSON.stringify({ review: 420, terminal: 512 }));
+    const work = TestBed.inject(WorkbenchStore);
+    expect(work.columnWidth()).toBe(512);
+    localStorage.removeItem('pwr:card-widths');
   });
 
   it('keeps multiple tools open in Focus', () => {

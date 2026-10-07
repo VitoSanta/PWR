@@ -38,7 +38,11 @@ interface Saved {
 }
 
 const KEY = 'pwr:workbench';
-const WIDTHS_KEY = 'pwr:card-widths';
+const WIDTH_KEY = 'pwr:tools-width';
+const LEGACY_WIDTHS_KEY = 'pwr:card-widths';
+const COLUMNS_KEY = 'pwr:tools-columns';
+/** What two columns of tools start at: room for a diff beside a terminal. */
+const TWO_COLUMNS = 760;
 
 /**
  * The right-hand column: tools as cards, stacked, each collapsible,
@@ -57,10 +61,13 @@ export class WorkbenchStore {
   /** Focus presents tools as standalone cards without the Workbench frame. */
   readonly focusMode = signal(false);
   /**
-   * In Focus each card has a width of its own, dragged from its left edge;
-   * a card never resized has the one the column had before cards had theirs.
+   * In Focus the tools are one grid with one width, dragged from its left
+   * edge: every card follows it. They used to have a width each, which left
+   * a column of cards with ragged left edges.
    */
-  readonly widths = signal<Partial<Record<CardId, number>>>(loadWidths(this.open(), this.layout.rightWidth()));
+  readonly width = signal<number>(loadWidth(this.layout.rightWidth()));
+  /** How many columns the person asked for: tools stacked, or side by side. */
+  readonly columns = signal<1 | 2>(loadColumns());
   /** The file the Files card should show, when another card asks for one. */
   readonly fileRequest = signal<string | null>(null);
 
@@ -90,8 +97,18 @@ export class WorkbenchStore {
       : this.layout.right() !== 'hidden',
   );
 
-  /** The column the cards need: as wide as its widest card. */
-  readonly columnWidth = computed(() => Math.max(RIGHT.min, ...this.visible().map((card) => this.widthOf(card.id))));
+  /**
+   * The columns in use: never more than there are cards, so one tool has the
+   * whole height, two stand side by side or one above the other, four make
+   * two rows of two and six three.
+   */
+  readonly grid = computed<1 | 2>(() => (this.columns() === 2 && this.visible().length > 1 ? 2 : 1));
+
+  /** The least the tools take: each column keeps a card's least width. */
+  readonly minWidth = computed(() => RIGHT.min * this.grid());
+
+  /** The width of the whole grid. */
+  readonly columnWidth = computed(() => Math.max(this.minWidth(), this.width()));
 
   constructor() {
     // Focus docks the column by its widest card, so the conversation keeps
@@ -105,21 +122,6 @@ export class WorkbenchStore {
     });
   }
 
-  /**
-   * A card's width: its own once resized; until then the widest a person
-   * gave the cards beside it, so only a card made narrower stands out.
-   */
-  widthOf(id: CardId): number {
-    return this.widths()[id] ?? this.followWidth();
-  }
-
-  private readonly followWidth = computed(() => {
-    const widths = this.widths();
-    const set = this.visible()
-      .map((card) => widths[card.id])
-      .filter((width): width is number => width !== undefined);
-    return set.length ? Math.max(...set) : RIGHT.initial;
-  });
 
   /** The widest a card may be: the conversation keeps its least width beside it. */
   maxWidth(): number {
@@ -127,23 +129,31 @@ export class WorkbenchStore {
     return Math.max(RIGHT.min, this.layout.viewport() - left - MAIN_MIN);
   }
 
-  /**
-   * Resizes one card and only that one: the cards beside it that were still
-   * following the column keep the width they show now, instead of following
-   * the one being dragged.
-   */
-  setWidth(id: CardId, width: number): void {
-    const next = Math.round(Math.max(RIGHT.min, Math.min(this.maxWidth(), width)));
-    const widths = { ...this.widths() };
-    for (const card of this.visible())
-      if (card.id !== id && widths[card.id] === undefined) widths[card.id] = this.widthOf(card.id);
-    widths[id] = next;
-    this.widths.set(widths);
+  /** Resizes the whole grid: every card follows. */
+  setWidth(width: number): void {
+    this.width.set(Math.round(Math.max(this.minWidth(), Math.min(this.maxWidth(), width))));
     try {
-      localStorage.setItem(WIDTHS_KEY, JSON.stringify(this.widths()));
+      localStorage.setItem(WIDTH_KEY, String(this.width()));
     } catch {
       // Storage unavailable: the width holds until the app closes.
     }
+  }
+
+  /** Stacks the tools in one column, or stands them side by side in two. */
+  setColumns(columns: 1 | 2): void {
+    this.animate(() => {
+      const before = this.columns();
+      this.columns.set(columns);
+      // Two columns in the room of one would be two slivers; going back, the
+      // single column takes one column's share again.
+      if (columns === 2 && before === 1) this.setWidth(Math.max(this.width(), TWO_COLUMNS));
+      if (columns === 1 && before === 2) this.setWidth(Math.max(RIGHT.initial, Math.round(this.width() / 2)));
+      try {
+        localStorage.setItem(COLUMNS_KEY, String(columns));
+      } catch {
+        // Storage unavailable: the choice holds until the app closes.
+      }
+    });
   }
 
   isOpen(id: CardId): boolean {
@@ -246,12 +256,16 @@ export class WorkbenchStore {
       change();
       return;
     }
-    start.call(document, () => {
+    const transition = start.call(document, () => {
       change();
       // The new layout has to be on the page before the transition's
       // second snapshot is taken.
       this.app.tick();
-    });
+    }) as { ready?: Promise<unknown>; finished?: Promise<unknown> } | undefined;
+    // A transition the browser gives up on -- the window hidden, another one
+    // started over it -- has still made its change; only the motion is lost.
+    transition?.ready?.catch(() => undefined);
+    transition?.finished?.catch(() => undefined);
   }
 
   private persist(): void {
@@ -264,25 +278,30 @@ export class WorkbenchStore {
 }
 
 /**
- * The saved widths; the first time, the cards already open take the width
- * the whole column had, so nothing moves.
+ * The saved width of the tools; the first time, the widest the cards had
+ * when each had its own, or the width the column had before that.
  */
-function loadWidths(open: OpenCard[], column: number): Partial<Record<CardId, number>> {
-  const known = new Set<string>(CARDS.map((card) => card.id));
+function loadWidth(column: number): number {
   try {
-    const raw = localStorage.getItem(WIDTHS_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw) as Record<string, unknown>;
-      return Object.fromEntries(
-        Object.entries(saved).filter(
-          ([id, width]) => known.has(id) && typeof width === 'number' && Number.isFinite(width) && width >= RIGHT.min,
-        ),
-      ) as Partial<Record<CardId, number>>;
-    }
+    const saved = Number(localStorage.getItem(WIDTH_KEY));
+    if (Number.isFinite(saved) && saved >= RIGHT.min) return saved;
+    const each = JSON.parse(localStorage.getItem(LEGACY_WIDTHS_KEY) ?? '{}') as Record<string, unknown>;
+    const widths = Object.values(each).filter(
+      (width): width is number => typeof width === 'number' && Number.isFinite(width) && width >= RIGHT.min,
+    );
+    if (widths.length) return Math.max(...widths);
   } catch {
-    // Unreadable: every card starts at the default width.
+    // Unreadable: the tools start at the column's width.
   }
-  return column === RIGHT.initial ? {} : Object.fromEntries(open.map((card) => [card.id, column]));
+  return column;
+}
+
+function loadColumns(): 1 | 2 {
+  try {
+    return localStorage.getItem(COLUMNS_KEY) === '2' ? 2 : 1;
+  } catch {
+    return 1;
+  }
 }
 
 function load(): Saved {

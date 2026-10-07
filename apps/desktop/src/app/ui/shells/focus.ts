@@ -39,6 +39,7 @@ const NATIVE_MENU =
  */
 @Component({
   selector: 'pa-shell-focus',
+  host: { '(document:keydown.escape)': 'leaveFullScreen($event)' },
   imports: [
     Composer,
     ContextMeter,
@@ -61,6 +62,7 @@ const NATIVE_MENU =
       class="shell-focus"
       [class.has-tool]="open()"
       [class.tool-page]="open() && layout.right() !== 'docked'"
+      [class.tool-full]="open() && !!work.focused()"
       [class.is-mac]="win.isMac"
       [class.is-fullscreen]="win.fullscreen()"
       [class.is-resizing]="layout.resizing()"
@@ -162,6 +164,14 @@ export class FocusShell {
 
   protected open(): boolean {
     return this.work.panelVisible() && this.work.visible().length > 0;
+  }
+
+  /** Escape leaves a tool's full screen, when nothing else took the key. */
+  protected leaveFullScreen(event: Event): void {
+    const full = this.work.focused();
+    if (!full || event.defaultPrevented || !this.open()) return;
+    event.preventDefault();
+    this.work.maximize(full);
   }
 
   /**
