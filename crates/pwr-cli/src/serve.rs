@@ -2373,14 +2373,23 @@ impl<R: TurnRunner + 'static> Server<R> {
             None => report.answer.clone(),
         };
         if let Some(verification) = goal_verification.as_ref() {
+            // With no acceptance check declared the goal has already said
+            // that the checks passed and why that is not a verification
+            // (`not_verified_note`); said again here, a finished goal ended
+            // with the same paragraph twice around the model's last words.
+            let already_said = !verification.passed
+                && verification.technical_passed
+                && !verification.acceptance_available;
             if verification.passed {
                 answer.push_str("\n\nGoal verified by declared acceptance checks:\n");
-            } else if verification.technical_passed {
+            } else if verification.technical_passed && !already_said {
                 answer.push_str(
                     "\n\nTechnical checks passed, but goal acceptance is not verified:\n",
                 );
             }
-            answer.push_str(&verification.summary);
+            if !already_said {
+                answer.push_str(&verification.summary);
+            }
         }
         if !answer.trim().is_empty() {
             self.update(session_id, message_chunk("agent_message_chunk", &answer));

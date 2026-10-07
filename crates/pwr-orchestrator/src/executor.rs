@@ -628,6 +628,10 @@ pub struct GoalAids {
     /// Let the model keep a plan with `update_plan` and show it the plan
     /// before every reply ([`crate::board`]; plan W2.14).
     pub plan: bool,
+    /// Reason at the person's level on the first step and after anything
+    /// failed, and one level lower on the step after an action that worked
+    /// ([`converse::paced_effort`]; plan W2.15).
+    pub paced_reasoning: bool,
 }
 
 /// How a request is run: one turn, or turns repeated until the work is
@@ -826,6 +830,7 @@ async fn drive<H: SessionHost + ?Sized>(
     } = request;
     // One plan for the goal, across its turns; a conversation keeps none.
     continuity.plan = (aids.plan && policy == Policy::Goal).then(Arc::default);
+    continuity.paced_reasoning = aids.paced_reasoning && policy == Policy::Goal;
     let goal_mode = policy == Policy::Goal;
     let minimal = policy == Policy::Minimal;
     // The control spends the same budget a goal would, so the two arms of a

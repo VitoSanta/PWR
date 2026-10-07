@@ -1161,3 +1161,29 @@ not changed: with no acceptance declared, the checks were the `build` and
 only print, after which the harness reported that the repository's own
 checks passed. The outcome did say acceptance was not declared; the
 feedback sentence to the model did not.
+
+### 2026-10-07: the same site asked of PWR and of OpenCode, and what the run's log said
+
+One prompt (an Angular site for an architecture studio: three pages, a
+navigation bar, a validated form, `npm run build` passing), gpt-oss 20B both
+times, run by the maintainer by hand: PWR in the app in Goal mode on its MLX
+engine, OpenCode 2.0.20 on Ollama. One run each; an example, not a measure.
+
+- OpenCode: its first two replies created no file and reported a successful
+  build with invented output; told so, it wrote 346 lines of source and
+  stopped on a build that fails (a hand-written TypeScript configuration
+  that finds no input). About fourteen minutes, two prompts from the person.
+- PWR: twenty-three minutes and thirty-six seconds, no prompt from the
+  person, a site that builds and whose three pages, navigation and form
+  validation work in a browser. Left wrong: the generator's
+  `Hello, studio-lineare` heading under every page, a footer with no studio
+  details, one label in English. Its own closing summary called all of it
+  conforming, and it had rewritten the generated test to expect that heading.
+
+Changes made from this run and the two before it, none yet run with a model:
+the review now reads what the built site shows in a browser
+(`pwr_tools::site`); a harmony call left at the end of the reasoning is read
+as the call (`harmony_call_read_from_reasoning`); after the review a reply
+in words that changes nothing closes the goal; a command's result says the
+folder it ran in; the explanation of "not verified" is said once and in one
+sentence; and reasoning can be paced (plan W2.15, off by default).

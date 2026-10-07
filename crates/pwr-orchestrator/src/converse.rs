@@ -532,6 +532,31 @@ pub enum Harness {
 /// 350 read per second at full power; it is a weight, not a prediction.
 pub const WORK_PER_TOKEN: u64 = 8;
 
+/// The reasoning effort of the next generation when the effort is paced.
+///
+/// The person's level where judgment is needed -- the first step of a turn,
+/// and the step after anything failed, was refused or could not be read --
+/// and one level lower on the step after an action that worked, which is
+/// usually the next read, write or run of a plan already made.
+///
+/// Measured before it was written, on one goal (gpt-oss 20B building an
+/// Angular site in the app, 2026-10-07, effort medium throughout): of 43,057
+/// generated tokens about 37,900 were reasoning, 74 % of the goal's
+/// twenty-four minutes was generation, and the reasoning of a routine step
+/// planned the whole site again. Whether pacing costs quality has not been
+/// measured; it is off unless a workspace asks.
+pub fn paced_effort(
+    effort: pwr_domain::ReasoningEffort,
+    paced: bool,
+    after_an_action_that_worked: bool,
+) -> pwr_domain::ReasoningEffort {
+    if paced && after_an_action_that_worked {
+        effort.lower()
+    } else {
+        effort
+    }
+}
+
 /// One generation's count on a goal's work meter.
 ///
 /// While the reply arrives it is estimated, from the prompt tokens the engine
@@ -656,6 +681,9 @@ pub struct Continuity {
     /// [`pwr_domain::plan_reasoning`], inside the room the context has left.
     pub reasoning_effort: pwr_domain::ReasoningEffort,
     pub reasoning: pwr_domain::ReasoningProfile,
+    /// Whether the effort is paced by what the last step did
+    /// ([`paced_effort`]). Off unless the goal asks for it.
+    pub paced_reasoning: bool,
     /// The model's compatibility status, for the audit.
     pub profile_status: Option<String>,
     /// Where the conversation stands, updated at every action boundary and
@@ -1694,6 +1722,8 @@ async fn take_turn_inner<P: ModelProvider>(
     let mut silent = 0usize;
     let mut reasoning_calls = 0usize;
     let mut answer_without_thinking = false;
+    // The step before this generation was an action that worked.
+    let mut routine = false;
     let mut runaway_retry = false;
     // Set once a generation of this turn looped: every later one is sampled
     // with a presence penalty (see `ANTI_LOOP_PRESENCE_PENALTY`).
@@ -1991,6 +2021,11 @@ async fn take_turn_inner<P: ModelProvider>(
         }
         let finalizing = full && (unfinished_reasoning > 0 || answer_without_thinking);
         answer_without_thinking = false;
+        let effort = paced_effort(
+            continuity.reasoning_effort,
+            continuity.paced_reasoning,
+            std::mem::take(&mut routine),
+        );
         let plan = if finalizing {
             pwr_domain::plan_finalization(
                 continuity.reasoning_effort,
@@ -1998,7 +2033,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 envelope,
             )
         } else {
-            pwr_domain::plan_reasoning(continuity.reasoning_effort, &continuity.reasoning, envelope)
+            pwr_domain::plan_reasoning(effort, &continuity.reasoning, envelope)
         };
         apply_reasoning_plan(&mut request_sampling, &plan);
         let request = ModelRequest {
@@ -3321,6 +3356,7 @@ async fn take_turn_inner<P: ModelProvider>(
             }
             match outcome {
                 Ok(mut value) => {
+                    routine = !crate::repetition::failed(&value);
                     if no_project_before && !crate::repetition::failed(&value) {
                         match crate::scaffold::move_to_root(
                             &policy.root,
@@ -4159,6 +4195,19 @@ fn tool_message(call: &pwr_domain::ToolCall, outcome: serde_json::Value) -> Chat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paced_reasoning_is_lower_only_after_an_action_that_worked() {
+        use pwr_domain::ReasoningEffort::{High, Low, Medium};
+        // Off, the person's level always.
+        assert_eq!(paced_effort(Medium, false, true), Medium);
+        // On: full on the first step and after a failure, one lower after
+        // an action that worked, and never below the lowest.
+        assert_eq!(paced_effort(Medium, true, false), Medium);
+        assert_eq!(paced_effort(High, true, true), Medium);
+        assert_eq!(paced_effort(Medium, true, true), Low);
+        assert_eq!(paced_effort(Low, true, true), Low);
+    }
 
     #[test]
     fn the_core_catalogue_is_ten_of_the_conversation_s_tools_and_can_finish_a_goal() {

@@ -27,6 +27,14 @@ pub enum ReasoningEffort {
 impl ReasoningEffort {
     pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
 
+    /// The level below this one, or this one when there is none.
+    pub fn lower(self) -> Self {
+        match self {
+            Self::High => Self::Medium,
+            Self::Medium | Self::Low => Self::Low,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Low => "low",

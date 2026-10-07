@@ -3901,7 +3901,21 @@ impl serve::TurnRunner for ConsoleTurns {
             .map_err(|error| error.to_string())
     }
 
-    async fn review(&self, root: &Path, prompt: String) -> Result<String, String> {
+    async fn review(&self, root: &Path, mut prompt: String) -> Result<String, String> {
+        // What the built site shows, read from a browser, beside the code
+        // (`pwr_tools::site`). The look runs in the sandbox whatever the
+        // session's mode: it only opens pages this machine serves.
+        let looking = pwr_tools::PolicyProfile::Safe.build(root.to_path_buf());
+        if let Some(pages) = pwr_tools::site::shown(&looking).await {
+            prompt.push_str(&format!(
+                "\n\nWhat the built site shows in a browser, page by page -- the text a visitor \
+                 reads:\n{pages}\nJudge every rule about what a page shows, says or must not say \
+                 against this text as well as against the code. A heading or sentence shown here \
+                 that the request excludes -- a framework's placeholder, text in another language \
+                 than the one asked for -- is NOT MET wherever in the code it comes from, and so \
+                 is something the request asks to be shown that no page shows."
+            ));
+        }
         self.aside(
             root,
             "You review code someone else wrote against the specification it was written to. \
@@ -4109,7 +4123,7 @@ impl serve::TurnRunner for ConsoleTurns {
             acceptance_available,
             summary: if technical_passed && !acceptance_available {
                 format!(
-                    "{summary}\n\nNo unchanged product-level acceptance contract was available for this session. Before starting a goal-mode session, declare an executable check with `\"kind\": \"acceptance\"` in `.pwr/checks.json`; it can validate a browser flow, API contract, CLI workflow, desktop smoke test, migration, or other outcome that represents this workspace's real goal. Do not modify that contract during the task: start a new session after human review if it needs to change."
+                    "{summary}\n\nTo have a goal verified, declare a check with `\"kind\": \"acceptance\"` in `.pwr/checks.json` before starting it."
                 )
             } else {
                 summary

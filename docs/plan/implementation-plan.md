@@ -319,6 +319,23 @@ tested.
 No candidate above authorizes a campaign before the baseline/power/provenance
 requirements. F0 owner approval adopted scope, not the numerical F6 thresholds.
 
+### W2.15 Reasoning paced by what the last step did
+
+**HYPOTHESIS, implemented behind a switch, not measured (2026-10-07).** On one
+goal read from its event log (gpt-oss 20B building an Angular site in the
+app, effort medium): 43,057 tokens generated, about 37,900 of them
+reasoning; generation was 74 % of twenty-four minutes, prompt reading 8 %
+(98 % of prompt tokens came from the cache), commands 2 %. The reasoning of
+a routine step planned the whole site again.
+
+- **Change.** With `goal_aids.paced_reasoning` on, a goal's generation after
+  an action that worked is planned one effort level below the person's
+  (`converse::paced_effort`); the first step of a turn, and the step after a
+  failure, a refusal or an unreadable call, keep the person's level. Off by
+  default; no profile turns it on.
+- **Tested.** `paced_reasoning_is_lower_only_after_an_action_that_worked`.
+- **Not known.** Whether it costs quality, on any model.
+
 ## How to read this plan
 
 Each work item has an ID (`W<stream>.<n>`), a status, and these parts:

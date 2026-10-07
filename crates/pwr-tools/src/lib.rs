@@ -2,6 +2,7 @@
 pub mod atomic;
 pub mod document;
 pub mod service;
+pub mod site;
 
 use pwr_domain::hash_bytes;
 use regex::Regex;

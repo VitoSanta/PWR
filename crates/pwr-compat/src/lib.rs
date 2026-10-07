@@ -1461,7 +1461,51 @@ impl ModelBehaviorAdapter for HarmonyAdapter {
 
     fn normalize(&self, reply: &ModelReply) -> CanonicalReply {
         let mut canonical = CanonicalReply::verbatim(reply);
-        if !canonical.tool_calls.is_empty() || !reply.content.contains(HARMONY_CHANNEL) {
+        if !canonical.tool_calls.is_empty() {
+            return canonical;
+        }
+        if !reply.content.contains(HARMONY_CHANNEL) {
+            // The call written after the reasoning without the reasoning
+            // having been closed for the engine: it arrives as the tail of
+            // the thinking, `...<|end|><|start|>assistant<|channel|>commentary
+            // to=functions.read_file<|constrain|>json<|message|>{...}`, and
+            // the reply has no call. Seen 2026-10-07 (gpt-oss 20B building a
+            // site, three times in one goal): each was a step asked again.
+            // Only a body that is a JSON object is taken for a call.
+            if let Some(at) = canonical.thinking.find(HARMONY_CHANNEL)
+                && canonical.thinking[at..].contains("to=functions.")
+            {
+                let tail = canonical.thinking[at..].to_owned();
+                let read = HarmonyAdapter.normalize(&ModelReply {
+                    content: tail,
+                    thinking: String::new(),
+                    tool_calls: Vec::new(),
+                    chunks: reply.chunks,
+                    metrics: None,
+                });
+                let calls: Vec<ToolCall> = read
+                    .tool_calls
+                    .into_iter()
+                    .filter(|call| call.arguments.is_object())
+                    .collect();
+                if !calls.is_empty() {
+                    canonical.thinking.truncate(at);
+                    let kept = canonical
+                        .thinking
+                        .trim_end()
+                        .trim_end_matches("<|start|>assistant")
+                        .trim_end()
+                        .trim_end_matches("<|end|>")
+                        .trim_end()
+                        .len();
+                    canonical.thinking.truncate(kept);
+                    canonical.tool_calls = calls;
+                    canonical.diagnostics.push(Diagnostic {
+                        kind: "harmony_call_read_from_reasoning",
+                        detail: canonical.tool_calls[0].name.clone(),
+                    });
+                }
+            }
             return canonical;
         }
         let mut narrative = String::new();
@@ -2242,6 +2286,32 @@ mod tests {
             "The file contains CHECK=40. I should respond with the exact content."
         );
         assert_eq!(continuation.narrative, "CHECK=40");
+    }
+
+    #[test]
+    fn a_harmony_call_left_in_the_reasoning_is_read_as_the_call() {
+        let thinking = "We need the root component.<|end|><|start|>assistant<|channel|>commentary to=functions.read_file<|constrain|>json<|message|>{\"path\":\"src/app/app.ts\",\"first_line\":1}";
+        let canonical = HarmonyAdapter.normalize(&ModelReply {
+            thinking: thinking.into(),
+            ..Default::default()
+        });
+        assert_eq!(canonical.tool_calls.len(), 1, "{canonical:?}");
+        assert_eq!(canonical.tool_calls[0].name, "read_file");
+        assert_eq!(canonical.tool_calls[0].arguments["path"], "src/app/app.ts");
+        assert_eq!(canonical.thinking, "We need the root component.");
+        // Prose addressed to a tool is not a call, and reasoning that only
+        // mentions the syntax stays reasoning.
+        for kept in [
+            "Plan.<|end|><|start|>assistant<|channel|>commentary to=functions.write_file<|message|>We need to write it.",
+            "I will call to=functions.read_file next.",
+        ] {
+            let canonical = HarmonyAdapter.normalize(&ModelReply {
+                thinking: kept.into(),
+                ..Default::default()
+            });
+            assert!(canonical.tool_calls.is_empty(), "{canonical:?}");
+            assert_eq!(canonical.thinking, kept);
+        }
     }
 
     #[test]
