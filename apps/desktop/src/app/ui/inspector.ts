@@ -289,8 +289,12 @@ export class Inspector {
   );
   /** The gaps between rows, numbered by the row above them. */
   protected readonly rowBoundaries = computed(() => Array.from({ length: Math.max(0, this.rowCount() - 1) }, (_, row) => row));
-  protected readonly columnsTemplate = computed(() => `minmax(0, ${this.split()}fr) minmax(0, ${1 - this.split()}fr)`);
-  protected readonly rowsTemplate = computed(() => this.weights().map((weight) => `minmax(0, ${weight}fr)`).join(' '));
+  // Shares are written a hundred times larger: tracks whose `fr` add up to
+  // less than one take only that fraction of the room. A row kept at 0.78
+  // after a resize, alone once its neighbour was closed, left the cards
+  // short of the bottom.
+  protected readonly columnsTemplate = computed(() => `minmax(0, ${this.split() * 100}fr) minmax(0, ${(1 - this.split()) * 100}fr)`);
+  protected readonly rowsTemplate = computed(() => this.weights().map((weight) => `minmax(0, ${weight * 100}fr)`).join(' '));
   protected readonly columnHandleLeft = computed(() => `calc((100% - ${GAP}px) * ${this.split()})`);
   /** The column gap stops above a last card that takes its row whole. */
   protected readonly columnHandleHeight = computed(() => {
