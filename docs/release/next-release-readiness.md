@@ -25,9 +25,11 @@ freezing a candidate. Historical suite passes are not candidate evidence.
 Record the exact commit, clean-tree status, tool versions and every exit code.
 Do not promote a historical audit's counts into a current test result.
 
-- [ ] Choose the release version and update Cargo workspace/Tauri manifests,
-  both Cargo locks, npm manifest/lock and Tauri configuration consistently.
-- [ ] Prepare `docs/release/<tag>-release-notes.md` for that selected version.
+- [x] Choose the release version and update Cargo workspace/Tauri manifests,
+  both Cargo locks, npm manifest/lock and Tauri configuration consistently:
+  `0.3.0-alpha`.
+- [x] Prepare `docs/release/<tag>-release-notes.md` for that selected version:
+  [v0.3.0-alpha](v0.3.0-alpha-release-notes.md), a candidate text.
 - [ ] Run formatting, Clippy, the full Rust suite and explicit skip reporting.
 - [ ] Run a clean `npm ci`, desktop unit tests and production build.
 - [ ] Run sidecar and stack-matrix runner tests without a live model.
@@ -35,6 +37,15 @@ Do not promote a historical audit's counts into a current test result.
   roadmap matches `docs/milestones.json`.
 - [ ] Obtain hosted macOS CI for the same candidate commit; identify skips
   and investigate failures rather than counting skipped cases as exercised.
+
+Recorded 2026-10-07 on `e0a41a7c`, the commit before the version change (the
+version commit changes manifests, locks and release notes only): full Rust
+suite 1,585 passed, 0 failed, 5 ignored in 107 binaries; hosted macOS CI green
+on attempt 2 after one sandbox test failed on attempt 1 and passed unchanged.
+On the version commit: formatting, the public-docs check, the roadmap check, a
+workspace build, a clean `npm ci`, 109 desktop tests and the production build.
+Clippy, the sidecar tests and hosted CI on the version commit itself are still
+to be recorded, as are the stack-matrix runner tests.
 
 Commands and interpretation are in [testing](../testing.md) and
 [CONTRIBUTING](../../CONTRIBUTING.md). No full candidate suite, hosted CI,
