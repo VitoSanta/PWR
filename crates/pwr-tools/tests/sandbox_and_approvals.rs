@@ -1871,6 +1871,13 @@ fn a_browser_check_reports_a_local_server_error() {
         while !stop.load(Ordering::Relaxed) {
             if let Ok((mut stream, _)) = listener.accept() {
                 std::thread::spawn(move || {
+                    // On macOS an accepted socket inherits the listener's
+                    // non-blocking mode: the read returned at once, the
+                    // answer was written before the request had arrived and
+                    // the close reset the connection. A browser asks again;
+                    // the status probe does not, and on a slow host (CI runs
+                    // 36 to 44) it read no status.
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(Duration::from_secs(1)))
                         .unwrap();
