@@ -85,6 +85,7 @@ type Item =
                   </div>
                 }
                 </div>
+                <time class="message-time num" [attr.datetime]="iso(item.entry.at)">{{ clock(item.entry.at) }}</time>
                 <div class="message-actions">
                   <button class="icon-btn icon-btn-sm" (click)="copy(item.entry.text)" aria-label="Copy message" paTooltip="Copy">
                     <pa-icon name="copy" [size]="14" />
@@ -135,7 +136,7 @@ type Item =
                   <pa-brand-mark class="turn-avatar" />
                   <strong>PWR</strong>
                   <span class="turn-meta truncate">{{ store.modelName() }}</span>
-                  <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }}</span>
+                  <span class="turn-meta num">· {{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }} · started {{ clock(item.startedAt) }}</span>
                 </header>
                 <div class="turn-body">
                   @switch (store.traceVisibility()) {
@@ -161,6 +162,8 @@ type Item =
                       <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
                       {{ workingLabel() }}
                     </div>
+                  } @else {
+                    <time class="turn-finished num" [attr.datetime]="iso(item.endedAt)">Finished {{ clock(item.endedAt) }} · took {{ duration(item) }}</time>
                   }
                 </div>
               </article>
@@ -342,6 +345,16 @@ export class Conversation {
     return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
   }
 
+  /** The local time of day of an event, to the second: read on coming back
+   *  to a turn that ran while nobody watched. */
+  protected clock(at: number): string {
+    return clockTime(at);
+  }
+
+  protected iso(at: number): string {
+    return new Date(at).toISOString();
+  }
+
   protected outcomeIcon(tone: RunOutcome['tone']): IconName {
     return tone === 'done' ? 'check-circle' : tone === 'paused' ? 'history' : tone === 'stopped' ? 'stop' : 'alert';
   }
@@ -353,6 +366,13 @@ export class Conversation {
   protected kindOf(path: string) {
     return fileKind(path);
   }
+}
+
+/** `14:07:32`, in the machine's own time zone and always on 24 hours, so a
+ *  start and an end can be subtracted by eye. */
+export function clockTime(at: number): string {
+  const date = new Date(at);
+  return [date.getHours(), date.getMinutes(), date.getSeconds()].map((part) => String(part).padStart(2, '0')).join(':');
 }
 
 /** A short visual type for an attachment. */

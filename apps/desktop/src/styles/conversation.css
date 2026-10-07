@@ -1443,3 +1443,19 @@ pa-trace-raw {
 .rewind-option > .fine {
   margin: 0;
 }
+
+/* When a message was sent and when the reply to it ended: always shown, since
+   they are read on coming back to a turn nobody watched. */
+.message-time,
+.turn-finished {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}
+.message-time {
+  text-align: right;
+  margin-top: 2px;
+}
+.turn-finished {
+  margin-top: 8px;
+}
