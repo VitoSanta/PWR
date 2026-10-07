@@ -11872,6 +11872,7 @@ mod tests {
                 stderr_truncated: false,
                 sandboxed: true,
                 failing_files: None,
+                ran_in: None,
             },
         }
     }

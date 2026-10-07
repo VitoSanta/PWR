@@ -2998,6 +2998,11 @@ pub struct ToolResult {
     /// [`diagnostics_summary`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failing_files: Option<String>,
+    /// The folder under the workspace root the command ran in, when it was
+    /// not the root itself, with what that means for the paths it was given.
+    /// See [`ran_in`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ran_in: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileReadResult {
@@ -7277,9 +7282,13 @@ async fn run_command_once(
     if let Some(note) = npx_fetched_package(&stderr) {
         stderr.push_str(&note);
     }
+    // Named from the workspace root, as every tool's `path` is: the absolute
+    // form a compiler prints is one a tool then refuses.
     let failing_files = (status.code() != Some(0))
         .then(|| diagnostics_summary(&stdout, &stderr))
-        .flatten();
+        .flatten()
+        .map(|summary| from_the_root(&policy.root, &summary));
+    let ran_in = ran_in(&policy.root, cwd);
     Ok(ToolResult {
         exit_code: status.code(),
         artifact_hash,
@@ -7291,7 +7300,43 @@ async fn run_command_once(
         redacted: a || b,
         sandboxed,
         failing_files,
+        ran_in,
     })
+}
+
+/// Where a command ran, said when it was a folder under the root.
+///
+/// A command's paths are read from its `cwd`; every tool's `path` is read
+/// from the workspace root. A model that has moved into a folder mixes the
+/// two. Seen 2026-10-07 (gpt-oss 20B, an Angular site scaffolded in
+/// `archi-site/`): `tsc -p archi-site/tsconfig.app.json` run with `cwd:
+/// archi-site`, and in the run before it file tools aimed at `src/app/...`
+/// when the files were under `tmp-app/`. The result now says where it ran.
+pub fn ran_in(root: &Path, cwd: Option<&Path>) -> Option<String> {
+    let cwd = cwd?;
+    let whole = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let (root, cwd) = (whole(root), whole(&root.join(cwd)));
+    let relative = cwd.strip_prefix(&root).ok()?;
+    if relative.as_os_str().is_empty() {
+        return None;
+    }
+    let folder = relative.display();
+    Some(format!(
+        "{folder}/ -- paths written in this command are read from {folder}/; a tool's `path` \
+         is always from the workspace root, so a file there is `{folder}/<file>`"
+    ))
+}
+
+/// `text` with the workspace root taken off the front of the paths in it.
+fn from_the_root(root: &Path, text: &str) -> String {
+    let mut text = text.to_owned();
+    for form in [root.canonicalize().ok(), Some(root.to_path_buf())]
+        .into_iter()
+        .flatten()
+    {
+        text = text.replace(&format!("{}/", form.display()), "");
+    }
+    text
 }
 
 /// Said when `npx` fetched a package the project does not have and ran it:
@@ -7830,6 +7875,21 @@ mod tests {
         let given = args(&["scripts/sh"]);
         assert_eq!(args_after_program("sh", &given).unwrap(), &given[..]);
         assert!(args_after_program("sh", &args(&["/bin/sh"])).is_err());
+    }
+
+    #[test]
+    fn a_command_run_in_a_folder_says_so_and_names_failing_files_from_the_root() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("site/src")).unwrap();
+        let said = ran_in(root.path(), Some(Path::new("site"))).unwrap();
+        assert!(said.starts_with("site/ -- "), "{said}");
+        assert!(said.contains("`site/<file>`"), "{said}");
+        // The root itself, by any spelling, needs nothing said.
+        assert_eq!(ran_in(root.path(), None), None);
+        assert_eq!(ran_in(root.path(), Some(Path::new("."))), None);
+        assert_eq!(ran_in(root.path(), Some(root.path())), None);
+        let absolute = format!("{}/site/src/app.ts (3)", root.path().display());
+        assert_eq!(from_the_root(root.path(), &absolute), "site/src/app.ts (3)");
     }
 
     #[test]

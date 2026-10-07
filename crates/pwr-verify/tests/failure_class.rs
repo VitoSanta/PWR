@@ -24,6 +24,7 @@ fn failed(stderr: &str, stdout: &str, failing_files: Option<&str>) -> ToolResult
         stderr_truncated: false,
         sandboxed: true,
         failing_files: failing_files.map(str::to_owned),
+        ran_in: None,
     }
 }
 

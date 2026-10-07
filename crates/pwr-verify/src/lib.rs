@@ -812,6 +812,7 @@ fn web_assets_result(policy: &ToolPolicy) -> ToolResult {
         // Synthesised from the asset walk rather than run as a command, so
         // there is no compiler output to summarise.
         failing_files: None,
+        ran_in: None,
     }
 }
 
