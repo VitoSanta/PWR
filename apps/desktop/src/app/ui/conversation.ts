@@ -210,6 +210,8 @@ export class Conversation {
   private readonly scroller = viewChild.required<ElementRef<HTMLElement>>('scroller');
   private readonly now = signal(Date.now());
   private pinned = true;
+  /** A scroll to the bottom is already asked for this frame. */
+  private following = false;
 
   /**
    * Everything the model does between two messages of the person is one
@@ -269,13 +271,22 @@ export class Conversation {
     }, 1000);
     // Follow the newest entry while the person is at the bottom; leave them
     // where they are when they have scrolled up to read.
+    //
+    // At once, and once a frame. The timeline changes with every piece of a
+    // streamed reply, many times a second, and each change used to start a
+    // new smooth scroll towards a bottom that had already moved: while a
+    // reply streamed the whole conversation swayed up and down by a few
+    // lines, each line drawn twice (seen 2026-10-07 on a long goal). An
+    // animation has nothing to add to following text as it is written.
     effect(() => {
       this.store.timeline();
       this.store.turnActive();
-      if (!this.pinned) return;
+      if (!this.pinned || this.following) return;
+      this.following = true;
       requestAnimationFrame(() => {
+        this.following = false;
         const element = this.scroller().nativeElement;
-        element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
+        element.scrollTo({ top: element.scrollHeight, behavior: 'instant' });
       });
     });
   }
