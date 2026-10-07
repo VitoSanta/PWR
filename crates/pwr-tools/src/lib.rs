@@ -4641,50 +4641,84 @@ const steps = {steps};
 const frame = document.getElementById('page');
 const said = [];
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+const text = (el) => [el.innerText, el.value, el.placeholder, el.name, el.id, el.title, el.getAttribute('aria-label'),
+  ...(el.labels ? [...el.labels].map((label) => label.innerText) : [])]
+  .filter(Boolean).map((name) => String(name).trim().toLowerCase().replace(/\s+/g, ' '));
+const CLICKABLE = 'button,a,summary,option,[role="button"],[role="tab"],[role="menuitem"],input[type="submit"],input[type="button"],input[type="checkbox"],input[type="radio"],label,[onclick],[tabindex]';
+const FIELDS = 'input:not([type="hidden"]),textarea,select,[contenteditable="true"]';
 function find(doc, what, fields) {{
   try {{ const hit = doc.querySelector(what); if (hit) return hit; }} catch (_) {{}}
-  const wanted = what.trim().toLowerCase();
-  const pool = fields
-    ? [...doc.querySelectorAll('input,textarea,select,[contenteditable="true"]')]
-    : [...doc.querySelectorAll('button,a,[role="button"],input[type="submit"],input[type="button"],summary,label,[onclick]')];
-  const names = (el) => [el.innerText, el.value, el.placeholder, el.name, el.id, el.getAttribute('aria-label'),
-    ...(el.labels ? [...el.labels].map((label) => label.innerText) : [])]
-    .filter(Boolean).map((text) => String(text).trim().toLowerCase());
-  return pool.find((el) => names(el).includes(wanted)) || pool.find((el) => names(el).some((name) => name.includes(wanted)));
+  const wanted = what.trim().toLowerCase().replace(/\s+/g, ' ');
+  const pool = [...doc.querySelectorAll(fields ? FIELDS : CLICKABLE)];
+  return pool.find((el) => text(el).includes(wanted)) || pool.find((el) => text(el).some((name) => name.includes(wanted)))
+    || pool.find((el) => text(el).some((name) => name.length > 2 && wanted.includes(name)));
 }}
-function type(el, text) {{
+// What there is to act on, said when a step names nothing on the page.
+function offered(doc, fields) {{
+  const names = [...doc.querySelectorAll(fields ? FIELDS : CLICKABLE)]
+    .map((el) => (el.innerText || el.getAttribute('aria-label') || el.title || el.placeholder || el.name || el.id || '').trim().replace(/\s+/g, ' ').slice(0, 40))
+    .filter(Boolean);
+  const list = [...new Set(names)].slice(0, 20).map((name) => `"${{name}}"`).join(', ');
+  return list ? ` The page has: ${{list}}.` : ' The page has nothing of that kind.';
+}}
+function fire(el, names) {{ for (const name of names) el.dispatchEvent(new frame.contentWindow.Event(name, {{ bubbles: true }})); }}
+function type(el, value) {{
   el.focus();
-  if (el.isContentEditable) {{ el.textContent = text; }}
-  else {{
-    const proto = el instanceof frame.contentWindow.HTMLTextAreaElement ? frame.contentWindow.HTMLTextAreaElement.prototype
-      : el instanceof frame.contentWindow.HTMLSelectElement ? frame.contentWindow.HTMLSelectElement.prototype
-      : frame.contentWindow.HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);
+  const view = frame.contentWindow;
+  if (el.isContentEditable) {{ el.textContent = value; }}
+  else if (el instanceof view.HTMLSelectElement) {{
+    const wanted = value.trim().toLowerCase();
+    const option = [...el.options].find((o) => o.value.toLowerCase() === wanted || o.text.trim().toLowerCase() === wanted)
+      || [...el.options].find((o) => o.text.toLowerCase().includes(wanted));
+    if (!option) throw new Error(`no option "${{value}}"; it has: ${{[...el.options].map((o) => `"${{o.text.trim()}}"`).join(', ')}}`);
+    el.value = option.value;
+  }} else {{
+    const proto = el instanceof view.HTMLTextAreaElement ? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
   }}
-  for (const name of ['input', 'change']) el.dispatchEvent(new frame.contentWindow.Event(name, {{ bubbles: true }}));
-  el.blur(); el.focus();
+  fire(el, ['input', 'change']);
 }}
+let last = null;
+const SCROLLS = {{ End: 1e9, Home: -1e9, PageDown: 0.9, PageUp: -0.9, ArrowDown: 0.15, ArrowUp: -0.15, ' ': 0.9 }};
 async function run() {{
   await new Promise((done) => {{ frame.addEventListener('load', done, {{ once: true }}); frame.src = {url}; }});
   await pause(600);
+  if (!frame.contentDocument) throw new Error('the page does not let itself be acted on from outside (it refused to be framed)');
   for (const [index, step] of steps.entries()) {{
-    const doc = frame.contentDocument, n = index + 1;
+    const doc = frame.contentDocument, view = frame.contentWindow, n = index + 1;
     try {{
       if (step.click != null) {{
         const el = find(doc, step.click, false);
-        if (!el) {{ said.push(`step ${{n}}: nothing to click matches "${{step.click}}"`); continue; }}
-        el.scrollIntoView({{ block: 'center' }}); el.click();
-        said.push(`step ${{n}}: clicked "${{step.click}}"`);
+        if (!el) {{ said.push(`step ${{n}}: nothing to click matches "${{step.click}}".${{offered(doc, false)}}`); continue; }}
+        if (el instanceof view.HTMLOptionElement) {{
+          // An option is chosen, as a click on it in the open list would.
+          const select = el.closest('select');
+          select.value = el.value; fire(select, ['input', 'change']);
+          select.scrollIntoView({{ block: 'center', behavior: 'instant' }}); last = select;
+          said.push(`step ${{n}}: chose "${{el.text.trim()}}"`);
+        }} else {{
+          el.scrollIntoView({{ block: 'center', behavior: 'instant' }}); el.focus && el.focus({{ preventScroll: true }}); el.click(); last = el;
+          said.push(`step ${{n}}: clicked "${{step.click}}"`);
+        }}
       }} else if (step.type != null) {{
         const el = step.into != null ? find(doc, step.into, true) : doc.activeElement;
-        if (!el || el === doc.body) {{ said.push(`step ${{n}}: no field matches "${{step.into ?? 'the focus'}}"`); continue; }}
+        if (!el || el === doc.body) {{ said.push(`step ${{n}}: no field matches "${{step.into ?? 'the focus'}}".${{offered(doc, true)}}`); continue; }}
+        el.scrollIntoView({{ block: 'center', behavior: 'instant' }}); last = el;
         type(el, step.type);
         said.push(`step ${{n}}: typed into "${{step.into ?? 'the focused field'}}"`);
       }} else if (step.press != null) {{
         const el = doc.activeElement || doc.body;
+        const typing = el !== doc.body && el.matches(FIELDS);
+        let unhandled = true;
         for (const name of ['keydown', 'keypress', 'keyup'])
-          el.dispatchEvent(new frame.contentWindow.KeyboardEvent(name, {{ key: step.press, bubbles: true, cancelable: true }}));
+          unhandled = el.dispatchEvent(new view.KeyboardEvent(name, {{ key: step.press, bubbles: true, cancelable: true }})) && unhandled;
         if (step.press === 'Enter' && el.form) el.form.requestSubmit ? el.form.requestSubmit() : el.form.submit();
+        else if (step.press === 'Enter' && el !== doc.body) el.click();
+        // The keys a person scrolls with scroll, where the page did not take them.
+        if (unhandled && !typing && step.press in SCROLLS) {{
+          const by = SCROLLS[step.press];
+          view.scrollBy({{ top: Math.abs(by) > 1 ? by : by * view.innerHeight, behavior: 'instant' }}); last = null;
+        }}
         said.push(`step ${{n}}: pressed ${{step.press}}`);
       }} else {{ said.push(`step ${{n}}: names no click, type or press`); }}
     }} catch (error) {{ said.push(`step ${{n}} failed: ${{error && error.message}}`); }}
@@ -4692,6 +4726,9 @@ async function run() {{
   }}
   await pause(300);
   const doc = frame.contentDocument;
+  // The picture is of where the last step acted, wherever the page went since.
+  if (last && last.isConnected && last.getClientRects().length) last.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+  await pause(150);
   document.title = doc.title;
   document.getElementById('pwr-steps').textContent = said.join('\n');
   document.getElementById('pwr-text').textContent = doc.body ? doc.body.innerText : '';
@@ -4715,6 +4752,20 @@ pub async fn look_at_after(
             steps.len()
         )));
     }
+    // A step that names a field under `click` and a text under `type` is
+    // typing into that field: read as it was meant.
+    let steps: Vec<PageStep> = steps
+        .iter()
+        .cloned()
+        .map(|mut step| {
+            if step.type_text.is_some() && step.click.is_some() {
+                step.into = step.into.or(step.click.take());
+                step.click = None;
+            }
+            step
+        })
+        .collect();
+    let steps = steps.as_slice();
     if let Some(wrong) = steps.iter().position(|step| {
         [
             step.click.is_some(),
@@ -4817,18 +4868,34 @@ pub async fn look_at_after(
     // With steps, the browser opens PWR's own page, which frames the target
     // and acts on it ([`steps_page`]); to reach into the frame it is started
     // without the same-origin rule, on this one throwaway profile.
-    let acting = scratch.join("steps.html");
+    let acting = scratch.join("steps").join("index.html");
+    // A local server's page lets itself be reached only from a page that is
+    // served too: from a file its document is out of reach whatever the
+    // browser is told (seen 2026-10-07: every step on a local server's page
+    // answered "Cannot read properties of null"). So PWR's page is served
+    // from this machine for the length of the look.
+    let mut serving = None;
     if steps.is_empty() {
         args.push(url.clone());
     } else {
+        if let Some(folder) = acting.parent() {
+            std::fs::create_dir_all(folder)?;
+        }
         std::fs::write(&acting, steps_page(&url, steps))?;
         args.push("--disable-web-security".into());
+        args.push("--disable-site-isolation-trials".into());
         args.push("--allow-file-access-from-files".into());
-        args.push(
-            url::Url::from_file_path(&acting)
-                .map_err(|_| ToolError::Denied("the steps could not be prepared".into()))?
-                .to_string(),
-        );
+        if url.starts_with("http") {
+            let served = site::Served::start(scratch.join("steps"))?;
+            args.push(format!("http://127.0.0.1:{}/", served.port));
+            serving = Some(served);
+        } else {
+            args.push(
+                url::Url::from_file_path(&acting)
+                    .map_err(|_| ToolError::Denied("the steps could not be prepared".into()))?
+                    .to_string(),
+            );
+        }
     }
     let browser_path = browser.to_string_lossy().into_owned();
     let temporary = Path::new(BROWSER_SCRATCH).join(format!(
@@ -4918,6 +4985,7 @@ pub async fn look_at_after(
     let dom = std::fs::read_to_string(&dom_file).unwrap_or_default();
     let _ = std::fs::remove_file(&dom_file);
     let _ = std::fs::remove_file(&acting);
+    drop(serving);
     let (title, text) = if steps.is_empty() {
         visible_text(&dom)
     } else {
@@ -8897,6 +8965,10 @@ mod page_step_tests {
         assert!(none.to_string().contains("step 2 must have exactly one"));
         let many = run(vec![step(r#"{"click": "a"}"#); PAGE_STEPS + 1]).unwrap_err();
         assert!(many.to_string().contains("more than one look carries out"));
+        // A field named under `click` with a text to type is typing into it:
+        // it gets past the check, to the file that is not there.
+        let meant = run(vec![step(r#"{"click": "Nome", "type": "Vito"}"#)]).unwrap_err();
+        assert!(meant.to_string().contains("is not a file"), "{meant}");
     }
 
     #[test]

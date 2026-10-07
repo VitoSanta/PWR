@@ -115,14 +115,14 @@ pub fn routes(root: &Path) -> Vec<String> {
 /// Serves `folder` on a port of this machine until dropped: a file where the
 /// path names one, the site's `index.html` for every other path, as a site
 /// with client-side routes is served.
-struct Served {
-    port: u16,
+pub(crate) struct Served {
+    pub(crate) port: u16,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Served {
-    fn start(folder: PathBuf) -> std::io::Result<Self> {
+    pub(crate) fn start(folder: PathBuf) -> std::io::Result<Self> {
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
@@ -301,6 +301,71 @@ mod tests {
             report.contains("/progetti\n") || report.contains("/progetti"),
             "{report}"
         );
+    }
+
+    /// Seen 2026-10-07 (Qwen 3.6, a page on a local server): every step
+    /// answered "Cannot read properties of null", the page being of another
+    /// origin than PWR's own; a field named under `click`, an option of a
+    /// list and a question that opens were all asked for and none worked.
+    #[tokio::test]
+    async fn a_page_on_a_local_server_is_acted_on_as_a_person_would() {
+        const NAME: &str = "a_page_on_a_local_server_is_acted_on_as_a_person_would";
+        if crate::browser_executable().is_none() {
+            eprintln!("PWR-SKIP {NAME} no browser");
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("index.html"),
+            "<!doctype html><title>Aurora</title><div style=\"height:3000px\">sky</div>\
+             <details><summary>A che ora inizia?</summary><p>Alle ventuno.</p></details>\
+             <form id=f><label>Nome e Cognome <input name=nome></label>\
+             <select name=persone><option value=\"\">Scegli</option><option value=3>3 persone</option></select>\
+             <button type=submit>Invia richiesta</button></form><p id=out></p>\
+             <button aria-label=\"Cambia tema\"><svg></svg></button>\
+             <script>f.addEventListener('submit', (e) => { e.preventDefault(); \
+             out.textContent = 'Grazie ' + f.nome.value + ', in ' + f.persone.value; });\
+             document.querySelector('[aria-label]').onclick = () => document.body.append(' tema chiaro');</script>",
+        )
+        .unwrap();
+        let served = Served::start(root.path().to_path_buf()).unwrap();
+        let mut policy = crate::PolicyProfile::Safe.build(root.path().to_path_buf());
+        policy.timeout = std::time::Duration::from_secs(60);
+        policy.approvals.push(Approval::LocalService);
+        let steps: Vec<crate::PageStep> = serde_json::from_str(
+            r#"[{"click": "A che ora inizia?"},
+                {"click": "Nome e Cognome", "type": "Mario Rossi"},
+                {"click": "3 persone"},
+                {"click": "Invia richiesta"},
+                {"click": "Cambia tema"},
+                {"click": "Non esiste"}]"#,
+        )
+        .unwrap();
+        let url = format!("http://127.0.0.1:{}/", served.port);
+        let look = match crate::look_at_after(&policy, &url, None, None, &steps).await {
+            Ok(look) => look,
+            Err(error) if error.to_string().contains("could not be captured") => {
+                eprintln!("PWR-SKIP {NAME} the browser showed nothing");
+                return;
+            }
+            Err(error) => panic!("{error}"),
+        };
+        for said in [
+            "step 1: clicked \"A che ora inizia?\"",
+            "step 2: typed into \"Nome e Cognome\"",
+            "step 3: chose \"3 persone\"",
+            "step 6: nothing to click matches \"Non esiste\". The page has: \"A che ora inizia?\"",
+            "Alle ventuno.",
+            "Grazie Mario Rossi, in 3",
+            "tema chiaro",
+        ] {
+            assert!(
+                look.text.contains(said),
+                "missing {said:?} in:\n{}",
+                look.text
+            );
+        }
+        assert_eq!(look.title.as_deref(), Some("Aurora"));
     }
 
     #[test]

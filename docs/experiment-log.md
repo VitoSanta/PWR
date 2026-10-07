@@ -26,6 +26,19 @@ under the action, for a model that does not read images too. Tests: a real
 browser fills and sends a form and reads its confirmation (skipped where no
 browser runs); validation and read-back are covered without one.
 
+First use the same evening (Qwen 3.6 35B, a single page on a local server,
+`~/Desktop/confronto-manuale/pagina-singola-pwr`): the screenshots were read
+and used, and no step worked. The page was of another origin than PWR's own
+page, opened from a file, so every step answered "Cannot read properties of
+null"; the model also named a field under `click`, clicked options of a list,
+pressed `End` to scroll, and was shown the top of the page whatever it acted
+on. It fell back to test pages of its own. Now PWR's page is served from this
+machine when the target is, a field named under `click` is typed into, an
+option is chosen, the scroll keys scroll, a step that matches nothing lists
+what the page has, and the picture is taken where the last step acted. The
+model's own seven steps, run again on its page, end at its confirmation
+message (`a_page_on_a_local_server_is_acted_on_as_a_person_would`).
+
 *A failure that outlives its repairs.* Manual run of 2026-10-07 (Nemotron 30B
 4-bit, a Python CLI from nothing, `~/Desktop/confronto-manuale/python-cli-pwr`):
 the model wrote `ifoggi_str` for `if oggi_str`, rewrote the file about twenty

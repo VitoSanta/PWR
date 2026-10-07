@@ -952,7 +952,7 @@ pub fn look_at_tool() -> ToolDefinition {
                 "height": {"type": "integer", "description": "Viewport height in pixels, 240-1600; 800 when omitted."},
                 "steps": {
                     "type": "array",
-                    "description": "Optional: what to do on the page before it is looked at, in order, as a person would -- at most 12. Each step is one of {\"click\": \"a CSS selector, or the text of a button or link\"}, {\"type\": \"the text\", \"into\": \"a CSS selector, or the field's label, placeholder or name\"}, {\"press\": \"Enter\"}. The result says what each step did and shows the page after them.",
+                    "description": "Optional: what to do on the page before it is looked at, in order, as a person would -- at most 12. Each step is one of {\"click\": \"the text of a button, link, question or list option (or its aria-label, or a CSS selector)\"}, {\"type\": \"the text, or the option to choose\", \"into\": \"the field's label, placeholder or name (or a CSS selector)\"}, {\"press\": \"Enter\"} (End, Home, PageDown and PageUp scroll). The page is scrolled to what a step acts on, and the picture is taken there. The result says what each step did -- and, where a step matched nothing, what the page has to click or fill -- then shows the page after them.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -994,7 +994,7 @@ pub fn check_page_tool() -> ToolDefinition {
                 "target": {"type": "string", "description": "http://localhost:PORT/path, or a workspace-relative .html file"},
                 "steps": {
                     "type": "array",
-                    "description": "Optional: what to do on the page before it is looked at, in order, as a person would -- at most 12. Each step is one of {\"click\": \"a CSS selector, or the text of a button or link\"}, {\"type\": \"the text\", \"into\": \"a CSS selector, or the field's label, placeholder or name\"}, {\"press\": \"Enter\"}. The result says what each step did and shows the page after them.",
+                    "description": "Optional: what to do on the page before it is looked at, in order, as a person would -- at most 12. Each step is one of {\"click\": \"the text of a button, link, question or list option (or its aria-label, or a CSS selector)\"}, {\"type\": \"the text, or the option to choose\", \"into\": \"the field's label, placeholder or name (or a CSS selector)\"}, {\"press\": \"Enter\"} (End, Home, PageDown and PageUp scroll). The page is scrolled to what a step acts on, and the picture is taken there. The result says what each step did -- and, where a step matched nothing, what the page has to click or fill -- then shows the page after them.",
                     "items": {
                         "type": "object",
                         "properties": {
