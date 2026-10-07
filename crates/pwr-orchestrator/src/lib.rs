@@ -5457,7 +5457,14 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
         // The same explanation the conversation gives. The probe used to say
         // only what serde said, and recorded a deployment as unmeasurable for a
         // mistake the conversation had already learned to name.
-        let hint = action_tool_catalog().mismatch_hint(&call.name, &keys);
+        let mut hint = action_tool_catalog().mismatch_hint(&call.name, &keys);
+        // The field that is missing is inside a hunk, and the keys of the
+        // call are all there: said as it was, the refusal read "apply_patch
+        // takes expected_hash, hunks, path, and this call sent expected_hash,
+        // hunks, path" (product path, 2026-10-07, four times).
+        if call.name == "apply_patch" && keys.iter().any(|key| key == "hunks") {
+            hint = "Each entry of `hunks` is an object with `find` and `replace`.".to_owned();
+        }
         MalformedCall::detailed(
             kind,
             if hint.is_empty() {
@@ -5662,6 +5669,29 @@ fn repair_form(name: &str, arguments: &mut serde_json::Value) -> String {
             if let Some(value) = object.remove("replacement") {
                 object.insert("replace".into(), value);
             }
+        }
+        // One tool's argument under its neighbour's name, where nothing else
+        // in the call could be meant. Seen on the product path, 2026-10-07
+        // (Ornith 1.5 9B, Qwen3.5 9B, gpt-oss 20B): `apply_replace` with
+        // `replace` and no `find`, `write_file` with `replacement`, and
+        // `apply_patch` with `replacement` and no hunks -- four actions
+        // refused, each re-sent the same way at least once.
+        "apply_replace" if !object.contains_key("replacement") && !object.contains_key("find") => {
+            if let Some(value) = object.remove("replace") {
+                object.insert("replacement".into(), value);
+            }
+        }
+        "write_file" if !object.contains_key("content") => {
+            if let Some(value) = object.remove("replacement") {
+                object.insert("content".into(), value);
+            }
+        }
+        "apply_patch"
+            if !object.contains_key("hunks")
+                && object.contains_key("replacement")
+                && object.contains_key("expected_hash") =>
+        {
+            return "apply_replace".to_owned();
         }
         "move_path" if !object.contains_key("to") && object.contains_key("from") => {
             if let Some(value) = object.remove("path") {
@@ -7017,6 +7047,40 @@ mod tests {
         // and refused as the unknown tool it is.
         let mut arguments = serde_json::json!({"path": "a.js"});
         assert_eq!(repair_form("apply_text", &mut arguments), "apply_text");
+    }
+
+    #[test]
+    fn an_argument_under_the_neighbouring_tool_s_name_is_read_as_meant() {
+        let mut arguments =
+            serde_json::json!({"path": "a.js", "expected_hash": "h", "replace": "y"});
+        assert_eq!(
+            repair_form("apply_replace", &mut arguments),
+            "apply_replace"
+        );
+        assert_eq!(arguments["replacement"], "y");
+        let mut arguments = serde_json::json!({"path": "a.js", "replacement": "y"});
+        assert_eq!(repair_form("write_file", &mut arguments), "write_file");
+        assert_eq!(arguments["content"], "y");
+        let mut arguments =
+            serde_json::json!({"path": "a.js", "expected_hash": "h", "replacement": "y"});
+        assert_eq!(repair_form("apply_patch", &mut arguments), "apply_replace");
+        // With a `find` it is a find-and-replace, as before.
+        let mut arguments =
+            serde_json::json!({"path": "a.js", "expected_hash": "h", "find": "x", "replace": "y"});
+        assert_eq!(repair_form("apply_replace", &mut arguments), "replace_text");
+        assert!(arguments.get("replacement").is_none());
+    }
+
+    #[test]
+    fn a_hunk_missing_a_field_is_refused_by_saying_what_a_hunk_takes() {
+        let call = pwr_domain::ToolCall {
+            name: "apply_patch".into(),
+            arguments: serde_json::json!({"path": "a.js", "expected_hash": "h", "hunks": [{"replace": "y"}]}),
+            id: None,
+        };
+        let refused = action_from_tool_call(&call).unwrap_err().to_string();
+        assert!(refused.contains("Each entry of `hunks`"), "{refused}");
+        assert!(!refused.contains("this call sent"), "{refused}");
     }
 
     #[test]

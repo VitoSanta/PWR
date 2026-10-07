@@ -1122,3 +1122,14 @@ history at `309266d5`, and the links to archived documents now point there.
 The rule "nothing is deleted" in CONTRIBUTING and docs/README becomes
 "nothing is lost": the commit that replaces a document says what replaced it.
 No behaviour changes.
+
+### 2026-10-07: three arguments under a neighbouring name, and a hunk's refusal
+
+From the same reading of failed actions. Repaired, each with one reading
+(`repair_form`): `apply_replace` sent `replace` with no `find`; `write_file`
+sent `replacement`; `apply_patch` sent `replacement` and no hunks, which is
+`apply_replace`. Four refusals of the 21 schema mismatches. And a hunk missing
+`find` or `replace` was refused by listing the call's own keys as both what
+the tool takes and what was sent; it now says what a hunk takes (four more).
+Not repaired, because nothing says what was meant: a missing `path` (5) and a
+missing `expected_hash` (4). Unit-tested; not yet run with a model.
