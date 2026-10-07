@@ -924,6 +924,15 @@ pub fn toolchain_paths(root: &Path) -> Vec<PathBuf> {
             paths.push(directory);
             continue;
         }
+        // An npm package unpacked here is not a toolchain: its `bin` holds
+        // scripts that find their runtime relative to an installation they
+        // are not in. Seen 2026-10-07: a model extracted npm's own tarball
+        // (it unpacks as `package/`) and from then on every `npm` in the
+        // workspace was that one, failing with a module not found, in front
+        // of the working npm of the machine.
+        if directory.join("package.json").is_file() {
+            continue;
+        }
         // A distribution with its executable at the top, as dotnet-install
         // leaves one.
         if has_executable(&directory) {
@@ -7821,6 +7830,19 @@ mod tests {
         let given = args(&["scripts/sh"]);
         assert_eq!(args_after_program("sh", &given).unwrap(), &given[..]);
         assert!(args_after_program("sh", &args(&["/bin/sh"])).is_err());
+    }
+
+    #[test]
+    fn an_npm_package_unpacked_among_the_toolchains_is_not_one() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join(TOOLCHAINS_DIRECTORY);
+        std::fs::create_dir_all(base.join("package/bin")).unwrap();
+        std::fs::write(base.join("package/package.json"), "{}").unwrap();
+        std::fs::create_dir_all(base.join("node-v22/bin")).unwrap();
+        assert_eq!(
+            toolchain_paths(root.path()),
+            vec![base.join("node-v22/bin")]
+        );
     }
 
     #[test]

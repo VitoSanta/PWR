@@ -2490,6 +2490,13 @@ async fn take_turn_inner<P: ModelProvider>(
         }));
         let mut reply = adapter.normalize(&reply);
         reply.tool_calls = crate::expand_numbered_commands(&reply.tool_calls);
+        if reply.tool_calls.is_empty()
+            && let Some(call) = crate::closing_in_prose(&reply.narrative)
+            && tools.to_string().contains(&format!("\"{}\"", call.name))
+        {
+            reply.narrative.clear();
+            reply.tool_calls.push(call);
+        }
         let counted = reply
             .metrics
             .as_ref()

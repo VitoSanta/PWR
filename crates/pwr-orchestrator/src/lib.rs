@@ -5595,6 +5595,28 @@ fn repair_form(name: &str, arguments: &mut serde_json::Value) -> String {
             }
         }
     }
+    // A program handed to a shell as if it were a script: `bash npm run
+    // build` makes bash read npm's own file as shell and fail on its second
+    // line. Seen 2026-10-07 (gpt-oss 20B building an Angular site, six times
+    // in fifteen minutes): it took the syntax error for a broken npm,
+    // downloaded another one into the workspace and declined the goal. One
+    // reading: the program, with the arguments after it. A script path, an
+    // option (`-c`, `-lc`) or a word that is not a known program stays as
+    // sent.
+    if name == "run_command"
+        && matches!(
+            object.get("executable").and_then(|value| value.as_str()),
+            Some("bash" | "sh" | "zsh")
+        )
+        && let Some(serde_json::Value::Array(args)) = object.get("args")
+        && let Some(program) = args.first().and_then(|value| value.as_str())
+        && SHELL_WRAPPED_PROGRAMS.contains(&program)
+    {
+        let program = program.to_owned();
+        let rest: Vec<serde_json::Value> = args[1..].to_vec();
+        object.insert("executable".into(), serde_json::Value::String(program));
+        object.insert("args".into(), serde_json::Value::Array(rest));
+    }
     if name == "run_command"
         && !object.contains_key("executable")
         && let Some(value) = object.remove("executables")
@@ -5956,6 +5978,52 @@ fn actions_from_reply(
             ))
         }
     }
+}
+
+/// Programs that are never shell scripts to be read by `bash <file>`: when one
+/// follows a shell as its first argument, the shell was not meant.
+const SHELL_WRAPPED_PROGRAMS: &[&str] = &[
+    "npm", "npx", "node", "pnpm", "yarn", "bun", "deno", "ng", "tsc", "python", "python3", "pip",
+    "pip3", "pytest", "cargo", "rustc", "go", "git", "make", "cmake", "tar", "unzip", "which",
+    "ls", "cat", "mkdir", "java", "mvn", "gradle", "dotnet", "ruby", "bundle", "php", "composer",
+    "docker", "curl",
+];
+
+/// `Decline` or `Complete` on a line of its own, then `Rationale: ...`: the
+/// closing call written as prose, with its one argument named.
+///
+/// Seen 2026-10-07 (gpt-oss 20B, a goal, fourteen times in twenty minutes):
+/// each was taken as an answer in prose, and a goal answers prose by sending
+/// the model back to work -- so a model that had said eleven times it could
+/// not go on was asked eleven times to go on. The form has one reading. The
+/// call still meets what any `complete` or `decline` meets: a completion is
+/// verified, and held back where the turn's own rules hold one back.
+pub(crate) fn closing_in_prose(narrative: &str) -> Option<pwr_domain::ToolCall> {
+    let bare = |text: &str| {
+        text.trim()
+            .trim_matches(|c: char| c == '*' || c == '#' || c == '`' || c.is_whitespace())
+            .trim_end_matches([':', '.'])
+            .to_owned()
+    };
+    let (first, rest) = narrative.trim().split_once('\n')?;
+    let name = match bare(first).to_ascii_lowercase().as_str() {
+        "decline" => "decline",
+        "complete" => "complete",
+        _ => return None,
+    };
+    let rest = rest.trim_start().trim_start_matches(['*', '_']);
+    let rationale = rest
+        .strip_prefix("Rationale")
+        .or_else(|| rest.strip_prefix("rationale"))?
+        .trim_start_matches(['*', '_'])
+        .strip_prefix(':')?
+        .trim_start_matches(['*', '_'])
+        .trim();
+    (!rationale.is_empty()).then(|| pwr_domain::ToolCall {
+        name: name.to_owned(),
+        arguments: serde_json::json!({ "rationale": rationale }),
+        id: None,
+    })
 }
 
 /// A `run_command` that numbers several commands -- `executable`,
@@ -7069,6 +7137,41 @@ mod tests {
             serde_json::json!({"path": "a.js", "expected_hash": "h", "find": "x", "replace": "y"});
         assert_eq!(repair_form("apply_replace", &mut arguments), "replace_text");
         assert!(arguments.get("replacement").is_none());
+    }
+
+    #[test]
+    fn a_program_handed_to_a_shell_as_a_script_is_run_as_the_program() {
+        let mut arguments = serde_json::json!({"executable": "bash", "args": ["npm", "run", "build"], "cwd": "site"});
+        repair_form("run_command", &mut arguments);
+        assert_eq!(arguments["executable"], "npm");
+        assert_eq!(arguments["args"], serde_json::json!(["run", "build"]));
+        assert_eq!(arguments["cwd"], "site");
+        // A shell asked for as a shell, or given a script, is left alone.
+        for kept in [
+            serde_json::json!(["-lc", "npm run build"]),
+            serde_json::json!(["scripts/build.sh"]),
+            serde_json::json!(["release"]),
+        ] {
+            let mut arguments = serde_json::json!({"executable": "bash", "args": kept.clone()});
+            repair_form("run_command", &mut arguments);
+            assert_eq!(arguments["executable"], "bash");
+            assert_eq!(arguments["args"], kept);
+        }
+    }
+
+    #[test]
+    fn a_closing_call_written_as_prose_is_read_as_the_call() {
+        let call = closing_in_prose("Decline\n\nRationale: the build cannot run here.").unwrap();
+        assert_eq!(call.name, "decline");
+        assert_eq!(call.arguments["rationale"], "the build cannot run here.");
+        let call = closing_in_prose("**Complete**\n**Rationale:** the site builds.").unwrap();
+        assert_eq!(call.name, "complete");
+        assert_eq!(call.arguments["rationale"], "the site builds.");
+        // Prose that only mentions the words, or gives no reason, is prose.
+        assert!(closing_in_prose("I decline to guess.\nRationale: none").is_none());
+        assert!(closing_in_prose("Decline\n\nI cannot do this.").is_none());
+        assert!(closing_in_prose("Decline\n\nRationale:").is_none());
+        assert!(closing_in_prose("Complete").is_none());
     }
 
     #[test]

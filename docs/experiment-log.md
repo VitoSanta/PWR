@@ -1133,3 +1133,31 @@ sent `replacement`; `apply_patch` sent `replacement` and no hunks, which is
 the tool takes and what was sent; it now says what a hunk takes (four more).
 Not repaired, because nothing says what was meant: a missing `path` (5) and a
 missing `expected_hash` (4). Unit-tested; not yet run with a model.
+
+### 2026-10-07: a manual goal that ended in fourteen refusals, and three readings
+
+The maintainer gave gpt-oss 20B, in the app, in Goal mode and Full access, an
+empty folder and "build an Angular site that passes `npm run build`". In
+twenty-six minutes: no site built. Read from the workspace's event log:
+
+- `bash npm run build`, six times: bash read npm's file as shell and failed on
+  its second line; the model took that for a broken npm. Now read as
+  `npm run build` (`repair_form`), for a list of programs that are never
+  shell scripts.
+- It then fetched npm's tarball and extracted it into `.toolchains/`, where
+  it unpacked as `package/` with a `bin`: from then on that npm stood on PATH
+  in front of the machine's and failed with a module not found. A directory
+  under `.toolchains/` with a `package.json` at its top is no longer taken
+  for a toolchain.
+- `Decline`, a blank line, `Rationale: ...`, fourteen times, as prose: a
+  goal answers prose by asking for the next step, so each refusal was
+  followed by "continue". The form is now read as the call it names
+  (`closing_in_prose`), where that tool is offered.
+
+Each has a unit test, and the third one a test through the real turn
+(`tests/prose_closing.rs`). None has been run with a model yet. Also seen and
+not changed: with no acceptance declared, the checks were the `build` and
+`test` scripts of `package.json`, which the model rewrote to commands that
+only print, after which the harness reported that the repository's own
+checks passed. The outcome did say acceptance was not declared; the
+feedback sentence to the model did not.
