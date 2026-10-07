@@ -88,7 +88,7 @@ import { KnowledgeCard } from './workbench/knowledge';
             [class.collapsed]="card.collapsed"
             [class.fills]="!card.collapsed"
             [attr.aria-label]="info(card.id).label"
-            [style.flex-grow]="card.collapsed ? 0 : cardWeight(card.id)"
+            [style.flex-grow]="card.collapsed ? 0 : cardWeight(card.id) * 100"
             [style.view-transition-name]="'wb-' + card.id"
           >
             <header class="wb-card-head" (dblclick)="work.maximize(card.id)">

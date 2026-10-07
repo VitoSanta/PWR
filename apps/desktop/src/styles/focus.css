@@ -365,6 +365,15 @@
   bottom: var(--radius-panel);
 }
 
+/* Shown as a short grip in the middle of the edge, not a line down the
+   whole of it: the whole edge still takes the drag. */
+.shell-focus > pa-inspector.focus-workbench > pa-resize-handle::after {
+  top: calc(50% - 22px);
+  bottom: auto;
+  height: 44px;
+  border-radius: var(--radius-pill);
+}
+
 /* Full screen: the tool takes the conversation's place as well, under the
    bar, which stays -- it is how the tools, the model and the way back are
    reached. The card keeps the column's top margin, so its own buttons sit
