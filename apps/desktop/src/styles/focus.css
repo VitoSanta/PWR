@@ -365,22 +365,18 @@
   bottom: var(--radius-panel);
 }
 
-/* Full screen: the tool takes the whole window, the conversation and the
-   bar included, as a window's own full screen would. */
-.shell-focus.tool-full .focus-main,
-.shell-focus.tool-full .focus-bar {
+/* Full screen: the tool takes the conversation's place as well, under the
+   bar, which stays -- it is how the tools, the model and the way back are
+   reached. The card keeps the column's top margin, so its own buttons sit
+   below the strip the window is dragged by and can be clicked. */
+.shell-focus.tool-full .focus-main {
   display: none;
 }
 
 .shell-focus.tool-full > pa-inspector.focus-workbench {
   flex: 1 1 auto;
   width: auto;
-  margin: 12px;
-}
-
-/* Clear of the window's own buttons, which sit over the top left corner. */
-.shell-focus.tool-full.is-mac:not(.is-fullscreen) > pa-inspector.focus-workbench {
-  margin-top: 40px;
+  margin-left: 12px;
 }
 
 .focus-workbench .wb-card-gap {
