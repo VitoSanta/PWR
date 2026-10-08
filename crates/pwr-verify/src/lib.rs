@@ -684,6 +684,29 @@ fn another_language_leads(root: &std::path::Path) -> bool {
     other > javascript
 }
 
+/// Whether the workspace has a Python environment of its own -- a toolchain
+/// under `.toolchains/`, or a virtual environment at its root -- and none of
+/// them has `program` installed.
+fn own_python_lacks(root: &std::path::Path, program: &str) -> bool {
+    let mut environments: Vec<std::path::PathBuf> = [".venv", "venv", "env"]
+        .iter()
+        .map(|name| root.join(name))
+        .collect();
+    environments.extend(
+        std::fs::read_dir(root.join(pwr_tools::TOOLCHAINS_DIRECTORY))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path()),
+    );
+    let own: Vec<std::path::PathBuf> = environments
+        .into_iter()
+        .map(|environment| environment.join("bin"))
+        .filter(|bin| bin.join("python").exists() || bin.join("python3").exists())
+        .collect();
+    !own.is_empty() && !own.iter().any(|bin| bin.join(program).exists())
+}
+
 pub fn discover_checks(
     root: &std::path::Path,
     scope: &str,
@@ -740,6 +763,16 @@ pub fn discover_checks(
     }
     for system in BUILD_SYSTEMS {
         if !root.join(system.marker).is_file() {
+            continue;
+        }
+        // `pytest` is a guess from a file's name. Where the workspace has a
+        // Python environment of its own and pytest is not in it, the guess is
+        // wrong, and running it anyway runs somebody else's pytest: seen
+        // 2026-10-08 on Django, whose tests run through its own runner. The
+        // project's Python was 3.8 in `.toolchains/python`; `pytest -q` was
+        // the machine's, on Python 3.14, and ended in 533 collection errors
+        // before and after every change -- the goal's one check.
+        if system.executable == "pytest" && own_python_lacks(root, "pytest") {
             continue;
         }
         if system.name == "cargo" && scope == "targeted" {
@@ -1050,6 +1083,15 @@ pub async fn baseline(
                 // step naming a URL ended every verification of that
                 // repository with "network access requires an explicit grant".
                 Err(ToolError::Denied(why)) => not_started(cmd, &why),
+                // And for one that does not finish in the time a check is
+                // given. It said nothing in that time; the others did. Found
+                // reading the code after the two above: the last way a single
+                // check could still end a goal with "goal verification could
+                // not run" -- a large project's whole suite, or a CI step
+                // that builds an environment before it tests.
+                Err(ToolError::Timeout | ToolError::CommandTimedOut(_)) => {
+                    not_finished(cmd, policy.timeout)
+                }
                 Err(other) => return Err(other),
             }
         };
@@ -1095,6 +1137,32 @@ fn not_started(program: &str, why: &str) -> ToolResult {
         artifact_hash: hash_bytes(stderr.as_bytes()),
         stderr,
         duration_ms: 0,
+        redacted: false,
+        stdout_truncated: false,
+        stderr_truncated: false,
+        sandboxed: false,
+        failing_files: None,
+        ran_in: None,
+    }
+}
+
+/// The result of a check stopped at the time limit: a non-zero exit and the
+/// reason on stderr. What it had printed is left out on purpose -- how far a
+/// run got differs from one time to the next, and the same check stopped at
+/// the same limit before and after a change is the same failure
+/// ([`same_failure`], [`failure::fingerprint`]).
+fn not_finished(program: &str, limit: std::time::Duration) -> ToolResult {
+    let stderr = format!(
+        "{program}: did not finish in {} s and was stopped\n",
+        limit.as_secs()
+    );
+    ToolResult {
+        // What `timeout(1)` answers for a command it had to stop.
+        exit_code: Some(124),
+        stdout: String::new(),
+        artifact_hash: hash_bytes(stderr.as_bytes()),
+        stderr,
+        duration_ms: limit.as_millis(),
         redacted: false,
         stdout_truncated: false,
         stderr_truncated: false,
@@ -1727,6 +1795,53 @@ mod nested_project_tests {
             .map(|(program, args)| format!("{program} {}", args.join(" ")))
             .collect();
         assert_eq!(checks, ["make test PYTHON=python3"]);
+    }
+
+    #[tokio::test]
+    async fn a_check_that_does_not_finish_is_a_failed_check_not_a_failed_verification() {
+        let root = tempfile::tempdir().unwrap();
+        let mut policy = pwr_tools::PolicyProfile::Development.build(root.path().to_path_buf());
+        policy.sandbox = pwr_tools::SandboxPolicy::FullAccess;
+        policy.allow_commands = vec!["sleep".into(), "true".into()];
+        policy.timeout = std::time::Duration::from_secs(1);
+        let checks = vec![
+            ("sleep".to_owned(), vec!["30".to_owned()]),
+            ("true".to_owned(), Vec::new()),
+        ];
+        let first = baseline(&policy, &checks).await.unwrap();
+        assert_eq!(first.checks[0].result.exit_code, Some(124));
+        assert_eq!(
+            first.checks[0].result.stderr,
+            "sleep: did not finish in 1 s and was stopped\n"
+        );
+        // The check after it still ran.
+        assert_eq!(first.checks[1].result.exit_code, Some(0));
+        // Stopped at the same limit later, it is the same failure.
+        let second = baseline(&policy, &checks).await.unwrap();
+        assert!(compare(&first, &second).new_failures.is_empty());
+    }
+
+    /// Django: `setup.py` at the root, its own interpreter in the workspace,
+    /// and no pytest in it.
+    #[test]
+    fn pytest_is_not_guessed_for_a_project_whose_own_python_has_none() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("setup.py"), "").unwrap();
+        let guessed = [("pytest".to_owned(), vec!["-q".to_owned()])];
+        // No environment of its own: the guess stands, as it did.
+        assert_eq!(discover_checks(root.path(), "full").unwrap(), guessed);
+        let bin = root.path().join(".toolchains/python/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("python"), "").unwrap();
+        assert!(discover_checks(root.path(), "full").unwrap().is_empty());
+        // With pytest in the project's own environment, it is the project's.
+        std::fs::write(bin.join("pytest"), "").unwrap();
+        assert_eq!(discover_checks(root.path(), "full").unwrap(), guessed);
+        // A toolchain that is not Python changes nothing.
+        let other = tempfile::tempdir().unwrap();
+        std::fs::write(other.path().join("setup.py"), "").unwrap();
+        std::fs::create_dir_all(other.path().join(".toolchains/go/bin")).unwrap();
+        assert_eq!(discover_checks(other.path(), "full").unwrap().len(), 1);
     }
 
     fn ci_checks_of(configuration: &str) -> Vec<(String, Vec<String>)> {

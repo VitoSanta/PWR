@@ -333,6 +333,29 @@ pub fn own_tests_note(entry_points: &[String]) -> Option<String> {
     })
 }
 
+/// Said at the start of a goal where the core found no check it can run and
+/// the repository has its own way of running tests.
+///
+/// Before, such a repository was told about its runner only as a remark on
+/// a failing check ([`own_tests_note`]). Django's one check was a `pytest`
+/// that is not the project's; with that guess gone the core has no check
+/// there, and the model would have been told nothing about `runtests.py`.
+pub fn no_checks_note(entry_points: &[String]) -> Option<String> {
+    (!entry_points.is_empty()).then(|| {
+        format!(
+            "The core found no check it can run for this repository, so nothing will confirm \
+             your change but what you run yourself. The repository has its own way of running \
+             tests: {}. Read how the project runs its tests (these files, or its contributing \
+             guide) and run the ones around what you change.",
+            entry_points
+                .iter()
+                .map(|path| format!("`{path}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })
+}
+
 pub const GOAL_MAX_ACTIONS: usize = 208;
 /// Completions the checks may refuse before a goal stops, however the failing
 /// checks change from one to the next. The same-failure limit below catches a
@@ -1061,6 +1084,15 @@ async fn drive<H: SessionHost + ?Sized>(
                 last.content.push_str(&format!("\n\n{note}"));
             }
         }
+    } else if baseline.as_ref().is_some_and(|baseline| {
+        matches!(
+            baseline.checks,
+            Some(pwr_domain::ChecksOutcome::Unavailable { .. })
+        )
+    }) && let Some(note) = no_checks_note(&own_test_entry_points(&root))
+        && let Some(last) = messages.last_mut().filter(|last| last.role == "user")
+    {
+        last.content.push_str(&format!("\n\n{note}"));
     }
     if aids.pointers
         && let Some(baseline) = baseline
@@ -3006,6 +3038,15 @@ mod tests {
             "{}",
             report.answer
         );
+    }
+
+    #[test]
+    fn a_repository_with_no_check_and_its_own_runner_is_pointed_to_it() {
+        let note = no_checks_note(&["tests/runtests.py".into(), "tox.ini".into()]).unwrap();
+        assert!(note.contains("no check it can run"), "{note}");
+        assert!(note.contains("`tests/runtests.py`, `tox.ini`"), "{note}");
+        // Nothing to point to: nothing said.
+        assert!(no_checks_note(&[]).is_none());
     }
 
     fn failing_with(check: &str, digest: &str, tests: &[&str]) -> GoalVerification {
