@@ -57,11 +57,18 @@ pub fn fingerprint(stdout: &str, stderr: &str) -> FailureFingerprint {
         }
     }
     let evidence = if identifiers.is_empty() {
+        // No test is named, so the end of the output stands for the failure,
+        // without what differs from one run of the same failure to the next:
+        // every number in it. A process id, a time in a form `normalize`
+        // does not know (`7.86 seconds`, `setup[5.80]+cmd[0.17]`), a count.
+        // Since a check red before a goal is excused only when its failure
+        // is the same (`newly_failing`), an identity that changed with the
+        // clock would hold a goal on a check its work never touched.
         output
             .lines()
             .rev()
             .take(40)
-            .map(normalize)
+            .map(|line| without_numbers(&normalize(line)))
             .collect::<Vec<_>>()
             .join("\n")
     } else {
@@ -83,6 +90,27 @@ fn unittest_id(line: &str) -> &str {
                 .is_some_and(|name| qualified.ends_with(name))
         })
         .unwrap_or(line)
+}
+/// A line with each run of digits (and the points and commas inside one)
+/// replaced by a mark.
+fn without_numbers(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut in_number = false;
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        let continues =
+            in_number && matches!(ch, '.' | ',') && chars.peek().is_some_and(char::is_ascii_digit);
+        if ch.is_ascii_digit() || continues {
+            if !in_number {
+                out.push('#');
+            }
+            in_number = true;
+        } else {
+            in_number = false;
+            out.push(ch);
+        }
+    }
+    out
 }
 fn normalize(line: &str) -> String {
     line.split_whitespace()
@@ -169,6 +197,26 @@ mod tests {
         assert_eq!(
             fingerprint("FAIL: test_old (test_todo.TodoContract)", "").identifiers,
             BTreeSet::from(["test_old (test_todo.TodoContract)".to_owned()])
+        );
+    }
+    /// The end of what `tox` printed on Sphinx, twice (2026-10-08), with
+    /// the line that names the error left out: no test and no error named.
+    #[test]
+    fn output_that_names_nothing_is_the_same_failure_whatever_its_numbers() {
+        let once = "du-latest: exit 1 (0.17 seconds) /tmp/a/sx> python -m pip install x pid=12277\n  \
+                    du-latest: FAIL code 1 (5.97=setup[5.80]+cmd[0.17] seconds)\n  \
+                    evaluation failed :( (7.86 seconds)\n";
+        let again = "du-latest: exit 1 (0.21 seconds) /tmp/b/sx> python -m pip install x pid=40112\n  \
+                     du-latest: FAIL code 1 (1.02=setup[0.81]+cmd[0.21] seconds)\n  \
+                     evaluation failed :( (1.9 seconds)\n";
+        assert!(fingerprint(once, "").identifiers.is_empty());
+        assert_eq!(fingerprint(once, ""), fingerprint(again, ""));
+        // Other words are another failure.
+        let other = again.replace("evaluation failed", "environment missing");
+        assert_ne!(fingerprint(once, ""), fingerprint(&other, ""));
+        assert_eq!(
+            without_numbers("v1.2.3, 10,000 in 4s; a.b"),
+            "v#, # in #s; a.b"
         );
     }
     #[test]
