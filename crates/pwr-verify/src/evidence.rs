@@ -103,6 +103,9 @@ pub fn ran_zero_tests(command: &str, output: &str) -> bool {
             "no tests to run",
             "0 examples",
             "no tests executed",
+            // unittest, and Django's runner over it: `Ran 0 tests in 0.000s`,
+            // followed by `OK` and exit 0 before Python 3.12.
+            "ran 0 tests in",
         ]
         .iter()
         .any(|signature| output.contains(signature))
@@ -234,6 +237,11 @@ mod tests {
             ("vitest run", "No test files found"),
             ("dotnet test", "Total tests: 0"),
             ("go test ./...", "pkg [no test files]"),
+            (
+                "./tests/runtests.py forms_tests.no_such",
+                "Ran 0 tests in 0.000s\n\nOK",
+            ),
+            ("python -m unittest discover", "Ran 0 tests in 0.000s\n\nOK"),
         ] {
             assert!(ran_zero_tests(command, output), "{command}");
         }
@@ -243,6 +251,10 @@ mod tests {
         ));
         assert!(!ran_zero_tests("cargo build", "no tests found"));
         assert!(!ran_zero_tests("pytest", "10 passed"));
+        assert!(!ran_zero_tests(
+            "./tests/runtests.py forms_tests",
+            "Ran 10 tests in 0.200s\n\nOK"
+        ));
     }
 
     #[test]

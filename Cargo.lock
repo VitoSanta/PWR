@@ -1734,6 +1734,7 @@ dependencies = [
  "pwr-tools",
  "serde",
  "serde_json",
+ "shell-words",
  "tempfile",
  "tokio",
 ]

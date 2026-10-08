@@ -466,6 +466,25 @@ fn prepares_the_machine(executable: &str, args: &[&str]) -> bool {
         || (matches!(program, "npm" | "pnpm") && args.first() == Some(&"ci"))
 }
 
+/// Whether a CI step names a place that is on the CI machine and not on
+/// this one: its program, or a value it is given, is an absolute path whose
+/// folder does not exist here.
+///
+/// Seen 2026-10-08 (Sphinx): `make test PYTHON=/python3.8/bin/python ...` is
+/// how the project's CI image is laid out. Here it can only fail, before and
+/// after any change, and a check that can only fail says nothing.
+fn names_a_place_not_on_this_machine(executable: &str, args: &[String]) -> bool {
+    std::iter::once(executable)
+        .chain(args.iter().map(String::as_str))
+        .map(|word| word.split_once('=').map_or(word, |(_, value)| value))
+        .filter(|value| value.starts_with('/'))
+        .any(|value| {
+            !std::path::Path::new(value)
+                .parent()
+                .is_some_and(std::path::Path::is_dir)
+        })
+}
+
 /// Verification commands a project's CI configuration states for itself.
 ///
 /// Read as text rather than parsed per CI vendor: the shapes differ but a
@@ -540,20 +559,28 @@ fn ci_declared_checks(root: &std::path::Path) -> Vec<(String, Vec<String>)> {
                 if command.contains("&&") || command.contains('|') || command.contains('>') {
                     continue;
                 }
-                let mut words = command.split_whitespace();
-                let Some(executable) = words.next() else {
+                // Words as a shell hands them to the program: what a pair of
+                // quotes holds is one word. Split at every space, Sphinx's
+                // `make test TEST="--junitxml=results.xml -vv"` gave make a
+                // stray `-vv"`, and make answered with its usage and exit 2.
+                // A line whose quotes do not close is not a command line.
+                let Ok(mut words) = shell_words::split(command) else {
                     continue;
                 };
-                if prepares_the_machine(executable, &words.clone().collect::<Vec<_>>()) {
+                if words.is_empty() {
+                    continue;
+                }
+                let executable = words.remove(0);
+                if prepares_the_machine(
+                    &executable,
+                    &words.iter().map(String::as_str).collect::<Vec<_>>(),
+                ) || names_a_place_not_on_this_machine(&executable, &words)
+                {
                     continue;
                 }
                 let looks_like_verification =
                     VERIFICATION_WORDS.iter().any(|w| lowered.contains(w));
-                found.push((
-                    looks_like_verification,
-                    executable.to_string(),
-                    words.map(str::to_string).collect::<Vec<_>>(),
-                ));
+                found.push((looks_like_verification, executable, words));
             }
         }
     }
@@ -1700,5 +1727,49 @@ mod nested_project_tests {
             .map(|(program, args)| format!("{program} {}", args.join(" ")))
             .collect();
         assert_eq!(checks, ["make test PYTHON=python3"]);
+    }
+
+    fn ci_checks_of(configuration: &str) -> Vec<(String, Vec<String>)> {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".circleci")).unwrap();
+        std::fs::write(root.path().join(".circleci/config.yml"), configuration).unwrap();
+        ci_declared_checks(root.path())
+    }
+
+    #[test]
+    fn what_quotes_hold_in_a_ci_step_is_one_word() {
+        assert_eq!(
+            ci_checks_of(
+                "    steps:\n      - run: make test TEST=\"--junitxml=reports/results.xml -vv\"\n"
+            ),
+            [(
+                "make".to_owned(),
+                vec![
+                    "test".to_owned(),
+                    "TEST=--junitxml=reports/results.xml -vv".to_owned()
+                ]
+            )]
+        );
+        // Quotes that do not close: not a command line, so not a check.
+        assert!(ci_checks_of("    steps:\n      - run: make test TEST=\"-vv\n").is_empty());
+    }
+
+    /// Sphinx's CircleCI test step, as it is in the repository.
+    #[test]
+    fn a_ci_step_that_names_a_place_of_the_ci_machine_is_not_a_check_here() {
+        assert!(
+            ci_checks_of(
+                "    steps:\n      - run: make test PYTHON=/python3.8/bin/python TEST=\"--junitxml=test-reports/pytest/results.xml -vv\"\n"
+            )
+            .is_empty()
+        );
+        assert!(ci_checks_of("    steps:\n      - run: /ci-image/bin/tox -e py\n").is_empty());
+        // A place that is here stays: the folder exists, whatever the file.
+        let here = std::env::temp_dir();
+        let step = format!(
+            "    steps:\n      - run: make test REPORT={}/report.xml\n",
+            here.display()
+        );
+        assert_eq!(ci_checks_of(&step).len(), 1);
     }
 }
