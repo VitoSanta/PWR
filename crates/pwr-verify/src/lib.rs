@@ -549,6 +549,89 @@ fn ci_declared_checks(root: &std::path::Path) -> Vec<(String, Vec<String>)> {
 }
 
 /// Selects only deterministic, locally available checks from repository manifests.
+/// The source extensions each build system's marker speaks for.
+const MARKER_LANGUAGES: &[(&str, &[&str])] = &[
+    ("Cargo.toml", &["rs"]),
+    ("go.mod", &["go"]),
+    ("pom.xml", &["java", "kt", "scala"]),
+    ("build.gradle", &["java", "kt", "groovy"]),
+    ("build.gradle.kts", &["java", "kt"]),
+    ("global.json", &["cs", "fs"]),
+    ("Package.swift", &["swift"]),
+    ("pubspec.yaml", &["dart"]),
+    ("mix.exs", &["ex", "exs"]),
+    ("poetry.lock", &["py"]),
+    ("pyproject.toml", &["py"]),
+    ("setup.py", &["py"]),
+    ("requirements.txt", &["py"]),
+    ("Gemfile", &["rb"]),
+    ("composer.json", &["php"]),
+];
+const JAVASCRIPT: &[&str] = &["js", "jsx", "ts", "tsx", "mjs", "cjs", "vue", "svelte"];
+/// Source files counted before the question is considered answered.
+const LANGUAGE_SAMPLE: usize = 4_000;
+
+/// Whether the root also declares another build system whose language has
+/// more source files here than JavaScript has. Counted on a bounded walk that
+/// skips installed and generated folders.
+fn another_language_leads(root: &std::path::Path) -> bool {
+    let others: Vec<&str> = MARKER_LANGUAGES
+        .iter()
+        .filter(|(marker, _)| root.join(marker).is_file())
+        .flat_map(|(_, extensions)| extensions.iter().copied())
+        .collect();
+    if others.is_empty() {
+        return false;
+    }
+    let (mut javascript, mut other, mut seen) = (0usize, 0usize, 0usize);
+    let mut folders = vec![(root.to_path_buf(), 0usize)];
+    while let Some((folder, depth)) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                let skipped = name.starts_with('.')
+                    || matches!(
+                        name.as_ref(),
+                        "node_modules"
+                            | "target"
+                            | "build"
+                            | "dist"
+                            | "vendor"
+                            | "venv"
+                            | "env"
+                            | "__pycache__"
+                            | "bin"
+                            | "obj"
+                    );
+                if !skipped && depth < 6 {
+                    folders.push((path, depth + 1));
+                }
+                continue;
+            }
+            let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+                continue;
+            };
+            if JAVASCRIPT.contains(&extension) {
+                javascript += 1;
+            } else if others.contains(&extension) {
+                other += 1;
+            } else {
+                continue;
+            }
+            seen += 1;
+            if seen >= LANGUAGE_SAMPLE {
+                return other > javascript;
+            }
+        }
+    }
+    other > javascript
+}
+
 pub fn discover_checks(
     root: &std::path::Path,
     scope: &str,
@@ -566,7 +649,14 @@ pub fn discover_checks(
     if !from_ci.is_empty() {
         return Ok(from_ci);
     }
-    if let Some(manifest) = std::fs::read_to_string(root.join("package.json")).ok()
+    // A `package.json` speaks for the repository only where JavaScript is what
+    // the repository mostly is. Seen 2026-10-08 (Django, a bug in a Python
+    // form): the project keeps a `package.json` for its JavaScript tests, so
+    // the goal's only check was `npm test`, which could not exercise the
+    // change and failed before and after it.
+    if let Some(manifest) = std::fs::read_to_string(root.join("package.json"))
+        .ok()
+        .filter(|_| !another_language_leads(root))
         && let Some(scripts) = serde_json::from_str::<serde_json::Value>(&manifest)
             .ok()
             .and_then(|manifest| manifest.get("scripts").cloned())
@@ -1425,5 +1515,43 @@ mod nested_project_tests {
                 ]
             )]
         );
+    }
+    #[test]
+    fn a_package_json_does_not_speak_for_a_repository_of_another_language() {
+        let script = r#"{"scripts": {"test": "grunt test"}}"#;
+        // A Python project that keeps a package.json for its JavaScript tests.
+        let python = tempfile::tempdir().unwrap();
+        std::fs::write(python.path().join("package.json"), script).unwrap();
+        std::fs::write(python.path().join("setup.py"), "").unwrap();
+        std::fs::create_dir_all(python.path().join("pkg/forms")).unwrap();
+        std::fs::create_dir_all(python.path().join("js_tests")).unwrap();
+        std::fs::create_dir_all(python.path().join("node_modules/x")).unwrap();
+        for name in ["pkg/a.py", "pkg/b.py", "pkg/forms/c.py", "js_tests/one.js"] {
+            std::fs::write(python.path().join(name), "").unwrap();
+        }
+        // What is installed is not what the repository is.
+        for index in 0..9 {
+            std::fs::write(python.path().join(format!("node_modules/x/{index}.js")), "").unwrap();
+        }
+        let checks = discover_checks(python.path(), "full").unwrap();
+        assert_eq!(checks[0].0, "pytest", "{checks:?}");
+        assert!(checks.iter().all(|(executable, _)| executable != "npm"));
+
+        // A JavaScript application with a Python helper is still JavaScript's.
+        let web = tempfile::tempdir().unwrap();
+        std::fs::write(web.path().join("package.json"), script).unwrap();
+        std::fs::write(web.path().join("requirements.txt"), "").unwrap();
+        std::fs::create_dir_all(web.path().join("src")).unwrap();
+        for name in ["src/a.ts", "src/b.ts", "src/c.tsx", "deploy.py"] {
+            std::fs::write(web.path().join(name), "").unwrap();
+        }
+        let checks = discover_checks(web.path(), "full").unwrap();
+        assert_eq!(checks[0].0, "npm", "{checks:?}");
+
+        // And a package.json alone is the repository's, whatever else it holds.
+        let alone = tempfile::tempdir().unwrap();
+        std::fs::write(alone.path().join("package.json"), script).unwrap();
+        std::fs::write(alone.path().join("tool.py"), "").unwrap();
+        assert_eq!(discover_checks(alone.path(), "full").unwrap()[0].0, "npm");
     }
 }
