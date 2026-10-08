@@ -980,7 +980,22 @@ pub async fn baseline(
         let result = if cmd == web::WEB_ASSETS_CHECK {
             web_assets_result(policy)
         } else {
-            run_command(policy, cmd, args).await?
+            match run_command(policy, cmd, args).await {
+                Ok(result) => result,
+                // A check whose program is not there is a check that failed
+                // to start, not a verification that could not happen: the
+                // other checks still say something, and this one is recorded
+                // as the shell records it.
+                Err(ToolError::Io(error))
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+                    ) =>
+                {
+                    not_started(cmd, &error)
+                }
+                Err(other) => return Err(other),
+            }
         };
         records.push(CheckRecord {
             command: format!("{} {}", cmd, args.join(" ")).trim_end().to_string(),
@@ -1005,6 +1020,34 @@ pub async fn baseline(
         environment_hash: h,
     })
 }
+/// The result of a check whose program could not be started, as a sandboxed
+/// run already reports one: a non-zero exit and the reason on stderr.
+///
+/// Seen 2026-10-08 (Sphinx, Full access): the checks read from the project's
+/// CI configuration began with `/python3.8/bin/pip install ...`, a path of
+/// the CI image. Sandboxed, `sandbox-exec` answered exit 71 and the goal went
+/// on; unconfined, starting the program failed, the whole verification
+/// returned "tool I/O failure: No such file or directory", and a goal whose
+/// work was done ended with a protocol error in place of its outcome -- four
+/// runs in four.
+fn not_started(program: &str, error: &std::io::Error) -> ToolResult {
+    let stderr = format!("{program}: could not be started: {error}\n");
+    ToolResult {
+        // What a shell answers for a command it cannot find.
+        exit_code: Some(127),
+        stdout: String::new(),
+        artifact_hash: hash_bytes(stderr.as_bytes()),
+        stderr,
+        duration_ms: 0,
+        redacted: false,
+        stdout_truncated: false,
+        stderr_truncated: false,
+        sandboxed: false,
+        failing_files: None,
+        ran_in: None,
+    }
+}
+
 /// Runs the markup reference check and reports it as any other check reports.
 ///
 /// A `ToolResult` because everything downstream -- the baseline hash, the
@@ -1553,5 +1596,32 @@ mod nested_project_tests {
         std::fs::write(alone.path().join("package.json"), script).unwrap();
         std::fs::write(alone.path().join("tool.py"), "").unwrap();
         assert_eq!(discover_checks(alone.path(), "full").unwrap()[0].0, "npm");
+    }
+    #[tokio::test]
+    async fn a_check_whose_program_is_not_there_is_a_failed_check_not_a_failed_verification() {
+        let root = tempfile::tempdir().unwrap();
+        let mut policy = pwr_tools::PolicyProfile::Development.build(root.path().to_path_buf());
+        policy.sandbox = pwr_tools::SandboxPolicy::FullAccess;
+        // As a verification allows what its checks need.
+        policy.allow_commands = vec!["/python3.8/bin/pip".into(), "true".into()];
+        let checks = vec![
+            ("/python3.8/bin/pip".to_owned(), vec!["install".to_owned()]),
+            ("true".to_owned(), Vec::new()),
+        ];
+        let first = baseline(&policy, &checks).await.unwrap();
+        assert_eq!(first.checks[0].result.exit_code, Some(127));
+        assert!(
+            first.checks[0]
+                .result
+                .stderr
+                .contains("/python3.8/bin/pip: could not be started"),
+            "{}",
+            first.checks[0].result.stderr
+        );
+        // The check after it still ran.
+        assert_eq!(first.checks[1].result.exit_code, Some(0));
+        // And the same absence later is the same failure, not a new one.
+        let second = baseline(&policy, &checks).await.unwrap();
+        assert!(compare(&first, &second).new_failures.is_empty());
     }
 }
