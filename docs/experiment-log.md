@@ -19,6 +19,100 @@ hold the campaign notes of 2026-09-18 to 2026-09-28.
 
 ---
 
+## 2026-10-08 — Ten SWE-bench Verified instances with a 9B model: what the passages, the goal text and the patch were doing
+
+**EXPLORATORY. One run per instance, a local judge, ten instances: no success
+rate is claimed. The findings are about what PWR put in front of the model.**
+
+*Setup.* Ten instances of SWE-bench Verified Mini (five Django, five Sphinx;
+the other forty of that subset are held out, not looked at), driven as the app
+drives PWR (`pwr serve`, goal mode, one process per instance), Qwen3.5-9B MLX
+4-bit, Full access, thirty minutes per instance, on revision `9341888a`. Each
+instance gets the project installed by SWE-bench's own recipe in a virtual
+environment under `.toolchains/python`. Differences from the official
+container, all of which matter to a comparison: macOS on arm64; Python 3.8
+where the recipe asks for 3.6; `tox --current-env` does not work there and
+the command it runs (`python -X dev -m pytest -rA`) is run directly; a wall
+clock limit where published runs limit turns (100 or 200). The verdict is a
+local reading with the instance's hidden tests, validated on the gold patch of
+one Django and one Sphinx instance; tests that fail there before any change
+(2 of 40 in one Sphinx instance) are not held against a patch. The scripts,
+runs and transcripts are unpublished evidence, kept outside the repository.
+
+*Outcome.* 3 of 10 resolved, once the patch was taken correctly (below); 2 of
+10 as first taken. The published figures for this model on all 500 instances,
+other harnesses, full precision, are 51.0 to 63.8 %; this subset, this
+quantisation and this judge are not theirs.
+
+*Where the time went* (223 minutes): generation 52 %, reading the prompt 36 %
+(prompt cache hits 83 to 97 %, context 36k to 109k tokens: about nine seconds
+of prefill per step), final checks 4 %, commands 2 %, start 1 %, 6 %
+unattributed between recorded events. The first edit came 2 to 6 minutes in
+for all ten: finding the place was not what failed. Of 533 actions 132 failed;
+93 of those were commands that ran and exited non-zero (a test that is red),
+about 30 were calls that could not be carried out.
+
+*What failed, by instance.* A fix for the case in the report and not the
+general one (three); a fix that turned the target test green and broke eight
+that passed (one); the model taking its own work apart after a red test, back
+to the original file (two, one at the time limit); a value written as text
+where the hidden test wants a number, as the project itself writes it
+elsewhere (one). The two resolved at first were one-cause, few-line fixes.
+
+*Findings about PWR, each from this run.*
+
+1. **The passages were beside the point in ten of ten.** For every Django
+   instance: jQuery, the largest test file, two reference pages. For every
+   Sphinx instance: the changelog, jQuery, `cpp.py`. Never the file to fix;
+   12 to 18 thousand characters each, about half the first prompt. Causes:
+   every word of the request counted alike, so a large file won on common
+   words; the request reached retrieval with the goal-mode text appended;
+   vendored code was a candidate. Weighting words by rarity, then by file
+   length, were tried and dropped (large files, then tiny ones, came first).
+   Now (`d15db5b2`), in a repository of fifty files or more, a passage is a
+   file that defines or is named after something the request writes as a name
+   and at most three files define, or there is none. Same ten requests, no
+   model: fixed file among the passages 0 → 2, passages 50 → 13. In a real
+   prompt (one instance so far): 9,012 → 7,193 tokens, passages 15,796 → 5,185
+   characters. The threshold of three was chosen on these ten.
+2. **Goal mode contradicted the request.** "Do not edit or add test files"
+   was followed by goal mode's "add or improve focused deterministic checks".
+   Test files were written or changed in 3 of 10 (eight files). The sentence
+   is now left out where the request rules tests out, in English or Italian
+   (`0b059ff8`); the effect on a run is not yet measured.
+3. **`package.json` decided the checks of a Python project** (Django keeps one
+   for its JavaScript tests): fixed in `152565b3`.
+4. **The model was not told how the project runs its tests**, and guessed
+   seven commands before giving up; the note about already-failing checks now
+   names the repository's own test entry points (`9341888a`). With it the
+   model ran Django's `tests/runtests.py` at the first attempt.
+5. **Look-only commands counted as failed runs** toward the five after which
+   a turn stops running things (`9341888a`).
+6. Open: `git` fails inside the macOS sandbox (it cannot write an `xcrun`
+   cache file); one goal ended with an RPC error, "goal verification could
+   not run: No such file or directory", where an outcome was due; where a
+   project's declared test command cannot start, PWR does not fall back to
+   what that command runs, so a fix that broke eight existing tests was not
+   shown them; the model leaves trial projects and build output in the
+   workspace.
+
+*The patch.* The run took as the patch every new or changed file; one
+instance's included the binary build output of the model's own trial project
+and did not apply. That was the benchmark script, not PWR. The patch is now
+what the agent changed in the project: tracked files modified, deleted or
+renamed, new files something kept refers to; not ignored files, binaries,
+build output, unreferenced new files, or any change to tests where the task
+rules tests out. Re-taken from the ten finished workspaces without inference:
+one verdict changes, 2 → 3 of 10.
+
+*Not yet known.* Whether either change to PWR alters what a model does: a
+four-arm comparison (neither, each alone, both) on a few of these instances
+was started the same day. In its first cell the arm with the retrieval change
+alone took 25.3 minutes and 99 actions where the baseline took 15.4 and 54,
+for the same verdict: one run, and contrary to the hypothesis.
+
+---
+
 ## 2026-10-07 — A page can be acted on before it is looked at; a failure that outlives its repairs is quoted; the engine's spare memory is capped
 
 **IMPLEMENTED; none of the three measured on a campaign.**

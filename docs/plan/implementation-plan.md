@@ -362,6 +362,41 @@ and `a_completed_look_carries_the_screenshot_to_the_client`.
 - **Not known.** How often small models use steps well; pages that refuse to
   be framed (`X-Frame-Options`) cannot be acted on.
 
+### W2.18 Passages a request names, or none
+
+**IMPLEMENTED (2026-10-08), measured without a model, not yet with one.** On
+ten bug reports against two large repositories the passages never included
+the file to fix and were the same vendored and oversized files for every
+request ([experiment log](../experiment-log.md)).
+
+- **Change.** `pwr_repo::retrieve_with`: in a repository of fifty files or
+  more, words used by over a tenth of the files count for nothing; vendored,
+  minified and translation files are never passages; a file is a passage only
+  if it defines or is named after something the request writes as a name and
+  at most three files define; a neighbour is kept only as one of at most three
+  tests of such a file. `context::engineers_words` ranks against the request
+  without the goal text. Smaller repositories are ranked as before.
+- **Tested.** `in_a_large_repository_a_passage_is_a_file_the_request_names`,
+  `passages_are_ranked_against_the_engineer_s_words_only`.
+- **Not known.** Whether fewer, better passages change a run; whether no
+  passages at all would do as well; the thresholds on repositories other than
+  the two measured.
+
+### W2.19 Goal text that does not contradict the request
+
+**IMPLEMENTED (2026-10-08), not measured.** Goal mode's invitation to add
+checks is left out where the request says to leave the tests alone
+(`serve::goal_instructions`, `leaves_tests_alone`; English and Italian).
+Tested by `goal_mode_does_not_invite_tests_the_engineer_ruled_out`.
+
+### W2.20 Open from the same run
+
+**PLANNED.** `git` inside the macOS sandbox; a goal whose verification cannot
+start must end with an outcome, not an RPC error; falling back to the command
+a project's test runner runs when the runner itself cannot start, and telling
+the model which passing tests its change broke; a place for the model's trial
+files that is not the workspace; removing a downloaded model from the app.
+
 ## How to read this plan
 
 Each work item has an ID (`W<stream>.<n>`), a status, and these parts:
