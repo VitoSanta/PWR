@@ -196,6 +196,34 @@ pub fn repeated_failure_notice(seen: usize) -> String {
 /// stopped a turn whose work had been done since the start.
 pub const FAILED_RUN_LIMIT: usize = 5;
 
+/// Whether a command only looks -- `ls`, `find`, `cat`, `grep`, directly or
+/// through a shell. One that exits non-zero has answered a question ("no such
+/// file"), it has not failed to run the work. Seen 2026-10-08 (Qwen 3.5 9B,
+/// Django): three attempts to start the tests and two `ls` for files that
+/// were not there made five failed runs, and the next commands were refused
+/// while the model was still finding out how the project is tested.
+pub fn looks_only(arguments: &serde_json::Value) -> bool {
+    let executable = arguments["executable"].as_str().unwrap_or_default();
+    let first = arguments["args"]
+        .as_array()
+        .and_then(|args| {
+            args.iter()
+                .filter_map(serde_json::Value::as_str)
+                .find(|arg| !arg.starts_with('-'))
+        })
+        .unwrap_or_default();
+    let shell = matches!(
+        executable.rsplit('/').next().unwrap_or(executable),
+        "bash" | "sh" | "zsh"
+    );
+    let program = if shell {
+        first.split_whitespace().next().unwrap_or_default()
+    } else {
+        executable
+    };
+    pwr_tools::tool_instead_of(program).is_some()
+}
+
 /// Failed runs in a row within a turn, and whether the hand-over was asked.
 #[derive(Debug, Default)]
 pub struct FailedRuns {
@@ -591,5 +619,22 @@ mod echo_tests {
         );
         assert!(notice.contains("Do not rewrite the file again"), "{notice}");
         assert!(still_failing_notice("a", 3, &[]).contains("read_file"));
+    }
+    #[test]
+    fn a_command_that_only_looks_is_told_from_one_that_runs_the_work() {
+        let command = |executable: &str, args: &[&str]| serde_json::json!({"executable": executable, "args": args});
+        assert!(looks_only(&command("ls", &["manage.py"])));
+        assert!(looks_only(&command("bash", &["ls", "manage.py"])));
+        assert!(looks_only(&command(
+            "bash",
+            &["-c", "find django -name tests"]
+        )));
+        assert!(looks_only(&command("/bin/cat", &["setup.py"])));
+        assert!(!looks_only(&command("python", &["tests/runtests.py"])));
+        assert!(!looks_only(&command(
+            "bash",
+            &["-c", "python -m pytest -q"]
+        )));
+        assert!(!looks_only(&command("npm", &["test"])));
     }
 }

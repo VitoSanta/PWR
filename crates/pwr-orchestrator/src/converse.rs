@@ -3543,7 +3543,10 @@ async fn take_turn_inner<P: ModelProvider>(
                             "{capability}: the same result {seen} times"
                         )));
                     }
+                    // A command that only looks has answered, whatever it exited
+                    // with: it neither adds to the failed runs nor ends them.
                     if runs_something
+                        && !crate::repetition::looks_only(&call.arguments)
                         && let Some(notice) = failed_runs
                             .observe(crate::repetition::failed(&value), edited || would_mutate)
                         && let Some(object) = value.as_object_mut()
@@ -3720,6 +3723,7 @@ async fn take_turn_inner<P: ModelProvider>(
                     let mut outcome = crate::action_outcome(Err(problem));
                     if full
                         && runs_something
+                        && !crate::repetition::looks_only(&call.arguments)
                         && let Some(notice) = failed_runs.observe(true, edited)
                         && let Some(object) = outcome.as_object_mut()
                     {

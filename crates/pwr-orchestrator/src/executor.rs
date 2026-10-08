@@ -196,6 +196,78 @@ pub fn already_failing_note(failing: &[String]) -> String {
     )
 }
 
+/// The files a repository runs its own tests through, at its root or one
+/// folder down: a test runner script, a tox, nox or make file, a pytest
+/// configuration. Names only, as paths from the root, in a fixed order.
+pub fn own_test_entry_points(root: &std::path::Path) -> Vec<String> {
+    const NAMES: &[&str] = &[
+        "runtests.py",
+        "run_tests.py",
+        "runtests.sh",
+        "run_tests.sh",
+        "test.sh",
+        "tox.ini",
+        "noxfile.py",
+        "Makefile",
+        "justfile",
+        "pytest.ini",
+        "conftest.py",
+        "manage.py",
+    ];
+    let mut folders = vec![String::new()];
+    if let Ok(entries) = std::fs::read_dir(root) {
+        let mut below: Vec<String> = entries
+            .flatten()
+            .filter(|entry| entry.path().is_dir())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| {
+                !name.starts_with('.')
+                    && !matches!(
+                        name.as_str(),
+                        "node_modules" | "target" | "build" | "dist" | "vendor"
+                    )
+            })
+            .collect();
+        below.sort();
+        folders.extend(below);
+    }
+    let mut found = Vec::new();
+    for name in NAMES {
+        for folder in &folders {
+            let path = if folder.is_empty() {
+                (*name).to_owned()
+            } else {
+                format!("{folder}/{name}")
+            };
+            if root.join(&path).is_file() {
+                found.push(path);
+            }
+        }
+    }
+    found.truncate(6);
+    found
+}
+
+/// Said with [`already_failing_note`] when the repository has its own way of
+/// running tests that the core's checks did not use.
+///
+/// Seen 2026-10-08 (Qwen 3.5 9B, Django): the only check the core found was
+/// failing before the goal, Django's tests run through `tests/runtests.py`,
+/// and the model spent seven commands guessing -- `pytest`, `python
+/// runtests`, `manage.py` -- before giving up on checking its fix at all.
+pub fn own_tests_note(entry_points: &[String]) -> Option<String> {
+    (!entry_points.is_empty()).then(|| {
+        format!(
+            "Those checks cannot confirm your change. The repository has its own way of running              tests, which the core did not use: {}. Read how the project runs its tests (these              files, or its contributing guide) and run the ones around what you change.",
+            entry_points
+                .iter()
+                .map(|path| format!("`{path}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })
+}
+
 pub const GOAL_MAX_ACTIONS: usize = 208;
 /// Completions the checks may refuse before a goal stops, however the failing
 /// checks change from one to the next. The same-failure limit below catches a
@@ -920,6 +992,9 @@ async fn drive<H: SessionHost + ?Sized>(
         if let Some(last) = messages.last_mut().filter(|last| last.role == "user") {
             last.content
                 .push_str(&format!("\n\n{}", already_failing_note(&already_failing)));
+            if let Some(note) = own_tests_note(&own_test_entry_points(&root)) {
+                last.content.push_str(&format!("\n\n{note}"));
+            }
         }
     }
     if aids.pointers
@@ -1880,6 +1955,22 @@ mod tests {
     /// A broken check may be the very behaviour the engineer requested.
     /// The observed React/ledger prompts incorrectly excluded every baseline
     /// failure before asking the model to repair the same behaviour.
+    #[test]
+    fn a_repository_s_own_test_runner_is_named_when_the_checks_cannot_confirm() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(own_test_entry_points(root.path()), Vec::<String>::new());
+        assert_eq!(own_tests_note(&[]), None);
+        std::fs::create_dir_all(root.path().join("tests")).unwrap();
+        std::fs::create_dir_all(root.path().join("node_modules")).unwrap();
+        std::fs::write(root.path().join("tests/runtests.py"), "").unwrap();
+        std::fs::write(root.path().join("tox.ini"), "").unwrap();
+        std::fs::write(root.path().join("node_modules/Makefile"), "").unwrap();
+        let found = own_test_entry_points(root.path());
+        assert_eq!(found, ["tests/runtests.py", "tox.ini"]);
+        let note = own_tests_note(&found).unwrap();
+        assert!(note.contains("`tests/runtests.py`, `tox.ini`"), "{note}");
+    }
+
     #[test]
     fn baseline_note_preserves_requested_repairs_and_acceptance() {
         let note = already_failing_note(&["npm test --silent".into()]);
