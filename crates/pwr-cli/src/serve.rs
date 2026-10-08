@@ -1050,7 +1050,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             Err(why) => return self.send(error_response(id, -32000, &why)),
         };
         if replaying {
-            for update in replay(&resumed.messages, &resumed.turn_models) {
+            for update in replay(&resumed.messages, &resumed.turn_models, &resumed.turn_times) {
                 self.update(&session_id, update);
             }
         }
@@ -2949,7 +2949,16 @@ fn available_commands(session_id: &str) -> Value {
 /// A restored conversation as a client shows it: what the person asked and what
 /// the deployment said. Harness context -- the system prompt, ledgers, excerpts,
 /// tool results, the resume note -- is the deployment's, not the transcript's.
-fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value> {
+///
+/// Each update carries when it happened where the log recorded it
+/// (`_meta.pwr.at`, milliseconds): the person's message at the start of its
+/// turn, everything the turn then did at its end. Without it a conversation
+/// reopened the next day read "Finished" at the time it was reopened, "took 0s".
+fn replay(
+    messages: &[ChatMessage],
+    turn_models: &[Option<String>],
+    turn_times: &[Option<(i64, i64)>],
+) -> Vec<Value> {
     let chunk = |kind: &str, text: &str| {
         json!({
             "sessionUpdate": kind,
@@ -2960,6 +2969,14 @@ fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value
     let mut shown = Vec::new();
     let mut pending = std::collections::VecDeque::<(String, Option<String>)>::new();
     let mut user_index = 0;
+    // The end of the turn being replayed, for what it did.
+    let mut ended: Option<i64> = None;
+    let put = |shown: &mut Vec<Value>, mut update: Value, at: Option<i64>| {
+        if let Some(at) = at {
+            update["_meta"]["pwr"]["at"] = json!(at);
+        }
+        shown.push(update);
+    };
     for (index, message) in messages.iter().enumerate() {
         match (message.role.as_str(), message.purpose) {
             ("user", None | Some(pwr_domain::MessagePurpose::Task)) => {
@@ -2968,7 +2985,9 @@ fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value
                     if let Some(Some(model)) = turn_models.get(user_index) {
                         update["_meta"]["pwr"]["model"] = json!(model);
                     }
-                    shown.push(update);
+                    let times = turn_times.get(user_index).copied().flatten();
+                    ended = times.map(|(_, ended)| ended);
+                    put(&mut shown, update, times.map(|(started, _)| started));
                     user_index += 1;
                 }
             }
@@ -2989,7 +3008,7 @@ fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value
                         Some(verdict) => format!("{}\n\n{verdict}", message.content.trim_end()),
                         None => message.content.clone(),
                     };
-                    shown.push(chunk("agent_message_chunk", &content));
+                    put(&mut shown, chunk("agent_message_chunk", &content), ended);
                 }
                 for (call_index, call) in message.tool_calls.iter().enumerate() {
                     let id = format!("replay-{index}-{call_index}");
@@ -3011,11 +3030,15 @@ fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value
                     } else {
                         path.unwrap_or(&call.name).to_owned()
                     };
-                    shown.push(json!({
-                        "sessionUpdate": "tool_call", "toolCallId": id, "title": title,
-                        "kind": tool_kind(&call.name), "status": "pending",
-                        "_meta": {"pwr": {"detail": detail, "replay": true}},
-                    }));
+                    put(
+                        &mut shown,
+                        json!({
+                            "sessionUpdate": "tool_call", "toolCallId": id, "title": title,
+                            "kind": tool_kind(&call.name), "status": "pending",
+                            "_meta": {"pwr": {"detail": detail, "replay": true}},
+                        }),
+                        ended,
+                    );
                     pending.push_back((id, call.id.clone()));
                 }
             }
@@ -3096,12 +3119,16 @@ fn replay(messages: &[ChatMessage], turn_models: &[Option<String>]) -> Vec<Value
                         })
                     })
                     .collect();
-                shown.push(json!({
-                    "sessionUpdate": "tool_call_update", "toolCallId": id,
-                    "status": if failed { "failed" } else { "completed" },
-                    "content": content,
-                    "_meta": {"pwr": {"replay": true}},
-                }));
+                put(
+                    &mut shown,
+                    json!({
+                        "sessionUpdate": "tool_call_update", "toolCallId": id,
+                        "status": if failed { "failed" } else { "completed" },
+                        "content": content,
+                        "_meta": {"pwr": {"replay": true}},
+                    }),
+                    ended,
+                );
             }
             _ => {}
         }
@@ -4093,6 +4120,7 @@ mod tests {
                     ChatMessage::text("tool", note),
                 ],
                 turn_models: vec![Some("test-model".into())],
+                turn_times: vec![None],
                 checkpoint: pwr_orchestrator::conversation::Checkpoint {
                     changed_files: [("src/lib.rs".to_string(), "abc".to_string())].into(),
                     ..Default::default()
@@ -6305,6 +6333,7 @@ mod tests {
                 ChatMessage::text("assistant", "done"),
             ],
             &[],
+            &[],
         );
         assert_eq!(
             shown,
@@ -6323,9 +6352,19 @@ mod tests {
             ChatMessage::text("user", "second"),
             ChatMessage::text("assistant", "two"),
         ];
-        let shown = replay(&messages, &[Some("gpt-oss".into()), Some("gemma-4".into())]);
+        let shown = replay(
+            &messages,
+            &[Some("gpt-oss".into()), Some("gemma-4".into())],
+            &[Some((1_000, 61_000)), None],
+        );
         assert_eq!(shown[0]["_meta"]["pwr"]["model"], "gpt-oss");
         assert_eq!(shown[2]["_meta"]["pwr"]["model"], "gemma-4");
+        // The person's message at the start of its turn, the answer at its
+        // end; a turn the log has no times for carries none.
+        assert_eq!(shown[0]["_meta"]["pwr"]["at"], 1_000);
+        assert_eq!(shown[1]["_meta"]["pwr"]["at"], 61_000);
+        assert!(shown[2]["_meta"]["pwr"].get("at").is_none());
+        assert!(shown[3]["_meta"]["pwr"].get("at").is_none());
     }
 
     #[test]
@@ -6349,6 +6388,7 @@ mod tests {
                     "The workspace checks were run after your edits: nothing verified this: the workspace declares no checks",
                 ),
             ],
+            &[],
             &[],
         );
         assert_eq!(shown.len(), 4);
@@ -6390,7 +6430,7 @@ mod tests {
                     );
                 }
                 answer.tool_call_id = Some("command".into());
-                let shown = replay(&[call, answer], &[]);
+                let shown = replay(&[call, answer], &[], &[]);
                 assert_eq!(shown[1]["status"], "failed");
                 let text = shown[1]["content"][0]["content"]["text"].as_str().unwrap();
                 assert!(text.contains("AssertionError: billing total"), "{text}");
@@ -6419,6 +6459,7 @@ mod tests {
                     call,
                     ChatMessage::text("tool", json!({"result":result}).to_string()),
                 ],
+                &[],
                 &[],
             );
             assert_eq!(shown[1]["status"], "failed", "{result}");

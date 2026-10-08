@@ -209,6 +209,9 @@ pub struct Restored {
     pub messages: Vec<ChatMessage>,
     /// Model names for the visible user turns, recovered from the audit.
     pub turn_models: Vec<Option<String>>,
+    /// When each visible user turn began and ended, in milliseconds since the
+    /// epoch, recovered from the audit: its first generation and its snapshot.
+    pub turn_times: Vec<Option<(i64, i64)>>,
     /// The last action boundary recorded, if any turn got that far.
     pub checkpoint: Option<Checkpoint>,
     /// Workspace-changing actions announced and never receipted.
@@ -254,15 +257,20 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
     let mut prompts = Vec::<String>::new();
     let mut turn_models = Vec::<Option<String>>::new();
     let mut pending_model = None;
+    let mut turn_times = Vec::<Option<(i64, i64)>>::new();
+    let mut pending_start = None;
     for event in &events[..=last_snapshot] {
         match event.event_type.as_str() {
             REWOUND_EVENT => {
                 prompts.clear();
                 turn_models.clear();
                 pending_model = None;
+                turn_times.clear();
+                pending_start = None;
             }
             "generation.started" => {
                 pending_model = event.payload["model"].as_str().map(str::to_owned);
+                pending_start.get_or_insert(event.at.timestamp_millis());
             }
             SNAPSHOT_EVENT => {
                 let next: Vec<String> = event.payload["messages"]
@@ -280,13 +288,18 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
                     .collect();
                 if next.starts_with(&prompts) {
                     turn_models.resize(next.len(), None);
+                    turn_times.resize(next.len(), None);
                 } else {
                     // Rewind or compaction changed the visible prefix. A
                     // model identity cannot safely be assigned by position.
                     turn_models = vec![None; next.len()];
+                    turn_times = vec![None; next.len()];
                 }
                 if let (Some(model), Some(last)) = (pending_model.take(), turn_models.last_mut()) {
                     *last = Some(model);
+                }
+                if let (Some(started), Some(last)) = (pending_start.take(), turn_times.last_mut()) {
+                    *last = Some((started, event.at.timestamp_millis()));
                 }
                 prompts = next;
             }
@@ -357,6 +370,7 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
     Ok(Some(Restored {
         messages,
         turn_models,
+        turn_times,
         checkpoint,
         unreceipted: ambiguous_legacy
             .into_iter()
@@ -589,6 +603,13 @@ mod model_history_tests {
             restore(&store, id).unwrap().unwrap().turn_models,
             [Some("gpt-oss".into()), Some("gemma-4".into())]
         );
+        // Each turn also keeps when it began and ended, from the same log:
+        // without them a reopened conversation is dated when it is reopened.
+        let times = restore(&store, id).unwrap().unwrap().turn_times;
+        assert_eq!(times.len(), 2);
+        let (first, second) = (times[0].unwrap(), times[1].unwrap());
+        assert!(first.0 <= first.1 && first.1 <= second.0 && second.0 <= second.1);
+        assert!(first.0 > 1_600_000_000_000, "milliseconds since the epoch");
     }
 
     #[test]
@@ -616,6 +637,7 @@ pub struct Resumed {
     /// message when there is one, so the deployment reads it before anything.
     pub messages: Vec<ChatMessage>,
     pub turn_models: Vec<Option<String>>,
+    pub turn_times: Vec<Option<(i64, i64)>>,
     pub checkpoint: Checkpoint,
     /// What differs from what the conversation recorded. `None` when nothing
     /// does.
@@ -659,6 +681,7 @@ pub fn resume(
     Ok(Some(Resumed {
         messages,
         turn_models: restored.turn_models,
+        turn_times: restored.turn_times,
         checkpoint: restored.checkpoint.unwrap_or_default(),
         note,
     }))

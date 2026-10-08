@@ -1047,7 +1047,7 @@ export class AgentStore {
       case 'user_message_chunk':
         // A replayed prompt carries what the core appended to it (goal-mode
         // instructions, attachments); the person's own words come first.
-        this.push({ key: `user-${Date.now()}-${Math.random()}`, kind: 'user', title: 'You', text: ownWords(text), status: 'sent', at: Date.now() });
+        this.push({ key: `user-${Date.now()}-${Math.random()}`, kind: 'user', title: 'You', text: ownWords(text), status: 'sent', at: happenedAt(update) });
         this.segment += 1;
         return;
       case 'tool_call':
@@ -1108,7 +1108,7 @@ export class AgentStore {
         diff: diff ?? previous?.diff,
         data: { ...previous?.data, ...(path ? { path } : {}), ...(outcome ? { outcome } : {}), ...(image ? { image } : {}) },
         raw: [...(previous?.raw ?? []), logged],
-        at: previous?.at ?? Date.now(),
+        at: previous?.at ?? happenedAt(update),
       };
       if (index < 0) return [...entries, next];
       const copy = entries.slice();
@@ -1150,7 +1150,7 @@ export class AgentStore {
       return;
     }
     this.settleLive();
-    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', raw: update ? [update] : undefined, at: Date.now() });
+    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', raw: update ? [update] : undefined, at: happenedAt(update) });
   }
 
   private finish(reply: any): void {
@@ -1256,4 +1256,14 @@ function relative(path: string, workspace: string): string {
 
 function unique(items: string[]): string[] {
   return [...new Set(items)];
+}
+
+/**
+ * When an update happened: now, for one that just arrived; the time the core
+ * recorded, for one replayed from a reopened conversation. A conversation
+ * reopened the next day used to read "Finished" at the time it was reopened.
+ */
+function happenedAt(update: any): number {
+  const recorded = update?._meta?.pwr?.at;
+  return typeof recorded === 'number' && recorded > 0 ? recorded : Date.now();
 }
