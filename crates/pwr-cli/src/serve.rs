@@ -4471,6 +4471,15 @@ mod tests {
                     [("make test".to_owned(), fingerprint.identifiers)].into();
                 verification.summary = "0 of 1 full check(s) passing:\n  ✗ make test".into();
             }
+            // A check red before the goal that names no test, and prints
+            // something else each time it runs.
+            if self.delay == Some("unnamed_output_changes") {
+                verification.failing = vec!["tox -e du-latest -- -vv".into()];
+                verification.failure_fingerprints =
+                    vec![format!("tox -e du-latest -- -vv:run{round}")];
+                verification.summary =
+                    "0 of 1 full check(s) passing:\n  ✗ tox -e du-latest -- -vv".into();
+            }
             Ok(verification)
         }
 
@@ -5752,6 +5761,17 @@ mod tests {
             messages.last().unwrap()["result"]["_meta"]["pwr"]["goal"]["verified"],
             false
         );
+    }
+
+    /// Seen 2026-10-08 (Sphinx, two goals in two): `tox` failed before the
+    /// goal and after it without naming a test, its first run printing more
+    /// than the next. The goal was held on it and the model set about
+    /// `npm install` and `tox.ini` until its time ran out.
+    #[tokio::test]
+    async fn a_check_red_before_the_goal_that_names_no_test_is_left_alone_whatever_it_prints() {
+        let (messages, turns) = goal_prompt(red_before_the_goal("unnamed_output_changes")).await;
+        assert!(says(&messages, "left alone"), "{messages:#?}");
+        assert_eq!(turns, 1);
     }
 
     #[tokio::test]

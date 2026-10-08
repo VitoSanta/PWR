@@ -184,11 +184,19 @@ pub struct GoalVerification {
 /// passed then, or one that failed then and now fails some other way.
 ///
 /// A check that failed before is the same failure now when its fingerprint
-/// is the same ([`pwr_verify::failure::fingerprint`]: the failing tests by
-/// name, or the end of the output where it names none), or when it names
-/// its failing tests and every one of them was failing before -- fewer of
-/// the same. Anything else is new: a test that passed and fails, or an
-/// output that names nothing and no longer reads the same.
+/// is the same ([`pwr_verify::failure::fingerprint`]), when it names its
+/// failing tests and every one of them was failing before -- fewer of the
+/// same -- or when it named no test then and names none now. Anything else
+/// is new: a test that passed and fails, tests named where none were, or
+/// none named where some were (the suite no longer gets that far).
+///
+/// Where no test is named either time, nothing tells one failure from
+/// another, and the end of the output is not it. Seen 2026-10-08 (Sphinx,
+/// Full access, two goals in two): `tox` failed before the goal while
+/// building its environment and failed the same way after, but the first
+/// run prints the steps that set the environment up and later runs do not.
+/// Read as a new failure, it held a goal whose work was done, and the model
+/// spent the rest of its time on `npm install` and `tox.ini`.
 ///
 /// The command's name used to stand for all of this. A check that was red
 /// before the goal then excused whatever the goal broke under it: the goal
@@ -215,7 +223,7 @@ pub fn newly_failing(before: &GoalVerification, now: &GoalVerification) -> NewFa
         let empty = std::collections::BTreeSet::new();
         let named_before = before.failed_tests_by_check.get(check).unwrap_or(&empty);
         let named_now = now.failed_tests_by_check.get(check).unwrap_or(&empty);
-        if !named_now.is_empty() && named_now.is_subset(named_before) {
+        if named_now.is_subset(named_before) && named_now.is_empty() == named_before.is_empty() {
             continue;
         }
         found.checks.push(check.clone());
@@ -3121,23 +3129,27 @@ mod tests {
         assert!(newly_failing(&before, &now).is_empty());
     }
 
+    /// Sphinx's `tox` step: red before the goal and after it, no test named
+    /// either time, and a first run that prints more than the ones after.
     #[test]
-    fn output_that_names_no_test_and_reads_otherwise_is_a_new_failure() {
-        // It did not start before; now it starts and breaks, or the reverse:
-        // nothing says these are the same failure.
-        let before = failing_with("pytest -q", "bb", &[]);
-        let now = failing_with("pytest -q", "ee", &[]);
-        assert_eq!(newly_failing(&before, &now).checks, ["pytest -q"]);
-        // And one that named its tests before and names none now.
-        let named = failing_with("make test", "aa", &["tests/a.py::test_one"]);
-        assert_eq!(
-            newly_failing(&named, &now_named_nothing()).checks,
-            ["make test"]
-        );
+    fn a_check_that_names_no_test_before_or_after_is_not_told_apart_by_its_output() {
+        let before = failing_with("tox -e du-latest -- -vv", "3680449d4e5c", &[]);
+        let now = failing_with("tox -e du-latest -- -vv", "ddf8e3be3d13", &[]);
+        assert!(newly_failing(&before, &now).is_empty());
     }
 
-    fn now_named_nothing() -> GoalVerification {
-        failing_with("make test", "ff", &[])
+    #[test]
+    fn tests_named_where_none_were_and_none_named_where_some_were_are_new() {
+        // It names its failing tests now and named none before: what fails
+        // now was not known to fail then.
+        let unnamed = failing_with("make test", "bb", &[]);
+        let named = failing_with("make test", "aa", &["tests/a.py::test_one"]);
+        let new = newly_failing(&unnamed, &named);
+        assert_eq!(new.checks, ["make test"]);
+        assert_eq!(new.tests.len(), 1);
+        // It named them before and names none now: the suite no longer gets
+        // as far as its tests.
+        assert_eq!(newly_failing(&named, &unnamed).checks, ["make test"]);
     }
 
     #[test]
