@@ -88,13 +88,31 @@ elsewhere (one). The two resolved at first were one-cause, few-line fixes.
    model ran Django's `tests/runtests.py` at the first attempt.
 5. **Look-only commands counted as failed runs** toward the five after which
    a turn stops running things (`9341888a`).
-6. Open: `git` fails inside the macOS sandbox (it cannot write an `xcrun`
-   cache file); one goal ended with an RPC error, "goal verification could
-   not run: No such file or directory", where an outcome was due; where a
-   project's declared test command cannot start, PWR does not fall back to
-   what that command runs, so a fix that broke eight existing tests was not
-   shown them; the model leaves trial projects and build output in the
-   workspace.
+6. **Three defects of verification and of the sandbox, each reproduced
+   without a model and fixed the same day.** (a) A goal ended with an RPC
+   error, "goal verification could not run: No such file or directory", where
+   an outcome was due (four runs in four on one Sphinx instance): a check read
+   from the project's CI configuration named a program of the CI image, and
+   unconfined, failing to start it failed the whole verification. A check that
+   cannot be started, or that the policy refuses, is now a failed check
+   (`476dac74`, `5153cd22`). (b) CI steps that prepare a machine were run as
+   checks because a path or an extra carried the word `test`:
+   `pip install -U .[test]`, `mkdir -p test-reports/pytest`. They are no
+   longer taken (`5153cd22`); in a clean Sphinx clone `pwr verify` went from
+   an error to three checks and leaves the workspace as it was. (c) A
+   sandboxed `git` or `make` took 1.6 s and began with two lines of
+   `couldn't create cache file ... Operation not permitted`: both are Apple's
+   shims, which go through xcrun. The real programs are now found first on a
+   sandboxed command's PATH; the sandbox is unchanged (`0929ffad`).
+7. Open. The `git` that failed outright in the one sandboxed run failed
+   because the benchmark's workspace was a clone whose objects live outside
+   it (`--shared`); a linked worktree has the same shape, and the sandbox
+   still, deliberately, does not read there. Where a project's test command
+   cannot start, PWR does not fall back to what that command runs, so a fix
+   that broke eight existing tests was not shown them: the outcome says the
+   check still fails as before and that the change is not verified by it, but
+   nothing else is run. The model leaves trial scripts in the workspace; PWR
+   does not remove them, since nothing tells a trial from the work.
 
 *The patch.* The run took as the patch every new or changed file; one
 instance's included the binary build output of the model's own trial project
@@ -105,11 +123,40 @@ build output, unreferenced new files, or any change to tests where the task
 rules tests out. Re-taken from the ten finished workspaces without inference:
 one verdict changes, 2 → 3 of 10.
 
-*Not yet known.* Whether either change to PWR alters what a model does: a
-four-arm comparison (neither, each alone, both) on a few of these instances
-was started the same day. In its first cell the arm with the retrieval change
-alone took 25.3 minutes and 99 actions where the baseline took 15.4 and 54,
-for the same verdict: one run, and contrary to the hypothesis.
+*The four-arm comparison.* A is `9341888a`; B adds the retrieval change
+(`d15db5b2`); C adds the goal-text change (`0b059ff8`); D adds both. Same
+model, sampling, access and limit as above. **One run per cell, two or three
+instances: it shows what can happen, not how often.**
+
+| Instance | Measure | A | B | C | D |
+| --- | --- | --- | --- | --- | --- |
+| django-11848 | resolved | no | no | – | – |
+| | minutes / actions | 15.4 / 54 | 25.3 / 99 | – | – |
+| | first prompt, tokens | 9,012 | 7,193 | – | – |
+| | test files touched | 0 | 3 | – | – |
+| django-11880 | resolved | yes | yes | yes | yes |
+| | minutes / actions | 5.8 / 45 | 6.3 / 40 | 6.1 / 35 | 17.9 / 69 |
+| | first prompt, tokens | 8,846 | 6,515 | 8,803 | 6,495 |
+| | test files touched | 0 | 2 | 0 | 2 |
+| sphinx-10466 | resolved | yes | no | yes | yes |
+| | minutes / actions | 11.6 / 40 | 9.9 / 73 | 12.7 / 51 | 11.3 / 35 |
+| | first prompt, tokens | 9,684 | 6,021 | 9,617 | 6,001 |
+
+*What it supports.* The retrieval change shortens the first prompt in every
+cell (20 to 38 %). Nothing else: neither change resolved an instance the
+baseline did not, one cell with the retrieval change lost an instance the
+baseline resolved, and the same instance in arms that differ by one sentence
+took 6 and 18 minutes. The spread between cells is as large as any effect
+looked for, so no cell says which arm is better. Test files were touched more
+in the arms with the retrieval change (B and D) than without (A and C): five
+cells against five, one run each, recorded as an observation.
+
+*Decision.* Both changes are kept as **experimental, with no claim about
+quality**. The retrieval change is kept on what was measured without a model
+(passages that are beside the point removed, a shorter first prompt) and is
+to be re-evaluated if later evaluations show a repeatable drop in resolved
+tasks or a substantial rise in actions with it. The forty held-out instances
+were not run and stay untouched until one configuration is a candidate.
 
 ---
 

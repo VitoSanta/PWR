@@ -364,7 +364,10 @@ and `a_completed_look_carries_the_screenshot_to_the_client`.
 
 ### W2.18 Passages a request names, or none
 
-**IMPLEMENTED (2026-10-08), measured without a model, not yet with one.** On
+**EXPERIMENTAL (2026-10-08): measured without a model; with one, a shorter
+first prompt and no gain in resolved tasks (one run per cell). Kept with a
+regression criterion: re-evaluate if later evaluations show a repeatable drop
+in quality or a substantial rise in actions.** On
 ten bug reports against two large repositories the passages never included
 the file to fix and were the same vendored and oversized files for every
 request ([experiment log](../experiment-log.md)).
@@ -384,18 +387,25 @@ request ([experiment log](../experiment-log.md)).
 
 ### W2.19 Goal text that does not contradict the request
 
-**IMPLEMENTED (2026-10-08), not measured.** Goal mode's invitation to add
+**EXPERIMENTAL (2026-10-08): no effect on resolved tasks seen in three cells,
+one run each; no claim about quality.** Goal mode's invitation to add
 checks is left out where the request says to leave the tests alone
 (`serve::goal_instructions`, `leaves_tests_alone`; English and Italian).
 Tested by `goal_mode_does_not_invite_tests_the_engineer_ruled_out`.
 
 ### W2.20 Open from the same run
 
-**PLANNED.** `git` inside the macOS sandbox; a goal whose verification cannot
-start must end with an outcome, not an RPC error; falling back to the command
-a project's test runner runs when the runner itself cannot start, and telling
-the model which passing tests its change broke; a place for the model's trial
-files that is not the workspace; removing a downloaded model from the app.
+**PARTLY DONE (2026-10-08).** Done, each reproduced and re-checked without a
+model: a goal whose check cannot start or is refused ends with an outcome
+(`476dac74`, `5153cd22`); CI steps that prepare a machine are not run as
+checks (`5153cd22`); a sandboxed `git` or `make` runs the real program
+(`0929ffad`). Open: a workspace whose git objects live outside it (a linked
+worktree, a clone with alternates) cannot read them sandboxed, and opening
+them on the word of a file a command can write would widen the sandbox;
+falling back to the command a project's test runner runs when the runner
+itself cannot start, and telling the model which passing tests its change
+broke; a place for the model's trial files that is not the workspace;
+removing a downloaded model from the app.
 
 ## How to read this plan
 
