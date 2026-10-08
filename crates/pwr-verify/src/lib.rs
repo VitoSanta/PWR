@@ -693,7 +693,7 @@ fn another_language_leads(root: &std::path::Path) -> bool {
 /// `make -C extras test` were the goal's checks, each answering "No rule to
 /// make target `test'" before and after any change. A file that cannot be
 /// read is taken to have the target, as before.
-fn makefile_has_target(makefile: &std::path::Path, target: &str) -> bool {
+pub fn makefile_has_target(makefile: &std::path::Path, target: &str) -> bool {
     let Ok(text) = std::fs::read_to_string(makefile) else {
         return true;
     };

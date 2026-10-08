@@ -304,7 +304,11 @@ pub fn own_test_entry_points(root: &std::path::Path) -> Vec<String> {
             } else {
                 format!("{folder}/{name}")
             };
-            if root.join(&path).is_file() {
+            // A Makefile is a way of running tests where it has a rule for
+            // them: Django's `docs/Makefile` builds the documentation.
+            let runs_tests =
+                *name != "Makefile" || pwr_verify::makefile_has_target(&root.join(&path), "test");
+            if root.join(&path).is_file() && runs_tests {
                 found.push(path);
             }
         }
@@ -3037,6 +3041,21 @@ mod tests {
             report.answer.contains("is not verified"),
             "{}",
             report.answer
+        );
+    }
+
+    #[test]
+    fn a_makefile_without_a_test_rule_is_not_a_way_of_running_tests() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("docs")).unwrap();
+        std::fs::create_dir_all(root.path().join("tests")).unwrap();
+        std::fs::write(root.path().join("docs/Makefile"), "html:\n\tsphinx-build\n").unwrap();
+        std::fs::write(root.path().join("tests/runtests.py"), "").unwrap();
+        assert_eq!(own_test_entry_points(root.path()), ["tests/runtests.py"]);
+        std::fs::write(root.path().join("Makefile"), "test:\n\tpytest\n").unwrap();
+        assert_eq!(
+            own_test_entry_points(root.path()),
+            ["tests/runtests.py", "Makefile"]
         );
     }
 
