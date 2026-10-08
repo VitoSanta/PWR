@@ -2575,18 +2575,8 @@ impl<R: TurnRunner + 'static> Server<R> {
         }
         session.last_request = text.to_owned();
         let text = if goal_mode {
-            // A single `\` continues the line; `\\` had put a literal
-            // backslash and the next line's indentation into every goal-mode
-            // prompt the model read (seen 2026-09-22 in a replayed message).
-            format!(
-                "{}\n\nGoal mode is enabled. Keep working until the requested outcome is actually complete. \
-                 Do not end with prose alone: call `complete` only after inspecting the resulting workspace. \
-                 The core will run the repository's full declared checks when you call it; if they fail, use the \
-                 evidence to repair the work. For behaviour the repository does not already test, add or improve \
-                 focused deterministic checks when that is appropriate. Never claim a page, route, integration, \
-                 or cleanup is finished without evidence from the workspace.",
-                with_attachments(text, &attached)
-            )
+            let added = goal_instructions(&text);
+            format!("{}\n\n{added}", with_attachments(text, &attached))
         } else {
             with_attachments(text, &attached)
         };
@@ -3314,6 +3304,82 @@ fn prompt_parts(params: &Value) -> Result<PromptParts, String> {
         }
     }
     Ok((text.join("\n"), attachments, images))
+}
+
+/// What goal mode adds after the engineer's request.
+///
+/// Its invitation to add checks is left out when the request says to leave
+/// the tests alone. Seen 2026-10-08 (Qwen 3.5 9B, ten bug reports each ending
+/// "Do not edit or add test files"): the next paragraph the model read was
+/// this one saying to "add or improve focused deterministic checks", and it
+/// wrote or changed test files in three of the ten (eight files; in one it
+/// rewrote the project's own test module). Two instructions that disagree are
+/// settled by the engineer's.
+pub fn goal_instructions(request: &str) -> String {
+    // A single `\` continues the line; `\\` had put a literal backslash and
+    // the next line's indentation into every goal-mode prompt the model read
+    // (seen 2026-09-22 in a replayed message).
+    let checks = if leaves_tests_alone(request) {
+        ""
+    } else {
+        "For behaviour the repository does not already test, add or improve \
+         focused deterministic checks when that is appropriate. "
+    };
+    format!(
+        "Goal mode is enabled. Keep working until the requested outcome is actually complete. \
+         Do not end with prose alone: call `complete` only after inspecting the resulting workspace. \
+         The core will run the repository's full declared checks when you call it; if they fail, use the \
+         evidence to repair the work. {checks}Never claim a page, route, integration, \
+         or cleanup is finished without evidence from the workspace."
+    )
+}
+
+/// Whether a request tells the agent not to write or change tests: a
+/// prohibition ("do not", "don't", "never", "without", "non", "senza") and,
+/// within the same sentence and a few words of it, a verb of writing with
+/// "test". English and Italian; a request in another language keeps the
+/// default text.
+pub fn leaves_tests_alone(request: &str) -> bool {
+    const PROHIBITIONS: &[&str] = &[
+        "do not", "don't", "dont", "never", "without", "non ", "senza",
+    ];
+    const WRITING: &[&str] = &[
+        "edit",
+        "add",
+        "write",
+        "writing",
+        "modify",
+        "modifying",
+        "change",
+        "changing",
+        "touch",
+        "touching",
+        "create",
+        "creating",
+        "modificare",
+        "aggiungere",
+        "scrivere",
+        "toccare",
+        "creare",
+        "cambiare",
+    ];
+    request
+        .to_lowercase()
+        .split(['.', '\n', ';', ':', '!', '?'])
+        .any(|sentence| {
+            let Some(at) = PROHIBITIONS
+                .iter()
+                .filter_map(|word| sentence.find(word))
+                .min()
+            else {
+                return false;
+            };
+            let after: Vec<&str> = sentence[at..].split_whitespace().take(12).collect();
+            after.iter().any(|word| word.starts_with("test"))
+                && after.iter().any(|word| {
+                    WRITING.contains(&word.trim_matches(|c: char| !c.is_alphanumeric()))
+                })
+        })
 }
 
 /// ACP's tool kind for a PWR capability.
@@ -6544,6 +6610,38 @@ mod tests {
             done("read_file", Some(".pwr/images/a.png"))["content"],
             json!([])
         );
+    }
+
+    #[test]
+    fn goal_mode_does_not_invite_tests_the_engineer_ruled_out() {
+        let invitation = "add or improve focused deterministic checks";
+        for request in [
+            "Fix the parser. Do not edit or add test files: the fix is judged by the project's own tests.",
+            "Fix it, but don't touch the tests.",
+            "Correggi il bug senza modificare i test.",
+            "Sistema il parser. Non aggiungere file di test.",
+            "Refactor this without changing any test.",
+        ] {
+            assert!(leaves_tests_alone(request), "{request}");
+            let said = goal_instructions(request);
+            assert!(!said.contains(invitation), "{request}");
+            assert!(
+                said.starts_with("Goal mode is enabled.")
+                    && said.contains("evidence to repair the work. Never claim")
+            );
+        }
+        for request in [
+            "Fix the parser and add tests for it.",
+            "The tests do not pass: fix the code.",
+            "Do not change the public API. Add a test for the new option.",
+            "Non funziona il login: correggilo e scrivi un test.",
+            "Costruisci una pagina. Almeno 10 test sulla logica.",
+        ] {
+            assert!(!leaves_tests_alone(request), "{request}");
+            assert!(goal_instructions(request).contains(invitation), "{request}");
+        }
+        // The text is one unbroken paragraph: no stray backslash or indentation.
+        assert!(!goal_instructions("x").contains("  ") && !goal_instructions("x").contains('\\'));
     }
 
     #[test]
