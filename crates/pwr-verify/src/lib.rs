@@ -684,6 +684,30 @@ fn another_language_leads(root: &std::path::Path) -> bool {
     other > javascript
 }
 
+/// Whether a Makefile has a rule for `target`: a line that begins with the
+/// target's name, alone or among others, before a colon.
+///
+/// `make test` is a guess from the file's name, and a Makefile need not have
+/// that target. Seen 2026-10-08 (Django): `docs/Makefile` builds the
+/// documentation and `extras/Makefile` a package; `make -C docs test` and
+/// `make -C extras test` were the goal's checks, each answering "No rule to
+/// make target `test'" before and after any change. A file that cannot be
+/// read is taken to have the target, as before.
+fn makefile_has_target(makefile: &std::path::Path, target: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(makefile) else {
+        return true;
+    };
+    text.lines().any(|line| {
+        !line.starts_with(char::is_whitespace)
+            && line.split_once(':').is_some_and(|(targets, rest)| {
+                // `test := value` and `test ::= value` assign a variable.
+                !rest.starts_with('=')
+                    && !rest.starts_with(":=")
+                    && targets.split_whitespace().any(|name| name == target)
+            })
+    })
+}
+
 /// Whether the workspace has a Python environment of its own -- a toolchain
 /// under `.toolchains/`, or a virtual environment at its root -- and none of
 /// them has `program` installed.
@@ -775,6 +799,9 @@ pub fn discover_checks(
         if system.executable == "pytest" && own_python_lacks(root, "pytest") {
             continue;
         }
+        if system.name == "make" && !makefile_has_target(&root.join(system.marker), "test") {
+            continue;
+        }
         if system.name == "cargo" && scope == "targeted" {
             if root.join("src/lib.rs").is_file() {
                 return Ok(vec![(
@@ -837,7 +864,12 @@ pub fn discover_checks(
     // files it asks the browser to load exist. Ranked below every other source
     // because a project that states how it verifies itself has said something
     // stronger than this check can.
-    if web::has_markup(root) {
+    // And not for a repository that is mostly another language's: its markup
+    // is templates and fixtures, which load nothing as they stand. Seen
+    // 2026-10-08 (Django, once the guesses above were gone): "125 local
+    // reference(s) will not load" was the goal's one check, before and after
+    // any change.
+    if web::has_markup(root) && !another_language_leads(root) {
         return Ok(vec![(web::WEB_ASSETS_CHECK.to_string(), Vec::new())]);
     }
     // A repository with no verifier we recognise is not an error: it has no
@@ -966,6 +998,9 @@ fn project_checks(
     }
     for system in BUILD_SYSTEMS {
         if !folder.join(system.marker).is_file() {
+            continue;
+        }
+        if system.name == "make" && !makefile_has_target(&folder.join(system.marker), "test") {
             continue;
         }
         let args = match scope {
@@ -1842,6 +1877,55 @@ mod nested_project_tests {
         std::fs::write(other.path().join("setup.py"), "").unwrap();
         std::fs::create_dir_all(other.path().join(".toolchains/go/bin")).unwrap();
         assert_eq!(discover_checks(other.path(), "full").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_markup_check_is_not_for_a_repository_of_another_language() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("index.html"),
+            "<link rel=\"stylesheet\" href=\"missing.css\">\n",
+        )
+        .unwrap();
+        // A page and nothing else: the one thing that can be checked is.
+        assert_eq!(
+            discover_checks(root.path(), "full").unwrap(),
+            [(web::WEB_ASSETS_CHECK.to_owned(), Vec::<String>::new())]
+        );
+        // The same page among a Python project's sources, whose own Python
+        // has no pytest: nothing the core can run speaks for it.
+        std::fs::write(root.path().join("setup.py"), "").unwrap();
+        for module in ["a.py", "b.py", "c.py"] {
+            std::fs::write(root.path().join(module), "x = 1\n").unwrap();
+        }
+        let bin = root.path().join(".toolchains/python/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("python"), "").unwrap();
+        assert!(discover_checks(root.path(), "full").unwrap().is_empty());
+    }
+
+    /// Django's `docs/Makefile` and `extras/Makefile`: neither has a `test`.
+    #[test]
+    fn make_test_is_not_guessed_for_a_makefile_without_that_target() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("docs")).unwrap();
+        std::fs::write(
+            root.path().join("docs/Makefile"),
+            "SPHINXBUILD ?= sphinx-build\ntest := no\n.PHONY: help html\nhtml:\n\t$(SPHINXBUILD) -b html . _build\n",
+        )
+        .unwrap();
+        assert!(discover_checks(root.path(), "full").unwrap().is_empty());
+        // With the target, alone or among others, the guess stands.
+        for rule in ["test:\n\tpytest\n", "check test: build\n\tpytest\n"] {
+            std::fs::write(root.path().join("Makefile"), rule).unwrap();
+            assert_eq!(
+                discover_checks(root.path(), "full").unwrap(),
+                [("make".to_owned(), vec!["test".to_owned()])],
+                "{rule}"
+            );
+        }
+        std::fs::write(root.path().join("Makefile"), "all:\n\ttrue\n").unwrap();
+        assert!(discover_checks(root.path(), "full").unwrap().is_empty());
     }
 
     fn ci_checks_of(configuration: &str) -> Vec<(String, Vec<String>)> {
