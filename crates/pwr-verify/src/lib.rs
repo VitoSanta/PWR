@@ -444,6 +444,28 @@ const EXCLUDED_WORDS: [&str; 8] = [
     "deploy", "publish", "push", "release", "upload", "docker", "curl", "ssh",
 ];
 
+/// Programs that prepare a CI machine and check nothing.
+const PREPARATION_PROGRAMS: [&str; 14] = [
+    "mkdir", "cp", "mv", "rm", "ln", "touch", "chmod", "chown", "echo", "sudo", "apt", "apt-get",
+    "brew", "choco",
+];
+
+/// Whether a CI step prepares the machine rather than checking the project.
+///
+/// A step is preferred as a check when it carries a word like `test`, and a
+/// path or an extra carries one as easily as a command does. Seen 2026-10-08
+/// (Sphinx): `pip install -U .[test]` and `mkdir -p test-reports/pytest` were
+/// run as checks before and after every goal. One installs into whatever
+/// Python is first on PATH, the other leaves a directory in the engineer's
+/// workspace, and neither says anything about the change.
+fn prepares_the_machine(executable: &str, args: &[&str]) -> bool {
+    let program = executable.rsplit('/').next().unwrap_or(executable);
+    PREPARATION_PROGRAMS.contains(&program)
+        // `pip install`, `python -m pip install`, `npm install`, `make install`.
+        || args.iter().take(3).any(|word| *word == "install")
+        || (matches!(program, "npm" | "pnpm") && args.first() == Some(&"ci"))
+}
+
 /// Verification commands a project's CI configuration states for itself.
 ///
 /// Read as text rather than parsed per CI vendor: the shapes differ but a
@@ -522,6 +544,9 @@ fn ci_declared_checks(root: &std::path::Path) -> Vec<(String, Vec<String>)> {
                 let Some(executable) = words.next() else {
                     continue;
                 };
+                if prepares_the_machine(executable, &words.clone().collect::<Vec<_>>()) {
+                    continue;
+                }
                 let looks_like_verification =
                     VERIFICATION_WORDS.iter().any(|w| lowered.contains(w));
                 found.push((
@@ -992,8 +1017,12 @@ pub async fn baseline(
                         std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
                     ) =>
                 {
-                    not_started(cmd, &error)
+                    not_started(cmd, &error.to_string())
                 }
+                // The same for one the policy refuses: seen the same day, a CI
+                // step naming a URL ended every verification of that
+                // repository with "network access requires an explicit grant".
+                Err(ToolError::Denied(why)) => not_started(cmd, &why),
                 Err(other) => return Err(other),
             }
         };
@@ -1030,8 +1059,8 @@ pub async fn baseline(
 /// returned "tool I/O failure: No such file or directory", and a goal whose
 /// work was done ended with a protocol error in place of its outcome -- four
 /// runs in four.
-fn not_started(program: &str, error: &std::io::Error) -> ToolResult {
-    let stderr = format!("{program}: could not be started: {error}\n");
+fn not_started(program: &str, why: &str) -> ToolResult {
+    let stderr = format!("{program}: could not be started: {why}\n");
     ToolResult {
         // What a shell answers for a command it cannot find.
         exit_code: Some(127),
@@ -1623,5 +1652,53 @@ mod nested_project_tests {
         // And the same absence later is the same failure, not a new one.
         let second = baseline(&policy, &checks).await.unwrap();
         assert!(compare(&first, &second).new_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_check_the_policy_refuses_is_a_failed_check_not_a_failed_verification() {
+        let root = tempfile::tempdir().unwrap();
+        let mut policy = pwr_tools::PolicyProfile::Development.build(root.path().to_path_buf());
+        policy.sandbox = pwr_tools::SandboxPolicy::Disabled;
+        policy.allow_commands = vec!["true".into()];
+        let checks = vec![
+            (
+                "true".to_owned(),
+                vec!["git+https://example.invalid/x".to_owned()],
+            ),
+            ("true".to_owned(), Vec::new()),
+        ];
+        let first = baseline(&policy, &checks).await.unwrap();
+        assert_eq!(first.checks[0].result.exit_code, Some(127));
+        assert!(
+            first.checks[0].result.stderr.contains("network access"),
+            "{}",
+            first.checks[0].result.stderr
+        );
+        assert_eq!(first.checks[1].result.exit_code, Some(0));
+        let second = baseline(&policy, &checks).await.unwrap();
+        assert!(compare(&first, &second).new_failures.is_empty());
+    }
+
+    /// Sphinx's CircleCI steps, as they are in the repository.
+    #[test]
+    fn a_ci_step_that_prepares_the_machine_is_not_a_check() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".circleci")).unwrap();
+        std::fs::write(
+            root.path().join(".circleci/config.yml"),
+            "    steps:\n      - checkout\n      \
+             - run: /python3.8/bin/pip install -U pip setuptools\n      \
+             - run: /python3.8/bin/pip install -U .[test]\n      \
+             - run: python -m pip install -U git+https://example.invalid/pytest\n      \
+             - run: mkdir -p test-reports/pytest\n      \
+             - run: npm ci\n      \
+             - run: make test PYTHON=python3\n",
+        )
+        .unwrap();
+        let checks: Vec<String> = ci_declared_checks(root.path())
+            .into_iter()
+            .map(|(program, args)| format!("{program} {}", args.join(" ")))
+            .collect();
+        assert_eq!(checks, ["make test PYTHON=python3"]);
     }
 }
