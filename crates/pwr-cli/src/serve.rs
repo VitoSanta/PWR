@@ -4443,6 +4443,34 @@ mod tests {
             if self.alternate && round > 0 {
                 verification.failing = vec![format!("check{}", round % 2)];
             }
+            // A check red before the goal: with one test more failing under
+            // it after the work, or one fewer.
+            if let Some(tests) = match (self.delay, round) {
+                (Some("one_more_failure") | Some("one_fewer_failure"), 0) => {
+                    Some(vec!["tests/a.py::test_one", "tests/a.py::test_two"])
+                }
+                (Some("one_more_failure"), _) => Some(vec![
+                    "tests/a.py::test_one",
+                    "tests/a.py::test_two",
+                    "tests/a.py::test_three",
+                ]),
+                (Some("one_fewer_failure"), _) => Some(vec!["tests/a.py::test_two"]),
+                _ => None,
+            } {
+                let output = tests
+                    .iter()
+                    .map(|test| format!("FAILED {test} - AssertionError"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let fingerprint = pwr_verify::failure::fingerprint(&output, "");
+                verification.failing = vec!["make test".into()];
+                verification.failure_fingerprints =
+                    vec![format!("make test:{}", fingerprint.digest)];
+                verification.failed_tests = fingerprint.identifiers.clone();
+                verification.failed_tests_by_check =
+                    [("make test".to_owned(), fingerprint.identifiers)].into();
+                verification.summary = "0 of 1 full check(s) passing:\n  ✗ make test".into();
+            }
             Ok(verification)
         }
 
@@ -5649,6 +5677,7 @@ mod tests {
                 contract_changed: Vec::new(),
                 checks: None,
                 failed_tests: Default::default(),
+                failed_tests_by_check: Default::default(),
                 evidence: String::new(),
             },
             requests: Default::default(),
@@ -5685,6 +5714,51 @@ mod tests {
         assert!(seen.len() >= 2, "{seen:?}");
         assert_eq!(seen[0], 0);
         assert!(seen[1..].iter().all(|grants| *grants == 1), "{seen:?}");
+    }
+
+    fn red_before_the_goal(change: &'static str) -> GoalScripted {
+        GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: false,
+            delay: Some(change),
+            runs: std::sync::atomic::AtomicUsize::new(0),
+            requests: Default::default(),
+            ask_on_first: None,
+            read_terminal_on_first: false,
+            grants_seen: Default::default(),
+            script: vec![turn(4, true, None)],
+            verification: GoalVerification::default(),
+        }
+    }
+
+    /// The defect: `make test` was red before the goal, the goal's work turned
+    /// one more test red under it, and the goal ended "already failing, left
+    /// alone" -- the command's name stood for the failure.
+    #[tokio::test]
+    async fn a_test_the_goal_broke_under_a_check_already_red_is_not_left_alone() {
+        let runner = red_before_the_goal("one_more_failure");
+        let requests = Arc::clone(&runner.requests);
+        let (messages, _) = goal_prompt(runner).await;
+        assert!(!says(&messages, "left alone"), "{messages:#?}");
+        let asked = requests.lock().unwrap().clone();
+        assert!(
+            asked.iter().any(|request| request.contains(
+                "were not failing before this goal started and fail now: tests/a.py::test_three."
+            )),
+            "{asked:#?}"
+        );
+        assert_eq!(
+            messages.last().unwrap()["result"]["_meta"]["pwr"]["goal"]["verified"],
+            false
+        );
+    }
+
+    #[tokio::test]
+    async fn a_check_red_before_the_goal_with_fewer_failures_after_it_is_left_alone() {
+        let (messages, turns) = goal_prompt(red_before_the_goal("one_fewer_failure")).await;
+        assert!(says(&messages, "left alone"), "{messages:#?}");
+        assert_eq!(turns, 1);
     }
 
     /// Seen 2026-09-26: the acceptance tests of a C# task could not run, failed

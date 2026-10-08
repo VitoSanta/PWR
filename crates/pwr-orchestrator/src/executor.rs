@@ -172,8 +172,73 @@ pub struct GoalVerification {
     /// The failing tests by name, where the checks' output names them
     /// ([`pwr_verify::failure`]): what a proposal is judged by.
     pub failed_tests: std::collections::BTreeSet<String>,
+    /// The same names, kept under the check that printed them: what tells a
+    /// check failing as it did before a goal from one that now fails more.
+    pub failed_tests_by_check:
+        std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
     /// What the failing checks printed, shortened: what a proposal is shown.
     pub evidence: String,
+}
+
+/// What fails now that did not fail before the goal started: a check that
+/// passed then, or one that failed then and now fails some other way.
+///
+/// A check that failed before is the same failure now when its fingerprint
+/// is the same ([`pwr_verify::failure::fingerprint`]: the failing tests by
+/// name, or the end of the output where it names none), or when it names
+/// its failing tests and every one of them was failing before -- fewer of
+/// the same. Anything else is new: a test that passed and fails, or an
+/// output that names nothing and no longer reads the same.
+///
+/// The command's name used to stand for all of this. A check that was red
+/// before the goal then excused whatever the goal broke under it: the goal
+/// ended "already failing, left alone" on tests it had itself turned red.
+pub fn newly_failing(before: &GoalVerification, now: &GoalVerification) -> NewFailures {
+    let fingerprint = |verification: &GoalVerification, check: &str| {
+        verification.failure_fingerprints.iter().find_map(|entry| {
+            entry
+                .rsplit_once(':')
+                .filter(|(command, _)| *command == check)
+                .map(|(_, digest)| digest.to_owned())
+        })
+    };
+    let mut found = NewFailures::default();
+    for check in &now.failing {
+        if !before.failing.contains(check) {
+            found.checks.push(check.clone());
+            continue;
+        }
+        let (was, is) = (fingerprint(before, check), fingerprint(now, check));
+        if was == is {
+            continue;
+        }
+        let empty = std::collections::BTreeSet::new();
+        let named_before = before.failed_tests_by_check.get(check).unwrap_or(&empty);
+        let named_now = now.failed_tests_by_check.get(check).unwrap_or(&empty);
+        if !named_now.is_empty() && named_now.is_subset(named_before) {
+            continue;
+        }
+        found.checks.push(check.clone());
+        found
+            .tests
+            .extend(named_now.difference(named_before).cloned());
+    }
+    found
+}
+
+/// See [`newly_failing`].
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct NewFailures {
+    /// The checks, by command.
+    pub checks: Vec<String>,
+    /// The tests those checks name now and did not name before the goal.
+    pub tests: std::collections::BTreeSet<String>,
+}
+
+impl NewFailures {
+    pub fn is_empty(&self) -> bool {
+        self.checks.is_empty()
+    }
 }
 
 /// What a goal is told about checks that failed before it started.
@@ -1584,10 +1649,9 @@ async fn drive<H: SessionHost + ?Sized>(
             } else if !verification.technical_passed
                 && !verification.failing.is_empty()
                 && verification.failing_acceptance.is_empty()
-                && verification
-                    .failing
-                    .iter()
-                    .all(|check| already_failing.contains(check))
+                && baseline
+                    .as_ref()
+                    .is_some_and(|before| newly_failing(before, &verification).is_empty())
             {
                 // A check broken before the goal is not the goal's to fix --
                 // unless it is an acceptance check, which *is* the goal:
@@ -1640,8 +1704,20 @@ async fn drive<H: SessionHost + ?Sized>(
                     "Goal verification did not pass:\n{}\n\nContinuing from the current workspace.",
                     verification.summary
                 ));
+                // Where some of what fails was failing before the goal, the
+                // model is told which failures are its own.
+                let new = baseline
+                    .as_ref()
+                    .map(|before| newly_failing(before, &verification))
+                    .filter(|new| !new.tests.is_empty() && !already_failing.is_empty());
+                let mine = new.map_or_else(String::new, |new| {
+                    format!(
+                        " These tests were not failing before this goal started and fail now: {}. Other failures of the same checks were there before your change.",
+                        new.tests.iter().take(12).cloned().collect::<Vec<_>>().join(", ")
+                    )
+                });
                 messages.push(goal_guidance(format!(
-                    "The goal is not complete: full repository verification failed. Fix the remaining issue. Evidence:\n{}",
+                    "The goal is not complete: full repository verification failed. Fix the remaining issue.{mine} Evidence:\n{}",
                     verification.summary
                 )));
             }
@@ -2930,6 +3006,92 @@ mod tests {
             "{}",
             report.answer
         );
+    }
+
+    fn failing_with(check: &str, digest: &str, tests: &[&str]) -> GoalVerification {
+        GoalVerification {
+            failing: vec![check.to_owned()],
+            failure_fingerprints: vec![format!("{check}:{digest}")],
+            failed_tests: tests.iter().map(|name| (*name).to_owned()).collect(),
+            failed_tests_by_check: [(
+                check.to_owned(),
+                tests.iter().map(|name| (*name).to_owned()).collect(),
+            )]
+            .into(),
+            ..GoalVerification::default()
+        }
+    }
+
+    #[test]
+    fn a_check_failing_as_it_did_before_the_goal_is_not_a_new_failure() {
+        let before = failing_with("make test", "aa", &["tests/a.py::test_one"]);
+        assert!(newly_failing(&before, &before.clone()).is_empty());
+        // No test named either time (a program that is not there, a build
+        // that does not start): the same end of output is the same failure.
+        let unnamed = failing_with("pytest -q", "bb", &[]);
+        assert!(newly_failing(&unnamed, &unnamed.clone()).is_empty());
+    }
+
+    /// The defect: the command stood for the failure, so a check red before
+    /// the goal excused the tests the goal turned red under it.
+    #[test]
+    fn a_test_that_fails_now_under_a_check_that_failed_before_is_a_new_failure() {
+        let before = failing_with("make test", "aa", &["tests/a.py::test_one"]);
+        let now = failing_with(
+            "make test",
+            "cc",
+            &["tests/a.py::test_one", "tests/a.py::test_two"],
+        );
+        let new = newly_failing(&before, &now);
+        assert_eq!(new.checks, ["make test"]);
+        assert_eq!(
+            new.tests.into_iter().collect::<Vec<_>>(),
+            ["tests/a.py::test_two"]
+        );
+    }
+
+    #[test]
+    fn fewer_of_the_failures_there_were_is_not_a_new_failure() {
+        let before = failing_with(
+            "make test",
+            "aa",
+            &["tests/a.py::test_one", "tests/a.py::test_two"],
+        );
+        let now = failing_with("make test", "dd", &["tests/a.py::test_two"]);
+        assert!(newly_failing(&before, &now).is_empty());
+    }
+
+    #[test]
+    fn output_that_names_no_test_and_reads_otherwise_is_a_new_failure() {
+        // It did not start before; now it starts and breaks, or the reverse:
+        // nothing says these are the same failure.
+        let before = failing_with("pytest -q", "bb", &[]);
+        let now = failing_with("pytest -q", "ee", &[]);
+        assert_eq!(newly_failing(&before, &now).checks, ["pytest -q"]);
+        // And one that named its tests before and names none now.
+        let named = failing_with("make test", "aa", &["tests/a.py::test_one"]);
+        assert_eq!(
+            newly_failing(&named, &now_named_nothing()).checks,
+            ["make test"]
+        );
+    }
+
+    fn now_named_nothing() -> GoalVerification {
+        failing_with("make test", "ff", &[])
+    }
+
+    #[test]
+    fn a_check_that_passed_before_the_goal_and_fails_now_is_a_new_failure() {
+        let before = failing_with("npm test", "aa", &["a"]);
+        let mut now = failing_with("npm test", "aa", &["a"]);
+        now.failing.push("cargo test".into());
+        now.failure_fingerprints.push("cargo test:11".into());
+        assert_eq!(newly_failing(&before, &now).checks, ["cargo test"]);
+        // A check counted failing for running no tests has no fingerprint:
+        // the same words before and after are the same state.
+        let mut none_before = GoalVerification::default();
+        none_before.failing.push("pytest ran no tests".into());
+        assert!(newly_failing(&none_before, &none_before.clone()).is_empty());
     }
 
     // ------------------------------------------------ verified proposals (W2.9)

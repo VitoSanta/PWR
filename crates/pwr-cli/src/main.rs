@@ -4089,6 +4089,7 @@ impl serve::TurnRunner for ConsoleTurns {
         // What a proposal is judged by and shown (plan W2.9): the failing
         // tests by name, and the failing checks' own output.
         let mut failed_tests = BTreeSet::new();
+        let mut failed_tests_by_check = BTreeMap::new();
         let mut evidence = String::new();
         for check in report
             .get("baseline")
@@ -4100,7 +4101,12 @@ impl serve::TurnRunner for ConsoleTurns {
         {
             let stdout = check["result"]["stdout"].as_str().unwrap_or_default();
             let stderr = check["result"]["stderr"].as_str().unwrap_or_default();
-            failed_tests.extend(pwr_verify::failure::fingerprint(stdout, stderr).identifiers);
+            let named = pwr_verify::failure::fingerprint(stdout, stderr).identifiers;
+            failed_tests_by_check.insert(
+                check["command"].as_str().unwrap_or("unknown").to_owned(),
+                named.clone(),
+            );
+            failed_tests.extend(named);
             evidence.push_str(&failing_output(stdout, stderr));
         }
         let checks = report
@@ -4117,6 +4123,7 @@ impl serve::TurnRunner for ConsoleTurns {
             failing_acceptance,
             failing,
             failed_tests,
+            failed_tests_by_check,
             evidence,
             passed: technical_passed && acceptance_available,
             technical_passed,
