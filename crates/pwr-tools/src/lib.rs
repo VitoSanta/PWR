@@ -6441,6 +6441,44 @@ fn cargo_home() -> Option<PathBuf> {
 /// of the machine.
 const MAX_DEPENDENCY_PACKAGES: usize = 300;
 
+/// The `site-packages` of the Python environments a workspace keeps: the
+/// usual names at its root, and any toolchain of its own that is one.
+///
+/// Seen 2026-10-08 (Sphinx): the interpreter and every package the project
+/// needs were in `.toolchains/python`, where the workspace's own tools live
+/// and are put on PATH. A search of the dependencies was refused -- "no
+/// installed dependencies to search" -- one action after the model had read
+/// a traceback naming a file there.
+fn python_site_packages(root: &Path) -> Vec<PathBuf> {
+    let mut environments: Vec<PathBuf> = [".venv", "venv", "env"]
+        .iter()
+        .map(|name| root.join(name))
+        .collect();
+    let mut toolchains: Vec<PathBuf> = std::fs::read_dir(root.join(TOOLCHAINS_DIRECTORY))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    toolchains.sort();
+    environments.extend(toolchains);
+    let mut found = Vec::new();
+    for environment in environments {
+        let Ok(entries) = std::fs::read_dir(environment.join("lib")) else {
+            continue;
+        };
+        let mut versions: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+        versions.sort();
+        found.extend(
+            versions
+                .into_iter()
+                .map(|version| version.join("site-packages"))
+                .filter(|packages| packages.is_dir()),
+        );
+    }
+    found
+}
+
 fn dependency_sources_in(root: &Path, cargo_home: Option<&Path>) -> Vec<DependencySource> {
     let mut sources = Vec::new();
     // Node: the names package.json declares, as installed.
@@ -6461,25 +6499,16 @@ fn dependency_sources_in(root: &Path, cargo_home: Option<&Path>) -> Vec<Dependen
         }
     }
     // Python: whatever the project's own virtual environment has installed.
-    for environment in [".venv", "venv", "env"] {
-        let Ok(entries) = std::fs::read_dir(root.join(environment).join("lib")) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let packages = entry.path().join("site-packages");
-            if !packages.is_dir() {
-                continue;
-            }
-            for name in directory_names(&packages)
-                .into_iter()
-                .filter(|name| !name.ends_with(".dist-info") && name != "__pycache__")
-                .take(MAX_DEPENDENCY_PACKAGES)
-            {
-                sources.push(DependencySource {
-                    label: format!("site-packages/{name}"),
-                    path: packages.join(&name),
-                });
-            }
+    for packages in python_site_packages(root) {
+        for name in directory_names(&packages)
+            .into_iter()
+            .filter(|name| !name.ends_with(".dist-info") && name != "__pycache__")
+            .take(MAX_DEPENDENCY_PACKAGES)
+        {
+            sources.push(DependencySource {
+                label: format!("site-packages/{name}"),
+                path: packages.join(&name),
+            });
         }
     }
     // Rust: the versions Cargo.lock pins, unpacked in the registry.
@@ -6590,17 +6619,7 @@ pub fn dependency_roots(root: &Path) -> Vec<PathBuf> {
     if modules.is_dir() {
         roots.push(modules);
     }
-    for environment in [".venv", "venv", "env"] {
-        let Ok(entries) = std::fs::read_dir(root.join(environment).join("lib")) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let packages = entry.path().join("site-packages");
-            if packages.is_dir() {
-                roots.push(packages);
-            }
-        }
-    }
+    roots.extend(python_site_packages(root));
     if let Some(registry) = cargo_home().map(|home| home.join("registry/src"))
         && registry.is_dir()
         && root.join("Cargo.lock").is_file()
@@ -8457,6 +8476,48 @@ mod tests {
             "x",
         );
         assert!(matches!(refused, Err(ToolError::Denied(_))), "{refused:?}");
+    }
+
+    #[test]
+    fn a_python_environment_among_the_workspaces_own_toolchains_is_searched() {
+        let root = tempfile::tempdir().unwrap();
+        let packages = root
+            .path()
+            .join(".toolchains/python/lib/python3.9/site-packages");
+        std::fs::create_dir_all(packages.join("docutils")).unwrap();
+        std::fs::write(
+            packages.join("docutils/nodes.py"),
+            "class system_message:\n    pass\n",
+        )
+        .unwrap();
+        // A toolchain that is not a Python environment adds nothing.
+        std::fs::create_dir_all(root.path().join(".toolchains/go/bin")).unwrap();
+        let root_path = root.path().canonicalize().unwrap();
+        assert_eq!(
+            dependency_roots(&root_path),
+            [root_path.join(".toolchains/python/lib/python3.9/site-packages")]
+        );
+        let sources = dependency_sources_in(&root_path, None);
+        assert_eq!(
+            sources
+                .iter()
+                .map(|source| source.label.as_str())
+                .collect::<Vec<_>>(),
+            ["site-packages/docutils"]
+        );
+        let policy = ToolPolicy {
+            root: root_path,
+            extra_readable: Vec::new(),
+            protected: Vec::new(),
+            allow_commands: vec![],
+            output_limit: 64 * 1024,
+            timeout: Duration::from_secs(5),
+            sandbox: SandboxPolicy::Disabled,
+            approvals: Vec::new(),
+        };
+        let found =
+            search_dependencies(&policy, &SearchQuery::literal("system_message", 30)).unwrap();
+        assert_eq!(found.files.len(), 1, "{found:?}");
     }
 
     #[test]
