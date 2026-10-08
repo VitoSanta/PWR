@@ -641,6 +641,114 @@ const CONTENT_OCCURRENCE: u32 = 2;
 /// Occurrences beyond this add nothing: a file that mentions a term a hundred
 /// times is not fifty times more relevant than one that mentions it twice.
 const MAX_COUNTED_OCCURRENCES: usize = 8;
+/// A repository of at least this many files says which words are common in it.
+/// A smaller one is ranked on every word, as before: in five files a word used
+/// by two of them is still a signal.
+const RARITY_FROM_FILES: usize = 50;
+/// A word used by more than this share of the files tells them apart from
+/// nothing, in this repository, whatever it means elsewhere.
+const COMMON_SHARE: f64 = 0.10;
+/// A name this many files define or are named after still points somewhere;
+/// one that more do is a common word that happens to be a name too.
+const SPECIFIC_DEFINERS: usize = 3;
+/// What a section must use too.
+const MIN_SECTION_TERMS: usize = 2;
+
+/// How much each word of the request tells the files apart: 0 for one used
+/// all over this repository, towards 1 for one used in a single file.
+///
+/// Measured 2026-10-08 on ten bug reports against Django and Sphinx
+/// (`pwr-evidence/swebench-pilot`): with every word counted alike, the passages
+/// put before the request were jQuery, the changelog and the largest test
+/// file for all ten, and never the file the fix was in -- a large file uses
+/// every common word, and "add", "check", "test", "value" outvoted the one
+/// word that named the function.
+fn telling_weights(index: &RepositoryIndex, terms: &[String]) -> Vec<f64> {
+    let files = index.files.len();
+    if files < RARITY_FROM_FILES {
+        return vec![1.0; terms.len()];
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let total = files as f64;
+    terms
+        .iter()
+        .map(|term| {
+            let used = index
+                .files
+                .iter()
+                .filter(|file| file.terms.binary_search(term).is_ok())
+                .count();
+            #[allow(clippy::cast_precision_loss)]
+            let used = used as f64;
+            if used == 0.0 {
+                // In no file's text: it can still name a path or a symbol.
+                1.0
+            } else if used / total > COMMON_SHARE {
+                0.0
+            } else {
+                (total / used).ln() / total.ln()
+            }
+        })
+        .collect()
+}
+
+/// The words of a request written as names rather than as prose: with an
+/// underscore, a capital after a lower-case letter, or a digit among letters
+/// -- `parse_http_date`, `AuthenticationForm`, `utf8`. Lower-cased, as terms
+/// are. "done", "edit" and "find" are also functions somewhere; a request that
+/// uses them as words is not naming those functions.
+fn written_as_names(query: &str) -> Vec<String> {
+    let mut names: Vec<String> = query
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|word| word.len() >= 4)
+        .filter(|word| {
+            let inner = word.trim_matches('_');
+            let letters = inner.chars().any(char::is_alphabetic);
+            let camel = inner
+                .chars()
+                .zip(inner.chars().skip(1))
+                .any(|(a, b)| a.is_lowercase() && b.is_uppercase());
+            letters && (inner.contains('_') || camel || inner.chars().any(|c| c.is_ascii_digit()))
+        })
+        .map(str::to_lowercase)
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Whether a file defines `term` or is named after it: a symbol of that
+/// name, or the file's own name without its extension.
+fn names(file: &FileRecord, term: &str) -> bool {
+    file.symbols
+        .iter()
+        .any(|symbol| symbol.to_lowercase() == term)
+        || Path::new(&file.path)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| stem.to_lowercase() == term)
+}
+
+/// Code and data a repository carries without having written it: a vendored
+/// library, a minified bundle, a translation catalogue. Never a passage --
+/// the answer to a request about this project is not in jQuery.
+fn carried_not_written(path: &str) -> bool {
+    let lowered = path.to_lowercase();
+    lowered.split('/').any(|part| {
+        matches!(
+            part,
+            "vendor"
+                | "vendors"
+                | "third_party"
+                | "third-party"
+                | "node_modules"
+                | "bower_components"
+        )
+    }) || lowered.contains(".min.")
+        || lowered.ends_with(".po")
+        || lowered.ends_with(".mo")
+}
+
 /// Lines of context kept either side of the densest match.
 const EXCERPT_CONTEXT_LINES: usize = 12;
 /// A Markdown section longer than this is cut to its first lines: a passage is
@@ -926,22 +1034,58 @@ pub fn retrieve_with(
     // Scored from the index, not from the disk. Retrieval used to read every
     // file to score it and then re-open the ones it chose; the terms an
     // earlier run extracted answer the same question without either read.
+    let weights = telling_weights(index, &terms);
+    // In a repository large enough to have common words, sharing words with
+    // the request is not enough to be a passage: every large file shares
+    // some. A file is one when it defines, or is named after, something the
+    // request names and few files define ([`SPECIFIC_DEFINERS`]).
+    let strict = index.files.len() >= RARITY_FROM_FILES;
+    let as_names = written_as_names(query);
+    let definers: Vec<usize> = terms
+        .iter()
+        .map(|term| {
+            index
+                .files
+                .iter()
+                .filter(|file| !carried_not_written(&file.path) && names(file, term))
+                .count()
+        })
+        .collect();
     let mut scored: Vec<(u32, String, &FileRecord)> = Vec::new();
     for file in &index.files {
+        if carried_not_written(&file.path) {
+            continue;
+        }
         let lowered_path = file.path.to_lowercase();
-        let mut score = 0u32;
+        let mut score = 0.0f64;
         let mut reasons = Vec::new();
-        for term in &terms {
+        // Telling words this file uses, and whether the request names
+        // something this file, and few others, define.
+        let mut named = false;
+        for ((term, weight), definers) in terms.iter().zip(&weights).zip(&definers) {
+            if *weight == 0.0 {
+                continue;
+            }
+            let mut used = false;
+            if *definers <= SPECIFIC_DEFINERS
+                && as_names.binary_search(term).is_ok()
+                && names(file, term)
+            {
+                named = true;
+            }
             if file.symbols.iter().any(|s| s.to_lowercase() == *term) {
-                score += SYMBOL_EXACT;
+                score += f64::from(SYMBOL_EXACT) * weight;
                 reasons.push(format!("defines {term}"));
+                used = true;
             } else if file.symbols.iter().any(|s| s.to_lowercase().contains(term)) {
-                score += SYMBOL_PARTIAL;
+                score += f64::from(SYMBOL_PARTIAL) * weight;
                 reasons.push(format!("symbol mentions {term}"));
+                used = true;
             }
             if lowered_path.contains(term) {
-                score += PATH_MATCH;
+                score += f64::from(PATH_MATCH) * weight;
                 reasons.push(format!("path contains {term}"));
+                used = true;
             }
             // A distinct term rather than an occurrence count. The index keeps
             // which words a file uses, not how often, and saturating the count
@@ -949,12 +1093,21 @@ pub fn retrieve_with(
             // mentioning a term a hundred times was never fifty times more
             // relevant than one mentioning it twice.
             if file.terms.binary_search(term).is_ok() {
-                score += CONTENT_OCCURRENCE * MAX_COUNTED_OCCURRENCES as u32;
+                #[allow(clippy::cast_precision_loss)]
+                let content = (CONTENT_OCCURRENCE * MAX_COUNTED_OCCURRENCES as u32) as f64;
+                score += content * weight;
                 reasons.push(format!("mentions {term}"));
+                used = true;
             }
+            let _ = used;
         }
-        if score > 0 {
+        // One telling word in passing is a coincidence, not a passage: with
+        // nothing better, the request goes without passages.
+        // A small repository is ranked as it always was.
+        if score > 0.0 && (named || !strict) {
             reasons.dedup();
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let score = score.round().max(1.0) as u32;
             scored.push((score, reasons.join(", "), file));
         }
     }
@@ -965,6 +1118,28 @@ pub fn retrieve_with(
     // the ranking has never had it.
     let neighbours = graph_neighbours(index, &scored);
     for (path, (bonus, why)) in neighbours {
+        // Never what the repository only carries; and where passages must be
+        // named, not a file whose only tie is a name inside an import -- in
+        // Django every module "imports" `django.po` that way.
+        if carried_not_written(&path) || (strict && why.starts_with("imported by")) {
+            continue;
+        }
+        // ...nor one of many files that test "forms" or "utils" by name.
+        if strict {
+            let subject = index
+                .files
+                .iter()
+                .find(|file| file.path == path)
+                .and_then(|file| file.tests.clone());
+            let sharing = index
+                .files
+                .iter()
+                .filter(|file| file.tests.is_some() && file.tests == subject)
+                .count();
+            if sharing > SPECIFIC_DEFINERS {
+                continue;
+            }
+        }
         if let Some(existing) = scored.iter_mut().find(|(_, _, file)| file.path == path) {
             existing.0 += bonus;
             existing.1 = format!("{}, {why}", existing.1);
@@ -978,13 +1153,21 @@ pub fn retrieve_with(
     // the same slots: a request about the project should be able to fill them
     // all with prose, and a request about a function with code.
     let semantic = ranker.is_some();
+    // Sections are judged on the telling words only, for the same reason.
+    let telling_terms: Vec<String> = terms
+        .iter()
+        .zip(&weights)
+        .filter(|(_, weight)| **weight > 0.0)
+        .map(|(term, _)| term.clone())
+        .collect();
     let documents: Vec<&FileRecord> = index
         .files
         .iter()
         .filter(|file| {
             is_markdown(&file.path)
+                && !carried_not_written(&file.path)
                 && (semantic
-                    || terms
+                    || telling_terms
                         .iter()
                         .any(|term| file.terms.binary_search(term).is_ok()))
         })
@@ -1018,7 +1201,20 @@ pub fn retrieve_with(
     }
     let mut per_document: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     let mut section_excerpts: Vec<(f64, Excerpt)> = Vec::new();
-    let lexical = score_sections(&units, &terms);
+    let lexical: Vec<(f64, usize)> = score_sections(&units, &telling_terms)
+        .into_iter()
+        .filter(|(_, index)| {
+            // Without a ranker by meaning, a section sharing one word with
+            // the request is not about it.
+            semantic
+                || !strict
+                || telling_terms
+                    .iter()
+                    .filter(|term| units[*index].4.iter().any(|word| word == *term))
+                    .count()
+                    >= MIN_SECTION_TERMS.min(telling_terms.len())
+        })
+        .collect();
     let similarities = ranker.as_mut().and_then(|ranker| {
         let sections: Vec<SectionText<'_>> = units
             .iter()
@@ -1142,7 +1338,7 @@ pub fn retrieve_with(
             .enumerate()
             .max_by_key(|(_, line)| {
                 let lowered = line.to_lowercase();
-                terms
+                telling_terms
                     .iter()
                     .filter(|t| lowered.contains(t.as_str()))
                     .count()
@@ -1231,5 +1427,65 @@ mod retention_tests {
         let present = (1..=10000).map(|n| format!("f{n}")).collect();
         assert_eq!(cache.retain(&present).unwrap(), 10000);
         assert_eq!(cache.retain(&present).unwrap(), 0);
+    }
+    /// Measured 2026-10-08 on ten bug reports against Django and Sphinx: the
+    /// passages were jQuery, the changelog and the largest test file for all
+    /// ten, and never the file to fix. In a repository large enough to have
+    /// common words, a passage is a file the request names.
+    #[test]
+    fn in_a_large_repository_a_passage_is_a_file_the_request_names() {
+        let root = tempfile::tempdir().unwrap();
+        let common = "def check(value):\n    # add the test value and return the current result\n    return value\n";
+        for n in 0..60 {
+            fs::create_dir_all(root.path().join("pkg")).unwrap();
+            fs::write(root.path().join(format!("pkg/module_{n}.py")), common).unwrap();
+        }
+        fs::create_dir_all(root.path().join("pkg/utils")).unwrap();
+        fs::create_dir_all(root.path().join("static/vendor")).unwrap();
+        fs::write(
+            root.path().join("pkg/utils/http.py"),
+            "def parse_http_date(date):\n    year = int(date[:2])\n    return year\n",
+        )
+        .unwrap();
+        // A library the repository carries: it uses every word and defines
+        // the very name asked about.
+        fs::write(
+            root.path().join("static/vendor/library.js"),
+            format!("function parse_http_date() {{}}\n{}", common.repeat(40)),
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("CHANGES"),
+            "check add test value current result year date ".repeat(200),
+        )
+        .unwrap();
+        let built = index(root.path()).unwrap();
+        let passages = retrieve(
+            root.path(),
+            &built,
+            "The two digit year check in parse_http_date is incorrect: add a test for the current value",
+            5,
+            4_000,
+        )
+        .unwrap();
+        let paths: Vec<&str> = passages
+            .iter()
+            .map(|passage| passage.path.as_str())
+            .collect();
+        assert_eq!(paths, ["pkg/utils/http.py"], "{paths:?}");
+        // Words alone name nothing: better no passage than five beside the point.
+        let none = retrieve(
+            root.path(),
+            &built,
+            "Check the current value and add a test for the result",
+            5,
+            4_000,
+        )
+        .unwrap();
+        assert!(
+            none.is_empty(),
+            "{:?}",
+            none.iter().map(|p| &p.path).collect::<Vec<_>>()
+        );
     }
 }

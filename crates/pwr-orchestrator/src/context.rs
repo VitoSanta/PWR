@@ -472,12 +472,32 @@ mod topology_tests {
     }
 
     #[test]
+    fn passages_are_ranked_against_the_engineer_s_words_only() {
+        let sent =
+            "Fix parse_http_date\n\nGoal mode is enabled. Keep working until the checks pass.";
+        assert_eq!(crate::context::engineers_words(sent), "Fix parse_http_date");
+        assert_eq!(
+            crate::context::engineers_words("Fix parse_http_date"),
+            "Fix parse_http_date"
+        );
+    }
+
+    #[test]
     fn unrecognised_workspaces_do_not_receive_framework_guesses() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("main.cbl"), "IDENTIFICATION DIVISION.").unwrap();
         assert!(workspace_topology(root.path()).is_empty());
         assert!(framework_guidance(root.path()).is_empty());
     }
+}
+
+/// The request as the engineer wrote it, without what the harness appends to
+/// it before sending: passages are ranked against their words, not against
+/// "complete", "checks" and "evidence", which every goal's instructions use.
+pub fn engineers_words(request: &str) -> &str {
+    request
+        .split_once("\n\nGoal mode is enabled.")
+        .map_or(request, |(own, _)| own)
 }
 
 fn retrieved_context(
@@ -492,7 +512,7 @@ fn retrieved_context(
     let excerpts = pwr_repo::retrieve_with(
         root,
         index,
-        task,
+        engineers_words(task),
         max_excerpts.unwrap_or(RETRIEVAL_MAX_EXCERPTS),
         budget,
         ranker,
