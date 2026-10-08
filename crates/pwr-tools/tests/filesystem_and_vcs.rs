@@ -796,6 +796,41 @@ fn version_control_answers_inside_the_sandbox() {
     assert!(format!("{:?}", status.unwrap()).contains("a.txt"));
 }
 
+/// Seen 2026-10-08 (SWE-bench pilot, sandboxed run): the harness's own
+/// version-control tools answered, but a model that ran `git` or `make` itself
+/// got `couldn't create cache file ... xcrun_db-...` every time. Both are
+/// Apple's shims in `/usr/bin`, which ask xcrun for the real program.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_command_that_is_one_of_apple_s_shims_runs_inside_the_sandbox() {
+    let root = tempfile::tempdir().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    fs::write(root.path().join("a.txt"), "one\n").unwrap();
+    fs::write(root.path().join("Makefile"), "all:\n\t@echo made\n").unwrap();
+    let mut policy = policy(root.path());
+    policy.sandbox = SandboxPolicy::Preferred;
+    policy.allow_commands = vec!["git".into(), "make".into()];
+
+    let status = block_on(run_command(
+        &policy,
+        "git",
+        &["status".to_string(), "--short".to_string()],
+    ))
+    .unwrap();
+    assert_eq!(status.exit_code, Some(0), "{status:?}");
+    assert!(status.stdout.contains("a.txt"), "{status:?}");
+    assert!(!status.stderr.contains("cache file"), "{status:?}");
+
+    let made = block_on(run_command(&policy, "make", &[])).unwrap();
+    assert_eq!(made.exit_code, Some(0), "{made:?}");
+    assert!(made.stdout.contains("made"), "{made:?}");
+    assert!(!made.stderr.contains("cache file"), "{made:?}");
+}
+
 #[test]
 fn a_file_is_written_back_to_its_original_bytes() {
     let root = tempfile::tempdir().unwrap();

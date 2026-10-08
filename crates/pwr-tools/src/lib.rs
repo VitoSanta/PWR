@@ -2652,6 +2652,17 @@ impl ToolPolicy {
         if let Some(host) = std::env::var_os("PATH") {
             path_entries.extend(std::env::split_paths(&host));
         }
+        // Unconfined, Apple's shims work as they do in a terminal.
+        if self.sandbox != SandboxPolicy::FullAccess
+            && let Some(shims) = path_entries
+                .iter()
+                .position(|entry| entry == Path::new("/usr/bin"))
+            && let Some(real) = real_programs_directory(&scratch)
+        {
+            // Ahead of `/usr/bin` and of nothing else: a git the person
+            // installed earlier on PATH is still the one that runs.
+            path_entries.insert(shims, real);
+        }
         let path = std::env::join_paths(&path_entries)
             .unwrap_or_else(|_| std::env::var_os("PATH").unwrap_or_default());
         if self.sandbox == SandboxPolicy::FullAccess {
@@ -6970,26 +6981,76 @@ fn git_program() -> &'static str {
         if !cfg!(target_os = "macos") {
             return "git".into();
         }
-        let developer = std::process::Command::new("xcode-select")
-            .arg("-p")
-            .output()
-            .ok()
-            .filter(|out| out.status.success())
-            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string());
-        developer
-            .map(|dir| format!("{dir}/usr/bin/git"))
+        behind_apple_s_shim("git")
             .into_iter()
-            .chain(
-                [
-                    "/Library/Developer/CommandLineTools/usr/bin/git",
-                    "/opt/homebrew/bin/git",
-                    "/usr/local/bin/git",
-                ]
-                .map(String::from),
-            )
-            .find(|candidate| Path::new(candidate).is_file())
+            .chain(["/opt/homebrew/bin/git", "/usr/local/bin/git"].map(PathBuf::from))
+            .find(|candidate| candidate.is_file())
+            .and_then(|candidate| candidate.to_str().map(str::to_owned))
             .unwrap_or_else(|| "git".into())
     })
+}
+
+/// The program `/usr/bin/<name>` hands over to, when the developer tools have
+/// one of their own.
+fn behind_apple_s_shim(name: &str) -> Option<PathBuf> {
+    static DEVELOPER: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let selected = DEVELOPER
+        .get_or_init(|| {
+            std::process::Command::new("xcode-select")
+                .arg("-p")
+                .output()
+                .ok()
+                .filter(|out| out.status.success())
+                .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        })
+        .as_deref();
+    selected
+        .into_iter()
+        .chain(["/Library/Developer/CommandLineTools"])
+        .map(|directory| Path::new(directory).join("usr/bin").join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+/// Programs a model runs by name that are Apple's shims in `/usr/bin` and
+/// whose real program runs without xcrun.
+///
+/// Not the compilers: theirs go through xcrun again to find the SDK.
+const SHIMMED_PROGRAMS: [&str; 3] = ["git", "make", "gnumake"];
+
+/// A directory of links to the real programs behind [`SHIMMED_PROGRAMS`], to
+/// go on a sandboxed command's PATH just ahead of `/usr/bin`.
+///
+/// A shim asks xcrun where its program is, and xcrun rewrites a cache in the
+/// per-user temporary directory, which the sandbox does not open: measured
+/// 2026-10-08, every sandboxed `git` or `make` a model ran took 1.6 s and
+/// began with two lines of `couldn't create cache file ... (errno=Operation
+/// not permitted)`, which read as the sandbox refusing the command. Letting
+/// xcrun write there would let a command change which program every later
+/// `git` on the machine is, so the boundary stays and the shim is stepped
+/// around instead, for the command and for whatever it starts.
+fn real_programs_directory(scratch: &Path) -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let directory = scratch.join(".apple-tools");
+    let mut linked = false;
+    for name in SHIMMED_PROGRAMS {
+        let Some(real) = behind_apple_s_shim(name) else {
+            continue;
+        };
+        let link = directory.join(name);
+        if std::fs::read_link(&link).is_ok_and(|target| target == real) {
+            linked = true;
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            let _ = std::fs::create_dir_all(&directory);
+            let _ = std::fs::remove_file(&link);
+            linked |= std::os::unix::fs::symlink(&real, &link).is_ok();
+        }
+    }
+    linked.then_some(directory)
 }
 
 pub async fn run_command(
