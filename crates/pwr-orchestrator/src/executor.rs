@@ -1562,7 +1562,10 @@ async fn drive<H: SessionHost + ?Sized>(
         if !goal_mode
             || report.declined
             || report.stopped.is_some()
-                && !matches!(report.stopped, Some(converse::StopReason::BudgetSpent))
+                && !matches!(
+                    report.stopped,
+                    Some(converse::StopReason::BudgetSpent | converse::StopReason::HandedOver)
+                )
         {
             return SessionEnd::Reply {
                 report,
@@ -1831,9 +1834,18 @@ async fn drive<H: SessionHost + ?Sized>(
                     "Checkpoint after {total_actions} action(s). Continuing toward the goal; use Stop to interrupt."
                 ));
             }
-            messages.push(goal_guidance(
-                "Continue the same goal from the saved workspace state. Do not stop with prose: either make the next necessary change, investigate an unmet requirement, or call complete only when the full objective is ready for verification.",
-            ));
+            // A turn stopped for running commands that kept failing is not
+            // told to carry on as it was: in a goal there is nobody to hand
+            // the work to, so the next turn runs commands again, and is told
+            // what the last one was stopped for.
+            let handed_over = last_report
+                .as_ref()
+                .is_some_and(|report| report.stopped == Some(converse::StopReason::HandedOver));
+            messages.push(goal_guidance(if handed_over {
+                "The last turn was stopped: its commands had failed several times in a row and it kept asking for more. Commands run again now. Before running one, find out how this project runs what you need -- read the runner's own file or usage, or the project's instructions -- and run that; do not repeat a command that failed. Then continue the same goal: make the next necessary change, or call complete when the full objective is ready for verification."
+            } else {
+                "Continue the same goal from the saved workspace state. Do not stop with prose: either make the next necessary change, investigate an unmet requirement, or call complete only when the full objective is ready for verification."
+            }));
         }
     }
 }

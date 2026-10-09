@@ -1980,6 +1980,7 @@ fn every_stop_reason_has_a_terminal_class() {
         StopReason::BudgetSpent,
         StopReason::BackendFailing,
         StopReason::NoProgress,
+        StopReason::HandedOver,
     ] {
         let class = reason.terminal_class();
         assert_ne!(class, TerminalClass::Unclassified, "{reason:?}");
@@ -4455,6 +4456,115 @@ fn generate_in_a_subfolder(harness: converse::Harness) -> (tempfile::TempDir, Ch
         continuity,
     );
     (dir, outcome)
+}
+
+/// The run of 2026-10-09, as far as a script can play it: a change, five
+/// commands that fail, the hand-over -- and a model that goes on asking for
+/// commands. It used to be answered "not run" for as long as it asked, 150
+/// times in six minutes; the turn now ends at the third.
+#[test]
+fn a_turn_that_keeps_asking_for_commands_after_the_hand_over_is_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("code.txt"), "one\n").unwrap();
+    let fails = |code: usize| {
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": ["-c", format!("exit {code}")]}),
+        )
+    };
+    let mut script = vec![calls(
+        "replace_text",
+        serde_json::json!({"path": "code.txt",
+            "expected_hash": pwr_domain::hash_bytes("one\n"),
+            "find": "one", "replace": "two"}),
+    )];
+    // Five that fail, each its own way, then twenty more the model would ask for.
+    script.extend((1..=25).map(fails));
+    script.push(says("Done."));
+    let outcome = context_turn(
+        root,
+        Scripted::new(script),
+        opening("Change it and check it."),
+        32_768,
+        converse::Continuity::default(),
+    );
+    assert_eq!(
+        outcome.report.stopped,
+        Some(converse::StopReason::HandedOver),
+        "{:?}",
+        outcome.steps
+    );
+    // The change, the five runs, and the three asked for after the hand-over:
+    // nine requests to the model, where there used to be twenty-seven.
+    assert_eq!(outcome.requests.len(), 9, "{:?}", outcome.steps);
+    // Counted as the turn's actions: the three refused among them, which is
+    // how the whole of a goal's budget could go on refusals.
+    assert_eq!(outcome.report.actions, 9, "{:?}", outcome.steps);
+    let handed_over = &outcome.requests[6].messages.last().unwrap().content;
+    assert!(
+        handed_over.contains("Stop running things now"),
+        "{handed_over}"
+    );
+    let refused = &outcome.requests[8].messages.last().unwrap().content;
+    assert!(refused.contains("not_run"), "{refused}");
+    assert!(
+        outcome
+            .report
+            .stopped
+            .unwrap()
+            .said()
+            .contains("kept asking for more"),
+        "{}",
+        outcome.report.stopped.unwrap().said()
+    );
+}
+
+/// A file changed after the hand-over is a repair begun: commands run
+/// again, as they did, and the turn is not ended for asking.
+#[test]
+fn a_change_after_the_hand_over_lets_commands_run_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("code.txt"), "one\n").unwrap();
+    let edit = |from: &str, to: &str| {
+        calls(
+            "replace_text",
+            serde_json::json!({"path": "code.txt",
+                "expected_hash": pwr_domain::hash_bytes(format!("{from}\n")),
+                "find": from, "replace": to}),
+        )
+    };
+    let run = |script: &str| {
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": ["-c", script]}),
+        )
+    };
+    let mut script = vec![edit("one", "two")];
+    script.extend((1..=5).map(|code| run(&format!("exit {code}"))));
+    // Asked twice after the hand-over, then a change, then a run that passes.
+    script.extend([
+        run("exit 6"),
+        run("exit 7"),
+        edit("two", "three"),
+        run("true"),
+    ]);
+    script.push(says("Done."));
+    let outcome = context_turn(
+        root,
+        Scripted::new(script),
+        opening("Change it and check it."),
+        32_768,
+        converse::Continuity::default(),
+    );
+    assert_eq!(outcome.report.stopped, None, "{:?}", outcome.steps);
+    // Two changes, five failed runs, two asked for and not run, one that passed.
+    assert_eq!(outcome.report.actions, 10, "{:?}", outcome.steps);
+    assert_eq!(
+        std::fs::read_to_string(root.join("code.txt")).unwrap(),
+        "three\n"
+    );
 }
 
 /// The whole of it, through the same turn the product takes: the project's

@@ -3581,7 +3581,8 @@ pub fn stop_reason(report: &TurnReport) -> (&'static str, Option<pwr_domain::Ter
                 | StopReason::Unparseable
                 | StopReason::BackendFailing
                 | StopReason::NoProgress
-                | StopReason::ReasoningUnfinished => "end_turn",
+                | StopReason::ReasoningUnfinished
+                | StopReason::HandedOver => "end_turn",
             },
             Some(reason.terminal_class()),
         ),
@@ -5889,6 +5890,34 @@ mod tests {
             "{asked:#?}"
         );
         assert!(!says(&messages, "taken as the work being declared done"));
+    }
+
+    /// A turn ended for asking for commands after the hand-over is not the end
+    /// of a goal: there is nobody to hand the work to. The next turn runs
+    /// commands again and is told what the last one was stopped for.
+    #[tokio::test]
+    async fn a_goal_goes_on_after_a_turn_ended_for_the_hand_over() {
+        let runner = stopping(
+            vec![
+                turn(6, false, Some(StopReason::HandedOver)),
+                turn(2, true, None),
+                turn(0, true, None),
+            ],
+            false,
+            false,
+        );
+        let requests = Arc::clone(&runner.requests);
+        let (messages, turns) = goal_prompt(runner).await;
+        assert!(turns >= 2, "{messages:#?}");
+        let asked = requests.lock().unwrap().clone();
+        assert!(
+            asked[1].contains("its commands had failed several times in a row")
+                && asked[1].contains("Commands run again now"),
+            "{asked:#?}"
+        );
+        assert!(!asked[1].contains("Do not stop with prose"), "{asked:#?}");
+        let meta = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_eq!(meta["goal"]["completed"], true, "{meta}");
     }
 
     fn red_before_the_goal(change: &'static str) -> GoalScripted {

@@ -196,6 +196,21 @@ pub fn repeated_failure_notice(seen: usize) -> String {
 /// stopped a turn whose work had been done since the start.
 pub const FAILED_RUN_LIMIT: usize = 5;
 
+/// Commands a turn may still ask for after it was told to hand over, each
+/// answered without being run, before the turn is ended for it.
+///
+/// "Further commands this turn will not be run" was said once and then held
+/// for as long as the model kept asking. Seen 2026-10-09 (Qwen 3.5 9B, a goal
+/// on Django): five wrong ways of calling the project's test runner in 35
+/// seconds, the hand-over, and then 150 commands in six minutes -- `python`,
+/// `sh`, `ruby -e "puts 'hello'"` -- each refused, the model reasoning that
+/// "the tool is completely broken". In a goal a turn may take what is left
+/// of the goal's actions, so the only end in sight was the whole budget
+/// spent on refusals; the run was stopped by hand. In the
+/// reference campaign of the same day the hand-over came in 7 runs of 15,
+/// and in one of them 29 refusals followed and no test ran in 30 minutes.
+pub const HAND_OVER_ATTEMPTS: usize = 3;
+
 /// Whether a command only looks -- `ls`, `find`, `cat`, `grep`, directly or
 /// through a shell. One that exits non-zero has answered a question ("no such
 /// file"), it has not failed to run the work. Seen 2026-10-08 (Qwen 3.5 9B,

@@ -222,6 +222,10 @@ pub enum StopReason {
     /// The model reasoned to its budget without answering, and again when
     /// asked to answer directly.
     ReasoningUnfinished,
+    /// The turn was told to stop running commands after a run of failures
+    /// and went on asking for them ([`crate::repetition::HAND_OVER_ATTEMPTS`]).
+    /// Not the end of a goal: its next turn runs commands again.
+    HandedOver,
 }
 
 impl StopReason {
@@ -237,7 +241,7 @@ impl StopReason {
             | Self::Unparseable
             | Self::ReasoningUnfinished => TerminalClass::Protocol,
             Self::BackendFailing => TerminalClass::Provider,
-            Self::ContextFull | Self::NoProgress => TerminalClass::Recovery,
+            Self::ContextFull | Self::NoProgress | Self::HandedOver => TerminalClass::Recovery,
         }
     }
 
@@ -251,7 +255,7 @@ impl StopReason {
     /// Test-only, and said so rather than kept alive by a token use in the
     /// product: its whole job is to make the fixture unable to miss a variant.
     #[cfg(test)]
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Interrupted,
         Self::ContextFull,
         Self::CompactionBudget,
@@ -262,10 +266,17 @@ impl StopReason {
         Self::BackendFailing,
         Self::NoProgress,
         Self::ReasoningUnfinished,
+        Self::HandedOver,
     ];
 
     pub fn said(self) -> String {
         match self {
+            Self::HandedOver => format!(
+                "the last {} commands all failed, the turn was told to stop running things and \
+                 kept asking for more, so it was stopped; everything it did is kept. What it \
+                 tried to run and why it failed is in the last replies",
+                crate::repetition::FAILED_RUN_LIMIT
+            ),
             Self::Interrupted => "stopped at your request".to_owned(),
             Self::ContextFull => {
                 "this conversation filled its context faster than it could be summarised; start \
@@ -1760,6 +1771,8 @@ async fn take_turn_inner<P: ModelProvider>(
     let mut refused_streak = crate::repetition::RefusalStreak::new();
     let mut echoes = crate::repetition::Echoes::default();
     let mut failed_runs = crate::repetition::FailedRuns::default();
+    // Commands asked for after the hand-over, none of them run.
+    let mut asked_after_hand_over = 0usize;
     let mut still_failing = crate::repetition::StillFailing::default();
     let mut held_empty_completion = false;
     let mut failed_file_change = false;
@@ -3313,6 +3326,15 @@ async fn take_turn_inner<P: ModelProvider>(
                     diff: None,
                 }));
                 messages.push(tool_message(call, serde_json::json!({"not_run": why})));
+                // Told once that nothing more will be run, and asking again:
+                // the turn ends, where it used to answer "not run" for as
+                // long as the model went on (repetition::HAND_OVER_ATTEMPTS).
+                if failed_runs.handed_over() {
+                    asked_after_hand_over += 1;
+                    if asked_after_hand_over >= crate::repetition::HAND_OVER_ATTEMPTS {
+                        return stopped(actions, edited, StopReason::HandedOver);
+                    }
+                }
                 continue;
             }
             // The control is never told it proposed a refused action again.
@@ -3503,6 +3525,7 @@ async fn take_turn_inner<P: ModelProvider>(
                     {
                         echoes.inputs_changed();
                         failed_runs.inputs_changed();
+                        asked_after_hand_over = 0;
                         if let Some(path) = &path {
                             still_failing.changed(path);
                         }
@@ -5247,7 +5270,8 @@ mod tests {
                 | StopReason::BudgetSpent
                 | StopReason::BackendFailing
                 | StopReason::NoProgress
-                | StopReason::ReasoningUnfinished => {}
+                | StopReason::ReasoningUnfinished
+                | StopReason::HandedOver => {}
             }
             let said = reason.said();
             assert!(!said.is_empty());
