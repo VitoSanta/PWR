@@ -724,6 +724,9 @@ pub struct Continuity {
     /// Whether the work is moving, carried across turns so a goal's automatic
     /// check-ins cannot reset it. See [`crate::stall::Stall`].
     pub stall: std::sync::Arc<std::sync::Mutex<crate::stall::Stall>>,
+    /// What the project's own tests have confirmed about the source as it
+    /// stands, carried across the turns of a goal. See [`crate::confirmation`].
+    pub confirmation: std::sync::Arc<std::sync::Mutex<crate::confirmation::Confirmation>>,
     /// A conversation with no workspace (chat mode): it may only read what
     /// the person attached, never write or run anything. Enforced by the
     /// catalogue the calls are decoded against, not by the prompt.
@@ -3524,6 +3527,80 @@ async fn take_turn_inner<P: ModelProvider>(
                         on_step(TurnStep::Refused(format!(
                             "{capability}: still failing after {changes} changes to {file}"
                         )));
+                    }
+                    // What the project's own tests have confirmed, said with the
+                    // result that confirms it and once more when the same
+                    // source is checked again (crate::confirmation).
+                    if full && let Ok(mut confirmation) = continuity.confirmation.lock() {
+                        let succeeded =
+                            !crate::repetition::failed(&value) && value.get("denied").is_none();
+                        let (mut created, mut tests_changed): (Vec<String>, Vec<String>) =
+                            (Vec::new(), Vec::new());
+                        if let Ok(edits) = continuity.edits.lock() {
+                            for edit in edits.iter() {
+                                if edit.before == Before::Created {
+                                    created.push(edit.path.clone());
+                                } else if crate::confirmation::is_test_path(&edit.path)
+                                    && !tests_changed.contains(&edit.path)
+                                {
+                                    tests_changed.push(edit.path.clone());
+                                }
+                            }
+                        }
+                        let said = if (edits_a_file || changes_existing_path) && succeeded {
+                            match &path {
+                                Some(path) => {
+                                    let made_here = created.contains(path)
+                                        || matches!(kept, Some(Before::Created));
+                                    if crate::confirmation::is_trial_file(path, made_here) {
+                                        confirmation
+                                            .checking_again()
+                                            .map(|said| ("already_confirmed", said))
+                                    } else {
+                                        if crate::confirmation::is_test_path(path) {
+                                            confirmation.other_action();
+                                        } else {
+                                            confirmation.source_changed();
+                                        }
+                                        None
+                                    }
+                                }
+                                None => None,
+                            }
+                        } else if capability == "run_command"
+                            && !crate::repetition::looks_only(&call.arguments)
+                        {
+                            let output = ["stdout", "stderr"]
+                                .iter()
+                                .filter_map(|field| value.get(field)?.as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            match pwr_verify::evidence::passed_tests(&output) {
+                                Some(tests)
+                                    if succeeded
+                                        && crate::confirmation::runs_the_projects_tests(
+                                            &call.arguments,
+                                            &created,
+                                        ) =>
+                                {
+                                    Some((
+                                        "confirmed",
+                                        confirmation.passed(&detail, tests, &tests_changed),
+                                    ))
+                                }
+                                _ => confirmation
+                                    .checking_again()
+                                    .map(|said| ("already_confirmed", said)),
+                            }
+                        } else {
+                            confirmation.other_action();
+                            None
+                        };
+                        if let Some((key, text)) = said
+                            && let Some(object) = value.as_object_mut()
+                        {
+                            object.insert(key.into(), serde_json::Value::String(text));
+                        }
                     }
                     // Reads are left to `ReadHistory`, which already names a
                     // re-read of an unchanged file.

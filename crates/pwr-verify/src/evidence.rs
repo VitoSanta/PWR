@@ -111,6 +111,62 @@ pub fn ran_zero_tests(command: &str, output: &str) -> bool {
         .any(|signature| output.contains(signature))
 }
 
+/// How many tests a run executed, where its output says that tests ran and
+/// that every one of them passed. `None` for anything else: a failure, no
+/// test executed, or a runner whose words are not known here -- never a
+/// guess.
+///
+/// - unittest, and Django's runner over it: `Ran 12 tests in 0.3s` then `OK`;
+/// - pytest: `12 passed in 0.31s`, with nothing failed or in error beside it;
+/// - cargo: every `test result:` line `ok`, with at least one test among them.
+pub fn passed_tests(output: &str) -> Option<usize> {
+    let lines: Vec<&str> = output.lines().map(str::trim).collect();
+    let count_before = |line: &str, word: &str| -> Option<usize> {
+        let before = line.split(word).next()?.trim_end();
+        before.rsplit([' ', '=']).next()?.parse().ok()
+    };
+    // unittest: the last run stands for the output.
+    if let Some(at) = lines.iter().rposition(|line| {
+        line.starts_with("Ran ") && (line.contains(" tests in ") || line.contains(" test in "))
+    }) {
+        let ran: usize = lines[at].split_whitespace().nth(1)?.parse().ok()?;
+        let verdict = lines[at + 1..].iter().find(|line| !line.is_empty())?;
+        let ok = *verdict == "OK" || verdict.starts_with("OK (");
+        return (ran > 0 && ok).then_some(ran);
+    }
+    // pytest: its closing line, with or without the rule of `=` around it.
+    if let Some(summary) = lines.iter().rev().find(|line| {
+        line.contains(" passed")
+            && line.contains(" in ")
+            && line.trim_end_matches('=').trim_end().ends_with('s')
+    }) {
+        let bad = [" failed", " error", " errors"];
+        if bad.iter().any(|word| summary.contains(word)) {
+            return None;
+        }
+        return count_before(summary, " passed").filter(|passed| *passed > 0);
+    }
+    // cargo: one line per test binary.
+    let results: Vec<&&str> = lines
+        .iter()
+        .filter(|line| line.starts_with("test result: "))
+        .collect();
+    if !results.is_empty() {
+        if results
+            .iter()
+            .any(|line| !line.starts_with("test result: ok."))
+        {
+            return None;
+        }
+        let passed: usize = results
+            .iter()
+            .filter_map(|line| count_before(line, " passed"))
+            .sum();
+        return (passed > 0).then_some(passed);
+    }
+    None
+}
+
 /// Test runners that say how many tests ran whenever any did, so that a pass
 /// with no count in it is a pass of nothing. Not `npm test`, `make test` or
 /// a build tool run quietly (`mvn -q`, Gradle): what those print is the
@@ -255,6 +311,59 @@ mod tests {
             "./tests/runtests.py forms_tests",
             "Ran 10 tests in 0.200s\n\nOK"
         ));
+    }
+
+    #[test]
+    fn tests_that_ran_and_all_passed_are_counted_and_nothing_else_is() {
+        // Django's runner, as the model reads it.
+        let django = "System check identified no issues (0 silenced).\n....\n\
+                      ----------------------------------------------------------------------\n\
+                      Ran 45 tests in 0.010s\n\nOK\n";
+        assert_eq!(passed_tests(django), Some(45));
+        assert_eq!(
+            passed_tests("Ran 646 tests in 1.2s\n\nOK (skipped=3)\n"),
+            Some(646)
+        );
+        assert_eq!(passed_tests("Ran 1 test in 0.001s\n\nOK\n"), Some(1));
+        // Not one test executed: nothing is confirmed.
+        assert_eq!(passed_tests("Ran 0 tests in 0.000s\n\nOK\n"), None);
+        assert_eq!(
+            passed_tests("Ran 2 tests in 0.000s\n\nFAILED (errors=2)\n"),
+            None
+        );
+        // A run that passed followed by one that did not: the last one stands.
+        assert_eq!(
+            passed_tests("Ran 3 tests in 0.1s\n\nOK\nRan 3 tests in 0.1s\n\nFAILED (failures=1)\n"),
+            None
+        );
+        // pytest, with its rule and without.
+        assert_eq!(
+            passed_tests("======== 7 passed, 1 warning in 1.97s ========\n"),
+            Some(7)
+        );
+        assert_eq!(passed_tests("7 passed in 0.31s\n"), Some(7));
+        assert_eq!(
+            passed_tests("==== 1 failed, 7 passed in 1.96s ====\n"),
+            None
+        );
+        assert_eq!(passed_tests("==== 7 passed, 1 error in 2.0s ====\n"), None);
+        assert_eq!(passed_tests("==== no tests ran in 0.01s ====\n"), None);
+        assert_eq!(passed_tests("==== 41 skipped in 0.5s ====\n"), None);
+        // cargo: every binary ok, and at least one test among them.
+        let cargo = "test result: ok. 5 passed; 0 failed; 0 ignored\n\
+                     test result: ok. 0 passed; 0 failed; 0 ignored\n";
+        assert_eq!(passed_tests(cargo), Some(5));
+        assert_eq!(
+            passed_tests(
+                "test result: ok. 5 passed; 0 failed\ntest result: FAILED. 1 passed; 2 failed\n"
+            ),
+            None
+        );
+        assert_eq!(passed_tests("test result: ok. 0 passed; 0 failed\n"), None);
+        // Words nobody here knows, or no tests at all: not a guess.
+        assert_eq!(passed_tests("All good!\n"), None);
+        assert_eq!(passed_tests("Build succeeded.\n    0 Warning(s)\n"), None);
+        assert_eq!(passed_tests(""), None);
     }
 
     #[test]

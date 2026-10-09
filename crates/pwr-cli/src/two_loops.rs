@@ -4457,6 +4457,131 @@ fn generate_in_a_subfolder(harness: converse::Harness) -> (tempfile::TempDir, Ch
     (dir, outcome)
 }
 
+/// The whole of it, through the same turn the product takes: the project's
+/// tests pass after a change to the source and the result says what that is
+/// worth; the first check made again on the same source is told it adds
+/// nothing unless it checks something else, and only the first; a change to
+/// the source voids what the tests said.
+#[test]
+fn tests_that_pass_are_said_to_confirm_the_source_until_it_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/calc.txt"), "one\n").unwrap();
+    // The project's own way of running its tests, as it prints when they pass.
+    std::fs::write(
+        root.join("run_tests.sh"),
+        "printf 'Ran 3 tests in 0.010s\\n\\nOK\\n'\n",
+    )
+    .unwrap();
+    let edit = |from: &str, to: &str| {
+        calls(
+            "replace_text",
+            serde_json::json!({"path": "src/calc.txt",
+                "expected_hash": pwr_domain::hash_bytes(format!("{from}\n")),
+                "find": from, "replace": to}),
+        )
+    };
+    let run = |script: &str| {
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": [script]}),
+        )
+    };
+    let script = vec![
+        edit("one", "two"),
+        run("run_tests.sh"),
+        calls(
+            "write_file",
+            serde_json::json!({"path": "try_it.sh", "content": "echo tried\n"}),
+        ),
+        run("try_it.sh"),
+        edit("two", "three"),
+        run("try_it.sh"),
+        run("run_tests.sh"),
+        says("Done."),
+    ];
+    let outcome = context_turn(
+        root,
+        Scripted::new(script),
+        opening("Change it."),
+        32_768,
+        converse::Continuity::default(),
+    );
+    // What the model was shown after each action: the last message of the
+    // request that followed it.
+    let told = |after_action: usize| {
+        outcome.requests[after_action]
+            .messages
+            .last()
+            .unwrap()
+            .content
+            .clone()
+    };
+    assert!(!told(1).contains("confirmed"), "an edit: {}", told(1));
+    let passed = told(2);
+    assert!(
+        passed.contains("ran 3 of the project's tests and all passed"),
+        "{passed}"
+    );
+    assert!(
+        passed.contains("does not by itself mean the request is met"),
+        "{passed}"
+    );
+    let trial = told(3);
+    assert!(trial.contains("already_confirmed"), "{trial}");
+    assert!(
+        trial.contains("The source has not changed since"),
+        "{trial}"
+    );
+    // Said once, not at every check after it.
+    assert!(!told(4).contains("already_confirmed"), "{}", told(4));
+    // The source changed: nothing stands, so nothing is said of the next run.
+    assert!(!told(5).contains("confirmed"), "{}", told(5));
+    assert!(!told(6).contains("confirmed"), "{}", told(6));
+    // And the tests passing on the new source confirm it anew.
+    assert!(
+        told(7).contains("ran 3 of the project's tests"),
+        "{}",
+        told(7)
+    );
+    // Nothing was refused and nothing ended: the turn ran to its answer.
+    assert_eq!(outcome.report.actions, 7, "{:?}", outcome.steps);
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?}",
+        outcome.report.stopped
+    );
+}
+
+/// The minimal control is told nothing of the kind: it is the harness with
+/// its aids removed.
+#[test]
+fn the_minimal_control_is_not_told_what_its_tests_confirmed() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("run_tests.sh"),
+        "printf 'Ran 3 tests in 0.010s\\n\\nOK\\n'\n",
+    )
+    .unwrap();
+    let outcome = context_turn(
+        dir.path(),
+        Scripted::new(vec![
+            calls(
+                "run_command",
+                serde_json::json!({"executable": "sh", "args": ["run_tests.sh"]}),
+            ),
+            says("Done."),
+        ]),
+        opening("Run them."),
+        32_768,
+        minimal(),
+    );
+    let told = &outcome.requests[1].messages.last().unwrap().content;
+    assert!(told.contains("Ran 3 tests"), "{told}");
+    assert!(!told.contains("confirmed"), "{told}");
+}
+
 #[test]
 fn a_project_generated_in_a_subfolder_of_an_empty_workspace_lands_in_its_root() {
     let (dir, outcome) = generate_in_a_subfolder(converse::Harness::Full);

@@ -2,6 +2,7 @@
 pub mod baseline;
 pub mod board;
 pub mod compaction;
+pub mod confirmation;
 pub mod context;
 pub mod conversation;
 pub mod converse;
