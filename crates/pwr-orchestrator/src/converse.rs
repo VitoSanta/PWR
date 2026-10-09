@@ -739,8 +739,9 @@ pub struct Continuity {
     /// stands, carried across the turns of a goal. See [`crate::confirmation`].
     pub confirmation: std::sync::Arc<std::sync::Mutex<crate::confirmation::Confirmation>>,
     /// Whether what the tests confirmed is also said to the model with its
-    /// results (H1). Off: a goal uses the confirmation to let the model stop
-    /// (H0, `executor`), and the two are measured one at a time.
+    /// results (H1). Off unless the goal asks for it (`GoalAids`): taking
+    /// the model's stop on a confirmation (H0) is another aid, and the two
+    /// are measured one at a time.
     pub confirmation_notes: bool,
     /// A conversation with no workspace (chat mode): it may only read what
     /// the person attached, never write or run anything. Enforced by the

@@ -804,6 +804,13 @@ pub struct GoalAids {
     /// failed, and one level lower on the step after an action that worked
     /// ([`converse::paced_effort`]; plan W2.15).
     pub paced_reasoning: bool,
+    /// Take the model's stop when the project's own tests, run by it, passed
+    /// on the source as it stands: a turn that ends in words is a completion,
+    /// and where the core has no check to run there is no review (H0).
+    pub accept_stop: bool,
+    /// Say to the model, with its results, what those tests confirmed
+    /// ([`crate::confirmation`]; H1).
+    pub confirmation_notes: bool,
 }
 
 /// How a request is run: one turn, or turns repeated until the work is
@@ -1009,6 +1016,7 @@ async fn drive<H: SessionHost + ?Sized>(
     // One plan for the goal, across its turns; a conversation keeps none.
     continuity.plan = (aids.plan && policy == Policy::Goal).then(Arc::default);
     continuity.paced_reasoning = aids.paced_reasoning && policy == Policy::Goal;
+    continuity.confirmation_notes = aids.confirmation_notes && policy == Policy::Goal;
     let goal_mode = policy == Policy::Goal;
     let minimal = policy == Policy::Minimal;
     // The control spends the same budget a goal would, so the two arms of a
@@ -1606,7 +1614,10 @@ async fn drive<H: SessionHost + ?Sized>(
         // one instance whose patch was right every time, the reviewer marked
         // it NOT MET four times in six). With the tests' confirmation
         // standing, the goal now takes the model's stop for what it is.
-        let confirmed = host.confirmed_by_tests();
+        let confirmed = aids
+            .accept_stop
+            .then(|| host.confirmed_by_tests())
+            .flatten();
         // A turn the model ended itself, in words, with that confirmation
         // standing: its closing statement, as `closed_in_words` is after a
         // review. Without one it is still sent back, as before.

@@ -4283,6 +4283,13 @@ mod tests {
 
     #[async_trait::async_trait(?Send)]
     impl TurnRunner for GoalScripted {
+        fn goal_aids(&self, _root: &Path) -> GoalAids {
+            GoalAids {
+                accept_stop: self.delay == Some("tests_confirm"),
+                ..GoalAids::default()
+            }
+        }
+
         fn background_summaries(&self, _root: &Path) -> bool {
             self.delay == Some("background_summary")
         }
@@ -4352,7 +4359,7 @@ mod tests {
             }
             // As a turn in which the model ran the project's tests and they
             // passed, with no change to the source after them.
-            if self.delay == Some("tests_confirm") {
+            if matches!(self.delay, Some("tests_confirm" | "tests_confirm_unasked")) {
                 turn.continuity
                     .confirmation
                     .lock()
@@ -5758,11 +5765,26 @@ mod tests {
         core_checks_pass: bool,
         tests_confirm: bool,
     ) -> GoalScripted {
+        stopping_with(
+            script,
+            core_checks_pass,
+            tests_confirm.then_some("tests_confirm"),
+        )
+    }
+
+    /// `"tests_confirm"`: the tests confirm and the goal was asked to take
+    /// the model's stop on that. `"tests_confirm_unasked"`: they confirm, and
+    /// the goal was not asked.
+    fn stopping_with(
+        script: Vec<TurnReport>,
+        core_checks_pass: bool,
+        delay: Option<&'static str>,
+    ) -> GoalScripted {
         GoalScripted {
             limits: GoalLimits::default(),
             verifications: Default::default(),
             alternate: false,
-            delay: tests_confirm.then_some("tests_confirm"),
+            delay,
             runs: std::sync::atomic::AtomicUsize::new(0),
             requests: Default::default(),
             ask_on_first: None,
@@ -5868,6 +5890,42 @@ mod tests {
         assert!(
             says(&messages, "taken as the work being declared done"),
             "{messages:#?}"
+        );
+    }
+
+    /// Off unless the workspace asks for it: with the same confirmation and
+    /// the aid not asked for, a goal does what it did.
+    #[tokio::test]
+    async fn the_stop_is_taken_on_a_confirmation_only_where_the_goal_was_asked_to() {
+        let reviewed = stopping_with(
+            vec![turn(4, true, None), turn(0, true, None)],
+            false,
+            Some("tests_confirm_unasked"),
+        );
+        let requests = Arc::clone(&reviewed.requests);
+        let (messages, _) = goal_prompt(reviewed).await;
+        assert!(!says(&messages, "No review"), "{messages:#?}");
+        assert!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| request.contains("hold the work against what was")),
+        );
+        let sent_back = stopping_with(
+            vec![turn(4, false, None), turn(0, true, None)],
+            false,
+            Some("tests_confirm_unasked"),
+        );
+        let requests = Arc::clone(&sent_back.requests);
+        let (messages, _) = goal_prompt(sent_back).await;
+        assert!(!says(&messages, "taken as the work being declared done"));
+        assert!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| request.contains("Continue the same goal")),
         );
     }
 
