@@ -83,6 +83,17 @@ impl Confirmation {
         ))
     }
 
+    /// What stands confirmed, in a few words, for whoever decides on it:
+    /// `None` once the source has changed, or where no tests ever passed.
+    pub fn standing(&self) -> Option<String> {
+        self.standing.as_ref().map(|passed| {
+            format!(
+                "`{}` ran {} of the project's tests, all passing",
+                passed.command, passed.tests
+            )
+        })
+    }
+
     /// Any other action, counted so the state knows how long ago the tests ran.
     pub fn other_action(&mut self) {
         if let Some(passed) = self.standing.as_mut() {
@@ -197,8 +208,14 @@ mod tests {
     #[test]
     fn a_change_to_the_source_voids_what_the_tests_said() {
         let mut confirmation = Confirmation::default();
+        assert_eq!(confirmation.standing(), None);
         confirmation.passed("pytest", 7, &[]);
+        assert_eq!(
+            confirmation.standing().as_deref(),
+            Some("`pytest` ran 7 of the project's tests, all passing")
+        );
         confirmation.source_changed();
+        assert_eq!(confirmation.standing(), None);
         assert_eq!(confirmation.checking_again(), None);
         // Passing again on the new source is a new confirmation, said in full
         // and reminded of once.

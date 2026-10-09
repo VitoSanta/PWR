@@ -4488,6 +4488,10 @@ fn tests_that_pass_are_said_to_confirm_the_source_until_it_changes() {
             serde_json::json!({"executable": "sh", "args": [script]}),
         )
     };
+    let continuity = converse::Continuity {
+        confirmation_notes: true,
+        ..Default::default()
+    };
     let script = vec![
         edit("one", "two"),
         run("run_tests.sh"),
@@ -4506,7 +4510,17 @@ fn tests_that_pass_are_said_to_confirm_the_source_until_it_changes() {
         Scripted::new(script),
         opening("Change it."),
         32_768,
-        converse::Continuity::default(),
+        continuity.clone(),
+    );
+    // What a goal decides on: the tests passed on the source as it stands.
+    assert_eq!(
+        continuity
+            .confirmation
+            .lock()
+            .unwrap()
+            .standing()
+            .as_deref(),
+        Some("`sh run_tests.sh` ran 3 of the project's tests, all passing")
     );
     // What the model was shown after each action: the last message of the
     // request that followed it.
@@ -4552,6 +4566,54 @@ fn tests_that_pass_are_said_to_confirm_the_source_until_it_changes() {
         "{:?}",
         outcome.report.stopped
     );
+}
+
+/// Without the notes the model is told nothing, and the confirmation is
+/// kept all the same; a change to the source after it leaves none standing.
+#[test]
+fn what_the_tests_confirmed_is_kept_without_being_said() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/calc.txt"), "one\n").unwrap();
+    std::fs::write(
+        root.join("run_tests.sh"),
+        "printf 'Ran 3 tests in 0.010s\\n\\nOK\\n'\n",
+    )
+    .unwrap();
+    let run = calls(
+        "run_command",
+        serde_json::json!({"executable": "sh", "args": ["run_tests.sh"]}),
+    );
+    let continuity = converse::Continuity::default();
+    let outcome = context_turn(
+        root,
+        Scripted::new(vec![run.clone(), says("Done.")]),
+        opening("Run them."),
+        32_768,
+        continuity.clone(),
+    );
+    let told = &outcome.requests[1].messages.last().unwrap().content;
+    assert!(!told.contains("confirmed"), "{told}");
+    assert!(continuity.confirmation.lock().unwrap().standing().is_some());
+    let changed = context_turn(
+        root,
+        Scripted::new(vec![
+            run,
+            calls(
+                "replace_text",
+                serde_json::json!({"path": "src/calc.txt",
+                    "expected_hash": pwr_domain::hash_bytes("one\n"),
+                    "find": "one", "replace": "two"}),
+            ),
+            says("Done."),
+        ]),
+        opening("Change it."),
+        32_768,
+        continuity.clone(),
+    );
+    assert_eq!(changed.report.actions, 2, "{:?}", changed.steps);
+    assert_eq!(continuity.confirmation.lock().unwrap().standing(), None);
 }
 
 /// The minimal control is told nothing of the kind: it is the harness with

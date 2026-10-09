@@ -657,6 +657,21 @@ impl<R: TurnRunner + 'static> SessionHost for ServerHost<'_, R> {
         self.server.runner.review(root, prompt).await
     }
 
+    fn confirmed_by_tests(&self) -> Option<String> {
+        self.server
+            .sessions
+            .borrow()
+            .get(self.session_id)
+            .and_then(|session| {
+                session
+                    .continuity
+                    .confirmation
+                    .lock()
+                    .ok()
+                    .and_then(|confirmation| confirmation.standing())
+            })
+    }
+
     async fn author(
         &self,
         root: &Path,
@@ -4334,6 +4349,15 @@ mod tests {
                     .ask(approval, "use the container engine")
                     .await;
             }
+            // As a turn in which the model ran the project's tests and they
+            // passed, with no change to the source after them.
+            if self.delay == Some("tests_confirm") {
+                turn.continuity
+                    .confirmation
+                    .lock()
+                    .unwrap()
+                    .passed("make test", 3, &[]);
+            }
             if self.delay == Some("review") {
                 turn.continuity
                     .checkpoint
@@ -5723,6 +5747,148 @@ mod tests {
         assert!(seen.len() >= 2, "{seen:?}");
         assert_eq!(seen[0], 0);
         assert!(seen[1..].iter().all(|grants| *grants == 1), "{seen:?}");
+    }
+
+    /// A goal in a workspace where the core has no check to run, or where
+    /// its checks pass; with the project's own tests confirming the source as
+    /// it stands, or not.
+    fn stopping(
+        script: Vec<TurnReport>,
+        core_checks_pass: bool,
+        tests_confirm: bool,
+    ) -> GoalScripted {
+        GoalScripted {
+            limits: GoalLimits::default(),
+            verifications: Default::default(),
+            alternate: false,
+            delay: tests_confirm.then_some("tests_confirm"),
+            runs: std::sync::atomic::AtomicUsize::new(0),
+            requests: Default::default(),
+            ask_on_first: None,
+            read_terminal_on_first: false,
+            grants_seen: Default::default(),
+            script,
+            verification: if core_checks_pass {
+                GoalVerification {
+                    passed: false,
+                    technical_passed: true,
+                    acceptance_available: false,
+                    checks: Some(pwr_domain::ChecksOutcome::Passed),
+                    ..GoalVerification::default()
+                }
+            } else {
+                GoalVerification {
+                    checks: Some(pwr_domain::ChecksOutcome::Unavailable {
+                        why: "no checks were run".into(),
+                    }),
+                    summary: "this workspace declares no checks".into(),
+                    ..GoalVerification::default()
+                }
+            },
+        }
+    }
+
+    /// Measured 2026-10-09 (Django, fifteen runs): `complete` with the
+    /// project's tests passing was answered with a review and the model sent
+    /// back, for 5 to 24 minutes more; on the instance whose patch was right
+    /// every time the reviewer marked it NOT MET four times in six.
+    #[tokio::test]
+    async fn with_no_check_to_run_and_the_projects_tests_passing_a_completion_is_not_sent_to_review()
+     {
+        let runner = stopping(vec![turn(4, true, None)], false, true);
+        let requests = Arc::clone(&runner.requests);
+        let (messages, turns) = goal_prompt(runner).await;
+        assert_eq!(turns, 1, "{messages:#?}");
+        let asked = requests.lock().unwrap().clone();
+        assert!(
+            asked
+                .iter()
+                .all(|request| !request.contains("hold the work against what was")),
+            "{asked:#?}"
+        );
+        assert!(
+            says(&messages, "No review: the core has no check to run here"),
+            "{messages:#?}"
+        );
+        assert!(says(&messages, "`make test` ran 3 of the project's tests"));
+        // Ended as what it is: not verified by the core.
+        let meta = &messages.last().unwrap()["result"]["_meta"]["pwr"];
+        assert_eq!(meta["goal"]["verified"], false);
+        assert_eq!(meta["goal"]["completed"], true);
+    }
+
+    /// Nothing confirmed it: the review is the only reading the work gets,
+    /// as before.
+    #[tokio::test]
+    async fn with_no_check_to_run_and_no_tests_passing_a_completion_is_still_reviewed() {
+        let runner = stopping(vec![turn(4, true, None), turn(0, true, None)], false, false);
+        let requests = Arc::clone(&runner.requests);
+        let (messages, _) = goal_prompt(runner).await;
+        let asked = requests.lock().unwrap().clone();
+        assert!(
+            asked
+                .iter()
+                .any(|request| request.contains("hold the work against what was")),
+            "{asked:#?}"
+        );
+        assert!(!says(&messages, "No review"), "{messages:#?}");
+    }
+
+    /// Where the core's checks exist and pass, the review is for the rule no
+    /// check covers (2026-09-30), and the project's tests passing in the
+    /// model's hands does not change that.
+    #[tokio::test]
+    async fn where_the_cores_checks_pass_the_review_stays_whatever_the_tests_confirmed() {
+        let runner = stopping(vec![turn(4, true, None), turn(0, true, None)], true, true);
+        let requests = Arc::clone(&runner.requests);
+        let (messages, _) = goal_prompt(runner).await;
+        let asked = requests.lock().unwrap().clone();
+        assert_eq!(asked.len(), 2, "{asked:#?}");
+        assert_eq!(asked[1], GOAL_REVIEW);
+        assert!(!says(&messages, "No review"), "{messages:#?}");
+    }
+
+    /// Measured the same day: a turn that ended in words was answered "Do
+    /// not stop with prose" in seven runs of fifteen, which then went on for
+    /// a median of 15 minutes.
+    #[tokio::test]
+    async fn a_turn_that_ends_in_words_with_the_projects_tests_passing_is_taken_as_done() {
+        let runner = stopping(vec![turn(4, false, None)], false, true);
+        let requests = Arc::clone(&runner.requests);
+        let (messages, turns) = goal_prompt(runner).await;
+        assert_eq!(turns, 1, "{messages:#?}");
+        let asked = requests.lock().unwrap().clone();
+        assert!(
+            asked
+                .iter()
+                .all(|request| !request.contains("Continue the same goal")),
+            "{asked:#?}"
+        );
+        assert!(
+            says(&messages, "taken as the work being declared done"),
+            "{messages:#?}"
+        );
+    }
+
+    /// Without that confirmation a goal does not end on words, as before.
+    #[tokio::test]
+    async fn a_turn_that_ends_in_words_with_nothing_confirmed_is_still_sent_back() {
+        let runner = stopping(
+            vec![turn(4, false, None), turn(0, true, None)],
+            false,
+            false,
+        );
+        let requests = Arc::clone(&runner.requests);
+        let (messages, turns) = goal_prompt(runner).await;
+        assert!(turns >= 2, "{messages:#?}");
+        let asked = requests.lock().unwrap().clone();
+        assert!(
+            asked
+                .iter()
+                .any(|request| request.contains("Continue the same goal")),
+            "{asked:#?}"
+        );
+        assert!(!says(&messages, "taken as the work being declared done"));
     }
 
     fn red_before_the_goal(change: &'static str) -> GoalScripted {

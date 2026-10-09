@@ -861,6 +861,12 @@ pub trait SessionHost {
     ) -> Result<pwr_provider::ModelStream, String> {
         Err("this front end cannot ask for a proposal".into())
     }
+    /// What the project's own tests, run by the model, have confirmed about
+    /// the source as it stands now ([`crate::confirmation`]): `None` where
+    /// they never passed, or the source has changed since.
+    fn confirmed_by_tests(&self) -> Option<String> {
+        None
+    }
     /// Says something to the person, between turns.
     fn say(&self, text: &str);
     /// The conversation as it now stands, for the session to keep.
@@ -1585,7 +1591,33 @@ async fn drive<H: SessionHost + ?Sized>(
         // no action".
         let closed_in_words =
             reviewed.is_some() && !report.edited && report.actions == 0 && report.stopped.is_none();
-        if report.completed || closed_in_words {
+        // What the project's own tests have confirmed about the source as it
+        // stands, if the model ran them and they passed after its last change.
+        //
+        // Measured 2026-10-09 (fifteen runs, three SWE-bench instances): the
+        // model first tried to stop at minute 7.7 and the runs went on for a
+        // median of 12.6 minutes more -- 166 minutes of 310 -- because the
+        // goal sent it back: "Do not stop with prose" after a turn that
+        // ended in words (seven runs, 15 minutes more), and a review after
+        // `complete` where the core has no check to run (ten reviews; on the
+        // one instance whose patch was right every time, the reviewer marked
+        // it NOT MET four times in six). With the tests' confirmation
+        // standing, the goal now takes the model's stop for what it is.
+        let confirmed = host.confirmed_by_tests();
+        // A turn the model ended itself, in words, with that confirmation
+        // standing: its closing statement, as `closed_in_words` is after a
+        // review. Without one it is still sent back, as before.
+        let stopped_on_a_confirmation = confirmed.is_some()
+            && !report.completed
+            && !closed_in_words
+            && report.stopped.is_none();
+        if stopped_on_a_confirmation && let Some(confirmed) = &confirmed {
+            host.say(&format!(
+                "The turn ended in words with the project's own tests passing on the source as \
+                 it stands ({confirmed}): taken as the work being declared done."
+            ));
+        }
+        if report.completed || closed_in_words || stopped_on_a_confirmation {
             if let Some(verification) = reviewed.take() {
                 if let Some(note) = not_verified_note(&verification) {
                     host.say(&note);
@@ -1638,7 +1670,24 @@ async fn drive<H: SessionHost + ?Sized>(
                 || (verification.technical_passed
                     && !verification.acceptance_available
                     && verification.contract_changed.is_empty());
-            if reviewable && goal_edited && !review_done {
+            // Where the core has no check to run, the review was the only
+            // reading the work got. With the project's own tests passing on
+            // the source as it stands it is not: the goal ends on that, said
+            // as it is -- not verified by the core, confirmed by those tests.
+            // Where the core's checks exist and pass, the review stays: it is
+            // there for the rule no check covers.
+            let confirmed_without_checks = unverifiable && confirmed.is_some();
+            if confirmed_without_checks
+                && goal_edited
+                && !review_done
+                && let Some(confirmed) = &confirmed
+            {
+                host.say(&format!(
+                    "No review: the core has no check to run here, and the project's own tests \
+                     passed on the source as it stands ({confirmed})."
+                ));
+            }
+            if reviewable && goal_edited && !review_done && !confirmed_without_checks {
                 if budget.reviews >= budget.limits.review_rounds {
                     return SessionEnd::OutOfBudget {
                         total_actions,

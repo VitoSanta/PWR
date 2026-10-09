@@ -727,6 +727,10 @@ pub struct Continuity {
     /// What the project's own tests have confirmed about the source as it
     /// stands, carried across the turns of a goal. See [`crate::confirmation`].
     pub confirmation: std::sync::Arc<std::sync::Mutex<crate::confirmation::Confirmation>>,
+    /// Whether what the tests confirmed is also said to the model with its
+    /// results (H1). Off: a goal uses the confirmation to let the model stop
+    /// (H0, `executor`), and the two are measured one at a time.
+    pub confirmation_notes: bool,
     /// A conversation with no workspace (chat mode): it may only read what
     /// the person attached, never write or run anything. Enforced by the
     /// catalogue the calls are decoded against, not by the prompt.
@@ -3597,6 +3601,7 @@ async fn take_turn_inner<P: ModelProvider>(
                             None
                         };
                         if let Some((key, text)) = said
+                            && continuity.confirmation_notes
                             && let Some(object) = value.as_object_mut()
                         {
                             object.insert(key.into(), serde_json::Value::String(text));
