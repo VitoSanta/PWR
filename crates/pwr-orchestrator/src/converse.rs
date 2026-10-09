@@ -3639,13 +3639,9 @@ async fn take_turn_inner<P: ModelProvider>(
                     }
                     // A call for tests that ran to its end and executed none
                     // is told what it was, and which command did run the
-                    // project's tests earlier (crate::test_calls). A command cut
-                    // short, or one whose output was, may have run some.
+                    // project's tests earlier (crate::test_calls).
                     if full
                         && capability == "run_command"
-                        && value.get("denied").is_none()
-                        && value.get("exit_code").is_some_and(|code| !code.is_null())
-                        && !crate::repetition::looks_only(&call.arguments)
                         && let Ok(mut test_calls) = continuity.test_calls.lock()
                     {
                         let created: Vec<String> = continuity
@@ -3659,47 +3655,15 @@ async fn take_turn_inner<P: ModelProvider>(
                                     .collect()
                             })
                             .unwrap_or_default();
-                        // Code given inline is no call for tests; a file the
-                        // session wrote may be one, and is not the project's.
-                        let own = !crate::confirmation::runs_the_projects_tests(
+                        if let Some(said) = test_calls.observe(
+                            &policy.root,
                             &call.arguments,
                             &created,
-                        );
-                        if crate::confirmation::runs_the_projects_tests(&call.arguments, &[]) {
-                            let output = ["stdout", "stderr"]
-                                .iter()
-                                .filter_map(|field| value.get(field)?.as_str())
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            let cut = ["stdout_truncated", "stderr_truncated"]
-                                .iter()
-                                .any(|field| value[*field].as_bool() == Some(true));
-                            match pwr_verify::evidence::executed_tests(&output) {
-                                Some(_) if own => {}
-                                Some(tests) => test_calls.worked(
-                                    &crate::test_calls::command_line(&call.arguments),
-                                    call.arguments["cwd"].as_str(),
-                                    tests,
-                                ),
-                                None if continuity.test_call_notes
-                                    && !cut
-                                    && crate::test_calls::is_test_call(&call.arguments) =>
-                                {
-                                    if let Some(said) = test_calls.ran_nothing(
-                                        &policy.root,
-                                        &call.arguments,
-                                        &output,
-                                        own,
-                                    ) && let Some(object) = value.as_object_mut()
-                                    {
-                                        object.insert(
-                                            "ran_no_tests".into(),
-                                            serde_json::Value::String(said),
-                                        );
-                                    }
-                                }
-                                None => {}
-                            }
+                            &value,
+                            continuity.test_call_notes,
+                        ) && let Some(object) = value.as_object_mut()
+                        {
+                            object.insert("ran_no_tests".into(), serde_json::Value::String(said));
                         }
                     }
                     // Reads are left to `ReadHistory`, which already names a

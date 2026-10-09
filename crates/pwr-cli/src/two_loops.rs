@@ -4789,6 +4789,79 @@ fn a_call_for_the_tests_that_runs_none_is_told_what_it_was() {
     );
 }
 
+/// A call is read in the form that ran. Seen 2026-10-09 (Qwen 3.5 9B): the
+/// list of words named `arguments`, which the tool takes for `args` -- and
+/// the notes, reading only `args`, took a script of the session's for the
+/// project's tests, code given inline for a test run, and `sh ls` for one
+/// too, each told "no test having run" with the command that had.
+#[test]
+fn a_call_written_another_way_is_read_as_the_call_that_ran() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    labelled_tests(root);
+    let run = |arguments: serde_json::Value| calls("run_command", arguments);
+    let continuity = converse::Continuity {
+        test_call_notes: true,
+        ..Default::default()
+    };
+    let outcome = context_turn(
+        root,
+        Scripted::new(vec![
+            run(
+                serde_json::json!({"executable": "sh", "arguments": ["tests/run_tests.sh", "forms_tests"]}),
+            ),
+            calls(
+                "write_file",
+                serde_json::json!({"path": "test_mine.sh", "content": "echo boom\nexit 1\n"}),
+            ),
+            // The session's own script, failing its own way.
+            run(serde_json::json!({"executable": "sh", "arguments": ["test_mine.sh"]})),
+            // Code given inline.
+            run(serde_json::json!({"executable": "sh", "arguments": ["-c", "echo test; exit 1"]})),
+            // A look, handed to a shell.
+            run(serde_json::json!({"executable": "sh", "arguments": ["ls", "test_nothing.sh"]})),
+            // And a call for the project's tests under a name not known.
+            run(
+                serde_json::json!({"executable": "sh", "arguments": ["tests/run_tests.sh", "forms"]}),
+            ),
+            says("Done."),
+        ]),
+        opening("Run the tests."),
+        32_768,
+        continuity,
+    );
+    let told = |after_action: usize| {
+        outcome.requests[after_action]
+            .messages
+            .last()
+            .unwrap()
+            .content
+            .clone()
+    };
+    for (action, what) in [
+        (1, "tests that ran"),
+        (3, "own script"),
+        (4, "inline code"),
+        (5, "a look"),
+    ] {
+        assert!(
+            !told(action).contains("ran_no_tests"),
+            "{what}: {}",
+            told(action)
+        );
+    }
+    let unknown = told(6);
+    assert!(
+        unknown.contains("The runner does not know `forms`"),
+        "{unknown}"
+    );
+    // The command that worked is recalled as it ran.
+    assert!(
+        unknown.contains("`sh tests/run_tests.sh forms_tests` executed 3"),
+        "{unknown}"
+    );
+}
+
 /// Unless the goal asks for them the notes are not made: the same calls get
 /// what the commands printed and nothing else.
 #[test]

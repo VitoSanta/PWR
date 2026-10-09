@@ -52,6 +52,60 @@ const SEARCH_ENTRIES: usize = 6_000;
 const SUGGESTIONS: usize = 3;
 
 impl TestCalls {
+    /// A command has finished: remembered if it executed tests of the
+    /// project, and where it was a call for tests that executed none --
+    /// and `notes` are asked for -- what to say with its result.
+    ///
+    /// `written` is the call as the model wrote it and is read in the form
+    /// that ran: a list of words named `arguments`, or `ls` handed to a
+    /// shell, is the call the repair made of it. `created` are the files
+    /// the session wrote. A command refused, cut short, or with its output
+    /// cut is left alone: it may have run some tests, or none because it
+    /// never ran.
+    pub fn observe(
+        &mut self,
+        root: &Path,
+        written: &serde_json::Value,
+        created: &[String],
+        result: &serde_json::Value,
+        notes: bool,
+    ) -> Option<String> {
+        if result.get("denied").is_some()
+            || !result.get("exit_code").is_some_and(|code| !code.is_null())
+        {
+            return None;
+        }
+        let mut asked = written.clone();
+        crate::repair_form("run_command", &mut asked);
+        // A look is not a call for tests, nor is code given inline; a file
+        // the session wrote may be one, and is not the project's.
+        if crate::repetition::looks_only(&asked)
+            || !crate::confirmation::runs_the_projects_tests(&asked, &[])
+        {
+            return None;
+        }
+        let own = !crate::confirmation::runs_the_projects_tests(&asked, created);
+        let output = ["stdout", "stderr"]
+            .iter()
+            .filter_map(|field| result.get(field)?.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let cut = ["stdout_truncated", "stderr_truncated"]
+            .iter()
+            .any(|field| result[*field].as_bool() == Some(true));
+        match pwr_verify::evidence::executed_tests(&output) {
+            Some(_) if own => None,
+            Some(tests) => {
+                self.worked(&command_line(&asked), asked["cwd"].as_str(), tests);
+                None
+            }
+            None if notes && !cut && is_test_call(&asked) => {
+                self.ran_nothing(root, &asked, &output, own)
+            }
+            None => None,
+        }
+    }
+
     /// A call executed tests of the project.
     pub fn worked(&mut self, command: &str, folder: Option<&str>, tests: usize) {
         self.worked = Some(Worked {
@@ -169,25 +223,27 @@ impl TestCalls {
 const NOTHING_RAN: &str = "No test was executed by this call.";
 const NOTHING_SHOWN: &str = "This call's output shows no test having run.";
 
-/// Programs that are test runners by name.
+/// Programs and modules that are test runners by name.
 const RUNNERS: &[&str] = &[
-    "pytest", "py.test", "tox", "nox", "jest", "vitest", "mocha", "rspec", "ctest", "phpunit",
+    "pytest", "py.test", "unittest", "tox", "nox", "jest", "vitest", "mocha", "rspec", "ctest",
+    "phpunit",
 ];
-/// Programs that run what they are given: interpreters, package managers,
-/// build tools. One of these is a call for tests when a word of it says so.
+/// Programs that run what they are given: interpreters, shells, package
+/// managers, build tools.
 const LAUNCHERS: &[&str] = &[
     "python", "pypy", "node", "deno", "bun", "ruby", "php", "perl", "bash", "sh", "zsh", "npm",
     "npx", "yarn", "pnpm", "cargo", "go", "make", "gradle", "gradlew", "mvn", "mvnw", "dotnet",
     "swift", "uv", "poetry", "pipenv", "hatch", "pdm", "bundle", "rake", "composer", "mix",
 ];
 
-/// The command's words after its program, under any of the names a model
-/// gives the list, and without the program said again at their front.
+/// The command's words after its program, without the program said again
+/// at their front. The call is read in the form that ran: one written with
+/// another name for the list is repaired before it comes here, so that
+/// everything that reads a command reads the same one.
 fn words(arguments: &serde_json::Value) -> Vec<&str> {
     let executable = arguments["executable"].as_str().unwrap_or_default();
-    let words: Vec<&str> = ["args", "argv", "arg_list", "arguments"]
-        .iter()
-        .find_map(|name| arguments[*name].as_array())
+    let words: Vec<&str> = arguments["args"]
+        .as_array()
         .into_iter()
         .flatten()
         .filter_map(serde_json::Value::as_str)
@@ -238,13 +294,32 @@ fn selectors<'a>(
 }
 
 /// Whether a command is a call for tests, by its own words: a test runner,
-/// or a program that runs what it is given with a word that names tests.
-/// Installing something is not one, whatever it installs.
+/// or a program that runs what it is given and is given a runner
+/// (`python -m pytest`, `uv run pytest`), a script named for tests
+/// (`python tests/runtests.py`, `sh run_tests.sh`) or the word `test`
+/// (`cargo test`, `make test`, `python manage.py test`).
+///
+/// A word that merely holds "test" does not make one: `rm -rf tests/roots`
+/// and `python -m sphinx gettext test_dup` are not calls for tests. Nor is
+/// installing something, or asking a runner how it is used.
 pub fn is_test_call(arguments: &serde_json::Value) -> bool {
     let executable = arguments["executable"].as_str().unwrap_or_default();
-    let program = executable.rsplit('/').next().unwrap_or(executable);
     let words = words(arguments);
-    // Nor is asking a runner how it is used.
+    // A shell given a whole command line in one word: each command of it.
+    if let [line] = words.as_slice()
+        && line.contains(char::is_whitespace)
+    {
+        return line.split(['&', '|', ';']).any(|command| {
+            let mut parts = command.split_whitespace();
+            parts
+                .next()
+                .is_some_and(|program| is_test_words(program, &parts.collect::<Vec<_>>()))
+        });
+    }
+    is_test_words(executable, &words)
+}
+
+fn is_test_words(executable: &str, words: &[&str]) -> bool {
     if words.iter().any(|word| {
         matches!(
             *word,
@@ -253,21 +328,29 @@ pub fn is_test_call(arguments: &serde_json::Value) -> bool {
     }) {
         return false;
     }
-    if RUNNERS.contains(&program) {
+    let name_of = |word: &str| word.rsplit('/').next().unwrap_or(word).to_lowercase();
+    let program = name_of(executable);
+    if RUNNERS.contains(&program.as_str()) {
         return true;
     }
     // `python3.11` is `python`.
     let family = program.trim_end_matches(|ch: char| ch.is_ascii_digit() || ch == '.');
-    LAUNCHERS.contains(&family)
-        && words.iter().any(|word| {
-            // A shell is given its command in one word.
-            word.split_whitespace().any(|part| {
-                let name = part.rsplit('/').next().unwrap_or(part).to_lowercase();
-                name.contains("test")
-                    || name.starts_with("spec")
-                    || RUNNERS.contains(&name.as_str())
-            })
-        })
+    if !LAUNCHERS.contains(&family) {
+        return false;
+    }
+    // What the program is given to run: its first words that are not
+    // options, past a package manager's `run`.
+    let given: Vec<String> = words
+        .iter()
+        .filter(|word| !word.starts_with('-') && !matches!(**word, "run" | "exec" | "x"))
+        .take(2)
+        .map(|word| name_of(word))
+        .collect();
+    given.iter().enumerate().any(|(at, name)| {
+        name == "test"
+            || RUNNERS.contains(&name.as_str())
+            || (at == 0 && (name.contains("test") || name.starts_with("spec")))
+    })
 }
 
 /// Whether a runner that ran to its end says its selection held no test.
@@ -808,6 +891,101 @@ mod tests {
         );
     }
 
+    /// What a command returned, as the turn holds it.
+    fn returned(exit_code: i64, output: &str) -> serde_json::Value {
+        json!({"exit_code": exit_code, "stdout": output, "stderr": "",
+               "stdout_truncated": false, "stderr_truncated": false})
+    }
+
+    #[test]
+    fn a_finished_command_is_read_in_the_form_that_ran() {
+        let dir = workspace();
+        let mut calls = TestCalls::default();
+        let created = vec!["test_mine.py".to_owned()];
+        // The list of words under another name: the tests ran, and are kept.
+        let worked =
+            json!({"executable": "python", "arguments": ["tests/runtests.py", "forms_tests"]});
+        assert_eq!(
+            calls.observe(
+                dir.path(),
+                &worked,
+                &created,
+                &returned(0, "Ran 646 tests in 3.1s\n\nOK\n"),
+                true
+            ),
+            None
+        );
+        // Under that other name too: a script of the session's, code given
+        // inline, a look handed to a shell. None is a call for tests.
+        for written in [
+            json!({"executable": "python", "arguments": ["test_mine.py"]}),
+            json!({"executable": "python", "arguments": ["-c", "class TestModel: pass"]}),
+            json!({"executable": "sh", "arguments": ["ls", "test_mine.py"]}),
+            json!({"executable": "python", "args": ["test_mine.py"], "stdin": ""}),
+        ] {
+            assert_eq!(
+                calls.observe(
+                    dir.path(),
+                    &written,
+                    &created,
+                    &returned(1, "Traceback\nboom\n"),
+                    true
+                ),
+                None,
+                "{written}"
+            );
+        }
+        // And a call for the project's tests that runs none is told, with
+        // the command that worked as it ran.
+        let unknown = json!({"executable": "python", "arguments": ["tests/runtests.py", "forms"]});
+        let said = calls
+            .observe(
+                dir.path(),
+                &unknown,
+                &created,
+                &returned(1, UNKNOWN_LABEL),
+                true,
+            )
+            .unwrap();
+        assert!(said.contains("does not know `forms`"), "{said}");
+        assert!(
+            said.contains("`python tests/runtests.py forms_tests` executed 646"),
+            "{said}"
+        );
+        // Not asked for: nothing is said, and what worked is still kept.
+        assert_eq!(
+            calls.observe(
+                dir.path(),
+                &unknown,
+                &created,
+                &returned(1, UNKNOWN_LABEL),
+                false
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_command_that_did_not_run_to_its_end_is_left_alone() {
+        let dir = workspace();
+        let mut calls = TestCalls::default();
+        let call = forms();
+        // Refused; stopped at its time limit; its output cut.
+        for result in [
+            json!({"denied": "Not run"}),
+            json!({"not_run": "Not run: this turn already stopped running things"}),
+            json!({"failure_category": "timeout", "tool_failure": "did not finish within 120 s"}),
+            json!({"exit_code": null, "stdout": UNKNOWN_LABEL}),
+            json!({"exit_code": 1, "stdout": UNKNOWN_LABEL, "stdout_truncated": true}),
+        ] {
+            assert_eq!(
+                calls.observe(dir.path(), &call, &[], &result, true),
+                None,
+                "{result}"
+            );
+        }
+    }
+
     #[test]
     fn a_call_for_tests_is_known_by_its_own_words() {
         for call in [
@@ -819,7 +997,11 @@ mod tests {
             json!({"executable": "cargo", "args": ["test"]}),
             json!({"executable": "npm", "args": ["test"]}),
             json!({"executable": "make", "args": ["test"]}),
-            json!({"executable": "bash", "args": ["-lc", "cd tests && python runtests.py forms"]}),
+            json!({"executable": "sh", "args": ["cd tests && python runtests.py forms"]}),
+            json!({"executable": "sh", "args": ["tests/run_tests.sh", "forms"]}),
+            json!({"executable": "python", "args": ["manage.py", "test", "polls"]}),
+            json!({"executable": "uv", "args": ["run", "pytest", "-q"]}),
+            json!({"executable": "npm", "args": ["run", "test"]}),
         ] {
             assert!(is_test_call(&call), "{call}");
         }
@@ -830,6 +1012,12 @@ mod tests {
             json!({"executable": "python", "args": ["-m", "pip", "install", "pytest"]}),
             json!({"executable": "pip", "args": ["install", "pytest"]}),
             json!({"executable": "python", "args": ["tests/runtests.py", "--help"]}),
+            // A word that holds "test" is not a call for tests.
+            json!({"executable": "sh", "args": ["rm", "-rf", "tests/roots/test-gettext"]}),
+            json!({"executable": "sh", "args": ["cd", "test_dup"]}),
+            json!({"executable": "sh", "args": ["rm -rf tests/roots && cd test_dup"]}),
+            json!({"executable": "python", "args": ["-m", "sphinx", "gettext", "test_dup", "_build"]}),
+            json!({"executable": "python", "args": ["scripts/build.py", "tests"]}),
         ] {
             assert!(!is_test_call(&call), "{call}");
         }
