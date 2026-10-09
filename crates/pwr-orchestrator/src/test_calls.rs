@@ -63,14 +63,21 @@ impl TestCalls {
         });
     }
 
-    /// A call for the project's tests ran to its end and executed none. What
-    /// to say with its result, or `None` where nothing is known that would
-    /// help the next call.
+    /// A call for tests ran to its end and executed none. What to say with
+    /// its result, or `None` where nothing is known that would help the next
+    /// call.
+    ///
+    /// `own` is a call that names a file the session wrote. A test file of
+    /// the session's that the runner does not pick up is the same trouble as
+    /// a label it does not know, and is told the same; but a script of the
+    /// session's that prints what it likes is not a test run that failed to
+    /// start, so with no reason recognised nothing is said of it.
     pub fn ran_nothing(
         &mut self,
         root: &Path,
         arguments: &serde_json::Value,
         output: &str,
+        own: bool,
     ) -> Option<String> {
         // The folder the command ran in, from the root; the root itself is none.
         let folder = arguments["cwd"]
@@ -133,6 +140,9 @@ impl TestCalls {
         {
             said.push(place);
         }
+        if own && said.is_empty() {
+            return None;
+        }
         let Some(worked) = &self.worked else {
             return (!said.is_empty()).then(|| format!("{NOTHING_RAN} {}", said.join(" ")));
         };
@@ -156,8 +166,8 @@ impl TestCalls {
     }
 }
 
-const NOTHING_RAN: &str = "No test of the project was executed by this call.";
-const NOTHING_SHOWN: &str = "This call's output shows no test of the project having run.";
+const NOTHING_RAN: &str = "No test was executed by this call.";
+const NOTHING_SHOWN: &str = "This call's output shows no test having run.";
 
 /// Programs that are test runners by name.
 const RUNNERS: &[&str] = &[
@@ -574,7 +584,7 @@ mod tests {
         let dir = workspace();
         let mut calls = TestCalls::default();
         let said = calls
-            .ran_nothing(dir.path(), &forms(), UNKNOWN_LABEL)
+            .ran_nothing(dir.path(), &forms(), UNKNOWN_LABEL, false)
             .unwrap();
         assert!(said.starts_with(NOTHING_RAN), "{said}");
         assert!(
@@ -595,7 +605,7 @@ mod tests {
         );
         // Asked the same name again: told again what it was, not the list.
         let again = calls
-            .ran_nothing(dir.path(), &forms(), UNKNOWN_LABEL)
+            .ran_nothing(dir.path(), &forms(), UNKNOWN_LABEL, false)
             .unwrap();
         assert!(again.contains("does not know `forms`"), "{again}");
         assert!(!again.contains("resemble it"), "{again}");
@@ -609,7 +619,7 @@ mod tests {
             "args": ["runtests.py", "utils.http.HttpDateTests"], "cwd": "tests"});
         let output = "ModuleNotFoundError: No module named 'utils'\nRan 1 test in 0.000s\n\n\
                       FAILED (errors=1)\n";
-        let said = calls.ran_nothing(dir.path(), &call, output).unwrap();
+        let said = calls.ran_nothing(dir.path(), &call, output, false).unwrap();
         assert!(said.contains("does not know `utils`"), "{said}");
         // The file about what was written after it, then the folder.
         assert!(
@@ -628,7 +638,7 @@ mod tests {
         let output = "ImportError: Failed to import test module: forms_tests.tests.test_forms\n\
                       ModuleNotFoundError: No module named 'django.utils.htpp'\n\
                       Ran 1 test in 0.000s\n\nFAILED (errors=1)\n";
-        assert_eq!(calls.ran_nothing(dir.path(), &call, output), None);
+        assert_eq!(calls.ran_nothing(dir.path(), &call, output, false), None);
     }
 
     #[test]
@@ -639,7 +649,7 @@ mod tests {
         let call = json!({"executable": "python3", "args": ["tests/runtests.py"], "cwd": "tests"});
         let output =
             "python3: can't open file 'tests/runtests.py': [Errno 2] No such file or directory\n";
-        let said = calls.ran_nothing(dir.path(), &call, output).unwrap();
+        let said = calls.ran_nothing(dir.path(), &call, output, false).unwrap();
         assert!(
             said.contains(
                 "`tests/runtests.py` exists from the workspace root; this command ran in `tests`"
@@ -649,7 +659,7 @@ mod tests {
         // Written for `tests`, run at the root.
         let call = json!({"executable": "python", "args": ["runtests.py"]});
         let output = "python: can't open file 'runtests.py': [Errno 2] No such file or directory\n";
-        let said = calls.ran_nothing(dir.path(), &call, output).unwrap();
+        let said = calls.ran_nothing(dir.path(), &call, output, false).unwrap();
         assert!(
             said.contains(
                 "`runtests.py` is not there from the workspace root; a file of that name is at \
@@ -662,7 +672,7 @@ mod tests {
             "python: can't open file '{}': [Errno 2] No such file or directory\n",
             dir.path().join("runtests.py").display()
         );
-        let said = calls.ran_nothing(dir.path(), &call, &whole).unwrap();
+        let said = calls.ran_nothing(dir.path(), &call, &whole, false).unwrap();
         assert!(said.contains("at `tests/runtests.py`"), "{said}");
     }
 
@@ -672,14 +682,14 @@ mod tests {
         let mut calls = TestCalls::default();
         let all = json!({"executable": "python", "args": ["tests/runtests.py", "-k", "nothing"]});
         let said = calls
-            .ran_nothing(dir.path(), &all, "Ran 0 tests in 0.000s\n\nOK\n")
+            .ran_nothing(dir.path(), &all, "Ran 0 tests in 0.000s\n\nOK\n", false)
             .unwrap();
         assert_eq!(
             said,
-            "No test of the project was executed by this call. The selection matched no test."
+            "No test was executed by this call. The selection matched no test."
         );
         let said = calls
-            .ran_nothing(dir.path(), &all, "==== no tests ran in 0.01s ====\n")
+            .ran_nothing(dir.path(), &all, "==== no tests ran in 0.01s ====\n", false)
             .unwrap();
         assert!(said.ends_with("The selection matched no test."), "{said}");
         // A name that is a module of the source and holds no test: where the
@@ -687,7 +697,7 @@ mod tests {
         let source = json!({"executable": "python",
             "args": ["python", "tests/runtests.py", "django.forms", "--settings", "test_sqlite"]});
         let said = calls
-            .ran_nothing(dir.path(), &source, "Ran 0 tests in 0.000s\n\nOK\n")
+            .ran_nothing(dir.path(), &source, "Ran 0 tests in 0.000s\n\nOK\n", false)
             .unwrap();
         assert!(
             said.ends_with(
@@ -697,7 +707,7 @@ mod tests {
             "{said}"
         );
         let again = calls
-            .ran_nothing(dir.path(), &source, "Ran 0 tests in 0.000s\n\nOK\n")
+            .ran_nothing(dir.path(), &source, "Ran 0 tests in 0.000s\n\nOK\n", false)
             .unwrap();
         assert!(again.ends_with("The selection matched no test."), "{again}");
         assert_eq!(
@@ -712,7 +722,7 @@ mod tests {
         let mut calls = TestCalls::default();
         calls.worked("python runtests.py forms_tests", Some("tests"), 646);
         let said = calls
-            .ran_nothing(dir.path(), &forms(), UNKNOWN_LABEL)
+            .ran_nothing(dir.path(), &forms(), UNKNOWN_LABEL, false)
             .unwrap();
         assert!(said.starts_with(NOTHING_RAN), "{said}");
         assert!(
@@ -726,14 +736,14 @@ mod tests {
         // command is still worth saying, and no more is claimed than the
         // output shows.
         let said = calls
-            .ran_nothing(dir.path(), &forms(), "Segmentation fault\n")
+            .ran_nothing(dir.path(), &forms(), "Segmentation fault\n", false)
             .unwrap();
         assert!(said.starts_with(NOTHING_SHOWN), "{said}");
         assert!(said.contains("Earlier in this session"), "{said}");
         // The last one that worked is the one recalled; run at the root, no folder.
         calls.worked("pytest tests/test_a.py", Some("."), 7);
         let said = calls
-            .ran_nothing(dir.path(), &forms(), "Ran 0 tests in 0.000s\n")
+            .ran_nothing(dir.path(), &forms(), "Ran 0 tests in 0.000s\n", false)
             .unwrap();
         assert!(
             said.contains("`pytest tests/test_a.py` executed 7"),
@@ -753,7 +763,7 @@ mod tests {
             "",
         ] {
             assert_eq!(
-                calls.ran_nothing(dir.path(), &forms(), output),
+                calls.ran_nothing(dir.path(), &forms(), output, false),
                 None,
                 "{output}"
             );
@@ -765,11 +775,36 @@ mod tests {
                 dir.path(),
                 &call,
                 "ModuleNotFoundError: No module named 'zebra'\n",
+                false,
             )
             .unwrap();
         assert!(
             said.contains("does not know `zebra`") && !said.contains("resemble"),
             "{said}"
+        );
+    }
+
+    #[test]
+    fn a_test_file_of_the_session_s_that_runs_no_test_is_told_so_and_its_scripts_are_left_alone() {
+        let dir = workspace();
+        let mut calls = TestCalls::default();
+        calls.worked("python tests/runtests.py forms_tests", None, 646);
+        // A test file the session wrote, asked of the runner by a name it
+        // does not pick up: zero tests and `OK`.
+        let call = json!({"executable": "python", "args": ["tests/runtests.py", "test_mine"]});
+        let said = calls
+            .ran_nothing(dir.path(), &call, "Ran 0 tests in 0.000s\n\nOK\n", true)
+            .unwrap();
+        assert!(
+            said.starts_with("No test was executed by this call. The selection matched no test."),
+            "{said}"
+        );
+        // A script of the session's that fails its own way is not a test
+        // run that did not start, whatever worked before.
+        let script = json!({"executable": "python", "args": ["test_mine.py"]});
+        assert_eq!(
+            calls.ran_nothing(dir.path(), &script, "AssertionError\n", true),
+            None
         );
     }
 

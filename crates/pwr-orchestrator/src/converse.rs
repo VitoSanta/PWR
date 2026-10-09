@@ -3637,9 +3637,9 @@ async fn take_turn_inner<P: ModelProvider>(
                             object.insert(key.into(), serde_json::Value::String(text));
                         }
                     }
-                    // A call for the project's tests that ran to its end and
-                    // executed none is told what it was, and which command
-                    // did run them earlier (crate::test_calls). A command cut
+                    // A call for tests that ran to its end and executed none
+                    // is told what it was, and which command did run the
+                    // project's tests earlier (crate::test_calls). A command cut
                     // short, or one whose output was, may have run some.
                     if full
                         && capability == "run_command"
@@ -3659,7 +3659,13 @@ async fn take_turn_inner<P: ModelProvider>(
                                     .collect()
                             })
                             .unwrap_or_default();
-                        if crate::confirmation::runs_the_projects_tests(&call.arguments, &created) {
+                        // Code given inline is no call for tests; a file the
+                        // session wrote may be one, and is not the project's.
+                        let own = !crate::confirmation::runs_the_projects_tests(
+                            &call.arguments,
+                            &created,
+                        );
+                        if crate::confirmation::runs_the_projects_tests(&call.arguments, &[]) {
                             let output = ["stdout", "stderr"]
                                 .iter()
                                 .filter_map(|field| value.get(field)?.as_str())
@@ -3669,6 +3675,7 @@ async fn take_turn_inner<P: ModelProvider>(
                                 .iter()
                                 .any(|field| value[*field].as_bool() == Some(true));
                             match pwr_verify::evidence::executed_tests(&output) {
+                                Some(_) if own => {}
                                 Some(tests) => test_calls.worked(
                                     &crate::test_calls::command_line(&call.arguments),
                                     call.arguments["cwd"].as_str(),
@@ -3682,6 +3689,7 @@ async fn take_turn_inner<P: ModelProvider>(
                                         &policy.root,
                                         &call.arguments,
                                         &output,
+                                        own,
                                     ) && let Some(object) = value.as_object_mut()
                                     {
                                         object.insert(

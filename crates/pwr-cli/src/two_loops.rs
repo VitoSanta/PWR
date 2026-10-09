@@ -4719,6 +4719,11 @@ fn a_call_for_the_tests_that_runs_none_is_told_what_it_was() {
             run("forms"),
             run("forms_tests"),
             run("admin"),
+            calls(
+                "write_file",
+                serde_json::json!({"path": "tests/test_mine.py", "content": "import unittest\n"}),
+            ),
+            run("test_mine"),
             says("Done."),
         ]),
         opening("Run the tests."),
@@ -4736,7 +4741,7 @@ fn a_call_for_the_tests_that_runs_none_is_told_what_it_was() {
     let unknown = told(1);
     assert!(unknown.contains("ran_no_tests"), "{unknown}");
     assert!(
-        unknown.contains("No test of the project was executed by this call."),
+        unknown.contains("No test was executed by this call."),
         "{unknown}"
     );
     assert!(
@@ -4764,8 +4769,19 @@ fn a_call_for_the_tests_that_runs_none_is_told_what_it_was() {
         ),
         "{later}"
     );
+    // A test file the session wrote, under a name the runner does not pick
+    // up, is told the same -- it is not counted among the project's tests.
+    let mine = told(5);
+    assert!(
+        mine.contains("The runner does not know `test_mine`"),
+        "{mine}"
+    );
+    assert!(
+        mine.contains("`sh tests/run_tests.sh forms_tests` executed 3"),
+        "{mine}"
+    );
     // Notes, not refusals: every command ran and the turn reached its answer.
-    assert_eq!(outcome.report.actions, 3, "{:?}", outcome.steps);
+    assert_eq!(outcome.report.actions, 5, "{:?}", outcome.steps);
     assert!(
         outcome.report.stopped.is_none(),
         "{:?}",
