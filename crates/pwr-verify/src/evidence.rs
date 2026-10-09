@@ -111,6 +111,53 @@ pub fn ran_zero_tests(command: &str, output: &str) -> bool {
         .any(|signature| output.contains(signature))
 }
 
+/// How many tests of the project a run executed, whatever they said: `None`
+/// where none did, where what "ran" was a module that could not be loaded,
+/// or where the runner's words are not known here.
+///
+/// unittest counts a test module it could not import as a test that ran and
+/// failed (`Ran 1 test ... FAILED (errors=1)`): that is a call that executed
+/// nothing of the project, and is not counted.
+pub fn executed_tests(output: &str) -> Option<usize> {
+    if output.contains("_FailedTest") || output.contains("Failed to import test module") {
+        return None;
+    }
+    let lines: Vec<&str> = output.lines().map(str::trim).collect();
+    if let Some(ran) = lines.iter().rev().find(|line| {
+        line.starts_with("Ran ") && (line.contains(" tests in ") || line.contains(" test in "))
+    }) {
+        let count: usize = ran.split_whitespace().nth(1)?.parse().ok()?;
+        return (count > 0).then_some(count);
+    }
+    let number_before = |line: &str, word: &str| -> usize {
+        line.split(word)
+            .next()
+            .and_then(|before| before.trim_end().rsplit([' ', '=', ',']).next())
+            .and_then(|number| number.parse().ok())
+            .unwrap_or(0)
+    };
+    if let Some(summary) = lines.iter().rev().find(|line| {
+        (line.contains(" passed") || line.contains(" failed"))
+            && line.contains(" in ")
+            && line.trim_end_matches('=').trim_end().ends_with('s')
+    }) {
+        let count = number_before(summary, " passed") + number_before(summary, " failed");
+        return (count > 0).then_some(count);
+    }
+    let results: Vec<&&str> = lines
+        .iter()
+        .filter(|line| line.starts_with("test result: "))
+        .collect();
+    if !results.is_empty() {
+        let count: usize = results
+            .iter()
+            .map(|line| number_before(line, " passed") + number_before(line, " failed"))
+            .sum();
+        return (count > 0).then_some(count);
+    }
+    None
+}
+
 /// How many tests a run executed, where its output says that tests ran and
 /// that every one of them passed. `None` for anything else: a failure, no
 /// test executed, or a runner whose words are not known here -- never a
@@ -364,6 +411,39 @@ mod tests {
         assert_eq!(passed_tests("All good!\n"), None);
         assert_eq!(passed_tests("Build succeeded.\n    0 Warning(s)\n"), None);
         assert_eq!(passed_tests(""), None);
+    }
+
+    #[test]
+    fn tests_that_were_executed_are_counted_whatever_they_said() {
+        assert_eq!(
+            executed_tests("Ran 45 tests in 0.010s\n\nFAILED (failures=1)\n"),
+            Some(45)
+        );
+        assert_eq!(executed_tests("Ran 45 tests in 0.010s\n\nOK\n"), Some(45));
+        // Django's runner given a label it does not know: "one test" that is
+        // the module failing to load. Nothing of the project ran.
+        let unknown = "E\n======\nERROR: forms (unittest.loader._FailedTest)\n------\n\
+                       ImportError: Failed to import test module: forms\n\
+                       ModuleNotFoundError: No module named 'forms'\n\n\
+                       ------\nRan 1 test in 0.000s\n\nFAILED (errors=1)\n";
+        assert_eq!(executed_tests(unknown), None);
+        assert_eq!(executed_tests("Ran 0 tests in 0.000s\n\nOK\n"), None);
+        assert_eq!(
+            executed_tests("==== 1 failed, 7 passed in 1.96s ====\n"),
+            Some(8)
+        );
+        assert_eq!(executed_tests("2 failed in 0.4s\n"), Some(2));
+        assert_eq!(executed_tests("==== no tests ran in 0.01s ====\n"), None);
+        assert_eq!(executed_tests("==== 1 error in 0.31s ====\n"), None);
+        assert_eq!(
+            executed_tests("test result: FAILED. 3 passed; 2 failed; 0 ignored\n"),
+            Some(5)
+        );
+        assert_eq!(
+            executed_tests("runtests.py: error: argument -v/--verbosity: expected one argument\n"),
+            None
+        );
+        assert_eq!(executed_tests(""), None);
     }
 
     #[test]

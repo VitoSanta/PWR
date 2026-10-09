@@ -17,6 +17,7 @@ mod run_state;
 pub mod scaffold;
 pub mod session;
 pub mod stall;
+pub mod test_calls;
 pub mod wiki;
 pub mod window;
 use run_state::{ProgressTracker, bounded_result, json_bytes};

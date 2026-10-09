@@ -811,6 +811,10 @@ pub struct GoalAids {
     /// Say to the model, with its results, what those tests confirmed
     /// ([`crate::confirmation`]; H1).
     pub confirmation_notes: bool,
+    /// Tell a call for the project's tests that executed none what it was,
+    /// which test paths resemble the name it gave, and which command did run
+    /// the tests earlier in the session ([`crate::test_calls`]; H2).
+    pub test_call_notes: bool,
 }
 
 /// How a request is run: one turn, or turns repeated until the work is
@@ -1017,6 +1021,7 @@ async fn drive<H: SessionHost + ?Sized>(
     continuity.plan = (aids.plan && policy == Policy::Goal).then(Arc::default);
     continuity.paced_reasoning = aids.paced_reasoning && policy == Policy::Goal;
     continuity.confirmation_notes = aids.confirmation_notes && policy == Policy::Goal;
+    continuity.test_call_notes = aids.test_call_notes && policy == Policy::Goal;
     let goal_mode = policy == Policy::Goal;
     let minimal = policy == Policy::Minimal;
     // The control spends the same budget a goal would, so the two arms of a
@@ -2143,6 +2148,22 @@ pub async fn close_turn(
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// An aid is off unless the workspace asks for it by name, and a name
+    /// nobody knows is refused rather than taken for nothing.
+    #[test]
+    fn a_goal_s_aids_are_off_unless_asked_for_by_name() {
+        let asked: GoalAids =
+            serde_json::from_str(r#"{"accept_stop": true, "test_call_notes": true}"#).unwrap();
+        assert!(asked.accept_stop && asked.test_call_notes);
+        assert!(!asked.confirmation_notes && !asked.plan);
+        assert_eq!(
+            serde_json::from_str::<GoalAids>("{}").unwrap(),
+            GoalAids::default()
+        );
+        assert!(!GoalAids::default().test_call_notes);
+        assert!(serde_json::from_str::<GoalAids>(r#"{"test_notes": true}"#).is_err());
+    }
 
     /// A broken check may be the very behaviour the engineer requested.
     /// The observed React/ledger prompts incorrectly excluded every baseline

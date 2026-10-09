@@ -4678,6 +4678,129 @@ fn tests_that_pass_are_said_to_confirm_the_source_until_it_changes() {
     );
 }
 
+/// A project whose tests are started with a label, as Django's are: the
+/// label it knows runs three tests, any other is a module that is not there.
+fn labelled_tests(root: &std::path::Path) {
+    std::fs::create_dir_all(root.join("tests/forms_tests")).unwrap();
+    std::fs::create_dir_all(root.join("forms")).unwrap();
+    std::fs::write(
+        root.join("tests/run_tests.sh"),
+        "if [ \"$1\" = forms_tests ]; then printf 'Ran 3 tests in 0.010s\\n\\nOK\\n'; exit 0; fi\n\
+         printf 'ERROR: %s (unittest.loader._FailedTest)\\n' \"$1\"\n\
+         printf \"ModuleNotFoundError: No module named '%s'\\n\\n\" \"$1\"\n\
+         printf 'Ran 1 test in 0.000s\\n\\nFAILED (errors=1)\\n'\nexit 1\n",
+    )
+    .unwrap();
+}
+
+/// The whole of it, through the same turn the product takes: a call for the
+/// project's tests under a name the runner does not know is told that no
+/// test ran, and which test paths resemble that name; a call that runs the
+/// tests is told nothing; and a later call that runs none is reminded of
+/// the command that did.
+#[test]
+fn a_call_for_the_tests_that_runs_none_is_told_what_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    labelled_tests(root);
+    let run = |label: &str| {
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": ["tests/run_tests.sh", label]}),
+        )
+    };
+    let continuity = converse::Continuity {
+        test_call_notes: true,
+        ..Default::default()
+    };
+    let outcome = context_turn(
+        root,
+        Scripted::new(vec![
+            run("forms"),
+            run("forms_tests"),
+            run("admin"),
+            says("Done."),
+        ]),
+        opening("Run the tests."),
+        32_768,
+        continuity,
+    );
+    let told = |after_action: usize| {
+        outcome.requests[after_action]
+            .messages
+            .last()
+            .unwrap()
+            .content
+            .clone()
+    };
+    let unknown = told(1);
+    assert!(unknown.contains("ran_no_tests"), "{unknown}");
+    assert!(
+        unknown.contains("No test of the project was executed by this call."),
+        "{unknown}"
+    );
+    assert!(
+        unknown.contains("The runner does not know `forms`"),
+        "{unknown}"
+    );
+    // The tests' folder of that name, not the source folder of that name.
+    assert!(
+        unknown.contains("resemble it: `tests/forms_tests/`."),
+        "{unknown}"
+    );
+    assert!(!unknown.contains("Earlier in this session"), "{unknown}");
+    // The tests ran: nothing to add to what they said.
+    assert!(!told(2).contains("ran_no_tests"), "{}", told(2));
+    let later = told(3);
+    assert!(
+        later.contains("The runner does not know `admin`"),
+        "{later}"
+    );
+    assert!(!later.contains("resemble it"), "{later}");
+    assert!(
+        later.contains(
+            "Earlier in this session `sh tests/run_tests.sh forms_tests` executed 3 of the \
+             project's tests."
+        ),
+        "{later}"
+    );
+    // Notes, not refusals: every command ran and the turn reached its answer.
+    assert_eq!(outcome.report.actions, 3, "{:?}", outcome.steps);
+    assert!(
+        outcome.report.stopped.is_none(),
+        "{:?}",
+        outcome.report.stopped
+    );
+}
+
+/// Unless the goal asks for them the notes are not made: the same calls get
+/// what the commands printed and nothing else.
+#[test]
+fn a_call_that_runs_no_test_is_told_nothing_unless_the_goal_asks() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    labelled_tests(root);
+    let run = |label: &str| {
+        calls(
+            "run_command",
+            serde_json::json!({"executable": "sh", "args": ["tests/run_tests.sh", label]}),
+        )
+    };
+    let outcome = context_turn(
+        root,
+        Scripted::new(vec![run("forms_tests"), run("forms"), says("Done.")]),
+        opening("Run the tests."),
+        32_768,
+        converse::Continuity::default(),
+    );
+    for request in &outcome.requests {
+        let told = &request.messages.last().unwrap().content;
+        assert!(!told.contains("ran_no_tests"), "{told}");
+        assert!(!told.contains("Earlier in this session"), "{told}");
+    }
+    assert_eq!(outcome.report.actions, 2, "{:?}", outcome.steps);
+}
+
 /// Without the notes the model is told nothing, and the confirmation is
 /// kept all the same; a change to the source after it leaves none standing.
 #[test]

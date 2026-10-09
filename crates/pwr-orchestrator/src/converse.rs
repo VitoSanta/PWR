@@ -743,6 +743,12 @@ pub struct Continuity {
     /// the model's stop on a confirmation (H0) is another aid, and the two
     /// are measured one at a time.
     pub confirmation_notes: bool,
+    /// The command that ran the project's tests in this session, and what
+    /// has been said about calls that ran none. See [`crate::test_calls`].
+    pub test_calls: std::sync::Arc<std::sync::Mutex<crate::test_calls::TestCalls>>,
+    /// Whether a call for the project's tests that executes none is told
+    /// what it was (H2). Off unless the goal asks for it (`GoalAids`).
+    pub test_call_notes: bool,
     /// A conversation with no workspace (chat mode): it may only read what
     /// the person attached, never write or run anything. Enforced by the
     /// catalogue the calls are decoded against, not by the prompt.
@@ -3629,6 +3635,63 @@ async fn take_turn_inner<P: ModelProvider>(
                             && let Some(object) = value.as_object_mut()
                         {
                             object.insert(key.into(), serde_json::Value::String(text));
+                        }
+                    }
+                    // A call for the project's tests that ran to its end and
+                    // executed none is told what it was, and which command
+                    // did run them earlier (crate::test_calls). A command cut
+                    // short, or one whose output was, may have run some.
+                    if full
+                        && capability == "run_command"
+                        && value.get("denied").is_none()
+                        && value.get("exit_code").is_some_and(|code| !code.is_null())
+                        && !crate::repetition::looks_only(&call.arguments)
+                        && let Ok(mut test_calls) = continuity.test_calls.lock()
+                    {
+                        let created: Vec<String> = continuity
+                            .edits
+                            .lock()
+                            .map(|edits| {
+                                edits
+                                    .iter()
+                                    .filter(|edit| edit.before == Before::Created)
+                                    .map(|edit| edit.path.clone())
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        if crate::confirmation::runs_the_projects_tests(&call.arguments, &created) {
+                            let output = ["stdout", "stderr"]
+                                .iter()
+                                .filter_map(|field| value.get(field)?.as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            let cut = ["stdout_truncated", "stderr_truncated"]
+                                .iter()
+                                .any(|field| value[*field].as_bool() == Some(true));
+                            match pwr_verify::evidence::executed_tests(&output) {
+                                Some(tests) => test_calls.worked(
+                                    &crate::test_calls::command_line(&call.arguments),
+                                    call.arguments["cwd"].as_str(),
+                                    tests,
+                                ),
+                                None if continuity.test_call_notes
+                                    && !cut
+                                    && crate::test_calls::is_test_call(&call.arguments) =>
+                                {
+                                    if let Some(said) = test_calls.ran_nothing(
+                                        &policy.root,
+                                        &call.arguments,
+                                        &output,
+                                    ) && let Some(object) = value.as_object_mut()
+                                    {
+                                        object.insert(
+                                            "ran_no_tests".into(),
+                                            serde_json::Value::String(said),
+                                        );
+                                    }
+                                }
+                                None => {}
+                            }
                         }
                     }
                     // Reads are left to `ReadHistory`, which already names a
