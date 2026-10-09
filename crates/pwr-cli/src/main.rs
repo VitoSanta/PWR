@@ -3938,6 +3938,34 @@ impl serve::TurnRunner for ConsoleTurns {
         .map(|(text, _)| text)
     }
 
+    async fn prepare_test_recipe(
+        &self,
+        context: serve::CommandContext,
+    ) -> pwr_orchestrator::test_recipe::Report {
+        let root = &context.root;
+        let policy = pwr_tools::ToolPolicy {
+            root: root.clone(),
+            extra_readable: pwr_verify::declared_readable(root)
+                .into_iter()
+                .chain(pwr_tools::dependency_roots(root))
+                .collect(),
+            protected: match frozen_paths(root) {
+                Ok(paths) => paths,
+                Err(_) => {
+                    return pwr_orchestrator::test_recipe::Report::absent(
+                        "protected paths unavailable",
+                    );
+                }
+            },
+            allow_commands: pwr_verify::required_executables(root),
+            output_limit: 64 * 1024,
+            timeout: Duration::from_secs(30),
+            sandbox: sandbox_for(&load_chat_config(root).unwrap_or_default()),
+            approvals: session_approvals(root, &context),
+        };
+        pwr_orchestrator::test_recipe::prepare(&policy).await
+    }
+
     async fn verify_goal(
         &self,
         context: serve::CommandContext,

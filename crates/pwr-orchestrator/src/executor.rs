@@ -787,6 +787,8 @@ pub fn goal_guidance(text: impl Into<String>) -> ChatMessage {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GoalAids {
+    /// A bounded, proved test selection before the first model turn. Off by default.
+    pub test_recipe: bool,
     /// Tell the goal, in its first request, which files its failing
     /// acceptance tests use ([`crate::proposals::pointers`]; plan W2.10).
     pub pointers: bool,
@@ -853,6 +855,10 @@ pub enum VerifyError {
 /// What the executor needs from the front end that drives it.
 #[async_trait::async_trait(?Send)]
 pub trait SessionHost {
+    async fn prepare_test_recipe(&self) -> crate::test_recipe::Report {
+        crate::test_recipe::Report::absent("this host cannot prepare a test recipe")
+    }
+    fn record_test_recipe(&self, _report: &crate::test_recipe::Report) {}
     /// One model turn -- composition, generation and tools -- with whatever the
     /// front end closes it with.
     async fn run_turn(&self, input: TurnInput) -> Result<(TurnReport, Vec<ChatMessage>), String>;
@@ -1124,6 +1130,23 @@ async fn drive<H: SessionHost + ?Sized>(
         && let Some(last) = messages.last_mut().filter(|last| last.role == "user")
     {
         last.content.push_str(&format!("\n\n{note}"));
+    }
+    if goal_mode {
+        let report = if aids.test_recipe {
+            bounded!(host.prepare_test_recipe())
+        } else {
+            crate::test_recipe::Report::default()
+        };
+        if let Some(note) = &report.delivered
+            && let Some(last) = messages.last_mut().filter(|last| last.role == "user")
+        {
+            last.content.push_str(&format!("\n\n{note}"));
+            continuity.test_recipe = Some(Arc::new(Mutex::new(crate::test_recipe::Standing {
+                dependencies: report.dependencies.clone(),
+                valid: true,
+            })));
+        }
+        host.record_test_recipe(&report);
     }
     if aids.pointers
         && let Some(baseline) = baseline
@@ -2298,6 +2321,10 @@ mod tests {
         verifications: Mutex<Vec<Result<GoalVerification, VerifyError>>>,
         said: Mutex<Vec<String>>,
         ran: AtomicUsize,
+        prepared: AtomicUsize,
+        recipe: Mutex<Option<crate::test_recipe::Report>>,
+        seen: Mutex<Vec<ChatMessage>>,
+        recipe_records: Mutex<Vec<crate::test_recipe::Report>>,
     }
 
     impl Fake {
@@ -2310,17 +2337,33 @@ mod tests {
                 verifications: Mutex::new(verifications),
                 said: Mutex::default(),
                 ran: AtomicUsize::new(0),
+                prepared: AtomicUsize::new(0),
+                recipe: Mutex::default(),
+                seen: Mutex::default(),
+                recipe_records: Mutex::default(),
             }
         }
     }
 
     #[async_trait::async_trait(?Send)]
     impl SessionHost for Fake {
+        async fn prepare_test_recipe(&self) -> crate::test_recipe::Report {
+            self.prepared.fetch_add(1, Ordering::Relaxed);
+            self.recipe
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| crate::test_recipe::Report::absent("fixture has no recipe"))
+        }
+        fn record_test_recipe(&self, report: &crate::test_recipe::Report) {
+            self.recipe_records.lock().unwrap().push(report.clone());
+        }
         async fn run_turn(
             &self,
             input: TurnInput,
         ) -> Result<(TurnReport, Vec<ChatMessage>), String> {
             self.ran.fetch_add(1, Ordering::Relaxed);
+            *self.seen.lock().unwrap() = input.messages.clone();
             let mut turns = self.turns.lock().unwrap();
             // The last one repeats once the others are spent.
             let report = if turns.len() > 1 {
@@ -2402,6 +2445,41 @@ mod tests {
             .build()
             .unwrap()
             .block_on(execute(host, request(policy), limits))
+    }
+
+    #[tokio::test]
+    async fn test_recipe_is_off_by_default_and_precedes_the_model_only_when_requested() {
+        for enabled in [false, true] {
+            let host = Fake::new(
+                vec![report(1, true)],
+                vec![Ok(GoalVerification {
+                    passed: true,
+                    technical_passed: true,
+                    acceptance_available: true,
+                    ..Default::default()
+                })],
+            );
+            *host.recipe.lock().unwrap() = Some(crate::test_recipe::Report {
+                aid_enabled: true,
+                delivered: Some("[PWR test recipe]\nproved selection\n[/PWR test recipe]".into()),
+                ..Default::default()
+            });
+            let mut input = request(Policy::Goal);
+            input.aids.test_recipe = enabled;
+            input.aids.accept_stop = true;
+            execute(&host, input, GoalLimits::default()).await;
+            assert_eq!(host.prepared.load(Ordering::Relaxed), usize::from(enabled));
+            assert_eq!(
+                host.seen
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|m| m.content.contains("proved selection")),
+                enabled
+            );
+            assert_eq!(host.recipe_records.lock().unwrap()[0].aid_enabled, enabled);
+            assert!(host.confirmed_by_tests().is_none());
+        }
     }
 
     /// A conversation is one turn: no verification, no second turn, whatever

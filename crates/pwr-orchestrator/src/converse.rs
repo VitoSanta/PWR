@@ -749,6 +749,8 @@ pub struct Continuity {
     /// Whether a call for the project's tests that executes none is told
     /// what it was (H2). Off unless the goal asks for it (`GoalAids`).
     pub test_call_notes: bool,
+    /// Session-local initial recipe; never a confirmation for H0.
+    pub test_recipe: Option<std::sync::Arc<std::sync::Mutex<crate::test_recipe::Standing>>>,
     /// A conversation with no workspace (chat mode): it may only read what
     /// the person attached, never write or run anything. Enforced by the
     /// catalogue the calls are decoded against, not by the prompt.
@@ -1860,6 +1862,15 @@ async fn take_turn_inner<P: ModelProvider>(
     // The W8.3 control leaves out every mechanism gated on this (see `Harness`).
     let full = continuity.harness == Harness::Full;
     loop {
+        if let Some(recipe) = &continuity.test_recipe
+            && let Ok(mut recipe) = recipe.lock()
+            && crate::test_recipe::expire(&policy.root, &mut recipe, messages)
+        {
+            messages.push(ChatMessage::text("user", "PWR test recipe expired: configuration, test structure or environment changed. Do not treat the earlier command or result as a valid recipe."));
+            on_step(TurnStep::Note(
+                "PWR test recipe expired: dependencies changed.".into(),
+            ));
+        }
         if actions >= continuity.action_limit.unwrap_or(DEFAULT_ACTIONS_PER_TURN) {
             return stopped(actions, edited, StopReason::BudgetSpent);
         }

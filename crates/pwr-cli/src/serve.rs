@@ -137,6 +137,12 @@ pub trait TurnRunner {
     /// Full repository verification for a goal completion. Kept separate from
     /// the user-facing `verify` command so this is structured evidence rather
     /// than prose the server would need to parse.
+    async fn prepare_test_recipe(
+        &self,
+        _context: CommandContext,
+    ) -> pwr_orchestrator::test_recipe::Report {
+        pwr_orchestrator::test_recipe::Report::absent("this runner cannot prepare a test recipe")
+    }
     async fn verify_goal(&self, _context: CommandContext) -> Result<GoalVerification, String> {
         Err("goal verification is not available for this runner".into())
     }
@@ -630,6 +636,25 @@ struct ServerHost<'a, R> {
 
 #[async_trait::async_trait(?Send)]
 impl<R: TurnRunner + 'static> SessionHost for ServerHost<'_, R> {
+    async fn prepare_test_recipe(&self) -> pwr_orchestrator::test_recipe::Report {
+        let context = self
+            .server
+            .sessions
+            .borrow()
+            .get(self.session_id)
+            .map(Session::command_context);
+        match context {
+            Some(context) => self.server.runner.prepare_test_recipe(context).await,
+            None => pwr_orchestrator::test_recipe::Report::absent("session disappeared"),
+        }
+    }
+    fn record_test_recipe(&self, report: &pwr_orchestrator::test_recipe::Report) {
+        self.server.update(
+            self.session_id,
+            json!({"sessionUpdate": "test_recipe", "report": report}),
+        );
+    }
+
     async fn run_turn(&self, input: TurnInput) -> Result<(TurnReport, Vec<ChatMessage>), String> {
         self.server.runner.run(input).await
     }
