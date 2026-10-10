@@ -37,17 +37,25 @@ impl ModelProvider for Model {
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
         let mut calls = self.calls.lock().unwrap();
-        let tools = if calls.is_empty() {
+        let mut tools = if calls.is_empty() {
             vec![]
         } else {
             calls.remove(0)
         };
+        let content = if tools
+            .first()
+            .is_some_and(|call| call.name == "__raw_fixture")
+        {
+            let content = tools[0].arguments["text"].as_str().unwrap().to_owned();
+            tools.clear();
+            content
+        } else if tools.is_empty() {
+            "done".into()
+        } else {
+            String::new()
+        };
         Ok(Box::pin(futures_util::stream::iter([Ok(ModelChunk {
-            content: if tools.is_empty() {
-                "done".into()
-            } else {
-                String::new()
-            },
+            content,
             tool_calls: tools,
             done: true,
             ..Default::default()
@@ -133,7 +141,7 @@ async fn run(
     };
     let report = converse::take_turn(
         &model,
-        &pwr_compat::GenericAdapter,
+        &pwr_compat::QwenFamilyAdapter,
         &deployment,
         &store,
         id,
@@ -407,5 +415,38 @@ async fn expiry_kills_command_before_its_later_effect_and_keeps_intent() {
         !events
             .iter()
             .any(|event| event.event_type == "contract.command_receipt")
+    );
+}
+
+#[tokio::test]
+async fn malformed_closing_uses_the_same_two_attempt_limit_as_a_denied_edit() {
+    let root = root();
+    let invalid = call(
+        "replace_text",
+        json!({"path":"allowed.py","find":"old","replace":"bad"}),
+    );
+    let raw = call(
+        "__raw_fixture",
+        json!({"text":"<tool_call>\n<function=complete>\n</parameter>\n</function>\n</tool_call>"}),
+    );
+    let (report, events, asked) = run(
+        root.path(),
+        Some(files()),
+        vec![vec![invalid], vec![raw.clone()], vec![raw]],
+        false,
+        false,
+    )
+    .await;
+    assert_eq!(report.stopped, Some(converse::StopReason::ContractBlocked));
+    assert_eq!(asked, 2);
+    assert_eq!(receipts(&events), 0);
+    assert!(
+        events
+            .iter()
+            .any(|event| event.event_type == "contract.reply_rejected")
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("allowed.py")).unwrap(),
+        "old"
     );
 }

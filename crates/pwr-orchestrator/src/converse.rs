@@ -2765,6 +2765,20 @@ async fn take_turn_inner<P: ModelProvider>(
                     || diagnostic.kind.ends_with("unterminated_tool_call")
             });
         if let Some(diagnostic) = broken_call {
+            if contract.is_some() {
+                contract_denied += 1;
+                store.append(Some(conversation_id), "contract.reply_rejected", serde_json::json!({"turn":continuity.person_turn.load(std::sync::atomic::Ordering::Relaxed),"text":reply.narrative,"reason":diagnostic.detail,"denied_attempts":contract_denied,"limit":2})).map_err(|e|e.to_string())?;
+                if contract_denied >= 2 {
+                    store
+                        .append(
+                            Some(conversation_id),
+                            "contract.blocked",
+                            serde_json::json!({"reason":"two denied or unreadable tool attempts"}),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    return stopped(actions, edited, StopReason::ContractBlocked);
+                }
+            }
             broken_calls = broken_calls.saturating_add(1);
             if broken_calls >= UNPARSEABLE_CALLS_BEFORE_GIVING_UP {
                 return stopped(actions, edited, StopReason::Unparseable);
