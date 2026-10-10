@@ -5379,6 +5379,11 @@ async fn chat_turn(
     } else {
         catalog
     };
+    let catalog = if let Some(contract) = &continuity.action_contract {
+        contract.catalog(catalog)
+    } else {
+        catalog
+    };
     let tools = provider.render_tools(&catalog);
     let is_scripted = scripted.is_some();
     let provider = pwr_orchestrator::executor::Scripted::new(provider, scripted);

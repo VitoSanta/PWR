@@ -226,6 +226,8 @@ pub enum StopReason {
     /// and went on asking for them ([`crate::repetition::HAND_OVER_ATTEMPTS`]).
     /// Not the end of a goal: its next turn runs commands again.
     HandedOver,
+    /// An opt-in action contract expired or refused its bounded attempts.
+    ContractBlocked,
 }
 
 impl StopReason {
@@ -239,7 +241,8 @@ impl StopReason {
             Self::Silent
             | Self::ToolCallInReasoning
             | Self::Unparseable
-            | Self::ReasoningUnfinished => TerminalClass::Protocol,
+            | Self::ReasoningUnfinished
+            | Self::ContractBlocked => TerminalClass::Protocol,
             Self::BackendFailing => TerminalClass::Provider,
             Self::ContextFull | Self::NoProgress | Self::HandedOver => TerminalClass::Recovery,
         }
@@ -255,7 +258,7 @@ impl StopReason {
     /// Test-only, and said so rather than kept alive by a token use in the
     /// product: its whole job is to make the fixture unable to miss a variant.
     #[cfg(test)]
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Interrupted,
         Self::ContextFull,
         Self::CompactionBudget,
@@ -267,10 +270,12 @@ impl StopReason {
         Self::NoProgress,
         Self::ReasoningUnfinished,
         Self::HandedOver,
+        Self::ContractBlocked,
     ];
 
     pub fn said(self) -> String {
         match self {
+            Self::ContractBlocked => "this phase was blocked by its action contract; inspect the recorded refusals or expiry before continuing".into(),
             Self::HandedOver => format!(
                 "the last {} commands all failed, the turn was told to stop running things and \
                  kept asking for more, so it was stopped; everything it did is kept. What it \
@@ -708,6 +713,8 @@ pub fn minimal_tool_catalog(mut catalog: ToolCatalog) -> ToolCatalog {
 /// not own while that turn runs on another task.
 #[derive(Debug, Clone, Default)]
 pub struct Continuity {
+    /// Optional caller contract, copied for this prompt only; never session authority.
+    pub action_contract: Option<crate::action_contract::ActionContract>,
     /// PWR's harness, or the W8.3 minimal control.
     pub harness: Harness,
     /// Remaining actions for this turn under a goal-wide budget.
@@ -1537,6 +1544,7 @@ pub async fn take_turn<P: ModelProvider>(
         match report.stopped {
             None => pwr_domain::TurnTerminal::Completed,
             Some(StopReason::Interrupted) => pwr_domain::TurnTerminal::Interrupted,
+            Some(StopReason::ContractBlocked) => pwr_domain::TurnTerminal::Blocked,
             Some(StopReason::BudgetSpent | StopReason::CompactionBudget) => {
                 pwr_domain::TurnTerminal::BudgetExhausted
             }
@@ -1757,6 +1765,24 @@ async fn take_turn_inner<P: ModelProvider>(
             catalog = ToolCatalog::new(tools).expect("a catalogue with one more tool is valid");
         }
     }
+    let contract = continuity.action_contract.as_ref();
+    let mut contract_used = 0usize;
+    let mut contract_denied = 0usize;
+    if let Some(contract) = contract {
+        contract.validate(
+            &policy.root,
+            continuity
+                .person_turn
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )?;
+        store
+            .append(
+                Some(conversation_id),
+                "contract.started",
+                serde_json::json!(contract),
+            )
+            .map_err(|e| e.to_string())?;
+    }
     let mut actions = 0usize;
     let mut edited = false;
     let stopped = |actions, edited, reason| {
@@ -1862,6 +1888,22 @@ async fn take_turn_inner<P: ModelProvider>(
     // The W8.3 control leaves out every mechanism gated on this (see `Harness`).
     let full = continuity.harness == Harness::Full;
     loop {
+        if let Some(contract) = contract
+            && let Err(reason) = contract.active(
+                continuity
+                    .person_turn
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+        {
+            store
+                .append(
+                    Some(conversation_id),
+                    "contract.blocked",
+                    serde_json::json!({"reason":reason}),
+                )
+                .map_err(|e| e.to_string())?;
+            return stopped(actions, edited, StopReason::ContractBlocked);
+        }
         if let Some(recipe) = &continuity.test_recipe
             && let Ok(mut recipe) = recipe.lock()
             && crate::test_recipe::expire(&policy.root, &mut recipe, messages)
@@ -2223,6 +2265,12 @@ async fn take_turn_inner<P: ModelProvider>(
         let opening_guard = cancel.drop_guard();
         let opened = tokio::select! {
             biased;
+            () = crate::action_contract::expired(contract) => {
+                cancel.cancel();
+                failed(&mut turn, "contract_expired", "phase contract expired".into())?;
+                store.append(Some(conversation_id), "contract.blocked", serde_json::json!({"reason":"expired during generation"})).map_err(|e|e.to_string())?;
+                return stopped(actions, edited, StopReason::ContractBlocked);
+            }
             () = pressed(stop) => {
                 cancel.cancel();
                 failed(&mut turn, "cancelled", "stopped by the operator".into())?;
@@ -2286,6 +2334,12 @@ async fn take_turn_inner<P: ModelProvider>(
                     }
                 }, (deployment.provider == "mlx" && !continuity.chat_only && full)
                     .then_some(AGENT_UNSTRUCTURED_REPLY_GUARD)) => outcome,
+                () = crate::action_contract::expired(contract) => {
+                    cancel.cancel();
+                    failed(&mut turn, "contract_expired", "phase contract expired".into())?;
+                    store.append(Some(conversation_id), "contract.blocked", serde_json::json!({"reason":"expired during generation"})).map_err(|e|e.to_string())?;
+                    return stopped(actions, edited, StopReason::ContractBlocked);
+                }
                 () = pressed(stop) => {
                     cancel.cancel();
                     failed(&mut turn, "cancelled", "stopped by the operator".into())?;
@@ -2841,6 +2895,38 @@ async fn take_turn_inner<P: ModelProvider>(
                 // dropped half-written.
                 return stopped(actions, edited, StopReason::Interrupted);
             }
+            if let Some(contract) = contract {
+                let turn = continuity
+                    .person_turn
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let verdict = contract.check(&policy.root, turn, contract_used, call);
+                store.append(Some(conversation_id), "contract.proposal", serde_json::json!({"turn":turn,"call":call,"allowed":verdict.is_ok(),"reason":verdict.as_ref().err()})).map_err(|e|e.to_string())?;
+                if let Err(reason) = verdict {
+                    contract_denied += 1;
+                    call_sequence += 1;
+                    on_step(TurnStep::ToolCall(ToolCallStep {
+                        id: call_sequence,
+                        capability: call.name.clone(),
+                        detail: tool_call_detail(call),
+                        path: None,
+                        phase: ToolPhase::Refused(reason.clone()),
+                        diff: None,
+                    }));
+                    messages.push(tool_message(call, serde_json::json!({"execution_status":"not_executed","category":"action_contract","reason":reason,"denied_attempts":contract_denied,"limit":2})));
+                    if contract_denied >= 2 {
+                        store
+                            .append(
+                                Some(conversation_id),
+                                "contract.blocked",
+                                serde_json::json!({"reason":"two denied attempts"}),
+                            )
+                            .map_err(|e| e.to_string())?;
+                        return stopped(actions, edited, StopReason::ContractBlocked);
+                    }
+                    continue;
+                }
+                contract_used += 1;
+            }
             // The goal's plan: recorded as written, or refused in words. An
             // action, so that a model rewriting its plan for ever is bounded
             // like one that does anything else for ever.
@@ -2887,6 +2973,16 @@ async fn take_turn_inner<P: ModelProvider>(
                     action
                 }
                 Err(problem) => {
+                    if contract.is_some() {
+                        store
+                            .append(
+                                Some(conversation_id),
+                                "contract.blocked",
+                                serde_json::json!({"reason":problem,"stage":"decode"}),
+                            )
+                            .map_err(|e| e.to_string())?;
+                        return stopped(actions, edited, StopReason::ContractBlocked);
+                    }
                     // Told rather than fatal: a call the deployment can
                     // correct is a turn that continues. Not charged as an
                     // action -- it performed nothing -- and bounded when it
@@ -2927,7 +3023,7 @@ async fn take_turn_inner<P: ModelProvider>(
             };
             // A path still written under a folder whose project PWR moved
             // into the root is read as the root's (see `scaffold`).
-            let mut moved_paths = if full {
+            let mut moved_paths = if full && contract.is_none() {
                 let moved = continuity
                     .checkpoint
                     .lock()
@@ -3359,6 +3455,10 @@ async fn take_turn_inner<P: ModelProvider>(
             let mut no_streak = crate::repetition::RefusalStreak::new();
             let gated = tokio::select! {
                 biased;
+                () = crate::action_contract::expired(contract) => {
+                    store.append(Some(conversation_id), "contract.blocked", serde_json::json!({"reason":"expired awaiting approval"})).map_err(|e|e.to_string())?;
+                    return stopped(actions, edited, StopReason::ContractBlocked);
+                }
                 () = pressed(stop) => return stopped(actions, edited, StopReason::Interrupted),
                 result = crate::session::gate(
                 store,
@@ -3374,6 +3474,11 @@ async fn take_turn_inner<P: ModelProvider>(
             };
             let mut granted_once = match gated {
                 crate::session::Gate::Refused(message) => {
+                    if contract.is_some() {
+                        store.append(Some(conversation_id), "contract.blocked", serde_json::json!({"reason":message.content,"stage":"ordinary_policy"})).map_err(|e|e.to_string())?;
+                        messages.push(message);
+                        return stopped(actions, edited, StopReason::ContractBlocked);
+                    }
                     failed_file_change |= edits_a_file;
                     let why = if message.content == crate::repetition::repetition_notice() {
                         "proposed again after being refused, and not run".to_owned()
@@ -3439,6 +3544,10 @@ async fn take_turn_inner<P: ModelProvider>(
             let outcome = if interruptible {
                 tokio::select! {
                     outcome = performing => outcome?,
+                    () = crate::action_contract::expired(contract) => {
+                        store.append(Some(conversation_id), "contract.blocked", serde_json::json!({"reason":"expired during command; partial effects possible"})).map_err(|e|e.to_string())?;
+                        return stopped(actions, edited, StopReason::ContractBlocked);
+                    }
                     () = pressed(stop) => {
                         return stopped(actions, edited, StopReason::Interrupted);
                     }
@@ -3446,6 +3555,50 @@ async fn take_turn_inner<P: ModelProvider>(
             } else {
                 performing.await?
             };
+            if contract.is_some_and(|contract| contract.command.is_some()) {
+                let value = match outcome {
+                    Ok(value) => value,
+                    Err(problem) => {
+                        let value = crate::action_outcome(Err(problem));
+                        store.append(Some(conversation_id), "contract.blocked", serde_json::json!({"reason":"command could not execute","outcome":value})).map_err(|e|e.to_string())?;
+                        on_step(TurnStep::ToolCall(ToolCallStep {
+                            id: call_id,
+                            capability,
+                            detail,
+                            path,
+                            phase: ToolPhase::Failed(value.to_string()),
+                            diff: None,
+                        }));
+                        messages.push(tool_message(call, value));
+                        return stopped(actions, edited, StopReason::ContractBlocked);
+                    }
+                };
+                store
+                    .append(
+                        Some(conversation_id),
+                        "contract.command_receipt",
+                        serde_json::json!({"call":call,"outcome":value}),
+                    )
+                    .map_err(|e| e.to_string())?;
+                on_step(TurnStep::ToolCall(ToolCallStep {
+                    id: call_id,
+                    capability,
+                    detail,
+                    path,
+                    phase: ToolPhase::Completed,
+                    diff: None,
+                }));
+                messages.push(tool_message(call, crate::action_outcome(Ok(value.clone()))));
+                return Ok(TurnReport {
+                    outcome: Default::default(),
+                    answer: value.to_string(),
+                    actions,
+                    edited,
+                    completed: false,
+                    stopped: None,
+                    declined: false,
+                });
+            }
             let mut outcome = outcome;
             if let Some(command) = command {
                 let withheld = tokio::select! {
@@ -3886,6 +4039,16 @@ async fn take_turn_inner<P: ModelProvider>(
                             "This file change failed. The project is the current workspace: use relative file paths and omit command cwd or set it to `.`. The failure does not establish that project writes are blocked. `.pwr` is private harness state, not project content.".into()));
                     }
                     messages.push(tool_message(call, outcome));
+                    if contract.is_some() {
+                        store
+                            .append(
+                                Some(conversation_id),
+                                "contract.blocked",
+                                serde_json::json!({"reason":"action execution failed"}),
+                            )
+                            .map_err(|e| e.to_string())?;
+                        return stopped(actions, edited, StopReason::ContractBlocked);
+                    }
                 }
             }
         }
@@ -5318,7 +5481,8 @@ mod tests {
                 | StopReason::BackendFailing
                 | StopReason::NoProgress
                 | StopReason::ReasoningUnfinished
-                | StopReason::HandedOver => {}
+                | StopReason::HandedOver
+                | StopReason::ContractBlocked => {}
             }
             let said = reason.said();
             assert!(!said.is_empty());

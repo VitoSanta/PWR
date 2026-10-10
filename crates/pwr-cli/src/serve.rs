@@ -2572,6 +2572,37 @@ impl<R: TurnRunner + 'static> Server<R> {
                 "a turn is already running in this session; cancel it or wait for it",
             ));
         }
+        let action_contract = match params.get("actionContract") {
+            None | Some(Value::Null) => None,
+            Some(value) => {
+                if goal_mode
+                    || minimal
+                    || session.continuity.chat_only
+                    || !attachments.is_empty()
+                    || !images.is_empty()
+                    || slash_command(&text).is_some()
+                {
+                    return self.send(error_response(id, -32602, "actionContract requires an ordinary workspace prompt without attachments or slash command"));
+                }
+                let contract = match serde_json::from_value::<
+                    pwr_orchestrator::action_contract::ActionContract,
+                >(value.clone())
+                {
+                    Ok(contract) => contract,
+                    Err(why) => {
+                        return self.send(error_response(
+                            id,
+                            -32602,
+                            &format!("invalid actionContract: {why}"),
+                        ));
+                    }
+                };
+                if let Err(why) = contract.validate(&session.root, session.turns + 1) {
+                    return self.send(error_response(id, -32602, &why));
+                }
+                Some(contract)
+            }
+        };
         // Every attachment is read before the turn starts, and one refused
         // refuses the prompt: a turn run without a file the person attached
         // answers a question they did not ask.
@@ -2662,9 +2693,11 @@ impl<R: TurnRunner + 'static> Server<R> {
         let root = session.root.clone();
         let summary_root = root.clone();
         let chat_only = session.continuity.chat_only;
+        let contracted = action_contract.is_some();
         let conversation_id = session.conversation_id;
         let messages = session.messages.clone();
-        let continuity = session.continuity.clone();
+        let mut continuity = session.continuity.clone();
+        continuity.action_contract = action_contract;
         let stop = Arc::clone(&session.stop);
         let grants = Arc::clone(&session.grants);
         drop(sessions);
@@ -2792,7 +2825,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                 )
                 .await;
             server.finish(&session_id, reply);
-            if !chat_only && server.runner.background_summaries(&summary_root) {
+            if !chat_only && !contracted && server.runner.background_summaries(&summary_root) {
                 server.summarise_while_idle(summary_root);
             }
         });
@@ -3607,7 +3640,8 @@ pub fn stop_reason(report: &TurnReport) -> (&'static str, Option<pwr_domain::Ter
                 | StopReason::BackendFailing
                 | StopReason::NoProgress
                 | StopReason::ReasoningUnfinished
-                | StopReason::HandedOver => "end_turn",
+                | StopReason::HandedOver
+                | StopReason::ContractBlocked => "end_turn",
             },
             Some(reason.terminal_class()),
         ),
@@ -5440,6 +5474,23 @@ mod tests {
 
     async fn goal_prompt(runner: GoalScripted) -> (Vec<Value>, usize) {
         prompt_mode(runner, true).await
+    }
+
+    #[tokio::test]
+    async fn an_invalid_or_stale_action_contract_never_reaches_the_runner() {
+        for extra in [
+            json!({"actionContract":{"turn":1,"unknown":true}}),
+            json!({"actionContract":{"turn":2,"expiresUnixMs":pwr_orchestrator::action_contract::unix_ms()+10000,"readPaths":["lib.rs"],"replacePaths":[],"command":null,"maxActions":1}}),
+            json!({"actionContract":{"turn":1,"expiresUnixMs":0,"readPaths":["lib.rs"],"replacePaths":[],"command":null,"maxActions":1}}),
+        ] {
+            let (messages, runs) = prompt_with(budget_runner(), extra).await;
+            assert_eq!(runs, 0);
+            assert!(
+                messages
+                    .iter()
+                    .any(|message| message["error"]["code"] == -32602)
+            );
+        }
     }
 
     async fn prompt_mode(runner: GoalScripted, goal_mode: bool) -> (Vec<Value>, usize) {
