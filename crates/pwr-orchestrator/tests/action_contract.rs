@@ -450,3 +450,24 @@ async fn malformed_closing_uses_the_same_two_attempt_limit_as_a_denied_edit() {
         "old"
     );
 }
+
+#[tokio::test]
+async fn packed_numbered_commands_are_not_repaired_into_an_allowed_command() {
+    let root = root();
+    let proposal = call(
+        "run_command",
+        json!({"executable":"/usr/bin/touch","cwd":".","args":["1. /usr/bin/touch ran\n2. /usr/bin/touch second"]}),
+    );
+    let (report, events, _) = run(
+        root.path(),
+        Some(command()),
+        vec![vec![proposal.clone(), proposal]],
+        false,
+        false,
+    )
+    .await;
+    assert_eq!(report.stopped, Some(converse::StopReason::ContractBlocked));
+    assert_eq!(receipts(&events), 0);
+    assert!(!root.path().join("ran").exists());
+    assert!(!root.path().join("second").exists());
+}
