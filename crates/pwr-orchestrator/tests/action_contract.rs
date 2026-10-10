@@ -370,7 +370,7 @@ fn schema_only_exposes_phase_capabilities_and_counter_cannot_reuse_command() {
             .iter()
             .map(|t| t.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["read_file", "replace_text"]
+        vec!["read_file", "replace_text", "complete"]
     );
     let root = root();
     assert!(
@@ -383,6 +383,110 @@ fn schema_only_exposes_phase_capabilities_and_counter_cannot_reuse_command() {
                     "run_command",
                     json!({"executable":"/usr/bin/touch","cwd":".","args":["ran"]})
                 )
+            )
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn completion_requires_an_actual_changed_file_receipt_not_read_or_noop() {
+    for prefix in [
+        vec![],
+        vec![vec![call("read_file", json!({"path":"allowed.py"}))]],
+        vec![vec![call(
+            "replace_text",
+            json!({"path":"allowed.py","expected_hash":pwr_domain::hash_bytes("old"),"find":"old","replace":"old"}),
+        )]],
+    ] {
+        let root = root();
+        let close = call("complete", json!({"rationale":"Delivered"}));
+        let mut calls = prefix;
+        calls.push(vec![close.clone()]);
+        calls.push(vec![close]);
+        let (report, events, _) = run(root.path(), Some(files()), calls, false, false).await;
+        assert_eq!(report.stopped, Some(converse::StopReason::ContractBlocked));
+        assert!(!report.completed);
+        assert!(!events.iter().any(
+            |e| e.event_type == "contract.completed" || e.event_type == "contract.edit_receipt"
+        ));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("allowed.py")).unwrap(),
+            "old"
+        );
+    }
+}
+
+#[tokio::test]
+async fn completion_after_real_edit_closes_without_running_a_test_in_correction() {
+    let root = root();
+    let (report, events, asked) = run(root.path(), Some(files()), vec![
+        vec![call("read_file", json!({"path":"allowed.py"}))],
+        vec![call("replace_text", json!({"path":"allowed.py","expected_hash":pwr_domain::hash_bytes("old"),"find":"old","replace":"new"}))],
+        vec![call("complete", json!({"rationale":"File changed; next phase verifies."}))],
+        vec![call("run_command", json!({"executable":"/usr/bin/touch","cwd":".","args":["ran"]}))],
+    ], false, false).await;
+    assert!(report.completed);
+    assert_eq!(report.stopped, None);
+    assert_eq!(asked, 3);
+    assert_eq!(report.actions, 3); // read, edit and closing claim
+    assert_eq!(receipts(&events), 2); // completion has no filesystem effect
+    assert!(!root.path().join("ran").exists());
+    let edited = events
+        .iter()
+        .position(|e| e.event_type == "contract.edit_receipt")
+        .unwrap();
+    let closed = events
+        .iter()
+        .position(|e| e.event_type == "contract.completed")
+        .unwrap();
+    assert!(edited < closed);
+    assert_eq!(events[closed].payload["changed_file_receipt"], true);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("allowed.py")).unwrap(),
+        "new"
+    );
+}
+
+#[test]
+fn completion_is_unoffered_for_tests_and_requires_exact_schema_for_edits() {
+    let root = root();
+    let mut read_only = files();
+    read_only.replace_paths.clear();
+    for spec in [command(), read_only] {
+        assert!(
+            spec.catalog(converse::chat_tool_catalog())
+                .get("complete")
+                .is_none()
+        );
+        assert!(
+            spec.check(
+                root.path(),
+                1,
+                0,
+                &call("complete", json!({"rationale":"done"}))
+            )
+            .is_err()
+        );
+    }
+    for args in [
+        json!({}),
+        json!({"rationale":" "}),
+        json!({"rationale":true}),
+        json!({"rationale":"done","path":"allowed.py"}),
+    ] {
+        assert!(
+            files()
+                .check(root.path(), 1, 0, &call("complete", args))
+                .is_err()
+        );
+    }
+    assert!(
+        files()
+            .check(
+                root.path(),
+                1,
+                6,
+                &call("complete", json!({"rationale":"done"}))
             )
             .is_err()
     );

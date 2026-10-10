@@ -121,6 +121,19 @@ impl ActionContract {
             .as_object()
             .ok_or("arguments must be an object")?;
         match call.name.as_str() {
+            "complete" => {
+                if self.command.is_some() || self.replace_paths.is_empty() {
+                    return Err("completion is outside this phase".into());
+                }
+                if arguments.keys().any(|key| key != "rationale")
+                    || !arguments
+                        .get("rationale")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|text| !text.trim().is_empty())
+                {
+                    return Err("completion requires only a nonempty rationale".into());
+                }
+            }
             "run_command" => {
                 let command = self
                     .command
@@ -182,10 +195,14 @@ impl ActionContract {
                 "run_command" => self.command.is_some(),
                 "read_file" => !self.read_paths.is_empty(),
                 "replace_text" => !self.replace_paths.is_empty(),
+                "complete" => self.command.is_none() && !self.replace_paths.is_empty(),
                 _ => false,
             })
             .collect::<Vec<_>>();
         for tool in &mut tools {
+            if tool.name == "complete" {
+                tool.description.push_str(" Close this correction phase only after a successful replace_text receipt changed the allowed file. This reports phase delivery, not test success; verification belongs to the next phase.");
+            }
             tool.description.push_str(&format!(
                 " One-turn action contract: {}",
                 serde_json::to_string(self).unwrap_or_default()

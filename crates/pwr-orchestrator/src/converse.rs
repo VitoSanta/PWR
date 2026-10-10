@@ -1768,6 +1768,7 @@ async fn take_turn_inner<P: ModelProvider>(
     let contract = continuity.action_contract.as_ref();
     let mut contract_used = 0usize;
     let mut contract_denied = 0usize;
+    let mut contract_edit_receipt = false;
     if let Some(contract) = contract {
         contract.validate(
             &policy.root,
@@ -2916,7 +2917,15 @@ async fn take_turn_inner<P: ModelProvider>(
                 let turn = continuity
                     .person_turn
                     .load(std::sync::atomic::Ordering::Relaxed);
-                let verdict = contract.check(&policy.root, turn, contract_used, call);
+                let verdict = contract
+                    .check(&policy.root, turn, contract_used, call)
+                    .and_then(|()| {
+                        if call.name == "complete" && !contract_edit_receipt {
+                            Err("completion requires a successful changed-file receipt in this turn".into())
+                        } else {
+                            Ok(())
+                        }
+                    });
                 store.append(Some(conversation_id), "contract.proposal", serde_json::json!({"turn":turn,"call":call,"allowed":verdict.is_ok(),"reason":verdict.as_ref().err()})).map_err(|e|e.to_string())?;
                 if let Err(reason) = verdict {
                     contract_denied += 1;
@@ -3157,6 +3166,9 @@ async fn take_turn_inner<P: ModelProvider>(
             if let ActionProposal::Complete { rationale } | ActionProposal::Decline { rationale } =
                 &action
             {
+                if contract.is_some() && matches!(action, ActionProposal::Complete { .. }) {
+                    store.append(Some(conversation_id), "contract.completed", serde_json::json!({"changed_file_receipt":contract_edit_receipt,"rationale":rationale})).map_err(|e|e.to_string())?;
+                }
                 *declined = matches!(action, ActionProposal::Decline { .. });
                 return Ok(TurnReport {
                     outcome: Default::default(),
@@ -3706,6 +3718,24 @@ async fn take_turn_inner<P: ModelProvider>(
                     } else {
                         creates_directory || changes_existing_path
                     };
+                    if contract.is_some()
+                        && capability == "replace_text"
+                        && changed_input
+                        && !crate::repetition::failed(&value)
+                        && value.get("denied").is_none()
+                        && value
+                            .get("previous_hash")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|hash| {
+                                value
+                                    .get("new_hash")
+                                    .and_then(serde_json::Value::as_str)
+                                    .is_some_and(|new| new != hash)
+                            })
+                    {
+                        contract_edit_receipt = true;
+                        store.append(Some(conversation_id), "contract.edit_receipt", serde_json::json!({"path":value.get("path"),"previous_hash":value.get("previous_hash"),"new_hash":value.get("new_hash")})).map_err(|e|e.to_string())?;
+                    }
                     if full
                         && changed_input
                         && !crate::repetition::failed(&value)
