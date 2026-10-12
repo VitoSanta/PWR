@@ -441,6 +441,7 @@ export class AgentStore {
   }
 
   selectModel(ref: string): Promise<void> {
+    if (this.turnActive() || this.calibrating()) return Promise.resolve();
     return this.refreshModels({ model: ref });
   }
 
@@ -464,7 +465,7 @@ export class AgentStore {
 
   /** Quick Calibration of the selected model: bounded, cancellable, local. */
   async quickCalibrate(): Promise<void> {
-    if (this.calibrating() || !this.model()) return;
+    if (this.turnActive() || this.calibrating() || !this.model()) return;
     const calibrationId = crypto.randomUUID();
     this.calibrationId = calibrationId;
     this.calibrationError.set('');

@@ -185,6 +185,20 @@ pa-model-picker {
   flex: 1;
 }
 
+.model-identity {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding-block: var(--space-1);
+}
+
+.model-reference {
+  color: var(--text-muted);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+
 .compat-head {
   display: flex;
   align-items: center;

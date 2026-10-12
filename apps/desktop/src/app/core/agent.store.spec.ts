@@ -4,6 +4,28 @@ import { TestBed } from '@angular/core/testing';
 import { AgentStore } from './agent.store';
 
 describe('AgentStore context', () => {
+  it('keeps the selected model fixed during calibration and an active turn', async () => {
+    const request = vi.spyOn(store as any, 'request').mockResolvedValue({});
+    store.calibrating.set(true);
+    await store.selectModel('candidate-9b');
+    store.calibrating.set(false);
+    store.turnActive.set(true);
+    await store.selectModel('candidate-9b');
+    expect(request).not.toHaveBeenCalled();
+    store.turnActive.set(false);
+    await store.selectModel('candidate-9b');
+    expect(request).toHaveBeenCalledWith('_pwr/models', expect.objectContaining({ model: 'candidate-9b' }));
+  });
+
+  it('does not start model calibration during an active turn', async () => {
+    store.model.set('candidate-9b');
+    store.turnActive.set(true);
+    const request = vi.spyOn(store as any, 'request').mockResolvedValue({});
+    await store.quickCalibrate();
+    expect(request).not.toHaveBeenCalled();
+    expect(store.calibrating()).toBe(false);
+  });
+
   it('does not send the current terminal to a request from another session', () => {
     const send = vi.spyOn(bridge, 'send').mockResolvedValue(undefined as any);
     const read = vi.fn().mockReturnValue([{ title: 'Terminal', running: true, text: 'Current project output' }]);

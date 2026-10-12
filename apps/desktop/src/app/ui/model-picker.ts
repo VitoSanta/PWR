@@ -72,11 +72,14 @@ import { Tooltip } from './kit/tooltip';
                   [attr.aria-checked]="ref === store.model()"
                   [attr.tabindex]="ref === store.model() || (!store.model() && $first) ? 0 : -1"
                   (click)="choose(ref)"
-                  [disabled]="store.turnActive()"
+                  [disabled]="store.turnActive() || store.calibrating()"
                   [attr.title]="ref"
                 >
                   <span class="radio" aria-hidden="true"></span>
-                  <span class="model-name truncate">{{ label(ref) }}</span>
+                  <span class="model-identity">
+                    <span class="model-name truncate">{{ label(ref) }}</span>
+                    <span class="model-reference">{{ ref }}</span>
+                  </span>
                   @if (store.visionModels().includes(ref)) {
                     <span class="badge badge-info"><pa-icon name="eye" [size]="12" /> sees images</span>
                   }
@@ -93,6 +96,7 @@ import { Tooltip } from './kit/tooltip';
                 <h3 class="section-label" id="compat-title">Compatibility</h3>
                 <span class="badge" [class]="'badge ' + statusTone(compatibility.status)">{{ title(compatibility) }}</span>
               </div>
+              <p class="fine">Quick Calibration checks tool compatibility. Coding performance is measured separately on coding tasks.</p>
               @switch (compatibility.status) {
                 @case ('provisional') {
                   @if (firstChoice(compatibility)) {
