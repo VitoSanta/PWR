@@ -351,6 +351,24 @@ model" button.
 
 ---
 
+## D-2026-10-12-1 — PWR Coding v0.4.0; Windows v0.5.0
+
+**Decisione di Vito, 2026-10-12.** La ricerca e lo sviluppo tornano a questa chat Codex. Direzione della prossima versione: **v0.4.0 PWR Coding**, con una gamma selezionata di modelli adattati all'esecuzione agentica di PWR. **Windows è pianificato per v0.5.0**, dopo la validazione del prodotto coding. Questi sono obiettivi di roadmap, non release o capacità già ottenute.
+
+Prima ipotesi da misurare: adapter LoRA/QLoRA su Qwen3.5-9B, per cui esistono osservazioni PWR. Candidati successivi: Qwen3.5-4B, Qwen3-14B, Qwen3.8-27B, Qwen3.6-35B-A3B. La gamma finale dipende da qualità, costo, memoria, compatibilità e manutenzione; non sono autorizzati implicitamente cinque training contemporanei. Training e supporto MLX delle architetture vanno verificati sul sistema concreto.
+
+Separare tre risultati: correttezza delle patch, fedeltà al protocollo e costo. Congelare il protocollo; preparare dati di training verificati e separati da validazione/test; confrontare base e adattato nello stesso PWR con budget e quantizzazione comparabili. I task già osservati non diventano una conferma indipendente se usati nel training. I40riservati restano esclusi da training/tuning. Criteri numerici e piano di prova devono precedere l'esperimento. Nessun beneficio del fine tuning è ancora misurato.
+
+La gamma dedicata è la direzione approvata; eliminare la compatibilità esterna, separare la chat o rendere esclusivi i modelli PWR resta da decidere sui dati. Compatibilità esterna mantenuta durante la validazione. I vincoli runtime, permessi e giudice indipendente restano necessari anche con modelli adattati. Il corpus deve insegnare uso corretto degli strumenti e coding senza assumere che impoverire le capacità generali migliori la qualità.
+
+Pubblicazione prevista su Hugging Face solo dopo valutazione, verifica delle licenze/dati, model card e consenso alla pubblicazione. Nessun upload, push, tag, modifica della versione software o avvio di training in questa registrazione. Inferenza locale e portabilità restano principi di prodotto.
+
+Questa decisione aggiorna priorità e versioni di D-2026-10-01-2: il percorso v0.4.0 è dedicato al coding e Windows passa a v0.5.0. Non dichiara superati G1/G2/G3/F6 e non cancella i requisiti di qualità, integrità o validazione Windows. L'eventuale revisione del precedente gate all-tier richiede criteri espliciti approvati; assegnare un numero di versione non lo soddisfa.
+
+Fonti tecniche verificate: [Qwen3.5-9B](https://huggingface.co/Qwen/Qwen3.5-9B), [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B), [Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B), [MLX LoRA/QLoRA](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/LORA.md), [QLoRA](https://arxiv.org/abs/2305.14314). Evidenze locali: ../pwr-evidence/swebench-pilot/audits/contratti-fase-django11880-20261010 e contratti-fase-django11848-20261010.
+
+---
+
 ## Decisions from earlier revisions that still hold
 
 Restated from the archive, with where they were first recorded.

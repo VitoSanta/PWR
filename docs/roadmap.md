@@ -6,6 +6,12 @@ of every item — problem, evidence, change, acceptance, tests — is in the
 reader needs first. The roadmap before this date, with its reconciliations and
 release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/roadmap.md).
 
+## Owner roadmap update — 2026-10-12
+
+**PLANNED v0.4.0: PWR Coding.** A selected, measured family of models adapted to PWR's coding protocol. Start by evaluating a Qwen3.5-9B LoRA/QLoRA pilot against its original model on the same frozen harness. Build verified training data with independent evaluation; retain runtime effect boundaries. Further model sizes, exclusive support and a separate general chat remain decisions informed by results. No trained model or fine-tuning uplift exists yet.
+
+**PLANNED v0.5.0: Windows.** Moved behind the coding product validation. The existing correctness and exit gates are unpassed; this version assignment does not waive them or certify Windows support. [Owner decision D-2026-10-12-1](decisions.md#d-2026-10-12-1--pwr-coding-v040-windows-v050) updates the release direction. Historical status tables below retain their dated provenance.
+
 ## Where things stand
 
 - **Released:** v0.3.0-alpha (2026-10-07), macOS on Apple silicon, as a
@@ -91,7 +97,7 @@ only with objective task sets, threat models and measured value. Core token and
 memory costs stay bounded. Runtime/context optimization hypotheses remain
 subject to controlled comparisons, not blanket prohibition.
 
-**PLANNED Windows:** persistent llama.cpp, cancellation/cache/template parity,
+**PLANNED Windows — v0.5.0:** persistent llama.cpp, cancellation/cache/template parity,
 CUDA/Vulkan, command isolation, CI and real GPU testing only after G3/F6.
 Core engine/sandbox interfaces remain portable now.
 

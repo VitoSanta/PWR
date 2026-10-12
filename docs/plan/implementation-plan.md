@@ -1,5 +1,7 @@
 # Implementation plan
 
+> **Owner update, 2026-10-12:** v0.4.0 targets PWR Coding with selected adapted models; Windows moves to v0.5.0. See [D-2026-10-12-1](../decisions.md#d-2026-10-12-1--pwr-coding-v040-windows-v050). This changes roadmap priorities; no model uplift or gate completion is implied, and existing verification requirements remain.
+
 **Adopted 2026-09-30.** Built from the [technical review of
 2026-09-30](../reviews/2026-09-30-technical-review.md) after every one of its
 claims was checked against the code ([verification](../reviews/2026-09-30-verification.md)).

@@ -1,5 +1,7 @@
 # PWR: product and research contract
 
+> **Owner update, 2026-10-12:** v0.4.0 targets PWR Coding with selected adapted models; Windows moves to v0.5.0. See [D-2026-10-12-1](docs/decisions.md#d-2026-10-12-1--pwr-coding-v040-windows-v050). This changes roadmap priorities; no model uplift or gate completion is implied, and existing verification requirements remain.
+
 **Adopted 2026-10-01**, approved by the owner after F0 review. Replaces the
 [2026-09-30 contract](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/MASTER_SPEC-2026-09-30.md) through
 [D-2026-10-01-2](docs/decisions.md#d-2026-10-01-2--mission-expansion-and-windows-exit-gate).
