@@ -719,8 +719,12 @@ impl MlxProvider {
     }
 
     /// What a prefill step of this model materialises in attention scores, as
-    /// the engine answers it for the model's head dimension.
-    async fn prefill_scores_bytes(&self, config: &serde_json::Value) -> Option<u64> {
+    /// the engine answers it for the model's head dimension, and whether the
+    /// engine copies only the layers of a cache that it cannot cut back.
+    async fn prefill_account(
+        &self,
+        config: &serde_json::Value,
+    ) -> Option<(Option<u64>, Option<bool>)> {
         let text = config.get("text_config").unwrap_or(config);
         // Latent attention attends over the latent: its width is the head.
         let head_dim = text["kv_lora_rank"]
@@ -741,7 +745,10 @@ impl MlxProvider {
             if event["id"].as_u64() != Some(id) {
                 continue;
             }
-            return event["scores_bytes"].as_u64();
+            return Some((
+                event["scores_bytes"].as_u64(),
+                event["checkpoint"].as_str().map(|kind| kind == "layers"),
+            ));
         }
     }
 
@@ -1855,12 +1862,14 @@ impl InferenceBackend for MlxProvider {
             let text = config.get("text_config").unwrap_or(config);
             u32::try_from(text["max_position_embeddings"].as_u64()?).ok()
         });
-        let prefill_scores_bytes = match &config {
-            Some(config) => self.prefill_scores_bytes(config).await,
+        let account = match &config {
+            Some(config) => self.prefill_account(config).await,
             None => None,
         };
+        let (prefill_scores_bytes, checkpoint_by_layer) = account.unwrap_or((None, None));
         Ok(ModelFacts {
             prefill_scores_bytes,
+            checkpoint_by_layer,
             hf_config: config,
             gguf_metadata: None,
             trained_max,

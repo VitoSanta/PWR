@@ -71,6 +71,10 @@ pub struct ModelShape {
     /// attention is fused; `None` when the engine cannot say. See `decide`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefill_scores_bytes: Option<u64>,
+    /// Whether the engine keeps, of a cache it cannot cut back, only the
+    /// layers that cannot be; `None` when the engine does not say. See `decide`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_by_layer: Option<bool>,
     /// How far the family's published extension (YaRN) takes it past
     /// `trained_max`, when the config leaves it off; used only for a window
     /// the person chose longer than the trained length.
@@ -96,6 +100,7 @@ impl ModelShape {
             kv_bytes_per_token: kv_bytes_per_token(text, config),
             weights_bytes: None,
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             extended_max: pwr_provider::rope_extension(config).map(|extension| extension.extended),
         }
     }
@@ -145,6 +150,7 @@ impl ModelShape {
             kv_bytes_per_token,
             weights_bytes: None,
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             extended_max: None,
         }
     }
@@ -164,6 +170,7 @@ impl ModelShape {
             kv_bytes_per_token: parsed.kv_bytes_per_token,
             weights_bytes: facts.weights_bytes,
             prefill_scores_bytes: facts.prefill_scores_bytes,
+            checkpoint_by_layer: facts.checkpoint_by_layer,
             extended_max: parsed.extended_max,
         }
     }
@@ -174,6 +181,7 @@ impl ModelShape {
             kv_bytes_per_token: None,
             weights_bytes: None,
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             extended_max: None,
         }
     }
@@ -386,6 +394,20 @@ pub fn decide(
                 // tokens peaked at 36.1 GB against 35.7 predicted (scores
                 // bind); Seed-OSS-36B at 60,112 tokens at 52.0 against 51.9
                 // (the cache copy binds, attention fused).
+                // An engine that copies, of a cache it cannot cut back, only
+                // the layers that cannot be, and says what a prefill step
+                // holds: the context is held once and the step is the one
+                // transient. Measured 2026-10-13, Qwen3.5 9B at 40,604 tokens:
+                // 1.44 GB beyond the weights between generations, where the
+                // whole copy stood at 2.78 and at 5.55 three turns later. A
+                // step also holds, beside its scores, a part that grows with
+                // the context -- about 6 KB a token at 17k, 42k and 126k, a
+                // fifth of that model's cache -- so a token is counted at a
+                // quarter more than it keeps: at 126,136 tokens the peak was
+                // 6.20 GB beyond the weights against 6.78 counted this way.
+                Some(scores) if shape.checkpoint_by_layer == Some(true) && scores > 0 => {
+                    room.saturating_sub(scores) / (per_token + per_token / 4)
+                }
                 Some(scores) => {
                     let with_copy = room / (2 * per_token);
                     let with_scores = room.saturating_sub(scores) / per_token;
@@ -453,6 +475,12 @@ pub fn decide(
         }
         Some(Ceiling::Trained) => "the model's trained length".to_owned(),
         Some(Ceiling::Memory) => match shape.prefill_scores_bytes {
+            Some(scores) if shape.checkpoint_by_layer == Some(true) && scores > 0 => {
+                "what fits in memory after the weights, the host's reserve and what a prefill \
+                 step holds, the context held once (the engine copies only the layers it cannot \
+                 cut back)"
+                    .to_owned()
+            }
             Some(_) => "what fits in memory after the weights, the host's reserve and prefill's \
                         transient as the engine reports it (the larger of a cache copy and the \
                         attention scores it materialises)"
@@ -678,6 +706,7 @@ mod tests {
         let shape = ModelShape {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(64 * GIB);
@@ -695,6 +724,7 @@ mod tests {
         let shape = ModelShape {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(32 * GIB);
@@ -713,6 +743,7 @@ mod tests {
         let shape = ModelShape {
             weights_bytes: Some(40 * GB),
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(32 * GIB);
@@ -736,6 +767,7 @@ mod tests {
         let shape = ModelShape {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(64 * GIB);
@@ -767,6 +799,7 @@ mod tests {
         let shape = ModelShape {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(32 * GIB);
@@ -787,6 +820,7 @@ mod tests {
         let shape = ModelShape {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(64 * GIB);
@@ -883,6 +917,7 @@ mod tests {
             kv_bytes_per_token: Some(262_144),
             weights_bytes: Some(20_337_267_064),
             prefill_scores_bytes: Some(0),
+            checkpoint_by_layer: None,
             extended_max: None,
         };
         let decision = decide(&seed, Some(&host), None, None).unwrap();
@@ -905,6 +940,7 @@ mod tests {
             kv_bytes_per_token: Some(20_480),
             weights_bytes: Some(20_402_204_271),
             prefill_scores_bytes: Some(41_747_087_360 / 4),
+            checkpoint_by_layer: None,
             extended_max: None,
         };
         let decision = decide(&qwen, Some(&host), None, None).unwrap();
@@ -927,10 +963,45 @@ mod tests {
             kv_bytes_per_token: Some(262_144),
             weights_bytes: Some(20_337_267_064),
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             extended_max: None,
         };
         let decision = decide(&seed, Some(&host), None, None).unwrap();
         assert_eq!(decision.tokens, 23_552);
+    }
+
+    /// Bonsai 27B 1-bit on a 24 GiB host, the engine holding a prefill step
+    /// to 1 GiB of scores over its 512 MiB floor: copied whole, the context is
+    /// counted twice; copied by layer, once.
+    #[test]
+    fn an_engine_that_copies_only_the_layers_it_must_holds_the_context_once() {
+        let host = HostBudget::with_default_reserve(24 * GIB);
+        let whole = ModelShape {
+            trained_max: Some(262_144),
+            kv_bytes_per_token: Some(65_536),
+            weights_bytes: Some(5_129_115_752),
+            prefill_scores_bytes: Some(GIB + GIB / 2),
+            checkpoint_by_layer: Some(false),
+            extended_max: None,
+        };
+        let decision = decide(&whole, Some(&host), None, None).unwrap();
+        assert_eq!(decision.tokens, 91_136);
+        let by_layer = ModelShape {
+            checkpoint_by_layer: Some(true),
+            ..whole
+        };
+        let decision = decide(&by_layer, Some(&host), None, None).unwrap();
+        assert_eq!(decision.bound_by, Some(Ceiling::Memory));
+        assert_eq!(decision.tokens, 126_976);
+        assert!(decision.rationale.contains("held once"), "{}", decision.rationale);
+        // Fused attention reports no scores: the copy made while the cache
+        // grows was measured there, and is still counted.
+        let fused = ModelShape {
+            prefill_scores_bytes: Some(0),
+            ..by_layer
+        };
+        let decision = decide(&fused, Some(&host), None, None).unwrap();
+        assert_eq!(decision.tokens, 91_136);
     }
 
     #[test]

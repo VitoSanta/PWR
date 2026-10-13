@@ -40,6 +40,24 @@ cache are active allocations and are not bounded by this setting. Request
 diagnostics record active/cache memory; long-task effectiveness is unmeasured.
 Managed installation markers with obsolete package pins offer reinstallation.
 
+**Updated 2026-10-13:** two switches for what a long context costs in memory,
+both off unless asked for. A model whose cache cannot be cut back whole (Qwen
+3.5/3.6/3.8, Bonsai: linear-attention layers beside full-attention ones) had
+its whole cache copied so the next prompt could start from it, and the context
+was held twice. `PWR_MLX_CHECKPOINT=layers` copies only the layers that cannot
+be cut back -- a state of fixed size, 154 MB on a 27B -- and cuts the others
+back to where the copy was taken. Measured on Qwen3.5 9B through the sidecar:
+the same text and the same reused tokens over four turns; 1.44 GB beyond the
+weights between generations at 40,604 tokens where the whole copy stood at
+2.78 and at 5.55 three turns later; 4.24 GB at 126,136 tokens.
+`PWR_MLX_SCORES_MB` bounds what a prefill step holds in attention scores,
+counted at the 3 bytes a head, step token and context token that were
+measured, in place of a quarter of the largest Metal buffer. With both, the
+engine tells the window so (`attention` answers `checkpoint` and the bounded
+`scores_bytes`) and `window::decide` counts the context once, a quarter more a
+token for the part of a step that grows with the context. Unmeasured: other
+model families, contexts past 126k tokens, machines smaller than 64 GB.
+
 On macOS the sidecar sets `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` **before importing
 MLX**, preserving an explicitly supplied value (including `0`). This is the
 [driver workaround adopted by llama.cpp](https://github.com/ggml-org/llama.cpp/pull/22216)

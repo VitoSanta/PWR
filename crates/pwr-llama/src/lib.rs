@@ -817,6 +817,7 @@ impl InferenceBackend for LlamaProvider {
             // server path reports it, window arithmetic uses the conservative
             // transient rule.
             prefill_scores_bytes: None,
+            checkpoint_by_layer: None,
             source: format!("gguf:{}", path.display()),
         })
     }

@@ -408,6 +408,148 @@ class CopiedCache(unittest.TestCase):
         self.assertEqual(self.engine.checkpoint_tokens, [1, 2, 3])
 
 
+class LayerCheckpoint(unittest.TestCase):
+    """Asked for, the copy of a cache that cannot be cut back holds only the
+    layers that cannot: one that only appends is cut back to where it stood."""
+
+    def setUp(self):
+        import mlx.core as mx
+        import pwr_mlx
+
+        class KVCache:
+            def __init__(self):
+                self.offset = 0
+                self.state = [mx.zeros((1,))]
+                self.meta_state = ""
+
+            def trim(self, n):
+                n = min(self.offset, n)
+                self.offset -= n
+                return n
+
+        class Fixed:
+            def __init__(self):
+                self.state = [mx.array([0.0])]
+                self.meta_state = ""
+
+        self.mx, self.module = mx, pwr_mlx
+        self.cache = [Fixed(), KVCache(), Fixed()]
+        self.was = pwr_mlx.CHECKPOINT
+        self.addCleanup(lambda: setattr(pwr_mlx, "CHECKPOINT", self.was))
+
+    def advance(self, tokens, value):
+        for layer in self.cache:
+            if hasattr(layer, "offset"):
+                layer.offset += tokens
+            else:
+                layer.state = [self.mx.array([value])]
+
+    def test_only_the_layers_that_cannot_be_cut_back_are_copied(self):
+        self.module.CHECKPOINT = "layers"
+        self.advance(100, 1.0)
+        kept = self.module.snapshot(self.cache)
+        self.assertEqual([type(k).__name__ for k in kept], ["tuple", "Offset", "tuple"])
+        self.assertEqual(kept[1], 100)
+        self.advance(40, 2.0)
+        self.module.restore(self.cache, kept)
+        self.assertEqual(self.cache[1].offset, 100)
+        self.assertEqual(self.cache[0].state[0].item(), 1.0)
+        self.assertEqual(self.cache[2].state[0].item(), 1.0)
+        # The copy is still what it was: a second prompt can start from it.
+        self.advance(7, 3.0)
+        self.module.restore(self.cache, kept)
+        self.assertEqual(self.cache[1].offset, 100)
+        self.assertEqual(self.cache[0].state[0].item(), 1.0)
+
+    def test_unasked_every_layer_is_copied(self):
+        self.assertEqual(self.module.CHECKPOINT, "whole")
+        kept = self.module.snapshot(self.cache)
+        self.assertEqual([type(k).__name__ for k in kept], ["tuple", "tuple", "tuple"])
+
+    def test_a_sliding_window_is_copied_whatever_was_asked(self):
+        self.module.CHECKPOINT = "layers"
+
+        class RotatingKVCache:
+            offset = 5
+            state = [self.mx.zeros((1,))]
+            meta_state = ""
+
+            def trim(self, n):
+                return n
+
+        kept = self.module.snapshot([RotatingKVCache()])
+        self.assertIsInstance(kept[0], tuple)
+
+    def test_a_cache_shorter_than_its_copy_is_left_as_it_was(self):
+        self.module.CHECKPOINT = "layers"
+        self.advance(100, 1.0)
+        kept = self.module.snapshot(self.cache)
+        self.advance(0, 2.0)
+        self.cache[1].offset = 60
+        with self.assertRaises(ValueError):
+            self.module.restore(self.cache, kept)
+        self.assertEqual(self.cache[0].state[0].item(), 2.0)
+        self.assertEqual(self.cache[1].offset, 60)
+
+    def test_a_copy_that_cannot_be_put_back_starts_the_prompt_from_nothing(self):
+        module = self.module
+        fresh = [object()]
+        saved = (module.make_prompt_cache, module.restore, module.can_trim_prompt_cache, module.snapshot)
+        self.addCleanup(lambda: [setattr(module, n, v) for n, v in zip(
+            ("make_prompt_cache", "restore", "can_trim_prompt_cache", "snapshot"), saved)])
+        module.make_prompt_cache = lambda model: fresh
+
+        def refuse(cache, states):
+            raise ValueError("the cache is shorter than its copy")
+
+        module.restore = refuse
+        module.can_trim_prompt_cache = lambda cache: False
+        module.snapshot = lambda cache: ["copy"]
+        engine = module.Engine()
+
+        class Tokenizer:
+            eos_token_ids = set()
+
+            def convert_tokens_to_ids(self, token):
+                return None
+
+        engine.tokenizer = Tokenizer()
+        engine.cache, engine.checkpoint, engine.checkpoint_tokens = self.cache, ["old"], [1, 2]
+        prefilled = []
+        engine.prefill = lambda tokens, offset, progress, cancelled=lambda: False: prefilled.append((list(tokens), offset))
+        self.assertEqual(engine.resume([1, 2, 3], lambda *_: None), 0)
+        self.assertIs(engine.cache, fresh)
+        self.assertEqual(prefilled[0], ([1, 2, 3], 0))
+
+
+class ScoreBudget(unittest.TestCase):
+    def test_a_budget_asked_for_is_the_most_a_step_may_hold(self):
+        import pwr_mlx
+        was = pwr_mlx.SCORES_MB
+        self.addCleanup(lambda: setattr(pwr_mlx, "SCORES_MB", was))
+        pwr_mlx.SCORES_MB = None
+        unasked = pwr_mlx.score_budget()
+        pwr_mlx.SCORES_MB = "512"
+        self.assertEqual(pwr_mlx.score_budget(), min(unasked, 512 * 1024**2))
+        # Never more than the engine allowed itself before.
+        pwr_mlx.SCORES_MB = str(10**9)
+        self.assertEqual(pwr_mlx.score_budget(), unasked)
+
+    def test_a_small_budget_shortens_the_step_as_the_context_grows(self):
+        import pwr_mlx
+        engine = pwr_mlx.Engine()
+        was = pwr_mlx.SCORES_MB
+        self.addCleanup(lambda: setattr(pwr_mlx, "SCORES_MB", was))
+        engine.fused, engine.heads, engine.score_budget = False, 16, 1024**3
+        # Unasked, a score is counted as the two bytes it is stored in.
+        pwr_mlx.SCORES_MB = None
+        self.assertEqual(engine.prefill_step(200_000), 160)
+        # Asked for, as the three a step was measured to hold.
+        pwr_mlx.SCORES_MB = "1024"
+        self.assertEqual(engine.prefill_step(0), 2720)
+        self.assertEqual(engine.prefill_step(200_000), 96)
+
+
 class StableHistory(unittest.TestCase):
     """D.E2E-21: a user message must not re-render the history before it."""
 

@@ -267,6 +267,7 @@ pub fn estimate(capacity: &Capacity, model: &Footprint) -> FitEstimate {
         // of the cache while it grows (0 extra score bytes); llama.cpp
         // reports nothing, and the conservative transient rule applies.
         prefill_scores_bytes: (model.format == Format::Mlx).then_some(0),
+        checkpoint_by_layer: None,
         // A rating is for the model as published: its trained length, never
         // an extension a person may choose later.
         extended_max: None,

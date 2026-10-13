@@ -1446,3 +1446,42 @@ the change, so nothing was confirmed and the run took 15.8 minutes against
 6.8 without the aid. A file the conversation wrote is no longer among the
 tests a change is measured against. Those runs are kept and left out of the
 comparison.
+
+
+## 2026-10-13 — what a long context costs the MLX engine in memory
+
+Asked whether a 27B could have its full 262,144 tokens on a small Mac, the
+cache was weighed instead of computed. Bonsai 27B 1-bit: 65,536 bytes a token
+across 16 full-attention layers, as `window::kv_bytes_per_token` says, and
+154 MB in its 48 linear-attention layers whatever the context. The engine
+copied all of it for the next prompt because those 48 cannot be cut back. In
+125 recorded runs of Qwen3.5 9B it stood at two copies of the context between
+generations in 3,443 of 4,129 generations past 20k tokens, three in 604, four
+in 10; the window rule counts two at the peak.
+
+`PWR_MLX_CHECKPOINT=layers` copies the layers that cannot be cut back and cuts
+the others back. Scores for the next token were the same to the bit on Bonsai
+27B 1-bit and Qwen3.5 9B outside the engine; through the sidecar, Qwen3.5 9B
+wrote the same four replies and reused the same tokens, at 1.44 GB beyond the
+weights where the whole copy held 2.78 (40,604 tokens), and resumed a turn in
+0.27-0.29 s against 0.34.
+
+A prefill step's own memory was measured by step size (Qwen3.5 9B at 17k and
+42k tokens, Bonsai 27B at 17k): 2.7-2.9 bytes a head, step token and context
+token, over a part the step does not move, about 0.2 GB and 6 KB a token of
+context. Steps of 64 tokens and more read at one speed. `PWR_MLX_SCORES_MB`
+bounds a step with those numbers. At 126,136 tokens with both switches and a
+1 GiB bound: 4.24 GB between generations, 6.20 at the peak, a cold prefill of
+528 s (375 tokens a second at the start, 173 past 120k).
+
+A first bound counted a score at the 2 bytes it is stored in and changed
+nothing at 42k tokens, where the engine's one-second step was already that
+small; it is counted at 3 since. Two of the four first measurements were
+launched without their switches by a mistake of mine in the shell loop and
+are kept as a second run of the default.
+
+Not measured: Bonsai 27B reads at 95 tokens a second at 17k against the 9B's
+392, so a cold 262k prefill is hours, not minutes; a cache held at 8 or 4
+bits (53% and 28% of the bytes when weighed) is the next switch and its cost
+in quality and speed is unknown. Evidence: benchmark repository,
+`audits/motore-contesto-20261013` and `audits/prova-fasce-bonsai-20261013`.

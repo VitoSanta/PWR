@@ -116,6 +116,28 @@ PREFILL_UNFUSED_CHUNK_SECS = 1.0
 CACHE_LIMIT_BYTES = int(float(os.environ.get("PWR_MLX_CACHE_GB", "2")) * 1024**3)
 # Attention scores are held in the activation dtype (bf16 or fp16).
 SCORE_BYTES = 2
+# How a cache that cannot be cut back whole is kept for the next prompt.
+# "whole" copies every layer. "layers" copies only the layers that cannot be
+# cut back and cuts the others back to where the copy was taken. Measured
+# 2026-10-13 on Bonsai 27B: the 48 linear-attention layers, the ones that
+# cannot be cut back, hold 154 MB whatever the context; the 16 that grow with
+# it (65,536 bytes a token) are plain KV buffers. Copied whole, the context
+# was held twice: 125 recorded runs of Qwen3.5 9B stood at 1.9 copies between
+# generations. The next token's scores were the same either way, to the bit,
+# on Bonsai 27B 1-bit and Qwen3.5 9B. "whole" unless asked for.
+CHECKPOINT = os.environ.get("PWR_MLX_CHECKPOINT", "whole")
+# The most a prefill step may hold in attention scores where attention is not
+# fused, in MB; unset, a quarter of the largest Metal buffer (10.4 GB on a
+# 64 GB machine). Measured 2026-10-13 on Qwen3.5 9B at 17k and 42k tokens and
+# on Bonsai 27B at 17k: a step holds 2.7-2.9 bytes for every head, token of
+# the step and token of context, over a floor of 0.26-0.37 GB that the step
+# does not move; steps of 64 tokens and more read at the same speed, 16 and 32
+# at half and three quarters of it. A budget asked for is kept with those
+# measures: `BUDGET_SCORE_BYTES` a score, and `SCORES_FLOOR_BYTES` told to PWR
+# beside it.
+SCORES_MB = os.environ.get("PWR_MLX_SCORES_MB")
+BUDGET_SCORE_BYTES = 3
+SCORES_FLOOR_BYTES = 512 * 1024**2
 # A generation that keeps writing the same passage is stopped rather than left
 # to run to its cap. Seen 2026-09-18: after a reasoning budget closed the think
 # block, Qwen3.6 continued reasoning in the answer and wrote one code block
@@ -592,10 +614,35 @@ def arrays_of(states) -> list:
     return out
 
 
+def score_budget() -> int:
+    """What a prefill step may hold in attention scores, in bytes."""
+    limit = mx.device_info().get("max_buffer_length") or 8 * 1024**3
+    budget = int(limit) // 4
+    if SCORES_MB:
+        budget = min(budget, int(float(SCORES_MB) * 1024**2))
+    return budget
+
+
+class Offset(int):
+    """Where a layer that is cut back, not copied, stood when a copy was taken."""
+
+
+def appends_only(layer) -> bool:
+    """Whether a layer's cache only ever writes past its offset, so cutting
+    the offset back to where it stood gives back what was there: mlx-lm's and
+    mlx-vlm's `KVCache`. Judged by kind, and narrowly: a sliding-window cache
+    rewrites its ring, and a kind not listed here is copied as before."""
+    return (type(layer).__name__ == "KVCache" and isinstance(getattr(layer, "offset", None), int)
+            and callable(getattr(layer, "trim", None)))
+
+
 def snapshot(cache):
     """Copies of the cache state. A KV cache writes into its buffer in place,
     and Qwen 3.5/3.6's linear-attention layers cannot be trimmed back, so the
-    only way to reuse a prompt is to keep a copy taken where it ended."""
+    only way to reuse a prompt is to keep a copy taken where it ended.
+
+    With `CHECKPOINT` "layers" a layer that only appends keeps its offset in
+    place of a copy; see `appends_only`."""
 
     def copy(x):
         if x is None:
@@ -604,9 +651,11 @@ def snapshot(cache):
             return type(x)(copy(y) for y in x)
         return x + 0 if isinstance(x, mx.array) else x
 
+    by_layer = CHECKPOINT == "layers"
     # Tensor setters do not restore RotatingKVCache offset/ring position.
     # Keep metadata alongside tensors so the checkpoint describes one state.
-    states = [(copy(c.state), copy(c.meta_state)) for c in cache]
+    states = [Offset(c.offset) if by_layer and appends_only(c)
+              else (copy(c.state), copy(c.meta_state)) for c in cache]
     mx.eval(arrays_of(states))
     return states
 
@@ -617,9 +666,17 @@ def restore(cache, states) -> None:
             return type(x)(copy(y) for y in x)
         return x + 0 if isinstance(x, mx.array) else x
 
-    for c, (state, metadata) in zip(cache, states):
-        c.state = copy(state)
-        c.meta_state = copy(metadata)
+    # Checked before anything is changed: a cache half put back matches no prompt.
+    for c, kept in zip(cache, states):
+        if isinstance(kept, Offset) and c.offset < kept:
+            raise ValueError("the cache is shorter than its copy")
+    for c, kept in zip(cache, states):
+        if isinstance(kept, Offset):
+            c.trim(c.offset - kept)
+        else:
+            state, metadata = kept
+            c.state = copy(state)
+            c.meta_state = copy(metadata)
 
 
 class VisionText(nn.Module):
@@ -826,8 +883,7 @@ class Engine:
         text = config.get("text_config", config)
         self.heads = int(text.get("num_attention_heads") or 64)
         head_dim = int(text.get("head_dim") or text["hidden_size"] // self.heads)
-        limit = mx.device_info().get("max_buffer_length") or 8 * 1024**3
-        self.score_budget = int(limit) // 4
+        self.score_budget = score_budget()
         self.fused = fused_attention(head_dim)
         weights = sum(p.stat().st_size for p in path.glob("*.safetensors"))
         return {
@@ -904,7 +960,7 @@ class Engine:
         if self.fused:
             return PREFILL_STEP
         keys = offset + PREFILL_STEP
-        step = self.score_budget // (self.heads * SCORE_BYTES * keys)
+        step = self.score_budget // (self.heads * (BUDGET_SCORE_BYTES if SCORES_MB else SCORE_BYTES) * keys)
         return max(PREFILL_MIN_STEP, min(PREFILL_STEP, step // PREFILL_MIN_STEP * PREFILL_MIN_STEP))
 
     def prefill(self, tokens: list[int], offset: int, progress=lambda done, total: None, cancelled=lambda: False) -> None:
@@ -969,8 +1025,13 @@ class Engine:
                 self.cache = make_prompt_cache(self.model)
         elif self.checkpoint is not None and base[:len(self.checkpoint_tokens)] == self.checkpoint_tokens:
             self.observe("restore", prompt_tokens=len(base))
-            restore(self.cache, self.checkpoint)
-            reused = len(self.checkpoint_tokens)
+            try:
+                restore(self.cache, self.checkpoint)
+                reused = len(self.checkpoint_tokens)
+            except ValueError:
+                # A copy the cache cannot be put back to: start from nothing.
+                self.cache = make_prompt_cache(self.model)
+                self.checkpoint = None
         else:
             if TRACE and self.checkpoint_tokens:
                 # Where the new prompt stopped being the old one, in text: the
@@ -1288,10 +1349,13 @@ def main() -> None:
                 # What a prefill step of a model with this head dimension
                 # holds in scores, without loading anything: the window is
                 # computed before a model is loaded.
-                limit = mx.device_info().get("max_buffer_length") or 8 * 1024**3
                 fused = fused_attention(int(request["head_dim"]))
+                held = score_budget() + (SCORES_FLOOR_BYTES if SCORES_MB else 0)
                 emit({"id": ident, "event": "attention", "fused": fused,
-                      "scores_bytes": 0 if fused else int(limit) // 4})
+                      "scores_bytes": 0 if fused else held,
+                      # How the copy of a cache that cannot be cut back is
+                      # kept, for the window's account of memory.
+                      "checkpoint": CHECKPOINT})
             elif op == "load":
                 emit({"id": ident, **engine.load(request)})
             elif op == "chat":

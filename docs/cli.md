@@ -69,6 +69,8 @@ Slash commands inside `pwr chat` and the app: `/changes`, `/verify`,
 | `PWR_SEMANTIC_RETRIEVAL=1` | Experimental semantic ranking (`PWR_EMBED_PYTHON`, `PWR_EMBED_SIDECAR` for its encoder) |
 | `PWR_BROWSER` | Explicit browser for `look_at`; on macOS the default prefers an installed Playwright Chromium headless shell, then Chrome/Chromium/Edge |
 | `PWR_MLX_CACHE_GB` | MLX free-buffer cache limit in GiB (2 by default); not a total-RAM, weight or KV-cache limit |
+| `PWR_MLX_CHECKPOINT` | `layers`: of a cache that cannot be cut back, copy only the layers that cannot be (the context is held once, not twice); `whole` by default ([inference.md](inference.md)) |
+| `PWR_MLX_SCORES_MB` | The most a prefill step may hold in attention scores, in MB, where attention is not fused; unset, a quarter of the largest Metal buffer |
 | `PWR_MLX_TRACE` | Engine request tracing: every request's last messages and the model's raw output, appended as JSON lines (holds model text; never published) |
 | `PWR_EMBED_MODEL`, `PWR_EMBED_POOLING` | The embedding model and pooling for semantic retrieval |
 | `PWR_HARNESS_REV` | The harness revision a campaign records (declared by the runner) |

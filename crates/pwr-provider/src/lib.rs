@@ -44,6 +44,10 @@ pub struct ModelFacts {
     /// 0 when its attention is fused and keeps them on chip. `None` when the
     /// backend cannot say, and the window falls back to a coarser rule.
     pub prefill_scores_bytes: Option<u64>,
+    /// Whether the engine keeps, of a cache it cannot cut back, only the
+    /// layers that cannot be: the context is then held once between
+    /// generations, not twice. `None` when the backend does not say.
+    pub checkpoint_by_layer: Option<bool>,
     /// Where the facts came from, for the artifact that records the window.
     pub source: String,
 }
