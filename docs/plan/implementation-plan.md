@@ -437,6 +437,15 @@ item of W2.20, "telling the model which passing tests its change broke".
   the change broke), 3.7 seconds a check at the median. The rule's first
   version chose the model fields' tests for the forms' fields; it was
   corrected from file listings before any test was run.
+- **A defect found by the first runs with a model, fixed the same day.** A
+  model wrote a test for the bug before it touched the source; the rule took
+  that file for one of the project's tests by its name, and the test, failing
+  from the start as it was meant to, kept every later run from confirming
+  anything (one run, 15.8 minutes against 6.8 for the same instance without
+  the aid). Test files the conversation wrote are now left out of the
+  selection, as they are for `accept_stop`; test files of the project's that
+  it changed are named with what stands confirmed. The campaign under way was
+  stopped and restarted on the corrected build.
 - **Limits.** Python only, with a `runtests.py` or pytest. The rule was
   shaped on Django and Sphinx. Tests that exist passing are not the request
   being met; the note says so and "verified" keeps its meaning. One run of
@@ -446,7 +455,8 @@ item of W2.20, "telling the model which passing tests its change broke".
   the comparison, before and after through a workspace's own Python);
   `two_loops::a_change_to_a_source_file_is_told_what_it_did_to_its_tests`,
   `related_tests_passing_after_a_change_stand_as_its_confirmation`,
-  `the_core_checks_no_related_tests_unless_the_goal_asks`.
+  `the_core_checks_no_related_tests_unless_the_goal_asks`,
+  `a_test_the_model_wrote_is_not_among_the_tests_a_change_is_measured_against`.
 - **To measure.** `accept_stop` against `accept_stop` with `core_check`, three
   instances, three rounds an arm, criteria fixed beforehand.
 

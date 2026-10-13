@@ -5062,6 +5062,46 @@ fn related_tests_passing_after_a_change_stand_as_its_confirmation() {
     );
 }
 
+/// A test the model writes for itself is not one of the project's, whatever
+/// its name: the core does not measure a change against it. Seen on
+/// 2026-10-13: a test written for the bug, failing from the start as it was
+/// meant to, was taken for a related test and nothing was ever confirmed.
+#[test]
+fn a_test_the_model_wrote_is_not_among_the_tests_a_change_is_measured_against() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    checked_project(root);
+    let continuity = converse::Continuity {
+        core_check: true,
+        ..Default::default()
+    };
+    let outcome = context_turn(
+        root,
+        Scripted::new(vec![
+            calls(
+                "write_file",
+                serde_json::json!({"path": "tests/test_http_trial.py",
+                    "content": "def test_trial():\n    assert False\n"}),
+            ),
+            changes_http("VALUE = 1", "VALUE = 2"),
+            says("Done."),
+        ]),
+        opening("Change it."),
+        32_768,
+        continuity.clone(),
+    );
+    assert_eq!(outcome.report.actions, 2, "{:?}", outcome.steps);
+    let baseline = outcome
+        .events
+        .iter()
+        .find(|event| event.event_type == "core_check.baseline")
+        .expect("a baseline");
+    let command = baseline.payload["command"].as_str().unwrap();
+    assert!(command.contains("tests/test_http.py"), "{command}");
+    assert!(!command.contains("test_http_trial"), "{command}");
+    assert!(continuity.confirmation.lock().unwrap().standing().is_some());
+}
+
 /// Unless the goal asks for it the core runs nothing of its own: the edit
 /// gets its result and no more, and nothing stands confirmed.
 #[test]

@@ -1437,3 +1437,12 @@ without a model: clean on all 40 resolved runs' patches, new failures on 4 of
 20 unresolved ones, 3.7 seconds at the median. Not run with a model yet: the
 time it saves is an upper bound from recorded runs, not a measurement.
 
+
+The first two runs with a model and the aid on showed a defect of mine in
+it. In one the model wrote `tests/test_gettext_duplicate_locations.py`
+before touching `sphinx/builders/gettext.py`; the rule chose it beside the
+project's own test file because of its name, and it failed before and after
+the change, so nothing was confirmed and the run took 15.8 minutes against
+6.8 without the aid. A file the conversation wrote is no longer among the
+tests a change is measured against. Those runs are kept and left out of the
+comparison.

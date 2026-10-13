@@ -116,11 +116,17 @@ fn test_files(root: &Path) -> Vec<String> {
 ///   tree (`sphinx/builders/gettext.py` and `tests/test_build_gettext.py`);
 /// - the package alone, where it names one test folder.
 ///
+/// Test files this conversation wrote (`written`) are left out: on
+/// 2026-10-13 a model wrote a test for the bug before touching the source,
+/// the rule took it for one of the project's by its name, and that test,
+/// failing from the start as it was meant to, kept every later run of the
+/// related tests from confirming anything.
+///
 /// A name shared by tests of several packages (`test_fields.py` under the
 /// model, admin and GIS tests) is not taken for a file of another package:
 /// the first version of this rule did, and chose the model fields' tests
 /// for the forms' fields.
-pub fn related_tests(root: &Path, source: &str) -> (Vec<String>, String) {
+pub fn related_tests(root: &Path, source: &str, written: &[String]) -> (Vec<String>, String) {
     let without = source.strip_suffix(".py").unwrap_or(source);
     let mut parts: Vec<&str> = without.split('/').filter(|part| !part.is_empty()).collect();
     // The project's own top folder says nothing of which tests.
@@ -139,7 +145,12 @@ pub fn related_tests(root: &Path, source: &str) -> (Vec<String>, String) {
     }
     let package: BTreeSet<String> = parts[..parts.len() - 1].iter().map(|p| stem(p)).collect();
     let mut tiers: [Vec<(usize, String)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    for test in test_files(root) {
+    // A test file this conversation wrote is a trial of the model's, not one
+    // of the project's tests: it is not what a change is measured against.
+    for test in test_files(root)
+        .into_iter()
+        .filter(|test| !written.contains(test))
+    {
         let (folder, name) = test.rsplit_once('/').unwrap_or(("", &test));
         let in_name = tokens(name).contains(&file_stem);
         let in_folder = tokens(folder).contains(&file_stem);
@@ -497,11 +508,12 @@ fn end_of(text: &str, limit: usize) -> String {
 }
 
 /// The related tests before the first change to `source`.
-pub async fn before(policy: &ToolPolicy, source: &str) -> Baseline {
+pub async fn before(policy: &ToolPolicy, source: &str, written: &[String]) -> Baseline {
     let root = policy.root.clone();
     let asked = source.to_owned();
+    let written = written.to_vec();
     let found = tokio::task::spawn_blocking(move || {
-        let (selection, why) = related_tests(&root, &asked);
+        let (selection, why) = related_tests(&root, &asked, &written);
         (command(&root, &selection), selection.is_empty(), why)
     })
     .await;
@@ -610,7 +622,7 @@ mod tests {
     #[test]
     fn a_file_is_matched_by_its_package_and_a_folder_named_after_it() {
         let dir = django();
-        let (chosen, why) = related_tests(dir.path(), "django/forms/fields.py");
+        let (chosen, why) = related_tests(dir.path(), "django/forms/fields.py", &[]);
         assert_eq!(chosen, ["tests/forms_tests/field_tests/"], "{why}");
         assert!(why.starts_with("tier A"), "{why}");
     }
@@ -618,7 +630,7 @@ mod tests {
     #[test]
     fn a_name_shared_by_other_packages_tests_is_not_taken_for_this_file() {
         let dir = django();
-        let (chosen, _) = related_tests(dir.path(), "django/forms/fields.py");
+        let (chosen, _) = related_tests(dir.path(), "django/forms/fields.py", &[]);
         assert!(
             chosen.iter().all(|path| !path.contains("model_fields")),
             "{chosen:?}"
@@ -632,7 +644,7 @@ mod tests {
     #[test]
     fn a_file_is_matched_by_a_test_file_of_its_name_in_its_package() {
         let dir = django();
-        let (chosen, why) = related_tests(dir.path(), "django/utils/http.py");
+        let (chosen, why) = related_tests(dir.path(), "django/utils/http.py", &[]);
         assert_eq!(chosen, ["tests/utils_tests/test_http.py"], "{why}");
     }
 
@@ -645,7 +657,7 @@ mod tests {
             "tests/test_intl.py",
             "tests/roots/test-gettext-template/conf.py",
         ]);
-        let (chosen, why) = related_tests(dir.path(), "sphinx/builders/gettext.py");
+        let (chosen, why) = related_tests(dir.path(), "sphinx/builders/gettext.py", &[]);
         assert_eq!(chosen, ["tests/test_build_gettext.py"], "{why}");
         assert!(why.starts_with("tier B"), "{why}");
     }
@@ -653,16 +665,38 @@ mod tests {
     #[test]
     fn a_package_that_names_many_test_folders_selects_nothing() {
         let dir = django();
-        let (chosen, why) = related_tests(dir.path(), "django/db/models/deletion.py");
+        let (chosen, why) = related_tests(dir.path(), "django/db/models/deletion.py", &[]);
         assert!(chosen.is_empty(), "{chosen:?}");
         assert!(why.contains("too wide"), "{why}");
     }
 
     #[test]
+    fn a_test_file_the_conversation_wrote_is_not_one_of_the_projects_tests() {
+        let dir = tree(&[
+            "sphinx/builders/gettext.py",
+            "tests/test_build_gettext.py",
+            "tests/test_gettext_duplicate_locations.py",
+        ]);
+        let (all, _) = related_tests(dir.path(), "sphinx/builders/gettext.py", &[]);
+        assert_eq!(all.len(), 2, "{all:?}");
+        let written = ["tests/test_gettext_duplicate_locations.py".to_owned()];
+        let (chosen, why) = related_tests(dir.path(), "sphinx/builders/gettext.py", &written);
+        assert_eq!(chosen, ["tests/test_build_gettext.py"], "{why}");
+    }
+
+    #[test]
     fn nothing_resembling_the_file_selects_nothing() {
         let dir = tree(&["app/billing.py", "tests/test_users.py"]);
-        assert!(related_tests(dir.path(), "app/billing.py").0.is_empty());
-        assert!(related_tests(dir.path(), "app/__init__.py").0.is_empty());
+        assert!(
+            related_tests(dir.path(), "app/billing.py", &[])
+                .0
+                .is_empty()
+        );
+        assert!(
+            related_tests(dir.path(), "app/__init__.py", &[])
+                .0
+                .is_empty()
+        );
     }
 
     fn with_python(dir: &tempfile::TempDir, script: &str) -> ToolPolicy {
@@ -821,7 +855,7 @@ mod tests {
             &dir,
             "if grep -q broken django/utils/http.py; then printf 'FAIL: test_x (utils_tests.test_http.T)\\n\\nRan 45 tests in 0.01s\\n\\nFAILED (failures=1)\\n' >&2; exit 1; fi\nprintf 'Ran 45 tests in 0.01s\\n\\nOK\\n' >&2",
         );
-        let baseline = before(&policy, "django/utils/http.py").await;
+        let baseline = before(&policy, "django/utils/http.py", &[]).await;
         let Baseline::Ran {
             executed, failing, ..
         } = &baseline
@@ -845,7 +879,7 @@ mod tests {
     async fn a_file_with_no_related_tests_has_no_baseline_and_no_outcome() {
         let dir = django();
         let policy = with_python(&dir, "exit 0");
-        let baseline = before(&policy, "django/db/models/deletion.py").await;
+        let baseline = before(&policy, "django/db/models/deletion.py", &[]).await;
         assert!(matches!(baseline, Baseline::Nothing(_)), "{baseline:?}");
         assert!(
             after(&policy, "django/db/models/deletion.py", &baseline)
@@ -883,7 +917,7 @@ mod tests {
             ),
         ] {
             let root = checkouts.join(checkout);
-            let (selection, why) = related_tests(&root, source);
+            let (selection, why) = related_tests(&root, source, &[]);
             let made = command(&root, &selection).unwrap_or_else(|| panic!("{checkout}: {why}"));
             assert_eq!(made.argv.last().unwrap(), label, "{checkout}: {why}");
             let policy = ToolPolicy {
@@ -896,7 +930,7 @@ mod tests {
                 sandbox: pwr_tools::SandboxPolicy::Disabled,
                 approvals: Vec::new(),
             };
-            let baseline = before(&policy, source).await;
+            let baseline = before(&policy, source, &[]).await;
             let Baseline::Ran {
                 executed, failing, ..
             } = &baseline

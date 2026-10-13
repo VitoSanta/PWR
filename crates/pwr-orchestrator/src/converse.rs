@@ -3579,8 +3579,19 @@ async fn take_turn_inner<P: ModelProvider>(
                     .lock()
                     .is_ok_and(|checks| !checks.knows(source))
             {
+                let written: Vec<String> = continuity
+                    .edits
+                    .lock()
+                    .map(|edits| {
+                        edits
+                            .iter()
+                            .filter(|edit| edit.before == Before::Created)
+                            .map(|edit| edit.path.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 let baseline = tokio::select! {
-                    baseline = crate::core_check::before(&policy, source) => baseline,
+                    baseline = crate::core_check::before(&policy, source, &written) => baseline,
                     () = pressed(stop) => {
                         return stopped(actions, edited, StopReason::Interrupted);
                     }
@@ -3913,10 +3924,29 @@ async fn take_turn_inner<P: ModelProvider>(
                                 outcome.record(source),
                             )
                             .map_err(|e| e.to_string())?;
-                        if let Some(tests) = outcome.confirmed
-                            && let Ok(mut confirmation) = continuity.confirmation.lock()
-                        {
-                            confirmation.passed(&outcome.command, tests, &[]);
+                        if let Some(tests) = outcome.confirmed {
+                            // Test files of the project's that this
+                            // conversation changed are named with what stands.
+                            let tests_changed: Vec<String> = continuity
+                                .edits
+                                .lock()
+                                .map(|edits| {
+                                    let mut changed: Vec<String> = edits
+                                        .iter()
+                                        .filter(|edit| {
+                                            edit.before != Before::Created
+                                                && crate::confirmation::is_test_path(&edit.path)
+                                        })
+                                        .map(|edit| edit.path.clone())
+                                        .collect();
+                                    changed.sort();
+                                    changed.dedup();
+                                    changed
+                                })
+                                .unwrap_or_default();
+                            if let Ok(mut confirmation) = continuity.confirmation.lock() {
+                                confirmation.passed(&outcome.command, tests, &tests_changed);
+                            }
                         }
                         if let Some(object) = value.as_object_mut() {
                             object.insert(
