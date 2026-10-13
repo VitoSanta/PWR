@@ -105,8 +105,9 @@ workspace overrides it. Recorded product-path runs improved one repair task
 for that model but did not meet a no-regression criterion across models.
 It is not a default improvement for all models.
 
-`goal_aids.pointers`, `core_tools`, `block_edits`, `plan` and `paced_reasoning`
-are implemented switches, off by default, with unmeasured task benefits.
+`goal_aids.pointers`, `core_tools`, `block_edits`, `plan`, `paced_reasoning`
+and `core_check` are implemented switches, off by default, with unmeasured
+task benefits.
 The repeated-repair notice quotes failing lines after three file-change /
 failed-command cycles; it is advisory and its model effect remains unmeasured.
 Details and conditions are in [the implementation plan](plan/implementation-plan.md)

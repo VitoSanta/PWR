@@ -756,6 +756,13 @@ pub struct Continuity {
     /// Whether a call for the project's tests that executes none is told
     /// what it was (H2). Off unless the goal asks for it (`GoalAids`).
     pub test_call_notes: bool,
+    /// The tests related to each source file this conversation changed, as
+    /// they stood before the change. See [`crate::core_check`].
+    pub core_checks: std::sync::Arc<std::sync::Mutex<crate::core_check::CoreCheck>>,
+    /// Whether the core runs those tests before and after a change and says
+    /// what the change did to them. Off unless the goal asks for it
+    /// (`GoalAids`).
+    pub core_check: bool,
     /// Session-local initial recipe; never a confirmation for H0.
     pub test_recipe: Option<std::sync::Arc<std::sync::Mutex<crate::test_recipe::Standing>>>,
     /// A conversation with no workspace (chat mode): it may only read what
@@ -3559,6 +3566,36 @@ async fn take_turn_inner<P: ModelProvider>(
             let no_project_before = full
                 && interruptible
                 && crate::scaffold::entries_without_project(&policy.root).is_some();
+            // The tests related to a source file, as they stand before its
+            // first change in this conversation (crate::core_check).
+            if full
+                && continuity.core_check
+                && edits_a_file
+                && let Some(source) = path
+                    .as_deref()
+                    .filter(|path| crate::core_check::is_source(path))
+                && continuity
+                    .core_checks
+                    .lock()
+                    .is_ok_and(|checks| !checks.knows(source))
+            {
+                let baseline = tokio::select! {
+                    baseline = crate::core_check::before(&policy, source) => baseline,
+                    () = pressed(stop) => {
+                        return stopped(actions, edited, StopReason::Interrupted);
+                    }
+                };
+                store
+                    .append(
+                        Some(conversation_id),
+                        "core_check.baseline",
+                        baseline.record(source),
+                    )
+                    .map_err(|e| e.to_string())?;
+                if let Ok(mut checks) = continuity.core_checks.lock() {
+                    checks.set(source, baseline);
+                }
+            }
             let performing = crate::session::perform(
                 store,
                 conversation_id,
@@ -3846,6 +3883,46 @@ async fn take_turn_inner<P: ModelProvider>(
                             && let Some(object) = value.as_object_mut()
                         {
                             object.insert(key.into(), serde_json::Value::String(text));
+                        }
+                    }
+                    // What a change to a source file did to the tests related
+                    // to it, run here and said with the edit's result; all of
+                    // them passing is a confirmation of the source as it
+                    // stands (crate::core_check).
+                    if full
+                        && continuity.core_check
+                        && edits_a_file
+                        && changed_input
+                        && !crate::repetition::failed(&value)
+                        && value.get("denied").is_none()
+                        && let Some(source) = path
+                            .as_deref()
+                            .filter(|path| crate::core_check::is_source(path))
+                        && let Some(baseline) = continuity
+                            .core_checks
+                            .lock()
+                            .ok()
+                            .and_then(|checks| checks.baseline(source))
+                        && let Some(outcome) =
+                            crate::core_check::after(&policy, source, &baseline).await
+                    {
+                        store
+                            .append(
+                                Some(conversation_id),
+                                "core_check.result",
+                                outcome.record(source),
+                            )
+                            .map_err(|e| e.to_string())?;
+                        if let Some(tests) = outcome.confirmed
+                            && let Ok(mut confirmation) = continuity.confirmation.lock()
+                        {
+                            confirmation.passed(&outcome.command, tests, &[]);
+                        }
+                        if let Some(object) = value.as_object_mut() {
+                            object.insert(
+                                "core_check".into(),
+                                serde_json::Value::String(outcome.note),
+                            );
                         }
                     }
                     // A call for tests that ran to its end and executed none

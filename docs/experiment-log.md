@@ -1415,3 +1415,25 @@ Also from these runs: the closing answer is now the fuller of what the
 model wrote and its `complete` rationale; why a goal is not verified is
 said once in the no-checks case too. None of this has been run with a
 model yet.
+
+### 2026-10-13: the tests related to a changed file, run by the core (W2.21)
+
+Four runs on one SWE-bench instance in one day, three with adapted models
+and one of those with the notes on test calls: the valid patch written within
+two minutes each time, and no run ended with a verification. In the last the
+note named `tests/forms_tests/` and the model ran it as written: 613 tests,
+six of them failing to load, because Django's runner takes `forms_tests`.
+The model could not tell those six from its own and re-read one file nine
+times to the time limit.
+
+Counted on sixty earlier runs of the unadapted model: 499 of 899 minutes
+after the source's last change, 69% of the time in the resolved ones.
+
+So the core runs the related tests itself, before a file's first change and
+after each one, in the runner's own form, and says with the edit's result
+only what the change did (`goal_aids.core_check`, off unless asked for).
+Replayed on the 43 distinct patches of those runs, on fresh checkouts and
+without a model: clean on all 40 resolved runs' patches, new failures on 4 of
+20 unresolved ones, 3.7 seconds at the median. Not run with a model yet: the
+time it saves is an upper bound from recorded runs, not a measurement.
+

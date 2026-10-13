@@ -242,6 +242,21 @@ verification, no second turn.
    current plan at the end of what it sends before every generation — or that
    there is none yet. The plan is in what is sent, never in the conversation
    that is kept; PWR does not mark steps or check them. Not measured.
+   **Related tests run by the core (HYPOTHESIS, off by default; plan
+   W2.21).** With `"goal_aids": {"core_check": true}`, before a goal's turn
+   first changes a Python source file the core chooses the tests related to
+   it (`core_check::related_tests`: the file's package and name, then the name
+   alone in a flat test tree, then the package where it names one test
+   folder), writes the selection as the project's runner takes it (a dotted
+   label for a `runtests.py`, the path for pytest) and runs it; after each
+   change to that file it runs the same command again. The edit's result
+   carries the comparison: how many ran and failed before and after, the
+   tests that fail now and passed before by name, and that the others were
+   failing already. All of them passing is the confirmation `accept_stop`
+   reads. It never says the request is met, and where no test resembles the
+   file, or the workspace has no Python of its own, it says nothing. One run
+   is bounded at 45 seconds. Replayed without a model on recorded patches
+   (plan item); not yet run with one.
 2. After each turn:
    - a declined or stopped turn (other than *budget spent*) ends the goal;
    - a turn with no actions and no completion counts as idle; three idle

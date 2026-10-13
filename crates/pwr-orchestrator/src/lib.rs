@@ -7,6 +7,7 @@ pub mod confirmation;
 pub mod context;
 pub mod conversation;
 pub mod converse;
+pub mod core_check;
 pub mod evidence;
 pub mod executor;
 pub mod graph;

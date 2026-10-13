@@ -46,7 +46,7 @@ words are defined in [MASTER_SPEC](../MASTER_SPEC.md#evidence-vocabulary).
 | Prefill progress shown while a first word is awaited | KEEP | IMPLEMENTED 2026-10-01 | `_pwr/model_progress`, `conversation.ts` | W5.5 |
 | Stack-matrix runner with hidden tests, verified in Docker; `watch.py` to follow a run | KEEP (research) | IMPLEMENTED | `evidence/stack-matrix/` | W8 |
 | Verified proposals | EXPERIMENTAL | IMPLEMENTED; profile-on only for Ornith 1.5 9B; mixed limited product-path results | `proposals.rs`, `executor.rs`, `strategies/models.json` | W2.9 |
-| Optional model-work budget and Goal aids | EXPERIMENTAL | IMPLEMENTED; work limit only when set; pointers/core tools/block edits/plan/paced reasoning off by default, benefits unmeasured | `GoalLimits`, `GoalAids`, `converse.rs` | W2.10–W2.15 |
+| Optional model-work budget and Goal aids | EXPERIMENTAL | IMPLEMENTED; work limit only when set; pointers/core tools/block edits/plan/paced reasoning and related tests run by the core (`core_check`) off by default, benefits unmeasured | `GoalLimits`, `GoalAids`, `converse.rs`, `core_check.rs` | W2.10–W2.15, W2.21 |
 | Page steps and screenshot in chat | EXPERIMENTAL | IMPLEMENTED; up to 12 DOM steps, local-server form/selection/scroll support; framing and synthetic-event limits | `look_at_after`, `serve.rs`, desktop trace | W2.17 |
 | Repeated-repair notice | EXPERIMENTAL | IMPLEMENTED; advisory after three change/failure cycles, task effect unmeasured | `repetition::StillFailing` | W2.16 |
 | MLX free-buffer cache cap | KEEP | IMPLEMENTED; 2 GiB default, separate from active weights/KV; long-run effect unmeasured | `pwr_mlx.py`, `PWR_MLX_CACHE_GB` | Runtime diagnosis |

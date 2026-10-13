@@ -260,13 +260,13 @@ fn selection(source: &str) -> Option<(Option<String>, String)> {
     None
 }
 
-pub fn candidates(root: &Path) -> Result<Vec<Candidate>, String> {
-    let Some(python) = interpreters(root).into_iter().next() else {
-        return Ok(Vec::new());
-    };
+/// The workspace's own Python: what a command names it by, and the
+/// interpreter's path. The bare name only where PWR's own path for the
+/// workspace's tools resolves it to exactly that interpreter.
+pub fn python(root: &Path) -> Option<(String, String)> {
+    let python = interpreters(root).into_iter().next()?;
     let name = Path::new(&python)
-        .file_name()
-        .ok_or("interpreter has no name")?
+        .file_name()?
         .to_string_lossy()
         .into_owned();
     let resolved = pwr_tools::toolchain_paths(root)
@@ -277,6 +277,37 @@ pub fn candidates(root: &Path) -> Result<Vec<Candidate>, String> {
         name
     } else {
         python.clone()
+    };
+    Some((executable, python))
+}
+
+/// The project's own test runner script, where it has one.
+pub fn runner(root: &Path) -> Option<&'static str> {
+    [
+        "runtests.py",
+        "run_tests.py",
+        "tests/runtests.py",
+        "tests/run_tests.py",
+        "test/runtests.py",
+        "test/run_tests.py",
+    ]
+    .into_iter()
+    .find(|p| root.join(p).is_file())
+}
+
+/// Whether the project is configured for pytest.
+pub fn uses_pytest(root: &Path) -> bool {
+    root.join("pytest.ini").is_file()
+        || root.join("conftest.py").is_file()
+        || ["pyproject.toml", "setup.cfg"].iter().any(|p| {
+            std::fs::read_to_string(root.join(p))
+                .is_ok_and(|s| s.contains("[tool.pytest") || s.contains("[tool:pytest]"))
+        })
+}
+
+pub fn candidates(root: &Path) -> Result<Vec<Candidate>, String> {
+    let Some((executable, python)) = python(root) else {
+        return Ok(Vec::new());
     };
     let mut tests = Vec::new();
     for name in test_files(root)? {
@@ -301,22 +332,8 @@ pub fn candidates(root: &Path) -> Result<Vec<Candidate>, String> {
         }
     }
     tests.sort();
-    let runner = [
-        "runtests.py",
-        "run_tests.py",
-        "tests/runtests.py",
-        "tests/run_tests.py",
-        "test/runtests.py",
-        "test/run_tests.py",
-    ]
-    .into_iter()
-    .find(|p| root.join(p).is_file());
-    let pytest = root.join("pytest.ini").is_file()
-        || root.join("conftest.py").is_file()
-        || ["pyproject.toml", "setup.cfg"].iter().any(|p| {
-            std::fs::read_to_string(root.join(p))
-                .is_ok_and(|s| s.contains("[tool.pytest") || s.contains("[tool:pytest]"))
-        });
+    let runner = runner(root);
+    let pytest = uses_pytest(root);
     let mut found = Vec::new();
     for (_, file, class, test) in tests.into_iter().take(2) {
         if let Some(runner) = runner {

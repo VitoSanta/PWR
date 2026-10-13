@@ -4938,6 +4938,156 @@ fn what_the_tests_confirmed_is_kept_without_being_said() {
     assert_eq!(continuity.confirmation.lock().unwrap().standing(), None);
 }
 
+/// A Python project whose one related test passes until the source says
+/// `broken`: a source file, a test file named after it, pytest's
+/// configuration and a Python of the workspace's own.
+fn checked_project(root: &std::path::Path) {
+    for folder in ["pkg", "tests", ".toolchains/fixture/bin"] {
+        std::fs::create_dir_all(root.join(folder)).unwrap();
+    }
+    std::fs::write(root.join("pkg/http.py"), "VALUE = 1\n").unwrap();
+    std::fs::write(
+        root.join("tests/test_http.py"),
+        "def test_value():\n    pass\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("pytest.ini"), "[pytest]\n").unwrap();
+    let python = root.join(".toolchains/fixture/bin/python");
+    std::fs::write(
+        &python,
+        "#!/bin/sh\nif grep -q broken pkg/http.py; then\n\
+         printf 'FAILED tests/test_http.py::test_value - AssertionError\\n1 failed in 0.01s\\n'\n\
+         exit 1\nfi\nprintf '1 passed in 0.01s\\n'\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+fn changes_http(from: &str, to: &str) -> ModelChunk {
+    calls(
+        "replace_text",
+        serde_json::json!({"path": "pkg/http.py",
+            "expected_hash": pwr_domain::hash_bytes(format!("{from}\n").as_bytes()),
+            "find": from, "replace": to}),
+    )
+}
+
+/// The whole of it, through the same turn the product takes: the tests
+/// related to a source file are run by the core before its first change and
+/// after each one, and the edit's result says what the change did to them --
+/// nothing newly failing after the first, the test the second one broke by
+/// its name after the second.
+#[test]
+fn a_change_to_a_source_file_is_told_what_it_did_to_its_tests() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    checked_project(root);
+    let continuity = converse::Continuity {
+        core_check: true,
+        ..Default::default()
+    };
+    let outcome = context_turn(
+        root,
+        Scripted::new(vec![
+            changes_http("VALUE = 1", "VALUE = 2"),
+            changes_http("VALUE = 2", "VALUE = 2  # broken"),
+            says("Done."),
+        ]),
+        opening("Change it."),
+        32_768,
+        continuity.clone(),
+    );
+    assert_eq!(outcome.report.actions, 2, "{:?}", outcome.steps);
+    let told = |request: usize| {
+        outcome.requests[request]
+            .messages
+            .last()
+            .unwrap()
+            .content
+            .clone()
+    };
+    let clean = told(1);
+    assert!(clean.contains("core_check"), "{clean}");
+    assert!(clean.contains("No test newly fails"), "{clean}");
+    assert!(clean.contains("pytest"), "{clean}");
+    assert!(clean.contains("tests/test_http.py"), "{clean}");
+    let broken = told(2);
+    assert!(broken.contains("Newly failing"), "{broken}");
+    assert!(
+        broken.contains("tests/test_http.py::test_value"),
+        "{broken}"
+    );
+    // One baseline for the file, a comparison after each change.
+    let count = |kind: &str| {
+        outcome
+            .events
+            .iter()
+            .filter(|event| event.event_type == kind)
+            .count()
+    };
+    assert_eq!(count("core_check.baseline"), 1);
+    assert_eq!(count("core_check.result"), 2);
+    // Tests the change broke confirm nothing.
+    assert_eq!(continuity.confirmation.lock().unwrap().standing(), None);
+}
+
+/// Related tests all passing after a change are the confirmation of the
+/// source as it stands: what a goal's `accept_stop` reads.
+#[test]
+fn related_tests_passing_after_a_change_stand_as_its_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    checked_project(root);
+    let continuity = converse::Continuity {
+        core_check: true,
+        ..Default::default()
+    };
+    context_turn(
+        root,
+        Scripted::new(vec![changes_http("VALUE = 1", "VALUE = 2"), says("Done.")]),
+        opening("Change it."),
+        32_768,
+        continuity.clone(),
+    );
+    let standing = continuity.confirmation.lock().unwrap().standing();
+    assert!(
+        standing
+            .as_deref()
+            .is_some_and(|said| said.contains("ran 1 of the project's tests")),
+        "{standing:?}"
+    );
+}
+
+/// Unless the goal asks for it the core runs nothing of its own: the edit
+/// gets its result and no more, and nothing stands confirmed.
+#[test]
+fn the_core_checks_no_related_tests_unless_the_goal_asks() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    checked_project(root);
+    let continuity = converse::Continuity::default();
+    let outcome = context_turn(
+        root,
+        Scripted::new(vec![changes_http("VALUE = 1", "VALUE = 2"), says("Done.")]),
+        opening("Change it."),
+        32_768,
+        continuity.clone(),
+    );
+    let told = &outcome.requests[1].messages.last().unwrap().content;
+    assert!(!told.contains("core_check"), "{told}");
+    assert!(
+        outcome
+            .events
+            .iter()
+            .all(|event| !event.event_type.starts_with("core_check")),
+    );
+    assert_eq!(continuity.confirmation.lock().unwrap().standing(), None);
+}
+
 /// The minimal control is told nothing of the kind: it is the harness with
 /// its aids removed.
 #[test]

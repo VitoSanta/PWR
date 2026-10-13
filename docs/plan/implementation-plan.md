@@ -409,6 +409,47 @@ itself cannot start, and telling the model which passing tests its change
 broke; a place for the model's trial files that is not the workspace;
 removing a downloaded model from the app.
 
+### W2.21 The tests related to a changed file, run by the core
+
+**EXPERIMENTAL (2026-10-13): implemented behind `goal_aids.core_check`, off by
+default; replayed without a model, not yet run with one.** Advances the open
+item of W2.20, "telling the model which passing tests its change broke".
+
+- **Problem.** On sixty recorded runs (Qwen 3.5 9B, three SWE-bench
+  instances, four settings of the aids) 499 of 899 minutes came after the
+  source had reached its final state; in the forty resolved runs 69%, with
+  the source final at a median of 2.3 minutes. Four further runs on one
+  instance on 2026-10-13, three with adapted models, wrote the valid patch
+  within two minutes and none ended with a verification: the model did not
+  find the project's tests, wrote their selection as a path where the runner
+  takes a label, and could not tell six failures that were there before its
+  change from its own.
+- **Change.** Before a goal's turn first changes a Python source file the
+  core runs the tests related to it, and again after each change
+  (`core_check.rs`, hooked where an action is performed in
+  `converse::take_turn`). The selection is written for the project's runner
+  with the rule `test_recipe` already had. The edit's result says which tests
+  fail now and passed before; all passing is recorded as the confirmation
+  `accept_stop` reads. Events `core_check.baseline` and `core_check.result`.
+- **Without a model.** The 43 distinct patches of those runs applied to
+  fresh checkouts: no new failure on any of the 40 resolved runs' patches,
+  new failures on 4 of the 20 unresolved ones (existing date-parsing tests
+  the change broke), 3.7 seconds a check at the median. The rule's first
+  version chose the model fields' tests for the forms' fields; it was
+  corrected from file listings before any test was run.
+- **Limits.** Python only, with a `runtests.py` or pytest. The rule was
+  shaped on Django and Sphinx. Tests that exist passing are not the request
+  being met; the note says so and "verified" keeps its meaning. One run of
+  the tests is bounded at 45 seconds and the one after a change is not cut
+  short by Stop.
+- **Tests.** `core_check::tests` (the rule, the runner's form, the report,
+  the comparison, before and after through a workspace's own Python);
+  `two_loops::a_change_to_a_source_file_is_told_what_it_did_to_its_tests`,
+  `related_tests_passing_after_a_change_stand_as_its_confirmation`,
+  `the_core_checks_no_related_tests_unless_the_goal_asks`.
+- **To measure.** `accept_stop` against `accept_stop` with `core_check`, three
+  instances, three rounds an arm, criteria fixed beforehand.
+
 ## How to read this plan
 
 Each work item has an ID (`W<stream>.<n>`), a status, and these parts:

@@ -817,6 +817,11 @@ pub struct GoalAids {
     /// which test paths resemble the name it gave, and which command did run
     /// the tests earlier in the session ([`crate::test_calls`]; H2).
     pub test_call_notes: bool,
+    /// Run the tests related to a source file before and after the model
+    /// changes it, say with the edit's result which of them the change
+    /// broke, and take all of them passing as the confirmation `accept_stop`
+    /// reads ([`crate::core_check`]).
+    pub core_check: bool,
 }
 
 /// How a request is run: one turn, or turns repeated until the work is
@@ -1028,6 +1033,7 @@ async fn drive<H: SessionHost + ?Sized>(
     continuity.paced_reasoning = aids.paced_reasoning && policy == Policy::Goal;
     continuity.confirmation_notes = aids.confirmation_notes && policy == Policy::Goal;
     continuity.test_call_notes = aids.test_call_notes && policy == Policy::Goal;
+    continuity.core_check = aids.core_check && policy == Policy::Goal;
     let goal_mode = policy == Policy::Goal;
     let minimal = policy == Policy::Minimal;
     // The control spends the same budget a goal would, so the two arms of a
@@ -2185,6 +2191,9 @@ mod tests {
             GoalAids::default()
         );
         assert!(!GoalAids::default().test_call_notes);
+        let checked: GoalAids = serde_json::from_str(r#"{"core_check": true}"#).unwrap();
+        assert!(checked.core_check && !checked.accept_stop);
+        assert!(!GoalAids::default().core_check);
         assert!(serde_json::from_str::<GoalAids>(r#"{"test_notes": true}"#).is_err());
     }
 
