@@ -138,6 +138,14 @@ CHECKPOINT = os.environ.get("PWR_MLX_CHECKPOINT", "whole")
 SCORES_MB = os.environ.get("PWR_MLX_SCORES_MB")
 BUDGET_SCORE_BYTES = 3
 SCORES_FLOOR_BYTES = 512 * 1024**2
+# Bits the full-attention layers keep their keys and values at, 8 or 4, in
+# place of the activations' 16: MLX's quantized cache, in groups of
+# `KV_GROUP`. Weighed 2026-10-13 on Bonsai 27B, 53% and 28% of the bytes; on
+# Qwen3.5 9B at 41k tokens it read and wrote within a tenth of the plain
+# cache's speed. What it costs a model in what it finds far back is measured
+# per model, not assumed. Unset, the cache is as the model builds it.
+KV_BITS = os.environ.get("PWR_MLX_KV_BITS")
+KV_GROUP = 64
 # A generation that keeps writing the same passage is stopped rather than left
 # to run to its cap. Seen 2026-09-18: after a reasoning budget closed the think
 # block, Qwen3.6 continued reasoning in the answer and wrote one code block
@@ -623,6 +631,30 @@ def score_budget() -> int:
     return budget
 
 
+def kv_bits(head_dim: int):
+    """The bits asked for, where the cache can be held at them."""
+    bits = int(KV_BITS) if KV_BITS in ("4", "8") else None
+    return bits if bits and head_dim % KV_GROUP == 0 else None
+
+
+def cache_per_mille(head_dim: int, bits: int) -> int:
+    """What a quantized key or value weighs against its 16-bit one, in
+    thousandths, rounded up: its packed bits and, for every group, a scale and
+    a bias in the activations' two bytes."""
+    plain = head_dim * 2
+    held = head_dim * bits // 8 + 2 * (head_dim // KV_GROUP) * 2
+    return -(-held * 1000 // plain)
+
+
+def quantized(cache, bits):
+    """The cache with its appending KV layers held at `bits`."""
+    if not bits:
+        return cache
+    return [c.to_quantized(group_size=KV_GROUP, bits=bits)
+            if type(c).__name__ == "KVCache" and callable(getattr(c, "to_quantized", None)) else c
+            for c in cache]
+
+
 class Offset(int):
     """Where a layer that is cut back, not copied, stood when a copy was taken."""
 
@@ -630,9 +662,10 @@ class Offset(int):
 def appends_only(layer) -> bool:
     """Whether a layer's cache only ever writes past its offset, so cutting
     the offset back to where it stood gives back what was there: mlx-lm's and
-    mlx-vlm's `KVCache`. Judged by kind, and narrowly: a sliding-window cache
+    mlx-vlm's `KVCache` and its quantized kind. Judged by kind, and narrowly: a sliding-window cache
     rewrites its ring, and a kind not listed here is copied as before."""
-    return (type(layer).__name__ == "KVCache" and isinstance(getattr(layer, "offset", None), int)
+    return (type(layer).__name__ in ("KVCache", "QuantizedKVCache")
+            and isinstance(getattr(layer, "offset", None), int)
             and callable(getattr(layer, "trim", None)))
 
 
@@ -885,6 +918,7 @@ class Engine:
         head_dim = int(text.get("head_dim") or text["hidden_size"] // self.heads)
         self.score_budget = score_budget()
         self.fused = fused_attention(head_dim)
+        self.kv_bits = kv_bits(head_dim)
         weights = sum(p.stat().st_size for p in path.glob("*.safetensors"))
         return {
             "event": "loaded",
@@ -990,6 +1024,9 @@ class Engine:
         progress(len(tokens), len(tokens))
         mx.clear_cache()
 
+    def fresh_cache(self):
+        return quantized(make_prompt_cache(self.model), getattr(self, "kv_bits", None))
+
     def settle(self, prompt_length: int) -> None:
         """After a generation, a cache that can be cut back keeps only the
         prompt: what was generated is sent back as history, rendered by the
@@ -1022,7 +1059,7 @@ class Engine:
             if reused:
                 trim_prompt_cache(self.cache, self.cache[0].offset - reused)
             else:
-                self.cache = make_prompt_cache(self.model)
+                self.cache = self.fresh_cache()
         elif self.checkpoint is not None and base[:len(self.checkpoint_tokens)] == self.checkpoint_tokens:
             self.observe("restore", prompt_tokens=len(base))
             try:
@@ -1030,7 +1067,7 @@ class Engine:
                 reused = len(self.checkpoint_tokens)
             except ValueError:
                 # A copy the cache cannot be put back to: start from nothing.
-                self.cache = make_prompt_cache(self.model)
+                self.cache = self.fresh_cache()
                 self.checkpoint = None
         else:
             if TRACE and self.checkpoint_tokens:
@@ -1042,7 +1079,7 @@ class Engine:
                        "prompt_tokens": len(base),
                        "was": decode(self.checkpoint_tokens[max(0, at - 40):at + 80]),
                        "now": decode(base[max(0, at - 40):at + 80])})
-            self.cache = make_prompt_cache(self.model)
+            self.cache = self.fresh_cache()
             self.checkpoint = None
         # Qwen 3.5/3.6's linear-attention layers, and a model reading images,
         # cannot be cut back: for them the prompt's state is copied, to be
@@ -1351,11 +1388,14 @@ def main() -> None:
                 # computed before a model is loaded.
                 fused = fused_attention(int(request["head_dim"]))
                 held = score_budget() + (SCORES_FLOOR_BYTES if SCORES_MB else 0)
+                bits = kv_bits(int(request["head_dim"]))
                 emit({"id": ident, "event": "attention", "fused": fused,
                       "scores_bytes": 0 if fused else held,
                       # How the copy of a cache that cannot be cut back is
-                      # kept, for the window's account of memory.
-                      "checkpoint": CHECKPOINT})
+                      # kept, and what the cache weighs against its 16-bit
+                      # one, for the window's account of memory.
+                      "checkpoint": CHECKPOINT,
+                      "cache_per_mille": cache_per_mille(int(request["head_dim"]), bits) if bits else None})
             elif op == "load":
                 emit({"id": ident, **engine.load(request)})
             elif op == "chat":

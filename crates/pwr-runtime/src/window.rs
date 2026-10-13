@@ -75,6 +75,11 @@ pub struct ModelShape {
     /// layers that cannot be; `None` when the engine does not say. See `decide`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint_by_layer: Option<bool>,
+    /// What a prefill step holds for every token of context beside its
+    /// scores: two layers' keys and values at the activations' width,
+    /// whatever width the cache keeps them at. See `decide`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_bytes_per_token: Option<u64>,
     /// How far the family's published extension (YaRN) takes it past
     /// `trained_max`, when the config leaves it off; used only for a window
     /// the person chose longer than the trained length.
@@ -95,12 +100,15 @@ impl ModelShape {
         let trained_max = field("max_position_embeddings")
             .and_then(serde_json::Value::as_u64)
             .and_then(|n| u32::try_from(n).ok());
+        let cost = kv_cost(text, config);
         ModelShape {
             trained_max,
-            kv_bytes_per_token: kv_bytes_per_token(text, config),
+            kv_bytes_per_token: cost.map(|(per_token, _)| per_token),
             weights_bytes: None,
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: cost
+                .and_then(|(per_token, layers)| (layers > 0).then(|| 2 * per_token / layers)),
             extended_max: pwr_provider::rope_extension(config).map(|extension| extension.extended),
         }
     }
@@ -151,6 +159,7 @@ impl ModelShape {
             weights_bytes: None,
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             extended_max: None,
         }
     }
@@ -167,10 +176,18 @@ impl ModelShape {
         };
         ModelShape {
             trained_max: parsed.trained_max.or(facts.trained_max),
-            kv_bytes_per_token: parsed.kv_bytes_per_token,
+            // A cache the engine holds at fewer bits than the config's
+            // activations weighs that much less a token.
+            kv_bytes_per_token: parsed.kv_bytes_per_token.map(|plain| {
+                match facts.cache_per_mille {
+                    Some(per_mille) => (plain * u64::from(per_mille)).div_ceil(1000),
+                    None => plain,
+                }
+            }),
             weights_bytes: facts.weights_bytes,
             prefill_scores_bytes: facts.prefill_scores_bytes,
             checkpoint_by_layer: facts.checkpoint_by_layer,
+            step_bytes_per_token: parsed.step_bytes_per_token,
             extended_max: parsed.extended_max,
         }
     }
@@ -182,6 +199,7 @@ impl ModelShape {
             weights_bytes: None,
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             extended_max: None,
         }
     }
@@ -205,7 +223,8 @@ impl ModelShape {
 /// at 163,840 bytes a token against the 81,920 its cache holds -- half the
 /// window this machine can give it. Layers that reuse an earlier layer's
 /// cache (`num_kv_shared_layers`) keep none of their own.
-fn kv_bytes_per_token(text: &serde_json::Value, config: &serde_json::Value) -> Option<u64> {
+/// The bytes a token of context costs, and the layers that share them.
+fn kv_cost(text: &serde_json::Value, config: &serde_json::Value) -> Option<(u64, u64)> {
     let get = |name: &str| {
         text.get(name)
             .or_else(|| config.get(name))
@@ -218,7 +237,7 @@ fn kv_bytes_per_token(text: &serde_json::Value, config: &serde_json::Value) -> O
     // key and a value per head. Read as ordinary heads, GLM-4.7-Flash came out
     // at 383,520 bytes a token against the 54,144 its cache holds.
     if let (Some(rank), Some(rope)) = (get("kv_lora_rank"), get("qk_rope_head_dim")) {
-        return Some(layers * (rank + rope) * element);
+        return Some((layers * (rank + rope) * element, layers));
     }
     let heads = get("num_attention_heads");
     let kv_heads = get("num_key_value_heads").or(heads)?;
@@ -251,7 +270,10 @@ fn kv_bytes_per_token(text: &serde_json::Value, config: &serde_json::Value) -> O
             _ => caching,
         },
     };
-    Some(growing_layers * full_kv_heads * full_head_dim * 2 * element)
+    Some((
+        growing_layers * full_kv_heads * full_head_dim * 2 * element,
+        growing_layers,
+    ))
 }
 
 fn cache_element_bytes(text: &serde_json::Value) -> Option<u64> {
@@ -402,11 +424,15 @@ pub fn decide(
                 // whole copy stood at 2.78 and at 5.55 three turns later. A
                 // step also holds, beside its scores, a part that grows with
                 // the context -- about 6 KB a token at 17k, 42k and 126k, a
-                // fifth of that model's cache -- so a token is counted at a
-                // quarter more than it keeps: at 126,136 tokens the peak was
-                // 6.20 GB beyond the weights against 6.78 counted this way.
+                // layer and a half of that model's keys and values -- so a
+                // token is counted with two layers' worth beside what it
+                // keeps: at 126,136 tokens the peak was 6.20 GB beyond the
+                // weights against 6.78 counted this way. That part stays at
+                // the activations' width when the cache is held at fewer bits
+                // (measured at 8 and 4: a step held as much).
                 Some(scores) if shape.checkpoint_by_layer == Some(true) && scores > 0 => {
-                    room.saturating_sub(scores) / (per_token + per_token / 4)
+                    let step = shape.step_bytes_per_token.unwrap_or(per_token / 4);
+                    room.saturating_sub(scores) / (per_token + step)
                 }
                 Some(scores) => {
                     let with_copy = room / (2 * per_token);
@@ -707,6 +733,7 @@ mod tests {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(64 * GIB);
@@ -725,6 +752,7 @@ mod tests {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(32 * GIB);
@@ -744,6 +772,7 @@ mod tests {
             weights_bytes: Some(40 * GB),
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(32 * GIB);
@@ -768,6 +797,7 @@ mod tests {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(64 * GIB);
@@ -800,6 +830,7 @@ mod tests {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(32 * GIB);
@@ -821,6 +852,7 @@ mod tests {
             weights_bytes: Some(20_430 * 1_000_000),
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             ..ModelShape::from_config(&qwen36())
         };
         let host = HostBudget::with_default_reserve(64 * GIB);
@@ -918,6 +950,7 @@ mod tests {
             weights_bytes: Some(20_337_267_064),
             prefill_scores_bytes: Some(0),
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             extended_max: None,
         };
         let decision = decide(&seed, Some(&host), None, None).unwrap();
@@ -941,6 +974,7 @@ mod tests {
             weights_bytes: Some(20_402_204_271),
             prefill_scores_bytes: Some(41_747_087_360 / 4),
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             extended_max: None,
         };
         let decision = decide(&qwen, Some(&host), None, None).unwrap();
@@ -964,6 +998,7 @@ mod tests {
             weights_bytes: Some(20_337_267_064),
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            step_bytes_per_token: None,
             extended_max: None,
         };
         let decision = decide(&seed, Some(&host), None, None).unwrap();
@@ -982,12 +1017,14 @@ mod tests {
             weights_bytes: Some(5_129_115_752),
             prefill_scores_bytes: Some(GIB + GIB / 2),
             checkpoint_by_layer: Some(false),
+            step_bytes_per_token: None,
             extended_max: None,
         };
         let decision = decide(&whole, Some(&host), None, None).unwrap();
         assert_eq!(decision.tokens, 91_136);
         let by_layer = ModelShape {
             checkpoint_by_layer: Some(true),
+            step_bytes_per_token: None,
             ..whole
         };
         let decision = decide(&by_layer, Some(&host), None, None).unwrap();
@@ -1002,6 +1039,37 @@ mod tests {
         };
         let decision = decide(&fused, Some(&host), None, None).unwrap();
         assert_eq!(decision.tokens, 91_136);
+    }
+
+    /// Qwen3.5 9B on a 24 GiB host with its cache at 4 bits: what it keeps
+    /// weighs 282 thousandths, what a step holds is still two layers at 16.
+    #[test]
+    fn a_cache_held_at_fewer_bits_weighs_less_but_a_step_holds_as_much() {
+        let config = serde_json::json!({
+            "text_config": {
+                "num_hidden_layers": 32, "num_attention_heads": 16, "num_key_value_heads": 4,
+                "head_dim": 256, "max_position_embeddings": 262144, "full_attention_interval": 4,
+            }
+        });
+        let facts = |per_mille| pwr_provider::ModelFacts {
+            hf_config: Some(config.clone()),
+            weights_bytes: Some(5_950_221_072),
+            prefill_scores_bytes: Some(GIB + GIB / 2),
+            checkpoint_by_layer: Some(true),
+            cache_per_mille: per_mille,
+            ..Default::default()
+        };
+        let plain = ModelShape::from_facts(&facts(None));
+        assert_eq!(plain.kv_bytes_per_token, Some(32_768));
+        assert_eq!(plain.step_bytes_per_token, Some(8_192));
+        let held = ModelShape::from_facts(&facts(Some(282)));
+        assert_eq!(held.kv_bytes_per_token, Some(9_241));
+        assert_eq!(held.step_bytes_per_token, Some(8_192));
+        let host = HostBudget::with_default_reserve(16 * GIB);
+        let room = 8 * GIB - 5_950_221_072 - (GIB + GIB / 2);
+        let tokens = |shape: &ModelShape| decide(shape, Some(&host), None, None).unwrap().tokens;
+        assert_eq!(u64::from(tokens(&plain)), room / 40_960 / 1024 * 1024);
+        assert_eq!(u64::from(tokens(&held)), room / (9_241 + 8_192) / 1024 * 1024);
     }
 
     #[test]

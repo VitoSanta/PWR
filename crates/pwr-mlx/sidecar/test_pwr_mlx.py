@@ -550,6 +550,52 @@ class ScoreBudget(unittest.TestCase):
         self.assertEqual(engine.prefill_step(200_000), 96)
 
 
+class FewerBits(unittest.TestCase):
+    """Asked for, the layers that append keep keys and values at 8 or 4 bits."""
+
+    def setUp(self):
+        import pwr_mlx
+        self.module = pwr_mlx
+        was = pwr_mlx.KV_BITS
+        self.addCleanup(lambda: setattr(pwr_mlx, "KV_BITS", was))
+
+    def test_only_8_and_4_are_bits_and_only_where_the_head_divides_into_groups(self):
+        module = self.module
+        module.KV_BITS = None
+        self.assertIsNone(module.kv_bits(256))
+        module.KV_BITS = "8"
+        self.assertEqual(module.kv_bits(256), 8)
+        self.assertIsNone(module.kv_bits(96))
+        module.KV_BITS = "3"
+        self.assertIsNone(module.kv_bits(256))
+
+    def test_what_the_cache_weighs_is_told_in_thousandths(self):
+        # 256 values: 256 or 128 bytes packed, and four groups' scale and bias.
+        self.assertEqual(self.module.cache_per_mille(256, 8), 532)
+        self.assertEqual(self.module.cache_per_mille(256, 4), 282)
+
+    def test_only_the_appending_layers_are_held_at_fewer_bits(self):
+        class KVCache:
+            def to_quantized(self, group_size, bits):
+                return ("quantized", group_size, bits)
+
+        class ArraysCache:
+            pass
+
+        fixed, grows = ArraysCache(), KVCache()
+        self.assertEqual(self.module.quantized([fixed, grows], None), [fixed, grows])
+        self.assertEqual(self.module.quantized([fixed, grows], 4), [fixed, ("quantized", 64, 4)])
+
+    def test_a_quantized_layer_is_cut_back_not_copied(self):
+        class QuantizedKVCache:
+            offset = 3
+
+            def trim(self, n):
+                return n
+
+        self.assertTrue(self.module.appends_only(QuantizedKVCache()))
+
+
 class StableHistory(unittest.TestCase):
     """D.E2E-21: a user message must not re-render the history before it."""
 

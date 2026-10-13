@@ -48,6 +48,10 @@ pub struct ModelFacts {
     /// layers that cannot be: the context is then held once between
     /// generations, not twice. `None` when the backend does not say.
     pub checkpoint_by_layer: Option<bool>,
+    /// What the engine's cache weighs against the 16-bit one the config
+    /// describes, in thousandths, when it holds keys and values at fewer
+    /// bits. `None` when it holds them as the model builds them.
+    pub cache_per_mille: Option<u16>,
     /// Where the facts came from, for the artifact that records the window.
     pub source: String,
 }

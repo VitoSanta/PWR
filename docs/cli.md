@@ -71,6 +71,7 @@ Slash commands inside `pwr chat` and the app: `/changes`, `/verify`,
 | `PWR_MLX_CACHE_GB` | MLX free-buffer cache limit in GiB (2 by default); not a total-RAM, weight or KV-cache limit |
 | `PWR_MLX_CHECKPOINT` | `layers`: of a cache that cannot be cut back, copy only the layers that cannot be (the context is held once, not twice); `whole` by default ([inference.md](inference.md)) |
 | `PWR_MLX_SCORES_MB` | The most a prefill step may hold in attention scores, in MB, where attention is not fused; unset, a quarter of the largest Metal buffer |
+| `PWR_MLX_KV_BITS` | `8` or `4`: keep the full-attention layers' keys and values at that many bits (53% and 28% of the context cache's bytes); unset, as the model builds them |
 | `PWR_MLX_TRACE` | Engine request tracing: every request's last messages and the model's raw output, appended as JSON lines (holds model text; never published) |
 | `PWR_EMBED_MODEL`, `PWR_EMBED_POOLING` | The embedding model and pooling for semantic retrieval |
 | `PWR_HARNESS_REV` | The harness revision a campaign records (declared by the runner) |

@@ -268,6 +268,7 @@ pub fn estimate(capacity: &Capacity, model: &Footprint) -> FitEstimate {
         // reports nothing, and the conservative transient rule applies.
         prefill_scores_bytes: (model.format == Format::Mlx).then_some(0),
         checkpoint_by_layer: None,
+        step_bytes_per_token: None,
         // A rating is for the model as published: its trained length, never
         // an extension a person may choose later.
         extended_max: None,

@@ -58,6 +58,21 @@ engine tells the window so (`attention` answers `checkpoint` and the bounded
 token for the part of a step that grows with the context. Unmeasured: other
 model families, contexts past 126k tokens, machines smaller than 64 GB.
 
+A third switch, also off unless asked for: `PWR_MLX_KV_BITS=8` or `4` keeps
+the full-attention layers' keys and values in MLX's quantized cache (groups of
+64; head dimensions that 64 divides). The engine tells the window what the
+cache then weighs (`cache_per_mille`: 532 and 282 for a 256-wide head) and the
+window counts a token at that, with two layers' keys and values at the
+activations' width beside it for what a prefill step holds, which does not
+shrink. Measured on Qwen3.5 9B through the sidecar: at 40,604 tokens 0.82 GB
+(8 bits) and 0.48 GB (4 bits) beyond the weights against 1.44; at 126,350
+tokens 2.42 and 1.33 against 4.42; a cold read 4-7% slower; the model's first
+choice of next token the same as with the plain cache at 99.2% and 97.2% of
+2,048 positions of source text after 40,960 tokens; ten facts scattered in a
+document all found at 41k and at 126k tokens, at 16, 8 and 4 bits alike. One
+model, one kind of text: what a cache at fewer bits costs a model at work is
+measured per model on tasks.
+
 On macOS the sidecar sets `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` **before importing
 MLX**, preserving an explicitly supplied value (including `0`). This is the
 [driver workaround adopted by llama.cpp](https://github.com/ggml-org/llama.cpp/pull/22216)

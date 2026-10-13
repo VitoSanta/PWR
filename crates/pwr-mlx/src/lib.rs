@@ -724,7 +724,7 @@ impl MlxProvider {
     async fn prefill_account(
         &self,
         config: &serde_json::Value,
-    ) -> Option<(Option<u64>, Option<bool>)> {
+    ) -> Option<(Option<u64>, Option<bool>, Option<u16>)> {
         let text = config.get("text_config").unwrap_or(config);
         // Latent attention attends over the latent: its width is the head.
         let head_dim = text["kv_lora_rank"]
@@ -748,6 +748,9 @@ impl MlxProvider {
             return Some((
                 event["scores_bytes"].as_u64(),
                 event["checkpoint"].as_str().map(|kind| kind == "layers"),
+                event["cache_per_mille"]
+                    .as_u64()
+                    .and_then(|per_mille| u16::try_from(per_mille).ok()),
             ));
         }
     }
@@ -1866,10 +1869,12 @@ impl InferenceBackend for MlxProvider {
             Some(config) => self.prefill_account(config).await,
             None => None,
         };
-        let (prefill_scores_bytes, checkpoint_by_layer) = account.unwrap_or((None, None));
+        let (prefill_scores_bytes, checkpoint_by_layer, cache_per_mille) =
+            account.unwrap_or((None, None, None));
         Ok(ModelFacts {
             prefill_scores_bytes,
             checkpoint_by_layer,
+            cache_per_mille,
             hf_config: config,
             gguf_metadata: None,
             trained_max,

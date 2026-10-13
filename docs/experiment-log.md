@@ -1485,3 +1485,21 @@ Not measured: Bonsai 27B reads at 95 tokens a second at 17k against the 9B's
 bits (53% and 28% of the bytes when weighed) is the next switch and its cost
 in quality and speed is unknown. Evidence: benchmark repository,
 `audits/motore-contesto-20261013` and `audits/prova-fasce-bonsai-20261013`.
+
+The cache at fewer bits, the same night. Weighed on Bonsai 27B, MLX's
+quantized cache is 53% of the bytes at 8 bits and 28% at 4. `PWR_MLX_KV_BITS`
+asks the engine for it. Qwen3.5 9B through the sidecar, with the layer copy
+and a 1 GiB bound on a step:
+
+| Cache | Beyond the weights at 40,604 tokens | at 126,350 | Cold read of 126k | Same first choice | Facts found at 41k, 126k |
+|---|---:|---:|---:|---:|---|
+| 16 bits | 1.44 GB | 4.42 GB | 536 s | -- | 10 of 10, 10 of 10 |
+| 8 bits | 0.82 GB | 2.42 GB | 573 s | 99.2% | 10 of 10, 10 of 10 |
+| 4 bits | 0.48 GB | 1.33 GB | 571 s | 97.2% | 10 of 10, 10 of 10 |
+
+What a prefill step holds did not shrink with the cache, so the window counts
+it apart, at the activations' width. The owner was downloading models while
+these ran; the times may carry that. A loader for Bonsai 2's rotated packs was
+begun and removed the same hour: the engine's mlx-vlm 0.7.2 already carries
+that model type, which I had not looked for before writing.
+

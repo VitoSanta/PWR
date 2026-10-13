@@ -818,6 +818,7 @@ impl InferenceBackend for LlamaProvider {
             // transient rule.
             prefill_scores_bytes: None,
             checkpoint_by_layer: None,
+            cache_per_mille: None,
             source: format!("gguf:{}", path.display()),
         })
     }
