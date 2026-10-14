@@ -526,7 +526,7 @@ impl ordered::Listing for HubCatalogue<'_> {
         let page = self
             .hub
             .search_page(
-                self.query,
+                catalog::GEMMA_SEARCH,
                 self.format,
                 &window,
                 cursor,
@@ -537,6 +537,7 @@ impl ordered::Listing for HubCatalogue<'_> {
             page.models
                 .into_iter()
                 .filter(catalog::is_language_model)
+                .filter(|model| catalog::is_wanted(model, self.query))
                 .collect(),
             page.next_cursor,
         ))
@@ -554,7 +555,7 @@ impl loader::Catalogue for HubCatalogue<'_> {
         let page = self
             .hub
             .search_page(
-                self.query,
+                catalog::GEMMA_SEARCH,
                 self.format,
                 self.filters,
                 cursor,
@@ -565,6 +566,7 @@ impl loader::Catalogue for HubCatalogue<'_> {
             page.models
                 .into_iter()
                 .filter(catalog::is_language_model)
+                .filter(|model| catalog::is_wanted(model, self.query))
                 .collect(),
             page.next_cursor,
         ))

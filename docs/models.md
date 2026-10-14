@@ -47,7 +47,7 @@ bare family or tag. Adding a profile requires updating the counts in
 
 ## Known issues of a family
 
-Said beside the model in the compatibility panel, whatever its status (a model that passes Quick Calibration is not thereby free of them): **Gemma 4** (12B, 26B and 31B) can fall into a loop that writes "thought" or its channel markers over and over on long prompts with many tools — reported upstream at full precision as well, so it is the weights and not the quantization, and no sampling setting removes it ([google-deepmind/gemma#622](https://github.com/google-deepmind/gemma/issues/622), [#727](https://github.com/google-deepmind/gemma/issues/727), [the 12B discussion](https://huggingface.co/google/gemma-4-12B-it/discussions/41): about 44–60 % of trials on agent prompts of 8,000–23,000 tokens). Measured in the app on 2026-10-01 (12B, 26B, 31B, prompts of 11,000–22,000 tokens): replies of `<|channel>thought` repeated, or of one sentence repeated, stopped by the engine's repetition guard. PWR retries (with a presence penalty after the first), compacts above 20,000 tokens and says so, but for a long agent task another model is more dependable.
+Said beside the model in the compatibility panel, whatever its status (a model that passes Quick Calibration is not thereby free of them): **Gemma 4** (12B, 26B and 31B) can fall into a loop that writes "thought" or its channel markers over and over on long prompts with many tools — reported upstream at full precision as well, so it is the weights and not the quantization, and no sampling setting removes it ([google-deepmind/gemma#622](https://github.com/google-deepmind/gemma/issues/622), [#727](https://github.com/google-deepmind/gemma/issues/727), [the 12B discussion](https://huggingface.co/google/gemma-4-12B-it/discussions/41): about 44–60 % of trials on agent prompts of 8,000–23,000 tokens). Measured in the app on 2026-10-01 (12B, 26B, 31B, prompts of 11,000–22,000 tokens): replies of `<|channel>thought` repeated, or of one sentence repeated, stopped by the engine's repetition guard. PWR retries (with a presence penalty after the first), compacts above 20,000 tokens and says so. Since 2026-10-14 PWR runs Gemma 4 only; the core changes made against Google's own description of the family, and their measurement, are in [inference.md](inference.md).
 
 ## Sampling
 
@@ -206,7 +206,10 @@ model reason as its template does, which is what every campaign before
 Opened from the model chip. Source: the Hugging Face Hub's JSON API only
 (`/api/models`, `/api/models/{repo}`, the tree at a revision, the resolved
 `config.json`); `PWR_HF_BASE_URL` points elsewhere; `HF_TOKEN` is sent for
-gated repositories. On a Mac the app shows MLX models only.
+gated repositories. On a Mac the app shows MLX models only, and since
+2026-10-14 Gemma 4 packs only: the Hub is searched for `gemma-4` and the words
+typed narrow the listing (`catalog::is_wanted`; the small "assistant" drafts
+are not offered as models).
 
 **Cards** show what the Hub reports (name, author, base model, parameters,
 architecture, context, licence, downloads, likes), each with its source;

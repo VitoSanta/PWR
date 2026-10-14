@@ -132,6 +132,22 @@ pub fn is_language_model(model: &HubModel) -> bool {
         .is_none_or(|tag| CONVERSATIONAL_PIPELINES.contains(&tag))
 }
 
+/// What the catalogue asks the Hub for: PWR runs Gemma 4 only, so the Hub is
+/// always searched for Gemma 4 packs, and the words the person typed narrow
+/// the listing (`is_wanted`).
+pub const GEMMA_SEARCH: &str = "gemma-4";
+
+/// Whether a listing is a Gemma 4 pack holding every word of `query`.
+pub fn is_wanted(model: &HubModel, query: &str) -> bool {
+    let name = model.repository.to_ascii_lowercase();
+    let gemma = name.contains("gemma-4") || name.contains("gemma4");
+    gemma
+        && !name.contains("assistant")
+        && query
+            .split_whitespace()
+            .all(|word| name.contains(&word.to_ascii_lowercase()))
+}
+
 /// Reads one entry of `/api/models` or `/api/models/{repo}`.
 pub fn parse_model(value: &Value) -> Option<HubModel> {
     let repository = value
@@ -580,5 +596,19 @@ mod named_tests {
             listed("r/tinystories-10m-mlx", 10_000_000).listed_parameters(),
             Some(10_000_000)
         );
+    }
+
+    #[test]
+    fn only_gemma_4_packs_are_offered_and_the_query_narrows_them() {
+        let listed = |repository: &str| HubModel {
+            repository: repository.into(),
+            ..Default::default()
+        };
+        let query = "26b";
+        assert!(is_wanted(&listed("mlx-community/gemma-4-26b-a4b-it-4bit"), query));
+        assert!(!is_wanted(&listed("mlx-community/gemma-4-12B-it-4bit"), query));
+        assert!(!is_wanted(&listed("mlx-community/Qwen3.6-27B-4bit"), ""));
+        assert!(!is_wanted(&listed("mlx-community/gemma-4-26B-A4B-it-assistant-bf16"), ""));
+        assert!(is_wanted(&listed("mlx-community/gemma-4-31b-it-8bit"), ""));
     }
 }

@@ -11622,14 +11622,10 @@ mod tests {
         .map_err(|error| error.context)
         .unwrap();
         let unset = serve::GoalLimits::default();
-        let ornith = "ornith-ai/Ornith-1.5-9B-MLX-4bit";
+        let gemma = "mlx-community/gemma-4-26b-a4b-it-4bit";
+        // Not measured on Gemma yet: nothing declared, so the phase stays off.
         assert_eq!(
-            goal_limits_for(unset, Some(ornith), &profiles).proposals,
-            Some(5)
-        );
-        // Measured not to help: nothing declared, so the phase stays off.
-        assert_eq!(
-            goal_limits_for(unset, Some("mlx-community/Qwen3.5-9B-MLX-4bit"), &profiles).proposals,
+            goal_limits_for(unset, Some(gemma), &profiles).proposals,
             None
         );
         assert_eq!(
@@ -11643,7 +11639,7 @@ mod tests {
             ..unset
         };
         assert_eq!(
-            goal_limits_for(off, Some(ornith), &profiles).proposals,
+            goal_limits_for(off, Some(gemma), &profiles).proposals,
             Some(0)
         );
         let more = serve::GoalLimits {
@@ -11651,7 +11647,7 @@ mod tests {
             ..unset
         };
         assert_eq!(
-            goal_limits_for(more, Some("mlx-community/Qwen3.5-9B-MLX-4bit"), &profiles).proposals,
+            goal_limits_for(more, Some(gemma), &profiles).proposals,
             Some(8)
         );
     }
@@ -13555,14 +13551,14 @@ mod tests {
         let profiles = load_model_profiles(Path::new(MODEL_PROFILE_FILE));
         std::env::set_current_dir(previous).unwrap();
         let profiles = profiles.unwrap_or_else(|error| panic!("{}", error.context));
-        let qwen = profiles
+        let gemma = profiles
             .iter()
-            .find(|profile| profile.model_selector == "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit")
-            .expect("the packaged registry has the Qwen3.6 MLX profile");
-        let task = pwr_orchestrator::TaskProfile::resolve(None, Some(qwen));
+            .find(|profile| profile.model_selector == "mlx-community/gemma-4-26b-a4b-it-4bit")
+            .expect("the packaged registry has the Gemma 4 26B profile");
+        let task = pwr_orchestrator::TaskProfile::resolve(None, Some(gemma));
         assert_eq!(
             task.sampling.get("temperature"),
-            Some(&serde_json::json!(0.6))
+            Some(&serde_json::json!(1.0))
         );
         assert_eq!(task.sampling.get("think"), Some(&serde_json::json!(false)));
     }
@@ -13855,24 +13851,6 @@ mod profile_tests {
     use super::*;
 
     #[test]
-    fn bonsai_uses_its_published_sampler_instead_of_greedy_fallback() {
-        let profiles = declared();
-        let profile = pwr_domain::ModelProfile::select(&profiles, "prism-ml/Bonsai-27B-mlx-1bit")
-            .expect("Bonsai profile");
-        let mut sampling = profile.sampling_options();
-        pwr_mlx::resolve_generation_sampling(&mut sampling, None).unwrap();
-        assert_eq!(sampling["temperature"], serde_json::json!(0.7));
-        assert_eq!(sampling["top_p"], serde_json::json!(0.95));
-        assert_eq!(sampling["top_k"], serde_json::json!(20));
-        assert_eq!(sampling["min_p"], serde_json::json!(0.0));
-        assert_eq!(
-            profile.sampling["temperature"].source,
-            pwr_domain::ParameterSource::OfficialModelCard
-        );
-        assert!(profile.reasoning.is_none());
-    }
-
-    #[test]
     fn mlx_evaluation_reports_values_the_sidecar_will_receive() {
         let mut sampling = BTreeMap::new();
         pwr_mlx::resolve_generation_sampling(
@@ -13914,53 +13892,13 @@ mod profile_tests {
         profiles
     }
 
-    /// The case this file exists for. The packaged Modelfile declares nothing,
-    /// so every measurement before this profile existed ran on backend
-    /// defaults while the vendor recommends otherwise.
-    #[test]
-    fn ornith_resolves_to_its_vendor_recommendation() {
-        let profiles = declared();
-        let ornith = pwr_domain::ModelProfile::select(&profiles, "ornith-1.5:35b")
-            .expect("ornith has no profile");
-        let options = ornith.sampling_options();
-        assert_eq!(options["temperature"], serde_json::json!(0.6));
-        assert_eq!(options["top_p"], serde_json::json!(0.95));
-        assert_eq!(options["top_k"], serde_json::json!(20));
-    }
-
-    #[test]
-    fn mlx_ornith_uses_general_task_sampling_over_artifact_benchmark_sampling() {
-        let profiles = declared();
-        let ornith =
-            pwr_domain::ModelProfile::select(&profiles, "ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit")
-                .expect("the MLX artifact needs its own exact profile");
-        let mut options = ornith.sampling_options();
-        pwr_mlx::resolve_generation_sampling(
-            &mut options,
-            Some(&serde_json::json!({
-                "temperature": 1.0,
-                "top_p": 0.95,
-                "top_k": 20
-            })),
-        )
-        .unwrap();
-        assert_eq!(options["temperature"], serde_json::json!(0.6));
-        assert_eq!(options["top_p"], serde_json::json!(0.95));
-        assert_eq!(options["top_k"], serde_json::json!(20));
-        let report = resolved_mlx_sampling_for(Some(ornith), &options);
-        assert_eq!(
-            report["temperature"].source,
-            pwr_domain::ParameterSource::OfficialModelCard
-        );
-    }
-
     #[test]
     fn a_saved_user_value_is_reported_as_the_users_over_a_declared_profile() {
         let profiles = declared();
-        let ornith =
-            pwr_domain::ModelProfile::select(&profiles, "ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit")
+        let gemma =
+            pwr_domain::ModelProfile::select(&profiles, "mlx-community/gemma-4-26b-a4b-it-4bit")
                 .expect("the MLX artifact needs its own exact profile");
-        let mut options = ornith.sampling_options();
+        let mut options = gemma.sampling_options();
         // What `enrich_mlx_sampling` does with a saved profile.
         options.insert("temperature".into(), serde_json::json!(0.3));
         options.insert(
@@ -13968,7 +13906,7 @@ mod profile_tests {
             serde_json::json!({"temperature": {"kind": "user_profile"}}),
         );
         pwr_mlx::resolve_generation_sampling(&mut options, None).unwrap();
-        let report = resolved_mlx_sampling_for(Some(ornith), &options);
+        let report = resolved_mlx_sampling_for(Some(gemma), &options);
         assert_eq!(report["temperature"].value, serde_json::json!(0.3));
         assert_eq!(
             report["temperature"].source,
@@ -13980,68 +13918,25 @@ mod profile_tests {
         );
     }
 
-    /// A vendor that recommends nothing gets nothing invented for it.
-    #[test]
-    fn a_model_with_no_recommendation_is_left_alone() {
-        let profiles = declared();
-        let gpt = pwr_domain::ModelProfile::select(&profiles, "gpt-oss:20b").unwrap();
-        let options = gpt.sampling_options();
-        assert!(options.contains_key("temperature"));
-        assert!(!options.contains_key("top_k"), "top_k was invented");
-        assert!(!options.contains_key("top_p"), "top_p was invented");
-    }
-
-    /// Depth is set three different ways and they are not interchangeable.
+    /// Gemma 4's reasoning is the template's own switch: off by default for
+    /// every pack, sent as the backend's thinking toggle, never as a prompt.
     #[test]
     fn reasoning_reaches_the_right_channel() {
         let profiles = declared();
-        let gpt = pwr_domain::ModelProfile::select(&profiles, "gpt-oss:20b");
-        let gpt_policy = pwr_orchestrator::TaskProfile::resolve(None, gpt);
-        // A backend option, so it belongs in the request options.
-        assert_eq!(
-            gpt_policy.sampling["reasoning_effort"],
-            serde_json::json!("high")
-        );
-        assert!(gpt_policy.prompt_suffix.is_empty());
-
-        let muse = pwr_domain::ModelProfile::select(&profiles, "muse-glimmer:30b-mlx");
-        let muse_policy = pwr_orchestrator::TaskProfile::resolve(None, muse);
-        // A prompt directive, so it belongs in the system prompt and cannot be
-        // sent as an option.
-        assert!(
-            muse_policy
-                .prompt_suffix
-                .contains("Reasoning strength: high")
-        );
-        assert!(!muse_policy.sampling.contains_key("reasoning_effort"));
-        assert!(!muse_policy.sampling.contains_key("think"));
-
-        let qwen = pwr_domain::ModelProfile::select(&profiles, "qwen3.8:27b-mlx");
-        let qwen_policy = pwr_orchestrator::TaskProfile::resolve(None, qwen);
-        assert_eq!(qwen_policy.sampling["think"], true);
-        assert!(qwen_policy.prompt_suffix.is_empty());
+        for profile in &profiles {
+            let policy = pwr_orchestrator::TaskProfile::resolve(None, Some(profile));
+            assert_eq!(policy.sampling["think"], false, "{}", profile.model_selector);
+            assert!(policy.prompt_suffix.is_empty(), "{}", profile.model_selector);
+        }
     }
 
-    /// Context is per tag: the same architecture under two tags declares two
-    /// different limits.
+    /// Every pack is allocated its trained 262,144 tokens; the host decides
+    /// how much of it a run gets.
     #[test]
-    fn context_ceilings_follow_the_tag() {
-        let profiles = declared();
-        let ceiling = |tag: &str| {
-            pwr_domain::ModelProfile::select(&profiles, tag)
-                .unwrap()
-                .context
-                .maximum
-        };
-        assert_eq!(ceiling("qwen3.8:27b-mlx"), 262_144);
-        assert_eq!(ceiling("gpt-oss:20b"), 131_072);
-        // Every default is well above the 32768 every measurement so far used.
-        for profile in &profiles {
-            assert!(
-                profile.context.default >= 65_536,
-                "{}",
-                profile.model_selector
-            );
+    fn context_ceilings_are_the_trained_length() {
+        for profile in &declared() {
+            assert_eq!(profile.context.maximum, 262_144, "{}", profile.model_selector);
+            assert_eq!(profile.context.default, 262_144, "{}", profile.model_selector);
         }
     }
 }

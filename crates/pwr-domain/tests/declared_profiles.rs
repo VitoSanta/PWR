@@ -18,7 +18,8 @@ fn declared() -> Vec<ModelProfile> {
 #[test]
 fn every_profile_is_coherent_and_explains_itself() {
     let profiles = declared();
-    assert_eq!(profiles.len(), 17);
+    // The Gemma 4 packs: 12B, 26B-A4B at 4 bits, QAT 4 bits and 6 bits, 31B.
+    assert_eq!(profiles.len(), 5);
     for profile in &profiles {
         assert!(
             profile.context.is_coherent(),
@@ -66,17 +67,20 @@ fn every_qualifying_deployment_is_allocated_the_full_ceiling() {
         .iter()
         .filter(|p| p.context.maximum >= REQUIRED)
         .count();
-    assert_eq!(qualifying, 12);
+    assert_eq!(qualifying, 5);
 }
 
-/// The throughput cost of the choice stays recorded even though the choice was
-/// made against it: a decision that hides its own price cannot be revisited.
+/// Every Gemma pack samples as Google advises for all use cases, and says so.
 #[test]
-fn the_deployment_that_pays_for_context_still_records_the_price() {
-    let profiles = declared();
-    let qwen = ModelProfile::select(&profiles, "qwen3.8:27b-mlx").unwrap();
-    assert_eq!(qwen.context.default, 262_144);
-    assert!(qwen.provenance.contains("monotonically"));
-    assert!(qwen.provenance.contains("least reliable"));
-    assert!(qwen.provenance.contains("product requirement"));
+fn every_gemma_pack_samples_as_google_advises() {
+    for profile in declared() {
+        let options = profile.sampling_options();
+        assert_eq!(options["temperature"], serde_json::json!(1.0), "{}", profile.model_selector);
+        assert_eq!(options["top_p"], serde_json::json!(0.95), "{}", profile.model_selector);
+        assert_eq!(options["top_k"], serde_json::json!(64), "{}", profile.model_selector);
+        assert_eq!(
+            profile.sampling["temperature"].source,
+            ParameterSource::OfficialModelCard
+        );
+    }
 }

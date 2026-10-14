@@ -129,8 +129,8 @@ pub fn known_issues(model: &str, architecture: Option<&str>) -> Vec<String> {
             "Known upstream issue: Gemma 4 can fall into a loop that writes \"thought\" or its \
              channel markers over and over on long prompts with many tools (reported against the \
              12B, 26B and 31B, at full precision too; google-deepmind/gemma#622 and #727). No \
-             sampling setting removes it. PWR retries and compacts, but for a long agent task \
-             another model is more dependable; Gemma is fine for chat and short tasks."
+             sampling setting removes it. PWR stops a reply that repeats itself, retries \
+             it, and compacts long contexts."
                 .to_owned(),
         );
     }
