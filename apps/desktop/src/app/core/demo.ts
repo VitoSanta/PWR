@@ -7,8 +7,8 @@ export function playDemo(store: AgentStore): void {
   store.coreState.set('ready');
   store.coreError.set('');
   store.workspace.set('/Users/you/projects/PWR/pwr-website');
-  store.models.set(['lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', 'lmstudio-community/Qwen3.8-27B-MLX-4bit']);
-  store.model.set('lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit');
+  store.models.set(['mlx-community/gemma-4-26b-a4b-it-4bit', 'mlx-community/gemma-4-31b-it-8bit']);
+  store.model.set('mlx-community/gemma-4-26b-a4b-it-4bit');
   store.context.set({ tokens: 262144, rationale: 'set by the model trained length', ceiling: 'Trained', setting: null });
   store.sessions.set([
     { sessionId: 'a', title: 'Build the PWR website', updatedAt: new Date().toISOString() },
@@ -92,9 +92,9 @@ function demoAnswer(method: string, params: any): any {
       });
       const entry = (repo: string, params: number, ctx: number, v: any) => ({
         repository: repo, name: repo.split('/')[1], author: repo.split('/')[0], url: 'https://huggingface.co/' + repo, revision: '0123456789abcdef0123456789abcdef01234567',
-        format: 'mlx', backend: 'mlx', baseModel: 'Qwen/' + repo.split('/')[1].replace(/-MLX.*|-4bit|-8bit/g, ''), architecture: 'qwen3', architectureSource: 'config.json',
+        format: 'mlx', backend: 'mlx', baseModel: 'google/' + repo.split('/')[1].replace(/-(4|6|8)bit/g, ''), architecture: 'gemma4', architectureSource: 'config.json',
         parameters: params, parametersSource: 'safetensors metadata (Hub)', contextLength: ctx, contextSource: 'config.json', license: 'apache-2.0',
-        downloads: 34567, likes: 42, gated: false, pipelineTag: 'text-generation', vision: false, variants: [v], bestFit: v.fit.level, notes: [],
+        downloads: 34567, likes: 42, gated: false, pipelineTag: 'image-text-to-text', vision: true, variants: [v], bestFit: v.fit.level, notes: [],
       });
       if (params?.format === 'gguf') {
         return { format: 'gguf', backend: 'llama', activeBackend: 'mlx', modelsRoot: '~/.pwr/models', error: null, results: [] };
@@ -102,12 +102,12 @@ function demoAnswer(method: string, params: any): any {
       return {
         format: 'mlx', backend: 'mlx', activeBackend: 'mlx', modelsRoot: '~/.pwr/models', error: null,
         results: [
-          entry('mlx-community/Qwen3-4B-4bit', 4.02e9, 40960, variant('mlx-community/Qwen3-4B-4bit', '4-bit', 2.26 * GIB,
-            fit('should_fit', 'Should fit', 2.26 * GIB, 16384, 'Expected memory ~7.8 GB: 2.3 GB of weights, ~1.0 GB for the engine and 4.5 GB of context cache at 32k tokens. This machine has 16 GB of unified memory; after the reserve it leaves 8.0 GB, enough for a ~16k-token working window.'), { installed: true, local: 'present' })),
-          entry('lmstudio-community/Qwen3.5-9B-MLX-4bit', 9.4e9, 262144, variant('lmstudio-community/Qwen3.5-9B-MLX-4bit', '4-bit', 5.6 * GIB,
-            fit('tight_fit', 'Tight fit', 5.6 * GIB, 9216, 'Expected memory ~8.6 GB: 5.6 GB of weights, ~1.0 GB for the engine and 2.0 GB of context cache at 32k tokens. This machine has 16 GB of unified memory; after the reserve it leaves 8.0 GB, enough for a ~9k-token working window. Long conversations will be compacted often.'))),
-          entry('lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', 35.1e9, 262144, variant('lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', '4-bit', 19 * GIB,
-            fit('not_recommended', 'Not recommended', 19 * GIB, null, 'This machine has 16 GB of unified memory; after the reserve that leaves 8.0 GB for a model, less than its weights and the engine need.'))),
+          entry('mlx-community/gemma-4-12B-it-4bit', 12e9, 262144, variant('mlx-community/gemma-4-12B-it-4bit', '4-bit', 6.3 * GIB,
+            fit('should_fit', 'Should fit', 6.3 * GIB, 262144, 'Expected memory ~10 GB at 262k tokens: 6.3 GB of weights, ~1.0 GB for the engine and 4.0 GB of context cache. This machine has 16 GB of unified memory; after the 6 GB reserve it leaves 10 GB, enough for the full 262k-token window.'), { installed: true, local: 'present' })),
+          entry('mlx-community/gemma-4-26b-a4b-it-6bit', 25.2e9, 262144, variant('mlx-community/gemma-4-26b-a4b-it-6bit', '6-bit', 19.6 * GIB,
+            fit('not_recommended', 'Not recommended', 19.6 * GIB, null, 'This machine has 16 GB of unified memory; after the reserve that leaves 10 GB for a model, less than its weights and the engine need.'))),
+          entry('mlx-community/gemma-4-26b-a4b-it-4bit', 25.2e9, 262144, variant('mlx-community/gemma-4-26b-a4b-it-4bit', '4-bit', 14.3 * GIB,
+            fit('not_recommended', 'Not recommended', 14.3 * GIB, null, 'This machine has 16 GB of unified memory; after the reserve that leaves 10 GB for a model, less than its weights and the engine need.'))),
         ],
       };
     }
@@ -115,8 +115,8 @@ function demoAnswer(method: string, params: any): any {
       return {
         activeBackend: 'mlx',
         models: [
-          { modelRef: 'lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', format: 'mlx', backend: 'mlx', path: '~/.pwr/models/lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit', bytes: 19 * GIB, files: 13, partial: false, inUse: true, usable: true },
-          { modelRef: 'mlx-community/Qwen3-4B-4bit', format: 'mlx', backend: 'mlx', path: '~/.pwr/models/mlx-community/Qwen3-4B-4bit', bytes: 2.3 * GIB, files: 9, partial: false, inUse: false, usable: true },
+          { modelRef: 'mlx-community/gemma-4-26b-a4b-it-4bit', format: 'mlx', backend: 'mlx', path: '~/.pwr/models/mlx-community/gemma-4-26b-a4b-it-4bit', bytes: 14.3 * GIB, files: 13, partial: false, inUse: true, usable: true },
+          { modelRef: 'mlx-community/gemma-4-12B-it-4bit', format: 'mlx', backend: 'mlx', path: '~/.pwr/models/mlx-community/gemma-4-12B-it-4bit', bytes: 6.3 * GIB, files: 9, partial: false, inUse: false, usable: true },
         ],
       };
     case '_pwr/model_delete':
@@ -126,10 +126,10 @@ function demoAnswer(method: string, params: any): any {
     case '_pwr/models':
       return {
         installed: [
-          'lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit',
-          'lmstudio-community/Qwen3.8-27B-MLX-4bit',
+          'mlx-community/gemma-4-26b-a4b-it-4bit',
+          'mlx-community/gemma-4-31b-it-8bit',
         ],
-        model: 'lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit',
+        model: 'mlx-community/gemma-4-26b-a4b-it-4bit',
         contextTokens: 262144,
         reasoningEffort: params.reasoningEffort ?? 'medium',
         reasoning: {

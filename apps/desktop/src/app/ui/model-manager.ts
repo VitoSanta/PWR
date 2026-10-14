@@ -213,7 +213,7 @@ import { Tooltip } from './kit/tooltip';
                     #searchField
                     class="input"
                     type="search"
-                    placeholder="Search models — qwen coder, gemma, llama…"
+                    placeholder="Search Gemma 4 — 12b, 26b, 31b, qat…"
                     [value]="models.query()"
                     (input)="models.typeQuery($any($event.target).value)"
                     aria-label="Search models"
@@ -300,14 +300,6 @@ import { Tooltip } from './kit/tooltip';
                   placeholder="Quantization (4-bit, Q4_K)"
                   [value]="models.filters().quantization ?? ''"
                   (input)="models.typeFilter({ quantization: $any($event.target).value || undefined })"
-                />
-                <input
-                  type="search"
-                  class="input input-sm mm-filter-input"
-                  aria-label="Family"
-                  placeholder="Family (qwen, gemma)"
-                  [value]="models.filters().family ?? ''"
-                  (input)="models.typeFilter({ family: $any($event.target).value || undefined })"
                 />
               </div>
 
@@ -819,7 +811,7 @@ export class ModelManager {
     }
   }
 
-  /** The model's name without its publisher: `Qwen3-4B-4bit`. */
+  /** The model's name without its publisher: `gemma-4-12B-it-4bit`. */
   protected name(modelRef: string): string {
     const parts = modelRef.split('/');
     return parts.length > 1 ? parts.slice(1).join('/') : modelRef;
