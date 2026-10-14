@@ -372,10 +372,8 @@ impl ActionProposal {
                             .into(),
                     ));
                 }
-                // The same shape refused for run_command: a program name never
-                // contains whitespace, and one that does reaches exec as a
-                // single filename.
-                if executable.split_whitespace().count() > 1 {
+                // Refuse a command line, while preserving existing paths with spaces.
+                if executable.split_whitespace().count() > 1 && !Path::new(executable).is_file() {
                     return Err(ToolError::Denied(format!(
                         "`{executable}` is a command line where a program name belongs; pass the program in `executable` and the rest in `args`"
                     )));
@@ -912,6 +910,45 @@ fn container_client_home() -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
         .and_then(|candidate| candidate.canonicalize().ok())
         .and_then(|binary| binary.parent()?.parent().map(Path::to_path_buf))
+}
+
+/// Recognize Python distributions by their bin/python + lib/python* layout.
+/// Only an explicitly declared absolute interpreter contributes read access.
+fn python_runtime_paths(executable: &str) -> Vec<PathBuf> {
+    let path = Path::new(executable);
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return Vec::new();
+    };
+    if !path.is_absolute()
+        || !path.is_file()
+        || !name
+            .strip_prefix("python")
+            .is_some_and(|suffix| suffix.chars().all(|c| c.is_ascii_digit() || c == '.'))
+    {
+        return Vec::new();
+    }
+    let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    [path, resolved.as_path()]
+        .into_iter()
+        .filter_map(|candidate| {
+            let bin = candidate.parent()?;
+            if bin.file_name()?.to_str()? != "bin" {
+                return None;
+            }
+            let prefix = bin.parent()?;
+            let has_stdlib = std::fs::read_dir(prefix.join("lib"))
+                .ok()?
+                .flatten()
+                .any(|entry| {
+                    entry.path().is_dir()
+                        && entry
+                            .file_name()
+                            .to_str()
+                            .is_some_and(|name| name.starts_with("python"))
+                });
+            has_stdlib.then(|| prefix.to_path_buf())
+        })
+        .collect()
 }
 
 /// The `bin` directories of the toolchains installed in the workspace, in the
@@ -2365,6 +2402,15 @@ impl ToolPolicy {
             }) {
                 readable.extend(quotable(&home.join(".dotnet")));
             }
+        }
+        // A declared managed Python may live outside the system toolchains.
+        // Its venv and resolved distribution supply pyvenv.cfg and stdlib.
+        for executable in &self.allow_commands {
+            readable.extend(
+                python_runtime_paths(executable)
+                    .iter()
+                    .filter_map(|path| quotable(path)),
+            );
         }
         let container_engine = self.approvals.contains(&Approval::ContainerEngine);
         if container_engine && let Some(client) = container_client_home() {
@@ -7313,14 +7359,14 @@ pub async fn run_command_in(
             Some(resolved)
         }
     };
-    // A program name never contains whitespace, so this is a whole command line
+    // Unless it names an existing file, whitespace indicates a whole command line
     // put where the executable belongs. Left to run, it reaches exec as one
     // filename and comes back as `execvp() of 'ls -la' failed: No such file or
     // directory`, which reads like a missing program rather than a malformed
     // call. Measured across several runs -- `ls -la`, and the same shape again
     // and again -- each costing an action to a message that did not say what
     // was wrong.
-    if executable.split_whitespace().count() > 1 {
+    if executable.split_whitespace().count() > 1 && !Path::new(executable).is_file() {
         let mut words = executable.split_whitespace();
         let program = words.next().unwrap_or_default();
         let rest: Vec<&str> = words.collect();
@@ -8790,6 +8836,33 @@ mod tests {
         ));
         assert!(!looks_like_a_server("npm", &["test".into()], "1 passing"));
         assert!(!looks_like_a_server("cargo", none, ""));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn declared_managed_python_with_spaces_runs_inside_the_sandbox() {
+        let Ok(python) = std::env::var("PWR_TEST_MANAGED_PYTHON") else {
+            return;
+        };
+        assert!(python.contains(' '));
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("unrelated.txt");
+        std::fs::write(&secret, "private").unwrap();
+        let mut policy = PolicyProfile::Development.build(root.path().to_path_buf());
+        policy.sandbox = SandboxPolicy::Required;
+        policy.allow_commands.push(python.clone());
+        let script = format!(
+            "import json, pathlib; print(json.dumps([2*3])); pathlib.Path({:?}).read_text()",
+            secret.to_str().unwrap()
+        );
+        let ran = run_command(&policy, &python, &["-c".into(), script])
+            .await
+            .unwrap();
+        assert!(ran.stdout.contains("[6]"), "{ran:?}");
+        assert!(ran.stderr.contains("PermissionError"), "{ran:?}");
+        assert!(!python_runtime_paths(&python).is_empty());
+        assert!(python_runtime_paths("python3").is_empty());
     }
 
     #[tokio::test]
