@@ -105,11 +105,13 @@ unset, the model's 280: 273 tokens for a 1280x800 screenshot, 1,092 at 1120).
 Not yet measured with the model: criteria in the benchmark's
 `audits/linea-gemma4/studio/CRITERI-MODIFICA-3.md`.
 
-History, Gemma 4. Its template, given the OpenAI-shaped history PWR sends,
-put the text a reply wrote before its calls after their results and closed
-the turn there, and left a model turn ended on results open when a user
-message followed (a notice, the checks' report). The engine renders with the
-template corrected at those two places (`gemma_history_template`), and gives
+History, Gemma 4. The engine renders with Google's template of 2026-07-09
+(`GEMMA_TEMPLATE`, the same for every size), whatever template the pack holds:
+the mlx-community packs carry the one before it, which left a model turn ended
+on results open when a user message followed (a notice, the checks' report).
+Given the OpenAI-shaped history PWR sends, both put the text a reply wrote
+before its calls after their results; the engine moves it back before the
+calls (`gemma_history_template`), and gives
 tool results as mappings -- `response:read_file{content:...,path:...}`, the
 file text unescaped -- where they were one JSON string
 (`gemma_tool_results`). `PWR_MLX_PROMPT_DUMP` writes every request and its

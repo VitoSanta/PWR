@@ -1007,7 +1007,7 @@ class GemmaHistory(unittest.TestCase):
             tokens, _ = engine.render(messages, None, False, True)
             return tokenizer.decode(tokens)
         return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True,
-                                             enable_thinking=False)
+                                             enable_thinking=False, chat_template=pwr_mlx.GEMMA_TEMPLATE)
 
     CALL = {"role": "assistant", "content": "Reading the parser.",
             "tool_calls": [{"id": "c1", "type": "function",
@@ -1068,6 +1068,24 @@ class GemmaHistory(unittest.TestCase):
         stops = {tokenizer.convert_tokens_to_ids(m) for m in ("<turn|>", "<|tool_response>")}
         self.assertLessEqual(stops, set(tokenizer.eos_token_ids))
         self.assertNotIn(tokenizer.convert_tokens_to_ids("<tool_call|>"), tokenizer.eos_token_ids)
+
+    def test_the_template_is_googles_of_july(self):
+        import hashlib
+        import pwr_mlx
+        self.assertEqual(hashlib.sha256(pwr_mlx.GEMMA_TEMPLATE.encode()).hexdigest(),
+                         "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4")
+
+    def test_with_thinking_on_the_model_thinks_after_results(self):
+        """Google's July template: a model turn going on after tool results
+        opens the thought channel when thinking is on."""
+        import pwr_mlx
+        from mlx_lm.utils import load_tokenizer
+        if not (self.PACK / "chat_template.jinja").exists():
+            self.skipTest("no Gemma 4 pack on this machine")
+        engine = pwr_mlx.Engine()
+        engine.tokenizer = load_tokenizer(self.PACK)
+        tokens, _ = engine.render([{"role": "user", "content": "Fix a."}, self.CALL, self.RESULT], None, True, True)
+        self.assertTrue(engine.tokenizer.decode(tokens).endswith("<tool_response|><|channel>thought\n"))
 
     def test_another_template_is_left_alone(self):
         import pwr_mlx
