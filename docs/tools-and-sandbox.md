@@ -4,6 +4,24 @@
 what bounds it, and where the bounds end. The operational summary for users is
 [SECURITY.md](../SECURITY.md); this page is the engineering account.
 
+The Gemma product catalogue starts with ten core actions. Workspace turns add
+three memory tools (`remember`, `recall_project`, `wiki_query`) and three web/service
+tools (`fetch_url`, `start_service`, `stop_service`). Both groups default on and can
+be disabled independently in `.pwr/chat-config.json`:
+
+```json
+{"tool_groups": {"memory": false, "web": false}}
+```
+
+The personal memory switch also disables memory tools. Chat without a workspace
+keeps read-only tools and optionally memory, with no local services. Vision, page
+checks, terminal reading and plans remain conditional on their existing capabilities.
+Selection does not grant permission: network and services still pass the existing
+policy and sandbox. Services belong to the turn and stop when it ends or is
+cancelled. Calls to tools omitted from the actual wire catalogue are refused,
+including a normalization that would change the action to an unoffered tool.
+Mismatch hints use that same catalogue.
+
 ## What changed since the baseline (`4ae7c5f1`)
 
 Commands and file tools share frozen acceptance paths and installed-dependency

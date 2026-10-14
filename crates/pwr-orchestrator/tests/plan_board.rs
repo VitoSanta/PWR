@@ -92,7 +92,7 @@ async fn run(replies: Vec<ModelChunk>, continuity: &converse::Continuity) -> Ran
         16384,
         &[],
         Default::default(),
-        serde_json::json!([]),
+        pwr_compat::render_tools(&converse::with_plan(converse::chat_tool_catalog())),
         &AtomicBool::new(false),
         continuity,
         &DenyWithoutAsking,

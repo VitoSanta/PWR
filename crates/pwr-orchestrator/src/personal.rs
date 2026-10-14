@@ -280,7 +280,19 @@ pub fn project_instructions(root: &Path) -> Option<(String, String)> {
 /// there is nothing to add. `workspace` is false in chat mode, which has no
 /// project of its own.
 pub fn prompt_block(home: &Home, root: &Path, workspace: bool) -> Option<String> {
-    let profile = load_profile(home).unwrap_or_default();
+    prompt_block_with_memory(home, root, workspace, true)
+}
+
+/// Workspace tool-group settings can turn off memory without dropping the
+/// person's profile or the repository's required instructions.
+pub fn prompt_block_with_memory(
+    home: &Home,
+    root: &Path,
+    workspace: bool,
+    enabled: bool,
+) -> Option<String> {
+    let mut profile = load_profile(home).unwrap_or_default();
+    profile.memory_enabled &= enabled;
     let mut block = String::new();
     // Reserve required repository guidance first. Optional personalization
     // must never evict it. The instruction reader discloses its own cap.
@@ -342,7 +354,7 @@ pub fn prompt_block(home: &Home, root: &Path, workspace: bool) -> Option<String>
     }
     let known: Vec<_> = crate::wiki::projects(home)
         .into_iter()
-        .filter(|project| project.path != root)
+        .filter(|project| profile.memory_enabled && project.path != root)
         .take(15)
         .collect();
     if !known.is_empty() {
@@ -573,6 +585,34 @@ mod tests {
         );
         assert!(load_profile(&home).unwrap().memory_enabled);
     }
+    #[test]
+    fn memory_disabled_keeps_profile_and_instructions_but_no_projects_or_memories() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = Home(dir.path().join("home"));
+        let root = dir.path().join("repo");
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(root.join("AGENTS.md"), "INSTRUCTION_SENTINEL").unwrap();
+        save_profile(
+            &home,
+            &Profile {
+                name: "PROFILE_SENTINEL".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        add_memory(&home, Scope::Workspace, &root, "MEMORY_SENTINEL", None).unwrap();
+        crate::wiki::refresh(&home, &other, None).unwrap();
+        let block = prompt_block_with_memory(&home, &root, true, false).unwrap();
+        assert!(block.contains("PROFILE_SENTINEL") && block.contains("INSTRUCTION_SENTINEL"));
+        assert!(!block.contains("MEMORY_SENTINEL") && !block.contains("recall_project"));
+        assert_eq!(
+            load_memories(&home, Scope::Workspace, &root).unwrap().len(),
+            1
+        );
+    }
+
     #[test]
     fn repository_descriptions_are_recalled_as_data_and_never_promoted_to_system_rules() {
         let directory = tempfile::tempdir().unwrap();

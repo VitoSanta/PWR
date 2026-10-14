@@ -150,7 +150,7 @@ async fn run(
         16384,
         &[],
         Default::default(),
-        json!([]),
+        pwr_compat::render_tools(&converse::chat_tool_catalog()),
         &AtomicBool::new(stopped),
         &continuity,
         &DenyWithoutAsking,

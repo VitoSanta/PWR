@@ -86,10 +86,18 @@ and up to 16,000 characters of its reasoning per step) and the tool results.
 | Generation envelope | last engine count + `len()/3` of what was appended (`conservative_prompt_tokens`) | estimate, denser on purpose |
 | Tool schemas and template overhead | learned as a constant offset from the engine's counts, capped at 8,192 | learned |
 
-Two defects: tool-call **arguments** appended since the last count are not
-counted by either running estimate — a large `write_file` is nearly free until
-the next request is measured (verification N1) — and there is no exact count
-of the real rendered prompt before a generation. Plan W4.2 fixes both.
+History composition, compaction and generation estimates include serialized tool-call
+names and arguments as well as reasoning. A large structured write cannot leave
+retrieval the room it would have in an empty history. Exact counting of the real
+rendered prompt before generation remains open (W4.2); these costs are estimates.
+
+Memory and project recall are available through the product's `memory` tool group.
+`tool_groups.memory: false` or the profile's `memory_enabled: false` omits memories
+and known project identifiers from the next system prompt and removes all three
+memory tools from the offered/executable catalogue. The profile and required
+repository instructions remain. Stored memories are not deleted; old conversation
+content is not retroactively erased. Memory proposals still require confirmation;
+model-written wiki summaries remain explicitly unverified.
 
 ## Compaction
 
@@ -175,9 +183,8 @@ cache under `.pwr/embeddings/` has no eviction (plan W6.5); the encoder's reads 
 
 For Angular workspaces only (`angular.json` or `@angular/core`),
 `workspace_topology` describes the bootstrap and routing layout, and a
-guidance section gives Angular-specific rules. **The guidance says no tool
-can render or screenshot the page**, which is false for vision models offered
-`look_at` (`context.rs`; plan W4.5).
+guidance section gives Angular-specific rules. The guidance directs the model to use an offered page-check or screenshot tool
+when available; without one it must not claim visual verification.
 
 The MLX request carries the selected logical window (`context_tokens`). After
 rendering the complete chat template, tools and images, the sidecar checks the

@@ -386,7 +386,7 @@ pub fn framework_guidance(root: &Path) -> String {
     if workspace_topology(root).is_empty() {
         return String::new();
     }
-    "Framework guidance loaded: Angular standalone. Keep one active component architecture: follow `bootstrapApplication` from `src/main.ts`, then edit the root template or components actually reached by the active router. Import `RouterOutlet` in the root and `RouterLink` where templates use router links. Replace/update generated root tests when the product requirement replaces the starter screen. Test the real pages: a root test that renders the home route and follows the main navigation through the router, not one that only finds `<router-outlet>`. You cannot see the rendered page -- no tool renders or screenshots it -- so do not claim visual verification; say which declared checks passed, and reason about layout from the CSS you wrote (mobile and desktop media queries, `prefers-reduced-motion` for every animation).".into()
+    "Framework guidance loaded: Angular standalone. Keep one active component architecture: follow `bootstrapApplication` from `src/main.ts`, then edit the root template or components actually reached by the active router. Import `RouterOutlet` in the root and `RouterLink` where templates use router links. Replace/update generated root tests when the product requirement replaces the starter screen. Test the real pages: a root test that renders the home route and follows the main navigation through the router, not one that only finds `<router-outlet>`. Use the offered page-check or screenshot tool to verify a rendered page when available. Otherwise do not claim visual verification; say which declared checks passed and reason about layout from the CSS you wrote (mobile and desktop media queries, `prefers-reduced-motion` for every animation).".into()
 }
 
 fn read_workspace_file(root: &Path, relative: &str) -> String {
@@ -541,6 +541,20 @@ fn retrieved_context(
 
 pub fn estimate_tokens(text: &str) -> usize {
     text.len().div_ceil(CHARS_PER_TOKEN)
+}
+
+/// History cost includes generated calls and reasoning, not just visible prose.
+/// This remains an estimate; the engine reports the rendered tokenizer count.
+pub fn estimate_message_tokens(message: &ChatMessage) -> usize {
+    message.tool_calls.iter().fold(
+        estimate_tokens(&message.content)
+            .saturating_add(message.reasoning.as_deref().map_or(0, estimate_tokens))
+            .saturating_add(4),
+        |sum, call| {
+            sum.saturating_add(estimate_tokens(&call.name))
+                .saturating_add(estimate_tokens(&call.arguments.to_string()))
+        },
+    )
 }
 
 /// Fits the sections into the context and says what that cost.

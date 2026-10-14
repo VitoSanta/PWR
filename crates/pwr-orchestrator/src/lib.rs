@@ -5382,6 +5382,14 @@ fn unfence_file_text(name: &str, arguments: &mut serde_json::Value) {
 }
 
 pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionProposal, MalformedCall> {
+    action_from_tool_call_with_catalog(call, &action_tool_catalog())
+}
+
+/// Shared decoding with mismatch guidance limited to the caller's offered tools.
+pub fn action_from_tool_call_with_catalog(
+    call: &pwr_domain::ToolCall,
+    catalog: &pwr_domain::ToolCatalog,
+) -> Result<ActionProposal, MalformedCall> {
     let mut arguments = call.arguments.clone();
     if !arguments.is_object() {
         return Err(MalformedCall::detailed(
@@ -5536,7 +5544,7 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
         // same decode, and telling them apart matters: the first is the
         // deployment inventing a tool, which a prompt can address, and the
         // second is it filling in a tool it was given, which a schema can.
-        let kind = if action_tool_catalog().get(&call.name).is_some() {
+        let kind = if catalog.get(&call.name).is_some() {
             "schema_mismatch"
         } else {
             "unknown_capability"
@@ -5549,7 +5557,7 @@ pub fn action_from_tool_call(call: &pwr_domain::ToolCall) -> Result<ActionPropos
         // The same explanation the conversation gives. The probe used to say
         // only what serde said, and recorded a deployment as unmeasurable for a
         // mistake the conversation had already learned to name.
-        let mut hint = action_tool_catalog().mismatch_hint(&call.name, &keys);
+        let mut hint = catalog.mismatch_hint(&call.name, &keys);
         // The field that is missing is inside a hunk, and the keys of the
         // call are all there: said as it was, the refusal read "apply_patch
         // takes expected_hash, hunks, path, and this call sent expected_hash,

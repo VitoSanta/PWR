@@ -1078,6 +1078,7 @@ struct ChatConfig {
     goal_budget: serve::GoalLimits,
     /// Help a goal is given beyond being run, each off unless asked for.
     goal_aids: serve::GoalAids,
+    tool_groups: converse::ToolGroups,
     /// The engine selected for this workspace. It remains workspace-local so a
     /// GGUF project need not repeat `--backend llama` on every launch.
     #[serde(default)]
@@ -1313,6 +1314,7 @@ impl Default for ChatConfig {
             background_summaries: false,
             goal_budget: serve::GoalLimits::default(),
             goal_aids: serve::GoalAids::default(),
+            tool_groups: converse::ToolGroups::default(),
             backend: None,
             require_probe: true,
             model: None,
@@ -1377,8 +1379,14 @@ fn chat_system_prompt_for(root: &Path) -> String {
     // instructions, re-read every turn (see `refresh_system_prompt`'s caller),
     // so a change in Settings reaches the next reply.
     if let Ok(home) = pwr_orchestrator::personal::Home::from_env()
-        && let Some(block) =
-            pwr_orchestrator::personal::prompt_block(&home, root, !is_chat_home(root))
+        && let Some(block) = pwr_orchestrator::personal::prompt_block_with_memory(
+            &home,
+            root,
+            !is_chat_home(root),
+            load_chat_config(root)
+                .map(|config| config.tool_groups.memory)
+                .unwrap_or(false),
+        )
     {
         prompt.push_str(&block);
     }
@@ -4572,7 +4580,7 @@ fn compose_chat_turn(
         .iter()
         .rev()
         .skip(1)
-        .map(|message| pwr_orchestrator::context::estimate_tokens(&message.content))
+        .map(pwr_orchestrator::context::estimate_message_tokens)
         .sum();
     let room = u32::try_from(
         usize::try_from(context_tokens)
@@ -5347,17 +5355,18 @@ async fn chat_turn(
                 .collect()
         })
         .unwrap_or_default();
-    // The few tools the work needs, well described (the core set, plan W2.11):
-    // Gemma 4 saw about 25 definitions and 3,700 tokens of them in every
-    // prompt. Others come back when a measurement shows they are needed.
+    let mut groups = config.tool_groups;
+    groups.memory &= pwr_orchestrator::personal::Home::from_env()
+        .and_then(|home| pwr_orchestrator::personal::load_profile(&home))
+        .map(|profile| profile.memory_enabled)
+        .unwrap_or(false);
+    let catalog = converse::product_tool_catalog(groups, chat_only);
     let catalog = if chat_only {
-        converse::chat_only_tool_catalog()
+        catalog
     } else if pwr_mlx::MlxConfig::from_env().has_vision_encoder(&model) == Some(true) {
-        // A model that reads images can look at what it built.
-        converse::with_vision(converse::core_tool_catalog(converse::chat_tool_catalog()))
+        converse::with_vision(catalog)
     } else {
-        // One that does not can still read what a page shows and logs.
-        converse::with_page_check(converse::core_tool_catalog(converse::chat_tool_catalog()))
+        converse::with_page_check(catalog)
     };
     // A client that shows the person's terminal can read it to the model.
     let catalog = if !chat_only && !minimal && approvals.reads_terminal() {
@@ -13607,6 +13616,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn structured_history_and_reasoning_leave_no_room_for_retrieval() {
+        for reasoning in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::write(
+                root.path().join("a.txt"),
+                "retrieval_sentinel important file content",
+            )
+            .unwrap();
+            let profile = pwr_orchestrator::TaskProfile::resolve(None, None);
+            let mut baseline = vec![
+                ChatMessage::text("system", "work"),
+                ChatMessage::text("user", "find retrieval_sentinel"),
+            ];
+            assert!(
+                compose_chat_turn(root.path(), 16384, &profile, None, &mut baseline)
+                    .unwrap()
+                    .0
+                    .is_some()
+            );
+            let mut generated = ChatMessage::text("assistant", "");
+            if reasoning {
+                generated.reasoning = Some("reasoning ".repeat(15000));
+            } else {
+                generated.tool_calls.push(pwr_domain::ToolCall {
+                    name: "write_file".into(),
+                    id: Some("large".into()),
+                    arguments: serde_json::json!({"path":"a.txt","content":"text ".repeat(30000)}),
+                });
+            }
+            let mut messages = vec![
+                ChatMessage::text("system", "work"),
+                generated,
+                ChatMessage::text("tool", "saved"),
+                ChatMessage::text("user", "find retrieval_sentinel"),
+            ];
+            let result = compose_chat_turn(
+                root.path(),
+                16384,
+                &pwr_orchestrator::TaskProfile::resolve(None, None),
+                None,
+                &mut messages,
+            );
+            assert_eq!(result.unwrap().0, None);
+            assert!(
+                messages
+                    .last()
+                    .unwrap()
+                    .content
+                    .contains("find retrieval_sentinel")
+            );
+        }
+    }
+
     /// Composing the turn replaced the person's message with the composed
     /// one and lost its images: the model answered that it saw no image
     /// (2026-09-23, the first end-to-end check of C.25).
@@ -13717,6 +13780,7 @@ mod tests {
             background_summaries: false,
             goal_budget: serve::GoalLimits::default(),
             goal_aids: serve::GoalAids::default(),
+            tool_groups: converse::ToolGroups::default(),
             backend: None,
             require_probe: true,
             model: Some("example:latest".into()),
@@ -13917,8 +13981,16 @@ mod profile_tests {
         let profiles = declared();
         for profile in &profiles {
             let policy = pwr_orchestrator::TaskProfile::resolve(None, Some(profile));
-            assert_eq!(policy.sampling["think"], false, "{}", profile.model_selector);
-            assert!(policy.prompt_suffix.is_empty(), "{}", profile.model_selector);
+            assert_eq!(
+                policy.sampling["think"], false,
+                "{}",
+                profile.model_selector
+            );
+            assert!(
+                policy.prompt_suffix.is_empty(),
+                "{}",
+                profile.model_selector
+            );
         }
     }
 
@@ -13927,8 +13999,16 @@ mod profile_tests {
     #[test]
     fn context_ceilings_are_the_trained_length() {
         for profile in &declared() {
-            assert_eq!(profile.context.maximum, 262_144, "{}", profile.model_selector);
-            assert_eq!(profile.context.default, 262_144, "{}", profile.model_selector);
+            assert_eq!(
+                profile.context.maximum, 262_144,
+                "{}",
+                profile.model_selector
+            );
+            assert_eq!(
+                profile.context.default, 262_144,
+                "{}",
+                profile.model_selector
+            );
         }
     }
 }

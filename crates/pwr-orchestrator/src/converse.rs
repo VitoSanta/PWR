@@ -985,7 +985,7 @@ pub fn look_at_tool() -> ToolDefinition {
                       to check what a page you built looks like -- layout, text, what is visible \
                       -- and whether it fails; with `steps` it first clicks, types and presses \
                       keys on the page, so a form or a menu can be tried. Start a server first with start_service if the \
-                      page needs one."
+                      page needs one. Services started by PWR stop when this turn ends."
             .into(),
         input_schema: serde_json::json!({
             "type": "object",
@@ -1029,7 +1029,7 @@ pub fn check_page_tool() -> ToolDefinition {
                       check that a page you built loads without errors, or to find why it does \
                       not; with `steps` it first clicks, types and presses keys on the page, \
                       so a form or a menu can be tried. Start the server first with start_service, or use the URL the \
-                      engineer gave."
+                      engineer gave. Services started by PWR stop when this turn ends."
             .into(),
         input_schema: serde_json::json!({
             "type": "object",
@@ -1059,7 +1059,11 @@ pub fn check_page_tool() -> ToolDefinition {
 pub fn with_page_check(catalog: ToolCatalog) -> ToolCatalog {
     let mut tools = catalog.tools;
     if !tools.iter().any(|tool| tool.name == "check_page") {
-        tools.push(check_page_tool());
+        let mut tool = check_page_tool();
+        if !tools.iter().any(|tool| tool.name == "start_service") {
+            tool.description = tool.description.replace("Start the server first with start_service, or use the URL the engineer gave. Services started by PWR stop when this turn ends.", "Use an already running local server or a workspace HTML file.");
+        }
+        tools.push(tool);
     }
     ToolCatalog::new(tools).expect("a catalogue with one more tool is valid")
 }
@@ -1090,6 +1094,64 @@ pub fn core_tool_catalog(catalog: ToolCatalog) -> ToolCatalog {
         .filter(|tool| CORE_TOOLS.contains(&tool.name.as_str()))
         .collect();
     ToolCatalog::new(tools).expect("a catalogue with fewer tools is valid")
+}
+
+/// Optional capabilities restored after the core Gemma protocol checks.
+/// These switches select tools; existing policy still decides permission.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ToolGroups {
+    pub memory: bool,
+    pub web: bool,
+}
+impl Default for ToolGroups {
+    fn default() -> Self {
+        Self {
+            memory: true,
+            web: true,
+        }
+    }
+}
+
+/// Keep a compact catalogue, adding only the supported memory and web groups.
+/// Chat without a workspace retains its read-only tools and no local services.
+pub fn product_tool_catalog(groups: ToolGroups, chat_only: bool) -> ToolCatalog {
+    let full = chat_tool_catalog();
+    let mut catalog = if chat_only {
+        chat_only_tool_catalog()
+    } else {
+        core_tool_catalog(full.clone())
+    };
+    catalog
+        .tools
+        .retain(|tool| groups.memory || !CONVERSATION_ONLY.contains(&tool.name.as_str()));
+    for tool in full.tools {
+        let memory = groups.memory && CONVERSATION_ONLY.contains(&tool.name.as_str());
+        let web = groups.web
+            && !chat_only
+            && ["fetch_url", "start_service", "stop_service"].contains(&tool.name.as_str());
+        if (memory || web) && catalog.get(&tool.name).is_none() {
+            catalog.tools.push(tool);
+        }
+    }
+    ToolCatalog::new(catalog.tools).expect("selected product tools are valid")
+}
+
+/// Select by tool names in the actual wire definitions, never by mentions in
+/// descriptions or argument values. Both engines use the native function array.
+fn offered_tool_names(tools: &serde_json::Value) -> std::collections::BTreeSet<String> {
+    tools
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| {
+            tool.get("function")
+                .unwrap_or(tool)
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .collect()
 }
 
 /// A catalogue with `update_plan`, for a goal that keeps a plan.
@@ -1130,7 +1192,11 @@ fn with_plan_shown(messages: &[ChatMessage], continuity: &Continuity) -> Vec<Cha
 pub fn with_vision(catalog: ToolCatalog) -> ToolCatalog {
     let mut tools = catalog.tools;
     if !tools.iter().any(|tool| tool.name == "look_at") {
-        tools.push(look_at_tool());
+        let mut tool = look_at_tool();
+        if !tools.iter().any(|tool| tool.name == "start_service") {
+            tool.description = tool.description.replace("Start a server first with start_service if the page needs one. Services started by PWR stop when this turn ends.", "Use an already running local server or a workspace HTML file.");
+        }
+        tools.push(tool);
     }
     ToolCatalog::new(tools).expect("a catalogue with one more tool is valid")
 }
@@ -1758,15 +1824,20 @@ async fn take_turn_inner<P: ModelProvider>(
     // to answer. Decoded against the bare catalogue, `look_at` had been
     // refused as "not available in a conversation" to every model that reads
     // images (found 2026-10-02).
-    let offered = tools.to_string();
+    let offered = offered_tool_names(&tools);
     let mut catalog = if continuity.chat_only {
         chat_only_tool_catalog()
     } else {
         chat_tool_catalog()
     };
-    for added in [look_at_tool(), check_page_tool(), read_terminal_tool()] {
+    for added in [
+        look_at_tool(),
+        check_page_tool(),
+        read_terminal_tool(),
+        crate::board::tool(),
+    ] {
         if !continuity.chat_only
-            && offered.contains(&format!("\"{}\"", added.name))
+            && offered.contains(&added.name)
             && catalog.get(&added.name).is_none()
         {
             let mut tools = catalog.tools;
@@ -1774,6 +1845,7 @@ async fn take_turn_inner<P: ModelProvider>(
             catalog = ToolCatalog::new(tools).expect("a catalogue with one more tool is valid");
         }
     }
+    catalog.tools.retain(|tool| offered.contains(&tool.name));
     let contract = continuity.action_contract.as_ref();
     let mut contract_used = 0usize;
     let mut contract_denied = 0usize;
@@ -2969,6 +3041,7 @@ async fn take_turn_inner<P: ModelProvider>(
             // action, so that a model rewriting its plan for ever is bounded
             // like one that does anything else for ever.
             if call.name == crate::board::TOOL
+                && catalog.get(&call.name).is_some()
                 && let Some(plan) = continuity.plan.as_ref()
             {
                 actions += 1;
@@ -4716,7 +4789,16 @@ fn decode(call: &pwr_domain::ToolCall, catalog: &ToolCatalog) -> Result<ActionPr
             Err(error) => Err(format!("{error}{}", what_was_sent(call, catalog))),
         };
     }
-    crate::action_from_tool_call(call).map_err(|malformed| malformed.problem)
+    let action = crate::action_from_tool_call_with_catalog(call, catalog)
+        .map_err(|malformed| malformed.problem)?;
+    let canonical = serde_json::to_value(&action).map_err(|error| error.to_string())?;
+    let name = canonical["capability"].as_str().unwrap_or_default();
+    if catalog.get(name).is_none() {
+        return Err(format!(
+            "{name} is not offered in this turn; use one of the declared tools"
+        ));
+    }
+    Ok(action)
 }
 
 /// The half of a decode failure the deployment cannot see.

@@ -239,8 +239,10 @@ verification, no second turn.
    **Core tools (default since 2026-10-14; plan W2.11).** Every turn, goal
    or conversation, is offered the ten tools of `converse::CORE_TOOLS`
    (read, search, list, the three edits, delete, run, complete, decline),
-   plus `look_at` for a model that reads images, `read_terminal` when the
-   app shows the terminal and `update_plan` for a goal that keeps a plan --
+   plus the supported memory and web/service groups (three tools each,
+   disabled by `tool_groups.memory`/`web` in chat config), `look_at` for a
+   model that reads images, `read_terminal` when the app shows the terminal
+   and `update_plan` for a goal that keeps a plan --
    in place of about 25 definitions and 3,700 tokens. Gemma 4 wrote calls
    in a form of its own with the whole catalogue in front of it; the others
    come back when a measurement shows they are needed. `goal_aids.core_tools`

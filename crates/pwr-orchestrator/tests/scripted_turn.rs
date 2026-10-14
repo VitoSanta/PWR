@@ -100,7 +100,7 @@ async fn run_with(
         16384,
         &[],
         Default::default(),
-        serde_json::json!([]),
+        pwr_compat::render_tools(&converse::chat_tool_catalog()),
         &AtomicBool::new(false),
         continuity,
         &DenyWithoutAsking,
