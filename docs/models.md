@@ -19,36 +19,26 @@ reply protocol, artifact policy and execution architecture, with rollout gates.
 
 ## Families and adapters
 
-`pwr-compat` normalises each family's way of writing tool calls and reasoning
-into canonical actions. An adapter has a revision that a calibration records.
-
-| Family (revision) | Calls it reads |
-|---|---|
-| Qwen, Nemotron 3.x, Ornith 1.5 9B / 35B-A3B (`qwen-v4`) | `<tool_call>` JSON; the XML `<function=…><parameter=…>` form with or without its opening or closing `<tool_call>` tag (Qwen3-Coder arrives without the opening one); a list or dict written the Python way inside a parameter (`['-m', 'unittest']`); fenced JSON only when the entire reply consists of call fences; `<tools>` written as a call; inline `<think>` |
-| GLM-4.x | `<tool_call>name<arg_key>…<arg_value>…` |
-| Seed-OSS | `<seed:tool_call>`, `<seed:think>` |
-| gpt-oss (Harmony) | channels and `to=functions.…` |
-| Gemma 4 (`gemma4-v3`) | `<|tool_call>call:name{…}<tool_call|>` and its thought channel |
-| Granite (`granite-v2`) | a bare JSON array, and `<tool_call>{json}</tool_call>`; role-header reasoning |
-| Mistral, Devstral, Magistral, Ministral (`mistral-v2`) | `[TOOL_CALLS]name[ARGS]{json}` (several in a row) and the older `[TOOL_CALLS][{…}]`; the request is rendered with the roles Mistral's template insists on (below) |
-| Liquid LFM2 (`liquid-v1`) | `<|tool_call_start|>[name(key="v", …)]<|tool_call_end|>` (Python call syntax) and `<function_call>{json}</function_call>`; `<think>` |
+PWR runs the Gemma 4 family only (2026-10-14). `pwr-compat` reads Gemma 4's
+protocol into canonical actions: calls written as
+`<|tool_call>call:name{key:<|"|>value<|"|>,…}<tool_call|>` (several in one
+reply; an argument written as an ordinary quoted string is read too) and the
+thought channel `<|channel>thought … <channel|>` (`gemma4-v3`). A deployment
+that is not recognisably Gemma 4 -- llama.cpp's server, which parses calls
+itself, or a scripted test model -- gets the native adapter, which changes
+nothing. The adapters for Qwen, GLM, Seed-OSS, gpt-oss, Granite, Mistral and
+Liquid were removed with the families.
 
 A call a model wrote whole but could not finish (cut off inside the arguments)
 is never guessed at: it is reported as cut off, and the turn retries smaller.
-Fixes are made to help every model where possible, not per model.
-Ambiguous raw XML delimiters are refused instead of truncating arguments, and
-Mistral arrays decode every member or none. Parser and sidecar changes alter
-calibration scope; old calibration evidence may require Quick Calibration again.
+A call that could not be read is answered with Gemma's own form,
+`<|tool_call>call:NAME{KEY:<|"|>VALUE<|"|>}<tool_call|>`.
 
 **What the request carries for the chat template** (`template_messages`): every
-tool call has an id (its own, else nine letters or digits, which Mistral's
-template insists on) and every tool result the call's id and the tool's name
+tool call has an id and every tool result the call's id and the tool's name
 (Gemma 4's template names a result from the id; without it the template failed
 with `TypeError`); a `tool` message that answers no call is sent as a note from
-PWR in a user message; for the Mistral family runs of user messages become one
-message and a note after a tool result rides on the result, because the
-template counts only user messages and call-free assistant messages and
-requires them to alternate. Other families' prompts are unchanged.
+PWR in a user message.
 
 Profiles for known models (`strategies/models.json`) carry vendor sampling
 and a prompt suffix; a profile names an exact artifact or deployment, never a

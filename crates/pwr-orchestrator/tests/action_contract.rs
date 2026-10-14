@@ -141,7 +141,7 @@ async fn run(
     };
     let report = converse::take_turn(
         &model,
-        &pwr_compat::QwenFamilyAdapter,
+        &pwr_compat::Gemma4Adapter,
         &deployment,
         &store,
         id,
@@ -531,7 +531,7 @@ async fn malformed_closing_uses_the_same_two_attempt_limit_as_a_denied_edit() {
     );
     let raw = call(
         "__raw_fixture",
-        json!({"text":"<tool_call>\n<function=complete>\n</parameter>\n</function>\n</tool_call>"}),
+        json!({"text":"<|tool_call>call:complete{rationale:<|\"|>done}<tool_call|>"}),
     );
     let (report, events, asked) = run(
         root.path(),

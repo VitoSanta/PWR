@@ -1038,74 +1038,6 @@ fn template_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Mistral's chat template counts only user messages and assistant messages
-/// *without* calls, and insists those alternate: user, assistant, user... Calls
-/// and their results do not count. PWR sends runs of user messages (the
-/// repository passages, the task, a note of its own) and puts a note right
-/// after a tool result, which the template reads as two users in a row.
-/// Runs of them become one message, in order, joined by a blank line; a user
-/// note that follows a tool result is added to that result, marked as PWR's.
-/// Measured 2026-10-01: Devstral failed every turn before its first word, then
-/// every turn after its first runaway reply.
-fn alternating_roles(messages: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
-    let plain = |value: &serde_json::Value| {
-        value["content"].is_string() && value.get("tool_calls").is_none()
-    };
-    let counted = |value: &serde_json::Value| {
-        matches!(value["role"].as_str(), Some("user" | "assistant")) && plain(value)
-    };
-    let text = |value: &serde_json::Value| value["content"].as_str().unwrap_or_default().to_owned();
-    let mut out: Vec<serde_json::Value> = Vec::new();
-    for message in messages {
-        let role = message["role"].as_str().unwrap_or_default().to_owned();
-        if counted(&message) {
-            let last_counted = out
-                .iter()
-                .rev()
-                .find(|earlier| counted(earlier))
-                .map(|earlier| earlier["role"].as_str().unwrap_or_default().to_owned());
-            if last_counted.as_deref() == Some(role.as_str())
-                && let Some(last) = out.last_mut()
-            {
-                if counted(last) {
-                    let joined = format!("{}\n\n{}", text(last), text(&message));
-                    last["content"] = serde_json::json!(joined);
-                    continue;
-                }
-                if role == "user" && last["role"] == "tool" && last["content"].is_string() {
-                    let joined = format!("{}\n\n[PWR] {}", text(last), text(&message));
-                    last["content"] = serde_json::json!(joined);
-                    continue;
-                }
-                // Calls that were never answered (the turn ended first), then a
-                // user message: it stands as their result, the first carrying
-                // the text and any others saying there was none.
-                if role == "user"
-                    && last["role"] == "assistant"
-                    && let Some(calls) = last["tool_calls"].as_array().cloned()
-                    && !calls.is_empty()
-                {
-                    for (at, call) in calls.iter().enumerate() {
-                        let content = if at == 0 {
-                            format!("[PWR] {}", text(&message))
-                        } else {
-                            "[PWR] no result".to_owned()
-                        };
-                        out.push(serde_json::json!({
-                            "role": "tool",
-                            "content": content,
-                            "tool_call_id": call["id"],
-                            "name": call["function"]["name"],
-                        }));
-                    }
-                    continue;
-                }
-            }
-        }
-        out.push(message);
-    }
-    out
-}
 
 /// The chat template an MLX model ships, as text, never rendered here:
 /// `chat_template.jinja` (newer exports, and what the tokenizer prefers when
@@ -1187,14 +1119,7 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
             .cloned()
             .unwrap_or(serde_json::Value::Null)
     };
-    let messages = {
-        let rendered = template_messages(&request.messages);
-        if pwr_compat::adapter_for(None, &request.deployment.model_ref).id() == "mistral" {
-            alternating_roles(rendered)
-        } else {
-            rendered
-        }
-    };
+    let messages = template_messages(&request.messages);
     serde_json::json!({
         "op": "chat",
         "context_tokens": request.context_tokens,
@@ -1231,33 +1156,20 @@ pub fn chat_body(request: &ModelRequest) -> serde_json::Value {
 /// Where the part of an answer that can be shown ends: the first place a
 /// call may begin. Everything from there on is held until the reply ends and
 /// the family adapter has taken the calls out.
-const CALL_MARKERS: [&str; 11] = [
-    "[TOOL_CALLS]",
-    "<|tool_call_start|>",
-    "<function_call>",
-    "<tool_call>",
-    "<|tool_call>",
-    "<seed:tool_call>",
-    "<function=",
-    "<think>",
-    "<seed:think>",
-    "<|channel>thought",
-    "<turn|>",
-];
+const CALL_MARKERS: [&str; 4] = ["<|tool_call>", "<|channel>thought", "<channel|>", "<turn|>"];
 
 /// Characters held back at the end of what is shown, so a marker arriving
 /// split across tokens is never half-shown and then taken back. Longer than
-/// every marker, harmony's included.
+/// every marker.
 const HOLD_BACK: usize = 16;
 
 /// What of an answer so far can be shown: (reasoning, answer text).
 ///
-/// For most families, the text before the first call marker. For harmony
-/// (gpt-oss), the bodies of its `analysis` messages as reasoning and of its
-/// `final` or unaddressed messages as text, up to the first message addressed
-/// to a tool. Streamed so a reply is seen as it is written: the capability
-/// probes of 2026-09-19 found the answer held whole, one chunk per reply, which
-/// is no streaming at all and leaves nothing to cancel.
+/// The text before the first place a call or a thought block may begin;
+/// Gemma's reasoning arrives on its own channel from the engine. Streamed so a
+/// reply is seen as it is written: the capability probes of 2026-09-19 found
+/// the answer held whole, one chunk per reply, which is no streaming at all
+/// and leaves nothing to cancel.
 /// Which part of `visible`'s view may still grow at its end, and so is the
 /// only one whose tail is held back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1268,62 +1180,17 @@ enum Open {
 }
 
 fn visible(answer: &str) -> (String, String, Open) {
-    const CHANNEL: &str = "<|channel|>";
-    if !answer.trim_start().starts_with(CHANNEL) {
-        // A reply that opens with its own think block (Seed-OSS with its
-        // budget unset writes `<seed:think>` itself): the block is reasoning,
-        // and the text after it is the answer.
-        let lead = answer.trim_start();
-        for (open_tag, close_tag) in [("<think>", "</think>"), ("<seed:think>", "</seed:think>")] {
-            let Some(body) = lead.strip_prefix(open_tag) else {
-                continue;
-            };
-            let Some(close) = body.find(close_tag) else {
-                return (body.to_owned(), String::new(), Open::Thinking);
-            };
-            let rest = &body[close + close_tag.len()..];
-            let (_, text, open) = visible(rest);
-            return (body[..close].to_owned(), text, open);
-        }
-        let cut = CALL_MARKERS
-            .iter()
-            .filter_map(|marker| answer.find(marker))
-            .min();
-        let open = if cut.is_some() {
-            Open::Neither
-        } else {
-            Open::Text
-        };
-        let cut = cut.unwrap_or(answer.len());
-        return (String::new(), answer[..cut].to_owned(), open);
-    }
-    let (mut thinking, mut text) = (String::new(), String::new());
-    let mut open = Open::Neither;
-    for segment in answer.split(CHANNEL).skip(1) {
-        let Some((header, body)) = segment.split_once("<|message|>") else {
-            break;
-        };
-        if header.contains("to=") {
-            break;
-        }
-        let end = ["<|end|>", "<|call|>", "<|return|>", "<|start|>"]
-            .iter()
-            .filter_map(|marker| body.find(marker))
-            .min();
-        let body = end.map_or(body, |end| &body[..end]);
-        let analysis = header.trim_start().starts_with("analysis");
-        open = match (end, analysis) {
-            (Some(_), _) => Open::Neither,
-            (None, true) => Open::Thinking,
-            (None, false) => Open::Text,
-        };
-        let target = if analysis { &mut thinking } else { &mut text };
-        if !target.is_empty() {
-            target.push('\n');
-        }
-        target.push_str(body);
-    }
-    (thinking, text, open)
+    let cut = CALL_MARKERS
+        .iter()
+        .filter_map(|marker| answer.find(marker))
+        .min();
+    let open = if cut.is_some() {
+        Open::Neither
+    } else {
+        Open::Text
+    };
+    let cut = cut.unwrap_or(answer.len());
+    (String::new(), answer[..cut].to_owned(), open)
 }
 
 /// `text[sent..]`, less the held-back tail, on a character boundary.
@@ -2014,31 +1881,13 @@ for line in sys.stdin:
     /// Qwen3-14B writes its own think block; the text after it starts with a
     /// blank line the adapter trims (2026-09-23: the answer ended mid-word).
     #[test]
-    fn an_answer_after_an_inline_think_block_arrives_whole() {
-        let pieces = [
-            "<think>\nThe user said hello.\n</think>",
-            "\n\nCiao! How can I a",
-            "ssist you today?",
-        ];
-        let (_, shown, live) = stream_of(&pieces);
-        let finished = live.finish(ModelChunk {
-            content: "Ciao! How can I assist you today?".into(),
-            ..Default::default()
-        });
-        assert_eq!(
-            format!("{shown}{}", finished.content).trim(),
-            "Ciao! How can I assist you today?"
-        );
-    }
-
-    #[test]
     fn answer_text_streams_and_a_call_is_never_shown_as_text() {
         let pieces = [
             "I will read ",
             "the file first, then fix it.",
-            "\n\n<tool",
-            "_call>\n<function=read_file>\n",
-            "<parameter=path>\na.py\n</parameter>\n</function>\n</tool_call>",
+            "\n\n<|tool",
+            "_call>call:read_file{path:",
+            "<|\"|>a.py<|\"|>}<tool_call|>",
         ];
         let (_, shown, live) = stream_of(&pieces);
         assert!(shown.starts_with("I will read the file"), "{shown:?}");
@@ -2071,29 +1920,6 @@ for line in sys.stdin:
             format!("{shown}{}", finished.content),
             "The answer is 42, and nothing else is needed."
         );
-    }
-
-    #[test]
-    fn harmony_reasoning_and_answer_stream_on_their_own_channels() {
-        let pieces = [
-            "<|channel|>analysis<|message|>The user wants ",
-            "a count; easy.<|end|>",
-            "<|start|>assistant<|channel|>final<|message|>1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12",
-        ];
-        let (thinking, shown, _) = stream_of(&pieces);
-        assert_eq!(thinking, "The user wants a count; easy.");
-        assert!(shown.starts_with("1\n2\n3"), "{shown:?}");
-        assert!(!shown.contains("<|"), "{shown:?}");
-    }
-
-    #[test]
-    fn a_leading_think_block_streams_as_reasoning() {
-        let (thinking, shown, _) = stream_of(&[
-            "<seed:think>The user wants a count.",
-            "</seed:think>1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n",
-        ]);
-        assert_eq!(thinking, "The user wants a count.");
-        assert!(shown.starts_with("1\n2\n"), "{shown:?}");
     }
 
     #[test]
@@ -2158,48 +1984,6 @@ for line in sys.stdin:
     }
 
     #[test]
-    fn mistral_gets_runs_of_user_messages_as_one() {
-        let messages = vec![
-            serde_json::json!({"role": "system", "content": "rules"}),
-            serde_json::json!({"role": "user", "content": "passages"}),
-            serde_json::json!({"role": "user", "content": "the task"}),
-            serde_json::json!({"role": "assistant", "content": "", "tool_calls": [{"id": "pwrc00001"}]}),
-            serde_json::json!({"role": "tool", "content": "result"}),
-            serde_json::json!({"role": "user", "content": "note"}),
-            serde_json::json!({"role": "user", "content": "more"}),
-            serde_json::json!({"role": "assistant", "content": "an answer"}),
-            serde_json::json!({"role": "user", "content": "next"}),
-        ];
-        let merged = alternating_roles(messages);
-        let roles: Vec<_> = merged.iter().map(|m| m["role"].as_str().unwrap()).collect();
-        // Counting only users and call-free assistants, as the template does,
-        // they alternate.
-        assert_eq!(
-            roles,
-            ["system", "user", "assistant", "tool", "assistant", "user"]
-        );
-        assert_eq!(merged[1]["content"], "passages\n\nthe task");
-        // A note after a result rides on the result.
-        assert_eq!(merged[3]["content"], "result\n\n[PWR] note\n\n[PWR] more");
-        assert_eq!(merged[2]["tool_calls"][0]["id"], "pwrc00001");
-    }
-
-    #[test]
-    fn mistral_gets_a_result_for_calls_the_turn_ended_before_answering() {
-        let merged = alternating_roles(vec![
-            serde_json::json!({"role": "user", "content": "task"}),
-            serde_json::json!({"role": "assistant", "content": "", "tool_calls": [{"id": "pwrc00001", "function": {"name": "read_file"}}]}),
-            serde_json::json!({"role": "user", "content": "feedback"}),
-            serde_json::json!({"role": "user", "content": "again"}),
-        ]);
-        let roles: Vec<_> = merged.iter().map(|m| m["role"].as_str().unwrap()).collect();
-        assert_eq!(roles, ["user", "assistant", "tool"]);
-        assert_eq!(merged[2]["tool_call_id"], "pwrc00001");
-        assert_eq!(merged[2]["name"], "read_file");
-        assert_eq!(merged[2]["content"], "[PWR] feedback\n\n[PWR] again");
-    }
-
-    #[test]
     fn calls_without_ids_get_nine_character_ids_that_their_results_share() {
         let call = |name: &str| ToolCall {
             name: name.into(),
@@ -2250,15 +2034,6 @@ for line in sys.stdin:
                 .unwrap()
                 .contains("checks failed")
         );
-    }
-
-    #[test]
-    fn a_harmony_call_is_held() {
-        let (_, shown, _) = stream_of(&[
-            "<|channel|>analysis<|message|>Read it.<|end|><|start|>assistant",
-            "<|channel|>commentary to=functions.read_file <|constrain|>json<|message|>{\"path\":\"a.py\"}",
-        ]);
-        assert!(shown.is_empty(), "{shown:?}");
     }
 
     use super::*;
@@ -2491,7 +2266,7 @@ for line in sys.stdin:
             "usage": {"completion_tokens": 900, "reasoning_tokens": 700}, "timings": {}
         });
         assert!(matches!(
-            step_of(&event, "", &pwr_compat::QwenFamilyAdapter),
+            step_of(&event, "", &pwr_compat::Gemma4Adapter),
             Step::Finish(Err(ProviderError::ReasoningUnfinished { .. }))
         ));
     }
@@ -2504,30 +2279,6 @@ for line in sys.stdin:
         assert!(matches!(
             step_of(
                 &event,
-                "<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"a",
-                &pwr_compat::QwenFamilyAdapter,
-            ),
-            Step::Finish(Err(ProviderError::Truncated { .. }))
-        ));
-        assert!(matches!(
-            step_of(
-                &event,
-                "<tool_call>read_file<arg_key>path</arg_key><arg_value>a.txt</arg_value>",
-                &pwr_compat::GlmFamilyAdapter,
-            ),
-            Step::Finish(Err(ProviderError::Truncated { .. }))
-        ));
-        assert!(matches!(
-            step_of(
-                &event,
-                "<|channel|>commentary to=functions.read_file<|message|>{\"path\":\"a.txt",
-                &pwr_compat::HarmonyAdapter,
-            ),
-            Step::Finish(Err(ProviderError::Truncated { .. }))
-        ));
-        assert!(matches!(
-            step_of(
-                &event,
                 "<|tool_call>call:read_file{path:<|\"|>a.txt<|\"|>",
                 &pwr_compat::Gemma4Adapter,
             ),
@@ -2536,8 +2287,8 @@ for line in sys.stdin:
         assert!(matches!(
             step_of(
                 &event,
-                "<|channel|>commentary to=functions.read_file<|message|>{\"path\":\"a.txt\"}",
-                &pwr_compat::HarmonyAdapter,
+                "<|tool_call>call:read_file{path:<|\"|>a.txt<|\"|>}<tool_call|>",
+                &pwr_compat::Gemma4Adapter,
             ),
             Step::Finish(Ok(chunk)) if chunk.tool_calls.len() == 1
         ));
@@ -2673,14 +2424,14 @@ for line in sys.stdin:
             "usage": {"completion_tokens": 4864}, "timings": {}
         });
         assert!(matches!(
-            step_of(&event, "", &pwr_compat::QwenFamilyAdapter),
+            step_of(&event, "", &pwr_compat::Gemma4Adapter),
             Step::Finish(Err(ProviderError::Truncated { .. }))
         ));
     }
 
     #[test]
     fn reasoning_streams_and_the_answer_waits() {
-        let adapter = pwr_compat::QwenFamilyAdapter;
+        let adapter = pwr_compat::Gemma4Adapter;
         let reasoning = serde_json::json!({"event": "delta", "channel": "reasoning", "text": "hm"});
         assert!(matches!(
             step_of(&reasoning, "", &adapter),
@@ -2694,13 +2445,13 @@ for line in sys.stdin:
     fn a_call_written_in_the_answer_arrives_structured_and_not_as_text() {
         // The capability probe of 2026-09-18 saw no call at all: it reads the
         // stream as a backend hands it over, and the call was still text.
-        let written = "Reading it.\n<tool_call>\n<function=probe_echo>\n<parameter=value>\nok\n</parameter>\n</function>\n</tool_call>";
+        let written = "Reading it.<|tool_call>call:probe_echo{value:<|\"|>ok<|\"|>}<tool_call|>";
         let done = serde_json::json!({
             "event": "done", "finish_reason": "stop",
             "usage": {"prompt_tokens": 10, "completion_tokens": 20},
             "timings": {"prefill_secs": 0.1, "generation_secs": 0.2}
         });
-        let Step::Finish(Ok(chunk)) = step_of(&done, written, &pwr_compat::QwenFamilyAdapter)
+        let Step::Finish(Ok(chunk)) = step_of(&done, written, &pwr_compat::Gemma4Adapter)
         else {
             panic!("a finished reply");
         };

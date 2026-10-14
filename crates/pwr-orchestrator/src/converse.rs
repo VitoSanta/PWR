@@ -2819,8 +2819,8 @@ async fn take_turn_inner<P: ModelProvider>(
                      or apply_patch."
                 } else {
                     "Your tool call could not be read, so nothing was done. Write it exactly in this \
-                     form, closing every parameter with </parameter> (not with the parameter's name):\n\
-                     <tool_call>\n<function=NAME>\n<parameter=KEY>\nVALUE\n</parameter>\n</function>\n</tool_call>"
+                     form, closing every string with <|\"|> and the call with }<tool_call|>:\n\
+                     <|tool_call>call:NAME{KEY:<|\"|>VALUE<|\"|>}<tool_call|>"
                 },
             ));
             continue;

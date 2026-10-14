@@ -1285,11 +1285,11 @@ fn an_unreadable_reply_is_told_the_same_way_by_both_loops() {
 fn an_unreadable_call_in_the_text_is_told_and_asked_again() {
     let dir = workspace();
     let outcome = drive_chat_as(
-        "qwen3.6",
+        "gemma-4-26b",
         policy_for(dir.path()),
         Scripted::new(vec![
-            says("<tool_call>\nnot a call at all\n</tool_call>"),
-            says("<tool_call>\n<function=read_file>\n<parameter=path>\nnotes.txt"),
+            says("<|tool_call>not a call at all<tool_call|>"),
+            says("<|tool_call>call:read_file{path:<|\"|>notes.txt"),
             says("Done."),
         ]),
         &[],
@@ -1307,7 +1307,7 @@ fn an_unreadable_call_in_the_text_is_told_and_asked_again() {
     let (role, text) = told(&outcome.requests[1]);
     assert_eq!(role, "tool");
     assert!(text.contains("could not be read"), "{text}");
-    assert!(text.contains("</parameter>"), "{text}");
+    assert!(text.contains("<tool_call|>"), "{text}");
     let (_, text) = told(&outcome.requests[2]);
     assert!(text.contains("cut off"), "{text}");
     assert!(
@@ -1328,9 +1328,9 @@ fn an_unreadable_call_in_the_text_is_told_and_asked_again() {
 fn unreadable_calls_that_keep_coming_stop_the_turn() {
     let dir = workspace();
     let outcome = drive_chat_as(
-        "qwen3.6",
+        "gemma-4-26b",
         policy_for(dir.path()),
-        Scripted::new(vec![says("<tool_call>\nnot a call\n</tool_call>"); 3]),
+        Scripted::new(vec![says("<|tool_call>not a call<tool_call|>"); 3]),
         &[],
         &std::sync::atomic::AtomicBool::new(false),
     );

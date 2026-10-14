@@ -969,23 +969,18 @@ fn thinking_with_no_answer_is_reported_as_what_it_is() {
 }
 
 /// The compatibility layer's whole claim, asserted at the loop's own boundary
-/// rather than inside the adapter: a call Qwen wrote into its answer text
+/// rather than inside the adapter: a call Gemma 4 wrote into its answer text
 /// becomes the same `ActionProposal` as one the backend decoded natively, and
-/// a deployment with no declared family is read exactly as it was before the
-/// layer existed.
+/// a deployment that is not Gemma is read exactly as the backend gave it.
 mod family_conventions {
-    use pwr_compat::{GenericAdapter, QwenFamilyAdapter, adapter_for};
+    use pwr_compat::{Gemma4Adapter, GenericAdapter, adapter_for};
 
-    /// Qwen's chat template renders a call inside the answer, and any backend
-    /// whose parser misses that block hands it over as prose. The loop then
-    /// reported "model output must be one valid typed-action JSON object"
-    /// about output that contained a perfectly well-formed call, and spent a
-    /// turn of the malformed budget doing it.
+    /// Gemma's template renders a call inside the answer text; the loop must
+    /// read it as the call it is, not as prose.
     #[test]
     fn a_call_written_into_the_answer_reaches_the_loop_as_that_action() {
         let embedded = pwr_provider::ModelReply {
-            content: "Reading it now.\n<tool_call>{\"name\": \"read_file\", \"arguments\": \
-                      {\"path\": \"src/lib.rs\"}}</tool_call>"
+            content: "Reading it now.<|tool_call>call:read_file{path:<|\"|>src/lib.rs<|\"|>}<tool_call|>"
                 .into(),
             ..Default::default()
         };
@@ -997,27 +992,25 @@ mod family_conventions {
             }],
             ..Default::default()
         };
-        let through_qwen =
-            pwr_orchestrator::action_from_reply_through_for_test(&QwenFamilyAdapter, &embedded)
+        let through_gemma =
+            pwr_orchestrator::action_from_reply_through_for_test(&Gemma4Adapter, &embedded)
                 .expect("a call in the answer text is still a call");
         let natively =
             pwr_orchestrator::action_from_reply_for_test(&native).expect("a natively decoded call");
         // Same action, whichever channel carried it. That is the property the
         // layer exists to provide.
         assert_eq!(
-            serde_json::to_value(&through_qwen).unwrap(),
+            serde_json::to_value(&through_gemma).unwrap(),
             serde_json::to_value(&natively).unwrap()
         );
     }
 
-    /// The counterpart, and the more important one: an unknown deployment must
-    /// not be read through a convention it may not follow.
+    /// The counterpart: a deployment that is not Gemma must not be read
+    /// through Gemma's protocol.
     #[test]
-    fn an_unknown_family_is_read_exactly_as_it_was_before() {
+    fn a_deployment_that_is_not_gemma_is_read_exactly_as_given() {
         let embedded = pwr_provider::ModelReply {
-            content: "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": \"a\"}}\
-                      </tool_call>"
-                .into(),
+            content: "<|tool_call>call:read_file{path:<|\"|>a<|\"|>}<tool_call|>".into(),
             ..Default::default()
         };
         let generic =
@@ -1027,33 +1020,17 @@ mod family_conventions {
         assert_eq!(
             generic.unwrap_err().kind,
             verbatim.unwrap_err().kind,
-            "the generic adapter changed how an unnormalized reply is read"
+            "the native adapter changed how an unnormalized reply is read"
         );
-    }
-
-    /// A turn that spent its budget reasoning is a context problem, and it was
-    /// reported as the deployment writing nonsense. The classification has to
-    /// survive the family adapter, because the family adapter is what moves
-    /// the reasoning into its own channel in the first place.
-    #[test]
-    fn reasoning_that_consumed_the_turn_is_still_classified_as_reasoning() {
-        let reply = pwr_provider::ModelReply {
-            content: "<think>weighing which file to open, and then".into(),
-            ..Default::default()
-        };
-        let problem =
-            pwr_orchestrator::action_from_reply_through_for_test(&QwenFamilyAdapter, &reply)
-                .unwrap_err();
-        assert_eq!(problem.kind, "thinking_only");
     }
 
     /// Selection is made from observed evidence, and the fallback is the
     /// adapter that assumes nothing.
     #[test]
     fn the_adapter_is_chosen_from_evidence_and_never_assumed() {
-        assert_eq!(adapter_for(Some("qwen3_5"), "qwen/qwen3.5-9b").id(), "qwen");
-        assert_eq!(adapter_for(Some("granite"), "granite:8b").id(), "granite");
-        assert_eq!(adapter_for(Some("llama"), "llama3:8b").id(), "generic");
+        assert_eq!(adapter_for(Some("gemma4"), "x").id(), "gemma4");
+        assert_eq!(adapter_for(None, "mlx-community/gemma-4-31b-it-8bit").id(), "gemma4");
+        assert_eq!(adapter_for(Some("qwen3_5"), "qwen/qwen3.5-9b").id(), "generic");
     }
 }
 

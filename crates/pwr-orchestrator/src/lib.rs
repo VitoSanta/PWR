@@ -6021,19 +6021,6 @@ fn actions_from_reply(
                 reply.thinking.trim(),
             ))
         }
-        // A call was written in the family's markup and could not be read.
-        // Reporting it as `no_tool_call`, with a request for one JSON object,
-        // told a model writing XML calls the wrong thing (suite A1,
-        // `name-unreadable-call-*`).
-        [] if reply.narrative.contains("<tool_call>") || reply.narrative.contains("<function=") => {
-            Err(MalformedCall::detailed(
-                "unreadable_call",
-                "a tool call was written but could not be read. Write it whole: \
-                 <tool_call><function=NAME><parameter=KEY>value</parameter>...</function></tool_call>, \
-                 closing every <parameter=KEY> with </parameter>",
-                reply.narrative.trim(),
-            ))
-        }
         [] => parse_action_proposal(&reply.narrative).map(|action| vec![action]),
         calls => {
             let decoded: Result<Vec<ActionProposal>, MalformedCall> =
