@@ -290,8 +290,16 @@ class OneThought:
     model wrote `<|channel>thought\n<channel|>` and opened the channel again,
     hundreds of times, until the loop guard cut the reply -- three replies
     of that and the task was given up at its second action. Once the
-    channel has been opened or closed in this reply (or the generation
-    prompt closed it, as with thinking off), it cannot be opened again."""
+    channel has been opened or closed in this reply (or the prompt closed it:
+    the template's empty block at a new turn, or `empty_thought` after a tool
+    result), it cannot be opened again.
+
+    It no longer forbids the channel when reasoning is off. Google's own
+    template has the model open an empty block before every answer, and the
+    model does so after a tool result too: measured 2026-10-14 outside PWR,
+    Gemma 4 26B wrote `<|channel>thought\n<channel|>` and a well-formed call
+    six times out of six, where with the channel forbidden it gave an empty
+    reply or repeated lines in another language."""
 
     def __init__(self, open_id: int, close_id: int, allow_thought=True):
         self.open_id, self.close_id = open_id, close_id
@@ -325,7 +333,7 @@ class OneThought:
         return logits
 
 
-def one_thought(tokenizer, template: str, thinking=None):
+def one_thought(tokenizer, template: str):
     """The processor for templates with Gemma 4's thought channel, when both
     of its markers are single tokens; otherwise None."""
     if "<|channel>" not in template:
@@ -342,7 +350,24 @@ def one_thought(tokenizer, template: str, thinking=None):
         if not isinstance(token, int) or token < 0 or token == getattr(tokenizer, "unk_token_id", None):
             return None
         ids.append(token)
-    return OneThought(*ids, allow_thought=thinking is not False)
+    return OneThought(*ids)
+
+
+EMPTY_THOUGHT = "<|channel>thought\n<channel|>"
+
+
+def empty_thought(tokenizer, template: str, thinking) -> list:
+    """The tokens of Gemma 4's empty thought block, for a reply that goes on
+    with a model turn after a tool result while reasoning is not on.
+
+    Gemma's template opens no new model turn after a tool result: the model
+    continues its own, and with reasoning off the template's empty block --
+    which it writes at the start of every other turn -- is missing there.
+    Google advises adding it for 26B and 31B "to stabilize behavior"
+    (prompt formatting for Gemma 4). Nothing for any other template."""
+    if thinking is True or "<|channel>" not in template or "<|tool_call>" not in template:
+        return []
+    return list(tokenizer.encode(EMPTY_THOUGHT, add_special_tokens=False))
 
 
 # Markers that end a turn in every template that has them, whatever the
@@ -639,9 +664,19 @@ def score_budget() -> int:
     return budget
 
 
-def kv_bits(head_dim: int):
+# Model types whose cache stays at the activations' width whatever was asked.
+# Gemma 4's global layers use their keys as values too (512-wide heads):
+# measured 2026-10-14 on 26B-A4B, with the cache at 4 bits it wrote one line
+# in another language over and over and broke file names; at 16 bits it did
+# not. Its cache is small at 16 bits anyway (16-20 KB a token for 12B, 26B).
+KV_FULL_WIDTH = ("gemma4",)
+
+
+def kv_bits(head_dim: int, model_type=None):
     """The bits asked for, where the cache can be held at them."""
     bits = int(KV_BITS) if KV_BITS in ("4", "8") else None
+    if model_type and str(model_type).startswith(KV_FULL_WIDTH):
+        return None
     return bits if bits and head_dim % KV_GROUP == 0 else None
 
 
@@ -967,7 +1002,7 @@ class Engine:
         head_dim = int(text.get("head_dim") or text["hidden_size"] // self.heads)
         self.score_budget = score_budget()
         self.fused = fused_attention(head_dim)
-        self.kv_bits = kv_bits(head_dim)
+        self.kv_bits = kv_bits(head_dim, config.get("model_type"))
         weights = sum(p.stat().st_size for p in path.glob("*.safetensors"))
         return {
             "event": "loaded",
@@ -1253,7 +1288,7 @@ class Engine:
             presence_context_size=int(request.get("presence_context_size") or 20),
             repetition_penalty=request.get("repetition_penalty"),
         )
-        thought = one_thought(self.tokenizer, template, thinking)
+        thought = one_thought(self.tokenizer, template)
         if thought is not None:
             logits_processors = [*(logits_processors or []), thought]
 
@@ -1280,6 +1315,9 @@ class Engine:
                 budget = adjusted
                 full, images = self.render(messages, tools, thinking, True, budget, effort)
         base, _ = self.render(messages, tools, thinking, False, budget, effort)
+        if full == base:
+            # A model turn going on after a tool result (Gemma 4).
+            full = full + empty_thought(self.tokenizer, template, thinking)
         if isinstance(self.model, VisionText):
             self.observe("vision", prompt_tokens=len(full))
             self.model.set_prompt(full, images, images and images["digest"])
@@ -1469,7 +1507,7 @@ def main() -> None:
                 # computed before a model is loaded.
                 fused = fused_attention(int(request["head_dim"]))
                 held = score_budget() + (SCORES_FLOOR_BYTES if SCORES_MB else 0)
-                bits = kv_bits(int(request["head_dim"]))
+                bits = kv_bits(int(request["head_dim"]), request.get("model_type"))
                 emit({"id": ident, "event": "attention", "fused": fused,
                       "scores_bytes": 0 if fused else held,
                       # How the copy of a cache that cannot be cut back is

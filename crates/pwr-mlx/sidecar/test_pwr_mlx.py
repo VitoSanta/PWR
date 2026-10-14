@@ -1192,13 +1192,20 @@ class OneThoughtPerReply(unittest.TestCase):
         self.assertEqual(self.close_score(processor, prompt), 0.0)
         self.assertEqual(self.close_score(processor, prompt + [101]), float("-inf"))
 
-    def test_thinking_off_after_tool_result_cannot_open_a_channel(self):
-        # Gemma templates append no thinking-off prefix after a tool result.
-        # The flag must still be honored when the boundary has no marker.
-        processor = one_thought(self.Tokenizer(), "<|channel>", thinking=False)
-        self.assertEqual(self.step(processor, [7, 8]), float("-inf"))
-        self.assertEqual(self.close_score(processor, [7, 8]), float("-inf"))
-        self.assertEqual(self.step(processor, [7, 8, 9]), float("-inf"))
+    def test_after_a_tool_result_the_empty_block_shuts_the_channel(self):
+        # Reasoning off: the engine ends the prompt with the empty block
+        # (`empty_thought`), so the reply cannot open another.
+        processor = one_thought(self.Tokenizer(), "<|channel>")
+        prompt = [7, 8, 100, 9, 101]
+        self.assertEqual(self.step(processor, prompt), float("-inf"))
+        self.assertEqual(self.close_score(processor, prompt), float("-inf"))
+
+    def test_without_a_prefilled_block_the_reply_may_open_one(self):
+        # What Gemma does after a tool result when nothing closed the channel:
+        # an empty block, then the answer. Forbidding it gave empty replies.
+        processor = one_thought(self.Tokenizer(), "<|channel>")
+        self.assertEqual(self.step(processor, [7, 8]), 0.0)
+        self.assertEqual(self.step(processor, [7, 8, 100, 101]), float("-inf"))
 
     def test_templates_without_the_channel_get_nothing(self):
         self.assertIsNone(one_thought(self.Tokenizer(), "<think></think>"))
@@ -1207,6 +1214,35 @@ class OneThoughtPerReply(unittest.TestCase):
         tokenizer = self.Tokenizer()
         tokenizer.vocabulary = {}
         self.assertIsNone(one_thought(tokenizer, "<|channel>"))
+
+
+class GemmaEmptyThought(unittest.TestCase):
+    """After a tool result, a Gemma 4 reply with reasoning off starts after
+    the empty thought block, as every other turn of its template does."""
+
+    class Tokenizer:
+        def encode(self, text, add_special_tokens=False):
+            return [100, 5, 101] if text == "<|channel>thought\n<channel|>" else [0]
+
+    def test_gemma_with_reasoning_off_gets_the_block(self):
+        import pwr_mlx
+        gemma = "<|tool_call> ... <|channel>"
+        self.assertEqual(pwr_mlx.empty_thought(self.Tokenizer(), gemma, False), [100, 5, 101])
+        self.assertEqual(pwr_mlx.empty_thought(self.Tokenizer(), gemma, None), [100, 5, 101])
+
+    def test_reasoning_on_or_another_template_gets_nothing(self):
+        import pwr_mlx
+        self.assertEqual(pwr_mlx.empty_thought(self.Tokenizer(), "<|tool_call> <|channel>", True), [])
+        self.assertEqual(pwr_mlx.empty_thought(self.Tokenizer(), "<tool_call> <think>", False), [])
+
+    def test_gemma_keeps_its_cache_at_full_width(self):
+        import pwr_mlx
+        was = pwr_mlx.KV_BITS
+        self.addCleanup(lambda: setattr(pwr_mlx, "KV_BITS", was))
+        pwr_mlx.KV_BITS = "4"
+        self.assertIsNone(pwr_mlx.kv_bits(256, "gemma4"))
+        self.assertIsNone(pwr_mlx.kv_bits(256, "gemma4_unified"))
+        self.assertEqual(pwr_mlx.kv_bits(256, "qwen3_5"), 4)
 
 
 class TurnEndsStopGeneration(unittest.TestCase):

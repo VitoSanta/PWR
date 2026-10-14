@@ -1503,3 +1503,18 @@ these ran; the times may carry that. A loader for Bonsai 2's rotated packs was
 begun and removed the same hour: the engine's mlx-vlm 0.7.2 already carries
 that model type, which I had not looked for before writing.
 
+## 2026-10-14 — Gemma 4: what Google asks for, against what PWR did
+
+The owner moved PWR to the Gemma 4 family alone. A first test of 26B-A4B
+through PWR measured defects of PWR, not the model: empty replies after a
+tool result, lines repeated in another language, an engine error on images,
+and -- a mistake of mine -- a long document of 262,166 Gemma tokens, past the
+262,144 it is trained to. Read against Google's model card and prompt
+formatting page: the thought processor added on 2026-10-02 forbade the empty
+thought block that Gemma writes before every answer, including after a tool
+result; with it allowed, outside PWR, the model wrote a well-formed call six
+times out of six. The quantized context cache broke the model (keys double as
+values in its global layers). Both changed. Images through the engine are
+still built for Qwen's processors and wait for their own change. Evidence:
+`audits/linea-gemma4` in the benchmark repository.
+

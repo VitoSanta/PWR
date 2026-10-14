@@ -80,6 +80,20 @@ cache at 16 bits while the memory the window gives it (what PWR counts at the
 fewer bits) holds it, and converts the layers that grow, one at a time, when a
 read or a reply would pass that. Not yet measured through the sidecar.
 
+**Updated 2026-10-14, Gemma 4.** Two changes made against Google's own
+description of the family. After a tool result Gemma's template opens no new
+model turn and, with reasoning off, leaves out the empty thought block it
+writes at every other turn; the engine now adds `<|channel>thought\n<channel|>`
+there (`empty_thought`), as Google advises for 26B and 31B, and the thought
+processor no longer forbids opening the channel at the start of a reply --
+only a second block in the same reply. Outside PWR, with its template and
+Google's sampling, Gemma 4 26B wrote the empty block and a well-formed call
+six times out of six; with the channel forbidden it gave empty replies or
+repeated lines in another language. And Gemma 4 keeps its context cache at 16
+bits whatever `PWR_MLX_KV_BITS` asks (`KV_FULL_WIDTH`): its global layers use
+their keys as values, and with the quantized cache it broke; the `attention`
+request carries the model type so the window counts the full width.
+
 On macOS the sidecar sets `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` **before importing
 MLX**, preserving an explicitly supplied value (including `0`). This is the
 [driver workaround adopted by llama.cpp](https://github.com/ggml-org/llama.cpp/pull/22216)

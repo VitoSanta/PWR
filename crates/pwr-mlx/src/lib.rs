@@ -737,7 +737,13 @@ impl MlxProvider {
         self.ensure_started(&mut slot).ok()?;
         let sidecar = slot.as_mut()?;
         let id = sidecar
-            .request(serde_json::json!({"op": "attention", "head_dim": head_dim}))
+            .request(serde_json::json!({
+                "op": "attention",
+                "head_dim": head_dim,
+                // The engine keeps some families' cache at full width
+                // whatever was asked (Gemma 4), and says so by type.
+                "model_type": config["model_type"],
+            }))
             .await
             .ok()?;
         loop {
