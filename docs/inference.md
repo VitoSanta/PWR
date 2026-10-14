@@ -64,7 +64,12 @@ measured on Qwen3.5 9B and four other models (2026-10-13/14: a cache at fewer
 bits held 28-53% of the bytes and wrote 9-53% slower at long context) and
 removed with the Gemma-only engine: Gemma 4 broke with its cache at 4 bits,
 and at 16 bits its cache is small (16-20 KB a token for 12B and 26B). The
-measures are in [experiment-log.md](experiment-log.md).
+measures are in [experiment-log.md](experiment-log.md). On 2026-10-14 an 8-bit
+cache for Gemma's global layers came back as the one lever where a tier's
+memory does not hold the 262,144-token context (`PWR_MLX_KV_BITS=8`; 4 is
+refused), to be kept only if its quality holds at the full context; and the
+layer checkpoint and a 1 GiB score budget became the defaults, so the context
+is held once and a prefill step does not take the room the context needs.
 
 **Updated 2026-10-14: Gemma 4 only.** PWR runs the Gemma 4 family alone
 (12B, 26B-A4B, 31B; owner's decision). The engine loads a Gemma 4 pack
