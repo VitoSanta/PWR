@@ -963,8 +963,10 @@ fn artifact_registry_filters_by_host_without_selecting_a_model_for_it() {
     );
 }
 
+/// The packaged registry is the Gemma 4 line: every pack pinned to a
+/// revision, every file with its size and SHA-256, so a download is checked.
 #[test]
-fn packaged_artifact_registry_is_valid_and_has_downloadable_ggufs() {
+fn packaged_artifact_registry_is_the_gemma_line_with_checked_files() {
     let registry: ArtifactRegistry =
         serde_json::from_slice(include_bytes!("../../../strategies/artifacts.json"))
             .expect("packaged artifact registry must parse");
@@ -974,21 +976,11 @@ fn packaged_artifact_registry_is_valid_and_has_downloadable_ggufs() {
     let mac_artifacts = registry
         .eligible_for(ArtifactPlatform::MacosAppleSilicon, None)
         .unwrap();
-    assert_eq!(mac_artifacts.len(), 7);
-    assert_eq!(
-        mac_artifacts
-            .iter()
-            .filter(|artifact| artifact.format == ArtifactFormat::Mlx)
-            .count(),
-        5
-    );
-    let downloadable_ggufs = mac_artifacts
-        .iter()
-        .filter(|artifact| matches!(artifact.source, ArtifactSource::HuggingFace { .. }))
-        .filter(|artifact| artifact.format == ArtifactFormat::Gguf)
-        .collect::<Vec<_>>();
-    assert_eq!(downloadable_ggufs.len(), 2);
-    assert!(downloadable_ggufs.iter().all(|artifact| {
+    assert_eq!(mac_artifacts.len(), 5);
+    assert!(mac_artifacts.iter().all(|artifact| artifact.format == ArtifactFormat::Mlx
+        && artifact.family.starts_with("gemma4")
+        && matches!(artifact.source, ArtifactSource::HuggingFace { .. })));
+    assert!(mac_artifacts.iter().all(|artifact| {
         artifact
             .download_plan(std::path::Path::new("/models"))
             .unwrap()

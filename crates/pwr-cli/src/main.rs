@@ -6035,12 +6035,12 @@ async fn dispatch(cli: Cli) -> i32 {
     let requested = named.unwrap_or_else(|| BackendKind::Mlx.id().to_owned());
     let kind = match BackendKind::parse(&requested) {
         Some(kind) => kind,
-        // A workspace that remembers a removed backend is moved to the engine
-        // rather than refused: there is one engine, and the choice it saved
-        // no longer exists.
-        None if !from_flag && matches!(requested.as_str(), "ollama" | "lmstudio") => {
+        // A workspace that remembers an engine this build does not have is
+        // moved to the engine rather than refused: the choice it saved no
+        // longer exists.
+        None if !from_flag => {
             eprintln!(
-                "note: this workspace was set to {requested}, which PWR no longer uses; \
+                "note: this workspace was set to {requested}, which PWR does not have; \
                  running on its own engine (mlx)."
             );
             BackendKind::Mlx
@@ -6051,8 +6051,7 @@ async fn dispatch(cli: Cli) -> i32 {
                 Err(SafeError {
                     category: "invalid_input",
                     context: format!(
-                        "{requested} is not an engine this build has; expected mlx or llama (Ollama and \
-                         LM Studio were removed on 2026-09-19)"
+                        "{requested} is not an engine this build has; expected mlx or llama"
                     ),
                 }),
             );
@@ -6590,18 +6589,13 @@ async fn doctor(runtime: &RuntimeFactory) -> Result<serde_json::Value, SafeError
     let state = state
         .map(|state| serde_json::to_value(state).unwrap())
         .unwrap_or_else(|error| serde_json::json!({"status":"unavailable","reason":error.context}));
-    // Named by the backend that was actually addressed. `ollama_runtime` stays
-    // absent in current builds; old callers that still look for it must not
-    // read MLX or llama.cpp state as if it came from Ollama.
-    let mut report = serde_json::json!({
+    // Named by the backend that was actually addressed.
+    let report = serde_json::json!({
         "hardware": hardware,
         "backend": backend_id,
         "backend_runtime": state,
         "facts_only": true,
     });
-    if backend_id == "ollama" {
-        report["ollama_runtime"] = report["backend_runtime"].clone();
-    }
     Ok(report)
 }
 /// Context tier the boundary probe deliberately under-provisions.
@@ -11665,8 +11659,8 @@ mod tests {
 
     // ------------------------------------ which ladder a backend will serve
 
-    /// Serves a window the way one LM Studio model does: the size asked for
-    /// up to `maximum`, or `fixed` whatever is asked.
+    /// Serves a window the size asked for up to `maximum`, or `fixed`
+    /// whatever is asked.
     struct Loads {
         maximum: u32,
         fixed: Option<u32>,
@@ -11704,8 +11698,8 @@ mod tests {
         let deployment = DeploymentDescriptor {
             schema_version: 1,
             id: new_id(),
-            provider: "lmstudio".into(),
-            endpoint: "http://127.0.0.1:1234/".into(),
+            provider: "mlx".into(),
+            endpoint: String::new(),
             model_ref: "model".into(),
             backend_options: Default::default(),
             auth_ref: None,
@@ -11716,7 +11710,7 @@ mod tests {
                 model,
                 &deployment,
                 ladder.to_vec(),
-                "lmstudio",
+                "mlx",
             ))
             .unwrap()
     }
@@ -12292,7 +12286,7 @@ mod tests {
     #[test]
     fn the_doctor_summary_answers_the_question_that_was_asked() {
         let down = serde_json::json!({
-            "backend": "ollama",
+            "backend": "mlx",
             "backend_runtime": {"status": "unavailable", "reason": "connection refused"},
         });
         let said = summarise_doctor(&down);
@@ -12300,11 +12294,11 @@ mod tests {
         assert!(said.contains("connection refused"), "{said}");
 
         let up = serde_json::json!({
-            "backend": "lmstudio",
+            "backend": "mlx",
             "backend_runtime": {"loaded_models": ["a", "b"], "state": {}},
         });
         let said = summarise_doctor(&up);
-        assert!(said.contains("lmstudio"), "{said}");
+        assert!(said.contains("mlx"), "{said}");
         assert!(said.contains("2 model"), "{said}");
 
         let metadata_only = serde_json::json!({

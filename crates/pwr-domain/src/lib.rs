@@ -464,10 +464,7 @@ pub enum ParameterSource {
     /// with the resolved value.
     ModelCard,
     /// Declared in the backend-packaged model configuration.
-    ///
-    /// `ollama_model` remains accepted while existing profile artifacts are
-    /// migrated; new artifacts serialize the backend-neutral name.
-    #[serde(rename = "backend_model_config", alias = "ollama_model")]
+    #[serde(rename = "backend_model_config")]
     BackendModelConfig,
     /// The `generation_config.json` shipped with the weights: the model's own
     /// defaults, read by an engine that loads the weights itself.

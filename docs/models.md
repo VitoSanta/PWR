@@ -250,7 +250,11 @@ keeps a matching existing file and never overwrites a different one; writes
 `<file>.part`, verifies, renames; resumes from `.part`. Progress, verification,
 completion, failure (disk, conflict, network, verification) and cancellation
 arrive as `_pwr/download_progress`. `pwr models download` accepts only
-artifacts listed in `strategies/artifacts.json`.
+artifacts listed in `strategies/artifacts.json`: since 2026-10-14 the five
+Gemma 4 MLX packs, each pinned to its revision with every file's size and
+SHA-256 (computed from PWR's verified download and matched against the Hub's
+LFS hashes). The LM Studio and Qwen/Nemotron GGUF entries were removed;
+Gemma GGUF entries come with the Windows engine.
 
 A gated repository currently fails as a generic download error (plan W7.7).
 

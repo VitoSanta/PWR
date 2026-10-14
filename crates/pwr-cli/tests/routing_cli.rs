@@ -43,12 +43,12 @@ fn a_backend_this_build_cannot_address_is_named_rather_than_attempted() {
 /// Ollama and LM Studio were removed on 2026-09-19: naming one is refused
 /// with the date, and the engine is the default.
 #[test]
-fn a_removed_backend_is_refused_by_name_and_the_engine_is_the_default() {
+fn an_engine_this_build_lacks_is_refused_by_name_and_the_engine_is_the_default() {
     let root = tempfile::tempdir().unwrap();
     let refused = run_json(root.path(), &["--backend", "ollama", "--json", "doctor"]);
     assert_eq!(refused["ok"], false);
     let context = refused["error"]["context"].as_str().unwrap();
-    assert!(context.contains("removed"), "{context}");
+    assert!(context.contains("not an engine this build has"), "{context}");
     let doctor = run_json(root.path(), &["--json", "doctor"]);
     assert!(
         doctor["result"]["backend"] == "mlx" || doctor["ok"] == false,

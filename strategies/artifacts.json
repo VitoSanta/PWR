@@ -3,149 +3,382 @@
   "artifacts": [
     {
       "schema_version": 1,
-      "id": "lmstudio-qwen3-4b-4bit-mlx",
-      "family": "qwen3",
-      "variant": "4b-4bit",
-      "source": {
-        "kind": "backend_managed",
-        "backend": "lmstudio",
-        "model_ref": "qwen/qwen3-4b@4bit"
-      },
-      "format": "mlx",
-      "quantization": "4bit",
-      "platform": "macos_apple_silicon",
-      "provenance": {
-        "source": "LM Studio /api/v1/models local inventory",
-        "observed_at": "2026-09-08T08:00:00Z",
-        "content_hash": "observed-live-not-a-download-manifest"
-      }
-    },
-    {
-      "schema_version": 1,
-      "id": "lmstudio-qwen3-14b-4bit-mlx",
-      "family": "qwen3",
-      "variant": "14b-4bit",
-      "source": {
-        "kind": "backend_managed",
-        "backend": "lmstudio",
-        "model_ref": "qwen/qwen3-14b@4bit"
-      },
-      "format": "mlx",
-      "quantization": "4bit",
-      "platform": "macos_apple_silicon",
-      "provenance": {
-        "source": "LM Studio /api/v1/models local inventory",
-        "observed_at": "2026-09-08T08:00:00Z",
-        "content_hash": "observed-live-not-a-download-manifest"
-      }
-    },
-    {
-      "schema_version": 1,
-      "id": "lmstudio-qwen35-9b-4bit-mlx",
-      "family": "qwen3_5",
-      "variant": "9b-4bit",
-      "source": {
-        "kind": "backend_managed",
-        "backend": "lmstudio",
-        "model_ref": "qwen/qwen3.5-9b@4bit"
-      },
-      "format": "mlx",
-      "quantization": "4bit",
-      "platform": "macos_apple_silicon",
-      "provenance": {
-        "source": "LM Studio /api/v1/models local inventory",
-        "observed_at": "2026-09-08T08:00:00Z",
-        "content_hash": "observed-live-not-a-download-manifest"
-      }
-    },
-    {
-      "schema_version": 1,
-      "id": "lmstudio-qwen36-35b-a3b-4bit-mlx",
-      "family": "qwen3_5_moe",
-      "variant": "35b-a3b-4bit",
-      "source": {
-        "kind": "backend_managed",
-        "backend": "lmstudio",
-        "model_ref": "qwen/qwen3.6-35b-a3b@4bit"
-      },
-      "format": "mlx",
-      "quantization": "4bit",
-      "platform": "macos_apple_silicon",
-      "provenance": {
-        "source": "LM Studio /api/v1/models local inventory",
-        "observed_at": "2026-09-08T08:00:00Z",
-        "content_hash": "observed-live-not-a-download-manifest"
-      }
-    },
-    {
-      "schema_version": 1,
-      "id": "lmstudio-qwen38-27b-4bit-mlx",
-      "family": "qwen3_5",
-      "variant": "27b-4bit",
-      "source": {
-        "kind": "backend_managed",
-        "backend": "lmstudio",
-        "model_ref": "qwen/qwen3.8-27b@4bit"
-      },
-      "format": "mlx",
-      "quantization": "4bit",
-      "platform": "macos_apple_silicon",
-      "provenance": {
-        "source": "LM Studio /api/v1/models local inventory",
-        "observed_at": "2026-09-08T08:00:00Z",
-        "content_hash": "observed-live-not-a-download-manifest"
-      }
-    },
-    {
-      "schema_version": 1,
-      "id": "hf-qwen36-35b-a3b-q4-k-m-gguf",
-      "family": "qwen3_5_moe",
-      "variant": "35b-a3b-q4-k-m-gguf",
+      "id": "hf-gemma-4-12b-it-4bit",
+      "family": "gemma4_unified",
+      "variant": "12b-4bit",
       "source": {
         "kind": "hugging_face",
-        "repository": "unsloth/Qwen3.6-35B-A3B-GGUF",
-        "revision": "a483e9e6cbd595906af30beda3187c2663a1118c",
+        "repository": "mlx-community/gemma-4-12B-it-4bit",
+        "revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
         "files": [
           {
-            "path": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
-            "bytes": 22134528992,
-            "sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61"
+            "path": "chat_template.jinja",
+            "bytes": 17466,
+            "sha256": "36e3a42e5cf14cd0020e72d92e1fdd9970f59b82170e421f0cbe1bb42bead3f0"
+          },
+          {
+            "path": "config.json",
+            "bytes": 5415,
+            "sha256": "fbc1c1cb48ed86ec98482b2d41f5a03d3991aba74b7c29a93d430761e6518a38"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 260,
+            "sha256": "a8349d9bd64cc5841297fcb5002f0fdc4749c473c8f1b10ea337f9ce4ee7014e"
+          },
+          {
+            "path": "model-00001-of-00002.safetensors",
+            "bytes": 5351756584,
+            "sha256": "0d58feed0c98a69c07317b4481aeae5ab2785f12a496ea96ab24c4842808de78"
+          },
+          {
+            "path": "model-00002-of-00002.safetensors",
+            "bytes": 1389282927,
+            "sha256": "5b00a1bcb596ce6e827b4cdea6ecf2a0f35bb01306eb87c1ea4b3bcde36c7755"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 135329,
+            "sha256": "9ac99e7a6cf3e4d40eb8df01644fe9c04036ace94f3389df35db9d9449758516"
+          },
+          {
+            "path": "processor_config.json",
+            "bytes": 868,
+            "sha256": "016a1db9c4f41ea0c61919c46855ea5e7c45c6e4ae4bfbedfb5b6bed79a2fe92"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 2719,
+            "sha256": "fc1384a911d2c9860ac07bc3ceafff20bff26695991744b7dbe5e1e4522bfa57"
           }
         ]
       },
-      "format": "gguf",
-      "quantization": "q4_k_m",
-      "platform": "any",
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
       "provenance": {
-        "source": "HuggingFace model info and resolve headers, checked 2026-09-20",
-        "observed_at": "2026-09-20T00:00:00Z",
-        "content_hash": "hf:unsloth/Qwen3.6-35B-A3B-GGUF@a483e9e6cbd595906af30beda3187c2663a1118c"
+        "source": "The pack PWR downloaded and verified at this revision; sizes and SHA-256 computed from it, 2026-10-14",
+        "observed_at": "2026-10-14T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-12B-it-4bit@73bcf09092aa277861d5a191b989b666f7f32e8f"
       }
     },
     {
       "schema_version": 1,
-      "id": "hf-nemotron35-lightning-30b-a3b-q4-0-gguf",
-      "family": "nemotron3_5_moe",
-      "variant": "30b-a3b-q4-0-gguf",
+      "id": "hf-gemma-4-26b-a4b-it-4bit",
+      "family": "gemma4",
+      "variant": "26b-a4b-4bit",
       "source": {
         "kind": "hugging_face",
-        "repository": "ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
-        "revision": "8a08a1c81dadcc75d35dbb96016cfd344b632e67",
+        "repository": "mlx-community/gemma-4-26b-a4b-it-4bit",
+        "revision": "0d77464eeb233a2da68ebf9d7dc4edaac7db956d",
         "files": [
           {
-            "path": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf",
-            "bytes": 18898091584,
-            "sha256": "61f87e75974e4b535dcdf9aad056541a9514f1dfa4538b463b081d19b7a00e3c"
+            "path": "chat_template.jinja",
+            "bytes": 17466,
+            "sha256": "36e3a42e5cf14cd0020e72d92e1fdd9970f59b82170e421f0cbe1bb42bead3f0"
+          },
+          {
+            "path": "config.json",
+            "bytes": 12180,
+            "sha256": "419e13a27ec359654c1ce7dd06d1a87149fd07d0c8af9f770494185e62e1b2ba"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 208,
+            "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+          },
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 5320218487,
+            "sha256": "683f420ee09550b8027bf0335c4202e196b37eb520b60a4bcbe8690b9e388c07"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 5363328422,
+            "sha256": "feab2873c2976fb7ed666f8462549564a29409364388e0c8f6b015729d165e15"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 4657658867,
+            "sha256": "bc607486deb1de5bc7e459932fda5c776a4f816b368feaa661bab8cfbb47e567"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 176940,
+            "sha256": "bf198c9f5ea6462addca1966e5dd669c407537a876e82cf06db9084c5c850b13"
+          },
+          {
+            "path": "processor_config.json",
+            "bytes": 1316,
+            "sha256": "de3e580aebdc98272d4c4547daffe6525fcbae18a83a0e0bcf0d7444d4ee6f37"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 2740,
+            "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
           }
         ]
       },
-      "format": "gguf",
-      "quantization": "q4_0",
-      "platform": "any",
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
       "provenance": {
-        "source": "HuggingFace model info and resolve headers, checked 2026-09-20",
-        "observed_at": "2026-09-20T00:00:00Z",
-        "content_hash": "hf:ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF@8a08a1c81dadcc75d35dbb96016cfd344b632e67"
+        "source": "The pack PWR downloaded and verified at this revision; sizes and SHA-256 computed from it, 2026-10-14",
+        "observed_at": "2026-10-14T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-26b-a4b-it-4bit@0d77464eeb233a2da68ebf9d7dc4edaac7db956d"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-26b-a4b-it-qat-4bit",
+      "family": "gemma4",
+      "variant": "26b-a4b-qat-4bit",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
+        "revision": "0e3cbab38ce568cf6e23543010d08d03b731910c",
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "bytes": 16934,
+            "sha256": "94899c0f917d93f6fe81c95744d1e8ddab2d21d39228d2e4aec1fb2a25bff413"
+          },
+          {
+            "path": "config.json",
+            "bytes": 33376,
+            "sha256": "29910322dd085f45c8f95c6c0f1611b20f722d6f6c8394321b34817e98a972fa"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 203,
+            "sha256": "b69207f9be617e982d13cc273cce6fd88c98dda99a4bdc5e2d52ffe0a0d9f0a9"
+          },
+          {
+            "path": "model-00001-of-00003.safetensors",
+            "bytes": 5275612587,
+            "sha256": "898863f0d5eba7153a9c9b9443aac1969809f2149e88481c725b6da40783f129"
+          },
+          {
+            "path": "model-00002-of-00003.safetensors",
+            "bytes": 5296718232,
+            "sha256": "2abdca76ed4a647cfe8af680908894e2709b4e1221ddbbbef1b1edb14f60e303"
+          },
+          {
+            "path": "model-00003-of-00003.safetensors",
+            "bytes": 5036507755,
+            "sha256": "a554f0fdb61bc9e510a5318e723a780c31434fd3e3dcdd3c16c700f835ade7b7"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 176940,
+            "sha256": "5455e83705bbdd4e3702c7d4f9d49d4900e84533036628f74500538075dd5c80"
+          },
+          {
+            "path": "processor_config.json",
+            "bytes": 902,
+            "sha256": "1bd0d00776284f369c1eff5fb631e865dfcdca861e0b7d60dbef27fcf37436a8"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 2740,
+            "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "qat-4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "The pack PWR downloaded and verified at this revision; sizes and SHA-256 computed from it, 2026-10-14",
+        "observed_at": "2026-10-14T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-26B-A4B-it-qat-4bit@0e3cbab38ce568cf6e23543010d08d03b731910c"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-26b-a4b-it-6bit",
+      "family": "gemma4",
+      "variant": "26b-a4b-6bit",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-26b-a4b-it-6bit",
+        "revision": "968a9faa4b69230f3fc316b5755cb937a29c7ddc",
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "bytes": 17466,
+            "sha256": "36e3a42e5cf14cd0020e72d92e1fdd9970f59b82170e421f0cbe1bb42bead3f0"
+          },
+          {
+            "path": "config.json",
+            "bytes": 12180,
+            "sha256": "c3a7ac4f5a9e1e3525b81242ee42db005862d6ea70089ff846d562e750d65605"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 208,
+            "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+          },
+          {
+            "path": "model-00001-of-00005.safetensors",
+            "bytes": 5285559033,
+            "sha256": "1460ab4ee966aa98233a23547ca279e64e0aa3bfff3db07b6b1f427e39776fc2"
+          },
+          {
+            "path": "model-00002-of-00005.safetensors",
+            "bytes": 5304321025,
+            "sha256": "11732762803af7665adb3469f658b6645ca2bb4a9c9e374843310638d5d1b32d"
+          },
+          {
+            "path": "model-00003-of-00005.safetensors",
+            "bytes": 5316036354,
+            "sha256": "da7ff24c8d9e7c705aafef084f57dfe7ce27e29e37f8c28b62d7c821e6f4d97e"
+          },
+          {
+            "path": "model-00004-of-00005.safetensors",
+            "bytes": 5365544030,
+            "sha256": "dcd711218da96d8fc39e74b6d06381a161737370174485dbdad6621fbba6b8c5"
+          },
+          {
+            "path": "model-00005-of-00005.safetensors",
+            "bytes": 375963007,
+            "sha256": "fb432eee13eb905be5346a50ff431877a36964c984b143051379ce006fe9014c"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 176940,
+            "sha256": "144cf8350cb04bfe40692a183bdeba38df691478cc86e27e6242373171ce7d5f"
+          },
+          {
+            "path": "processor_config.json",
+            "bytes": 1316,
+            "sha256": "de3e580aebdc98272d4c4547daffe6525fcbae18a83a0e0bcf0d7444d4ee6f37"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 2740,
+            "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "6bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "The pack PWR downloaded and verified at this revision; sizes and SHA-256 computed from it, 2026-10-14",
+        "observed_at": "2026-10-14T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-26b-a4b-it-6bit@968a9faa4b69230f3fc316b5755cb937a29c7ddc"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-31b-it-8bit",
+      "family": "gemma4",
+      "variant": "31b-8bit",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-31b-it-8bit",
+        "revision": "f5f3dc92ab4af76724c36c21eb6bedadb3a851be",
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "bytes": 17466,
+            "sha256": "36e3a42e5cf14cd0020e72d92e1fdd9970f59b82170e421f0cbe1bb42bead3f0"
+          },
+          {
+            "path": "config.json",
+            "bytes": 6046,
+            "sha256": "febbc7b54e70d69323a07d043434d43247d49ae37cf3b35f6649acc75d9f4c04"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 208,
+            "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+          },
+          {
+            "path": "model-00001-of-00007.safetensors",
+            "bytes": 5258667341,
+            "sha256": "c3fe7c584ab9fb211c3071ac035628ccc6861c4a7e1b59c200f58b33ddb81435"
+          },
+          {
+            "path": "model-00002-of-00007.safetensors",
+            "bytes": 5328997408,
+            "sha256": "ed27cbf128295cb8c5fe462ccee517f5840f034b8310af432707c6b01089d2ce"
+          },
+          {
+            "path": "model-00003-of-00007.safetensors",
+            "bytes": 5270505988,
+            "sha256": "7a6cf32b03f6953bb42d863a4cc28e07289b6ea9fd501dfa9882b19e5539b048"
+          },
+          {
+            "path": "model-00004-of-00007.safetensors",
+            "bytes": 5329041180,
+            "sha256": "615bb5fb4e2150da2ef820f2beae5dcf7939fae8b6405c5d8cfb376a16d18ff3"
+          },
+          {
+            "path": "model-00005-of-00007.safetensors",
+            "bytes": 5346547174,
+            "sha256": "f1f2fad40a9535464bc81e522c13021d2478413be623cd07d2db00a2b19fc01d"
+          },
+          {
+            "path": "model-00006-of-00007.safetensors",
+            "bytes": 5270505993,
+            "sha256": "4dbf38950088a46ed5c9baab1921f5aa75ad4a498ee51e25765c951148983761"
+          },
+          {
+            "path": "model-00007-of-00007.safetensors",
+            "bytes": 1958855331,
+            "sha256": "67e62dc49c0f849b3f2b119a644d48b6e4caa92a1e2ef4569bc6e90ae826cc85"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 205370,
+            "sha256": "be6491b58db1476c86c89cde314fb9d8536f92fd6d34db13cbc638e29afe92a3"
+          },
+          {
+            "path": "processor_config.json",
+            "bytes": 1316,
+            "sha256": "de3e580aebdc98272d4c4547daffe6525fcbae18a83a0e0bcf0d7444d4ee6f37"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 2740,
+            "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "8bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "The pack PWR downloaded and verified at this revision; sizes and SHA-256 computed from it, 2026-10-14",
+        "observed_at": "2026-10-14T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-31b-it-8bit@f5f3dc92ab4af76724c36c21eb6bedadb3a851be"
       }
     }
   ]
