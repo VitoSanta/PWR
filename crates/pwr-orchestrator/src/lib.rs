@@ -916,7 +916,7 @@ impl ReplyFault {
                  {told_detail}. Retry the intended action as one complete native tool call, \
                  closing all argument strings, arrays and call delimiters. If you were writing a long file \
                  that is too long to write in one call, write a first part that works with write_file, \
-                 then add the rest with replace_text or apply_patch; otherwise fix the intended call \
+                 then add the rest with replace_text; otherwise fix the intended call \
                  without rewriting work that already completed. Keep file-writing calls to a few hundred lines."
             ),
             Self::RanAway(_) => format!(

@@ -228,9 +228,15 @@ verification, no second turn.
    acceptance check failing at the baseline, the goal's first request ends
    with the files its failing tests use (`proposals::pointers`), said to be
    where to look and not what is wrong. Not measured.
-   **Core tools (HYPOTHESIS, off by default; plan W2.11).** With
-   `"goal_aids": {"core_tools": true}` a goal's turns are offered ten tools
-   (`converse::CORE_TOOLS`) instead of the whole catalogue. Not measured.
+   **Core tools (default since 2026-10-14; plan W2.11).** Every turn, goal
+   or conversation, is offered the ten tools of `converse::CORE_TOOLS`
+   (read, search, list, the three edits, delete, run, complete, decline),
+   plus `look_at` for a model that reads images, `read_terminal` when the
+   app shows the terminal and `update_plan` for a goal that keeps a plan --
+   in place of about 25 definitions and 3,700 tokens. Gemma 4 wrote calls
+   in a form of its own with the whole catalogue in front of it; the others
+   come back when a measurement shows they are needed. `goal_aids.core_tools`
+   is accepted and ignored. Not yet measured.
    **Edit blocks (HYPOTHESIS, off by default; plan W2.12).** With
    `"goal_aids": {"block_edits": true}` the proposals phase asks for
    SEARCH/REPLACE blocks instead of the whole of a file that exists; a block

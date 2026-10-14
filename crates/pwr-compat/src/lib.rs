@@ -343,7 +343,17 @@ impl ModelBehaviorAdapter for Gemma4Adapter {
                 return canonical;
             };
             let body = after[..end].trim();
-            if let Some((name, arguments)) = gemma_call(body) {
+            let parenthesized = gemma_call(body)
+                .is_none()
+                .then(|| gemma_parenthesized_call(body))
+                .flatten();
+            if parenthesized.is_some() {
+                canonical.diagnostics.push(Diagnostic {
+                    kind: "gemma_parenthesized_call",
+                    detail: "a call written NAME(key=value) in place of NAME{key:value}".into(),
+                });
+            }
+            if let Some((name, arguments)) = gemma_call(body).or(parenthesized) {
                 if !backend_parsed_calls {
                     canonical.tool_calls.push(ToolCall {
                         name,
@@ -381,6 +391,39 @@ fn gemma_call(body: &str) -> Option<(String, serde_json::Value)> {
     };
     let arguments = parser.value()?;
     (parser.rest.trim().is_empty() && arguments.is_object()).then(|| (name.to_owned(), arguments))
+}
+
+/// `call:NAME()` or `call:NAME(key=value, ...)`: the call written the Python
+/// way, which Gemma 4 26B wrote at the start of two agent runs (2026-10-14,
+/// `call:list_tree()` and `call:list_tree(path=".")`). The call is
+/// unambiguous; values are read as Python literals, never evaluated.
+fn gemma_parenthesized_call(body: &str) -> Option<(String, serde_json::Value)> {
+    let body = body.strip_prefix("call:")?;
+    let open = body.find('(')?;
+    let name = body[..open].trim();
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    let mut reader = PyArgs::new(&body[open..]);
+    if !reader.eat(b'(') {
+        return None;
+    }
+    let mut arguments = serde_json::Map::new();
+    while !reader.eat(b')') {
+        let key = reader.ident()?;
+        if !reader.eat(b'=') {
+            return None;
+        }
+        arguments.insert(key, reader.value()?);
+        if !reader.eat(b',') {
+            reader.skip();
+            if reader.text.get(reader.at) != Some(&b')') {
+                return None;
+            }
+        }
+    }
+    reader.skip();
+    (reader.at == reader.text.len()).then(|| (name.to_owned(), serde_json::Value::Object(arguments)))
 }
 
 struct GemmaValue<'a> {
@@ -599,5 +642,107 @@ mod tests {
         assert_eq!(canonical.narrative, original.content);
         assert!(canonical.tool_calls.is_empty());
         assert!(canonical.diagnostics.is_empty());
+    }
+
+    /// The conformance suite of the Gemma 4 protocol, at the reader: what
+    /// Google's format allows and what Gemma was seen writing.
+    mod gemma_conformance {
+        use super::*;
+
+        fn read(content: &str) -> CanonicalReply {
+            Gemma4Adapter.normalize(&reply(content))
+        }
+
+        fn s(text: &str) -> String {
+            format!("<|\"|>{text}<|\"|>")
+        }
+
+        #[test]
+        fn one_call() {
+            let canonical = read(&format!("<|tool_call>call:read_file{{path:{}}}<tool_call|>", s("a.py")));
+            assert_eq!(canonical.tool_calls.len(), 1);
+            assert_eq!(canonical.tool_calls[0].name, "read_file");
+            assert_eq!(canonical.tool_calls[0].arguments, serde_json::json!({"path": "a.py"}));
+            assert!(canonical.narrative.is_empty());
+        }
+
+        #[test]
+        fn several_calls_in_one_reply_in_the_order_written() {
+            let canonical = read(&format!(
+                "<|tool_call>call:read_file{{path:{}}}<tool_call|><|tool_call>call:search{{query:{}}}<tool_call|>",
+                s("a.py"), s("to_cents")
+            ));
+            let names: Vec<_> = canonical.tool_calls.iter().map(|c| c.name.as_str()).collect();
+            assert_eq!(names, ["read_file", "search"]);
+        }
+
+        #[test]
+        fn no_arguments() {
+            let canonical = read("<|tool_call>call:list_tree{}<tool_call|>");
+            assert_eq!(canonical.tool_calls[0].arguments, serde_json::json!({}));
+        }
+
+        #[test]
+        fn strings_keep_quotes_braces_markup_lines_and_unicode() {
+            let text = "if a == \"{x}\" and b < 3:\n    return 'ok' # è → ✓";
+            let canonical = read(&format!(
+                "<|tool_call>call:replace_text{{find:{},path:{},replace:{}}}<tool_call|>",
+                s(text), s("a.py"), s("x, y")
+            ));
+            assert_eq!(canonical.tool_calls[0].arguments["find"], text);
+            assert_eq!(canonical.tool_calls[0].arguments["replace"], "x, y");
+        }
+
+        #[test]
+        fn arrays_objects_numbers_and_booleans() {
+            let canonical = read(&format!(
+                "<|tool_call>call:run_command{{args:[{},{}],env:{{CI:{}}},timeout:30,shell:false}}<tool_call|>",
+                s("-m"), s("pytest"), s("1")
+            ));
+            assert_eq!(
+                canonical.tool_calls[0].arguments,
+                serde_json::json!({"args": ["-m", "pytest"], "env": {"CI": "1"}, "timeout": 30, "shell": false})
+            );
+        }
+
+        #[test]
+        fn text_and_an_empty_thought_before_the_call() {
+            let canonical = read(&format!(
+                "<|channel>thought\n<channel|>I will read it.<|tool_call>call:read_file{{path:{}}}<tool_call|>",
+                s("a.py")
+            ));
+            assert_eq!(canonical.narrative, "I will read it.");
+            assert_eq!(canonical.tool_calls.len(), 1);
+        }
+
+        #[test]
+        fn a_cut_off_call_is_reported_and_never_guessed() {
+            let canonical = read(&format!("<|tool_call>call:write_file{{path:{},content:<|\"|>def a(", s("a.py")));
+            assert!(canonical.tool_calls.is_empty());
+            assert!(canonical.diagnostics.iter().any(|d| d.kind == "gemma_unterminated_tool_call"));
+        }
+
+        #[test]
+        fn an_unclosed_string_is_undecodable() {
+            let canonical = read("<|tool_call>call:complete{rationale:<|\"|>done}<tool_call|>");
+            assert!(canonical.tool_calls.is_empty());
+            assert!(canonical.diagnostics.iter().any(|d| d.kind == "gemma_undecodable_tool_call"));
+        }
+
+        #[test]
+        fn the_parenthesized_form_gemma_wrote_is_read_and_counted() {
+            for (written, arguments) in [
+                ("<|tool_call>call:list_tree()<tool_call|>", serde_json::json!({})),
+                ("<|tool_call>call:list_tree(path=\".\")<tool_call|>", serde_json::json!({"path": "."})),
+                ("<|tool_call>call:read_file(path='a.py', start_line=3)<tool_call|>", serde_json::json!({"path": "a.py", "start_line": 3})),
+            ] {
+                let canonical = read(written);
+                assert_eq!(canonical.tool_calls.len(), 1, "{written}");
+                assert_eq!(canonical.tool_calls[0].arguments, arguments, "{written}");
+                assert!(canonical.diagnostics.iter().any(|d| d.kind == "gemma_parenthesized_call"));
+            }
+            // Not a call: a name alone, or code that only looks like one.
+            assert!(read("<|tool_call>call:list_tree(os.getcwd())<tool_call|>").tool_calls.is_empty());
+        }
     }
 }

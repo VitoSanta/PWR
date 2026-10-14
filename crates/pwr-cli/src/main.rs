@@ -5347,23 +5347,21 @@ async fn chat_turn(
                 .collect()
         })
         .unwrap_or_default();
+    // The few tools the work needs, well described (the core set, plan W2.11):
+    // Gemma 4 saw about 25 definitions and 3,700 tokens of them in every
+    // prompt. Others come back when a measurement shows they are needed.
     let catalog = if chat_only {
         converse::chat_only_tool_catalog()
     } else if pwr_mlx::MlxConfig::from_env().has_vision_encoder(&model) == Some(true) {
         // A model that reads images can look at what it built.
-        converse::with_vision(converse::chat_tool_catalog())
+        converse::with_vision(converse::core_tool_catalog(converse::chat_tool_catalog()))
     } else {
         // One that does not can still read what a page shows and logs.
-        converse::with_page_check(converse::chat_tool_catalog())
+        converse::with_page_check(converse::core_tool_catalog(converse::chat_tool_catalog()))
     };
     // A client that shows the person's terminal can read it to the model.
     let catalog = if !chat_only && !minimal && approvals.reads_terminal() {
         converse::with_terminal(catalog)
-    } else {
-        catalog
-    };
-    let catalog = if goal_mode && config.goal_aids.core_tools {
-        converse::core_tool_catalog(catalog)
     } else {
         catalog
     };

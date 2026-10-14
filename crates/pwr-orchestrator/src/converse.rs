@@ -942,7 +942,7 @@ pub fn chat_tool_catalog() -> ToolCatalog {
             if tool.name == "write_file" {
                 tool.description = "Write a file with the given content: creates it, or replaces \
                                     an existing one whole. To change part of a file, prefer \
-                                    replace_text or apply_patch."
+                                    replace_text."
                     .into();
             }
             if tool.name == "complete" {
@@ -1150,7 +1150,7 @@ pub fn read_terminal_tool() -> ToolDefinition {
                       engineer mentions an error or output they see there, rather than asking \
                       them to paste it. The first time in a conversation they are asked to \
                       allow it. It cannot type in the terminal: to run something, use \
-                      run_command or start_service."
+                      run_command."
             .into(),
         input_schema: serde_json::json!({
             "type": "object",
@@ -2815,8 +2815,8 @@ async fn take_turn_inner<P: ModelProvider>(
                     "Your tool call could not be read, so nothing was done."
                 } else if cut_off {
                     "Your tool call was cut off before it ended, so nothing was done. Send it again, \
-                     complete; if a file is long, write part of it and add the rest with replace_text \
-                     or apply_patch."
+                     complete; if a file is long, write part of it and add the rest with \
+                     replace_text."
                 } else {
                     "Your tool call could not be read, so nothing was done. Write it exactly in this \
                      form, closing every string with <|\"|> and the call with }<tool_call|>:\n\
@@ -4523,7 +4523,7 @@ fn own_overwrite(
                 "not written: {path} has changed since you last read or wrote it -- by a \
                  command, or outside this conversation -- so replacing it whole would discard \
                  those changes. Read it again with read_file, then send the file you mean it to \
-                 be; or change only part of it with replace_text or apply_patch."
+                 be; or change only part of it with replace_text."
             ),
             action: ActionProposal::WriteFile {
                 path: path.clone(),
@@ -4537,7 +4537,7 @@ fn own_overwrite(
                 "not written: {path} already exists and this conversation has not read it, so \
                  replacing it whole could discard content you have not seen. Read it with \
                  read_file first, then send the file you mean it to be; or change only part of \
-                 it with replace_text or apply_patch."
+                 it with replace_text."
             ),
             action: ActionProposal::WriteFile {
                 path: path.clone(),
