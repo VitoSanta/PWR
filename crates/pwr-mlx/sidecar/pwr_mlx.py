@@ -154,6 +154,11 @@ KV_GROUP = 64
 # tokens a second against 25.5); at 41k the 9B wrote as fast. Recorded runs
 # reached a median of 55k tokens.
 KV_START = os.environ.get("PWR_MLX_KV_START")
+# Tokens an image takes in Gemma 4's prompt, one of the budgets Google gives
+# (70, 140, 280, 560, 1120; the high ones for text and documents). Unset, the
+# model's own (280: 273 image tokens for a 1280x800 screenshot, 1,092 at 1120).
+IMAGE_TOKENS = int(os.environ["PWR_MLX_IMAGE_TOKENS"]) if os.environ.get("PWR_MLX_IMAGE_TOKENS") in (
+    "70", "140", "280", "560", "1120") else None
 # A generation that keeps writing the same passage is stopped rather than left
 # to run to its cap. Seen 2026-09-18: after a reasoning budget closed the think
 # block, Qwen3.6 continued reasoning in the answer and wrote one code block
@@ -806,17 +811,32 @@ class VisionText(nn.Module):
     held for the whole prompt and sliced by the cache offset on every call,
     so a prefill resumed from a checkpoint sees what one from the start would.
     Measured 2026-09-23 on Qwen3.6-35B-A3B: text output identical token for
-    token to mlx-lm's own load, same speed, 0.9 GB more at peak."""
+    token to mlx-lm's own load, same speed, 0.9 GB more at peak.
+
+    Gemma 4 places tokens one position each, and reads an image's tokens
+    with attention both ways: each sees the whole image. mlx-vlm does that
+    only for a prompt read whole from an empty cache; here every step that
+    holds an image gets it (`image_masks`), and no step cuts an image in two
+    (`whole_images`)."""
 
     def __init__(self, vlm):
         super().__init__()
         self.vlm = vlm
         self.language = vlm.language_model
+        self.gemma = str(getattr(vlm.config, "model_type", "")).startswith("gemma4")
         self.fa_idx = getattr(self.language.model, "fa_idx", 0)
         self.embeds = None      # (1, N, D) for a prompt with images
         self.positions = None   # (3, 1, N)
         self.delta = 0          # position minus index after the prompt
         self.features = {}      # image digest -> vision features, the last few
+        self.per_layer = None   # Gemma's per-layer inputs, where it has them
+        self.blocks = None      # Gemma: image number of each prompt token, -1 for text
+        self.step_blocks = None  # the same for the tokens of the step being read
+        if self.gemma:
+            model = self.language.model
+            plain = model._make_masks
+            model._make_masks = lambda h, cache, types=None: image_masks(
+                model, plain(h, cache, None), h, cache, self.step_blocks)
 
     @property
     def layers(self):
@@ -826,6 +846,7 @@ class VisionText(nn.Module):
         return self.language.make_cache()
 
     def set_prompt(self, tokens, images=None, digest=None) -> None:
+        self.per_layer = self.blocks = None
         if not images:
             self.embeds, self.positions, self.delta = None, None, 0
             return
@@ -840,9 +861,21 @@ class VisionText(nn.Module):
                     store.pop(next(iter(store)))
                 store[key] = value
 
+        arrays = images["arrays"]
+        if self.gemma:
+            features = self.vlm.get_input_embeddings(
+                mx.array(tokens)[None], mx.array(arrays["pixel_values"]),
+                **{k: mx.array(arrays[k]) for k in ("image_position_ids",) if k in arrays},
+                vision_cache=Features(), _image_key=digest,
+            )
+            self.embeds, self.per_layer = features.inputs_embeds, features.per_layer_inputs
+            self.positions, self.delta = None, 0
+            self.blocks = image_blocks(tokens, self.vlm.config.image_token_id)
+            mx.eval(self.embeds)
+            return
         features = self.vlm.get_input_embeddings(
-            mx.array(tokens)[None], mx.array(images["pixel_values"]),
-            image_grid_thw=mx.array(images["image_grid_thw"]),
+            mx.array(tokens)[None], mx.array(arrays["pixel_values"]),
+            image_grid_thw=mx.array(arrays["image_grid_thw"]),
             vision_cache=Features(), _image_key=digest,
         )
         self.embeds = features.inputs_embeds
@@ -850,7 +883,26 @@ class VisionText(nn.Module):
         self.delta = int(features.rope_deltas.reshape(-1)[0].item())
         mx.eval(self.embeds, self.positions)
 
+    def whole_images(self, start: int, end: int) -> int:
+        """Where a step of the prompt from `start` to `end` ends without
+        cutting an image: at the start of the image `end` falls in, or at its
+        end when the image starts the step."""
+        blocks = self.blocks
+        if blocks is None or not 0 < end < len(blocks) or blocks[end] < 0 or blocks[end] != blocks[end - 1]:
+            return end
+        first = end
+        while first > 0 and blocks[first - 1] == blocks[end]:
+            first -= 1
+        if first > start:
+            return first
+        last = end
+        while last < len(blocks) and blocks[last] == blocks[end]:
+            last += 1
+        return last
+
     def __call__(self, inputs, cache=None, input_embeddings=None):
+        if self.gemma:
+            return self.gemma_call(inputs, cache)
         offset = int(cache[self.fa_idx].offset) if cache is not None else 0
         n = inputs.shape[-1]
         embeds = input_embeddings
@@ -865,6 +917,65 @@ class VisionText(nn.Module):
             )
         out = self.language(inputs, inputs_embeds=embeds, cache=cache, position_ids=positions)
         return out.logits if hasattr(out, "logits") else out
+
+    def gemma_call(self, inputs, cache):
+        offset = int(cache[0].offset) if cache is not None else 0
+        n = inputs.shape[-1]
+        embeds = per_layer = None
+        if self.embeds is not None and offset + n <= self.embeds.shape[1]:
+            embeds = self.embeds[:, offset:offset + n]
+            if self.per_layer is not None:
+                per_layer = self.per_layer[:, offset:offset + n]
+            step = self.blocks[offset:offset + n]
+            if n > 1 and any(b >= 0 for b in step):
+                self.step_blocks = step
+        try:
+            out = self.language(inputs, inputs_embeds=embeds, cache=cache, per_layer_inputs=per_layer)
+        finally:
+            self.step_blocks = None
+        return out.logits if hasattr(out, "logits") else out
+
+
+def image_blocks(tokens, image_token: int) -> list[int]:
+    """For each token, the number of the image it belongs to (images are runs
+    of the image token), -1 for text."""
+    blocks, number, previous = [], -1, False
+    for token in tokens:
+        inside = token == image_token
+        if inside and not previous:
+            number += 1
+        blocks.append(number if inside else -1)
+        previous = inside
+    return blocks
+
+
+def image_masks(model, masks, h, cache, blocks):
+    """The model's own masks for a step, with the step's image tokens seeing
+    each other both ways, as Gemma 4 reads an image. The step's keys end
+    with its own tokens, in the global and the sliding layers alike (a
+    rotating cache appends the new keys after the ones it keeps), so the
+    image block is laid on the mask's last columns."""
+    if blocks is None:
+        return masks
+    from mlx_vlm.models.base import create_attention_mask
+    ids = mx.array(blocks)
+    same = (ids[:, None] == ids[None, :]) & (ids[:, None] >= 0)
+    n = len(blocks)
+    window = getattr(model, "window_size", None)
+    built, out = {}, []
+    for layer, c, mask in zip(model.layers, cache or [None] * len(masks), masks):
+        kind = getattr(layer, "layer_type", "full_attention")
+        if kind not in built:
+            if not isinstance(mask, mx.array):
+                mask = create_attention_mask(
+                    h, c, window_size=window if kind == "sliding_attention" else None,
+                    return_array=True)
+            keys = mask.shape[-1]
+            block = same if keys == n else mx.concatenate(
+                [mx.zeros((n, keys - n), dtype=mx.bool_), same], axis=1)
+            built[kind] = mask | block if mask.dtype == mx.bool_ else mx.where(block, mx.zeros_like(mask), mask)
+        out.append(built[kind])
+    return out
 
 
 def stable_history(messages, template: str):
@@ -1057,13 +1168,17 @@ class Engine:
         # The processor expands each image placeholder to the image's patch
         # tokens; the same image expands the same way every turn, so the
         # prompt cache still matches the history.
+        budget_kwargs = {}
+        if IMAGE_TOKENS and getattr(self.model, "gemma", False):
+            budget_kwargs["max_soft_tokens"] = IMAGE_TOKENS
         processed = self.processor(text=[rendered], images=[image for _, image in images],
-                                   return_tensors="np")
+                                   return_tensors="np", **budget_kwargs)
         tokens = [int(token) for token in processed["input_ids"][0]]
         digest = hashlib.sha256(b"".join(hashlib.sha256(raw).digest() for raw, _ in images))
-        return tokens, {"pixel_values": processed["pixel_values"],
-                        "image_grid_thw": processed["image_grid_thw"],
-                        "digest": digest.hexdigest()}
+        if budget_kwargs:
+            digest.update(str(IMAGE_TOKENS).encode())
+        arrays = {k: v for k, v in processed.items() if k not in ("input_ids", "attention_mask")}
+        return tokens, {"arrays": arrays, "digest": digest.hexdigest()}
 
     def prefill_step(self, offset: int) -> int:
         """Tokens per prefill step at this cache offset. A step materialises
@@ -1089,6 +1204,8 @@ class Engine:
             progress(start, len(tokens))
             step = min(self.prefill_step(offset + start),
                        getattr(self, "chunk_limit", PREFILL_FIRST_STEP))
+            if isinstance(self.model, VisionText):
+                step = self.model.whole_images(offset + start, offset + start + step) - offset - start
             chunk = tokens[start:start + step]
             self.make_room(offset + start + len(chunk) + getattr(self, "reply_room", 0))
             self.observe("prefill", offset=offset + start, chunk_tokens=len(chunk))
@@ -1197,6 +1314,8 @@ class Engine:
         # restored when the next prompt extends this one.
         keeps_copy = isinstance(self.model, VisionText) or not stays_trimmable(self.cache)
         cut = max(reused, self.checkpoint_point(base)) if keeps_copy else len(base)
+        if isinstance(self.model, VisionText):
+            cut = max(reused, self.model.whole_images(reused, cut))
         try:
             self.prefill(base[reused:cut], reused, progress, cancelled)
             if keeps_copy:

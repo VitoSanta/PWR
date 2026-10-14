@@ -1245,6 +1245,147 @@ class GemmaEmptyThought(unittest.TestCase):
         self.assertEqual(pwr_mlx.kv_bits(256, "qwen3_5"), 4)
 
 
+class GemmaImages(unittest.TestCase):
+    """Gemma 4 reads an image's tokens with attention both ways. PWR reads a
+    prompt in steps and from checkpoints, so every step holding an image gets
+    that mask, and no step cuts an image in two."""
+
+    IMAGE = 9
+
+    class Layer:
+        def __init__(self, kind):
+            self.layer_type = kind
+
+    class Cache:
+        def __init__(self):
+            self.offset = 0
+            self.state = None
+
+    def vision(self, tokens):
+        import mlx.core as mx
+        import pwr_mlx
+        test = self
+
+        class Inner:
+            layers = [test.Layer("sliding_attention"), test.Layer("full_attention")]
+            window_size = 2
+
+            def _make_masks(self, h, cache, types=None):
+                return ["causal", "causal"]
+
+        class Language:
+            model = Inner()
+
+            def __call__(self, inputs, inputs_embeds=None, cache=None, per_layer_inputs=None):
+                n = inputs.shape[-1]
+                test.steps.append((n, vision.step_blocks, inputs_embeds is not None))
+                for c in cache:
+                    c.offset += n
+                return mx.zeros((1, n, 4))
+
+        class Config:
+            model_type = "gemma4"
+            image_token_id = self.IMAGE
+
+        class Vlm:
+            language_model = Language()
+            config = Config()
+
+        self.steps = []
+        vision = pwr_mlx.VisionText(Vlm())
+        vision.blocks = pwr_mlx.image_blocks(tokens, self.IMAGE)
+        vision.embeds = mx.zeros((1, len(tokens), 4))
+        return vision
+
+    def test_images_are_runs_of_the_image_token(self):
+        import pwr_mlx
+        self.assertEqual(pwr_mlx.image_blocks([1, 9, 9, 2, 9, 9, 9, 3], 9), [-1, 0, 0, -1, 1, 1, 1, -1])
+
+    def test_a_step_ends_before_an_image_or_after_one_it_starts_with(self):
+        vision = self.vision([1, 2, 9, 9, 9, 9, 3, 4])
+        self.assertEqual(vision.whole_images(0, 4), 2)   # back to the image's start
+        self.assertEqual(vision.whole_images(2, 4), 6)   # the step starts with it: to its end
+        self.assertEqual(vision.whole_images(0, 2), 2)   # already before it
+        self.assertEqual(vision.whole_images(0, 6), 6)   # already after it
+        self.assertEqual(vision.whole_images(0, 9), 9)   # past the prompt
+
+    def test_prefill_steps_never_cut_an_image(self):
+        import pwr_mlx
+        tokens = [1, 9, 9, 9, 9, 2, 3, 4]
+        engine = pwr_mlx.Engine()
+        engine.model = self.vision(tokens)
+        engine.cache = [self.Cache(), self.Cache()]
+        engine.prefill_step = lambda offset: 2
+        engine.prefill(tokens, 0)
+        self.assertEqual([n for n, _, _ in self.steps], [1, 4, 2, 1])
+        self.assertEqual(self.steps[1][1], [0, 0, 0, 0])   # the image's step has its mask
+        self.assertTrue(all(blocks is None for n, blocks, _ in self.steps if n != 4))
+        self.assertTrue(all(embedded for _, _, embedded in self.steps))
+
+    def test_the_image_sees_itself_both_ways_on_the_steps_new_keys(self):
+        import mlx.core as mx
+        import pwr_mlx
+
+        class Model:
+            layers = [self.Layer("sliding_attention"), self.Layer("full_attention")]
+            window_size = 2
+
+        # A step of four tokens after three in the cache: the keys are the
+        # three kept and the four new ones.
+        causal = mx.array([[j <= 3 + i for j in range(7)] for i in range(4)])
+        blocks = [-1, 0, 0, -1]
+        masks = pwr_mlx.image_masks(Model(), [causal, causal], mx.zeros((1, 4, 8)), [None, None], blocks)
+        for mask in masks:
+            self.assertTrue(mask[1, 5].item())       # image token 1 sees image token 2
+            self.assertFalse(mask[0, 4].item())      # text does not see ahead
+            self.assertFalse(mask[2, 6].item())      # nor does the image see the text after it
+            self.assertTrue(mask[3, 0].item())       # what causal allowed stays
+        # From an empty cache the model gave strings; a mask is built for them.
+        fresh = pwr_mlx.image_masks(Model(), ["causal", "causal"], mx.zeros((1, 4, 8)), [None, None], blocks)
+        self.assertEqual(fresh[1].shape, (4, 4))
+        self.assertTrue(fresh[1][1, 2].item())
+        self.assertFalse(fresh[0][0, 3].item())     # the window still holds outside the image
+
+    def test_no_image_in_the_step_keeps_the_models_masks(self):
+        import pwr_mlx
+        self.assertEqual(pwr_mlx.image_masks(None, ["causal"], None, None, None), ["causal"])
+
+    def test_render_passes_every_array_and_the_image_budget_to_gemma_only(self):
+        import base64, io
+        import numpy as np
+        import pwr_mlx
+        from PIL import Image
+        raw = io.BytesIO(); Image.new("RGB", (4, 4)).save(raw, format="PNG")
+        messages = [{"role": "user", "content": [{"type": "image", "data": base64.b64encode(raw.getvalue()).decode()},
+                                                 {"type": "text", "text": "what?"}]}]
+        seen = {}
+
+        class Tokenizer:
+            chat_template = ""
+
+            def apply_chat_template(self, messages, **kwargs):
+                return "<|image|>what?"
+
+        def processor(text, images, return_tensors, **kwargs):
+            seen.update(kwargs)
+            return {"input_ids": np.array([[9, 9, 1]]), "attention_mask": np.ones((1, 3)),
+                    "pixel_values": np.zeros((1, 2, 3)), "image_position_ids": np.zeros((1, 2, 2)),
+                    "mm_token_type_ids": np.array([[1, 1, 0]])}
+
+        was = pwr_mlx.IMAGE_TOKENS
+        self.addCleanup(lambda: setattr(pwr_mlx, "IMAGE_TOKENS", was))
+        pwr_mlx.IMAGE_TOKENS = 1120
+        engine = pwr_mlx.Engine()
+        engine.tokenizer, engine.processor = Tokenizer(), processor
+        for gemma in (True, False):
+            seen.clear()
+            engine.model = type("Model", (), {"gemma": gemma})()
+            tokens, images = engine.render(messages, None, False, True)
+            self.assertEqual(tokens, [9, 9, 1])
+            self.assertEqual(sorted(images["arrays"]), ["image_position_ids", "mm_token_type_ids", "pixel_values"])
+            self.assertEqual(seen, {"max_soft_tokens": 1120} if gemma else {})
+
+
 class TurnEndsStopGeneration(unittest.TestCase):
     """Qwen2.5-Coder names only `<|im_end|>` and writes `<|endoftext|>`."""
 

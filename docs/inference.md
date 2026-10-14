@@ -94,6 +94,18 @@ bits whatever `PWR_MLX_KV_BITS` asks (`KV_FULL_WIDTH`): its global layers use
 their keys as values, and with the quantized cache it broke; the `attention`
 request carries the model type so the window counts the full width.
 
+Images, Gemma 4. The vision path was Qwen's (three-axis positions,
+`image_grid_thw`) and stopped on Gemma with a missing key; it now passes
+every array the processor gives and, for Gemma, one position a token. Gemma
+reads an image's tokens with attention both ways; mlx-vlm does so only for a
+prompt read whole from an empty cache, so the engine lays the image's block on
+the mask of every step that holds one (`image_masks`) and moves a step's end,
+and the checkpoint's, so no step cuts an image in two (`whole_images`).
+`PWR_MLX_IMAGE_TOKENS` sets the tokens an image takes (Google's 70 to 1120;
+unset, the model's 280: 273 tokens for a 1280x800 screenshot, 1,092 at 1120).
+Not yet measured with the model: criteria in the benchmark's
+`audits/linea-gemma4/studio/CRITERI-MODIFICA-3.md`.
+
 On macOS the sidecar sets `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` **before importing
 MLX**, preserving an explicitly supplied value (including `0`). This is the
 [driver workaround adopted by llama.cpp](https://github.com/ggml-org/llama.cpp/pull/22216)
