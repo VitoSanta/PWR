@@ -58,27 +58,22 @@ engine tells the window so (`attention` answers `checkpoint` and the bounded
 token for the part of a step that grows with the context. Unmeasured: other
 model families, contexts past 126k tokens, machines smaller than 64 GB.
 
-A third switch, also off unless asked for: `PWR_MLX_KV_BITS=8` or `4` keeps
-the full-attention layers' keys and values in MLX's quantized cache (groups of
-64; head dimensions that 64 divides). The engine tells the window what the
-cache then weighs (`cache_per_mille`: 532 and 282 for a 256-wide head) and the
-window counts a token at that, with two layers' keys and values at the
-activations' width beside it for what a prefill step holds, which does not
-shrink. Measured on Qwen3.5 9B through the sidecar: at 40,604 tokens 0.82 GB
-(8 bits) and 0.48 GB (4 bits) beyond the weights against 1.44; at 126,350
-tokens 2.42 and 1.33 against 4.42; a cold read 4-7% slower; the model's first
-choice of next token the same as with the plain cache at 99.2% and 97.2% of
-2,048 positions of source text after 40,960 tokens; ten facts scattered in a
-document all found at 41k and at 126k tokens, at 16, 8 and 4 bits alike. One
-model, one kind of text: what a cache at fewer bits costs a model at work is
-measured per model on tasks.
+A third and a fourth switch, `PWR_MLX_KV_BITS` (8 or 4 bits for the
+full-attention layers' keys and values) and `PWR_MLX_KV_START=needed`, were
+measured on Qwen3.5 9B and four other models (2026-10-13/14: a cache at fewer
+bits held 28-53% of the bytes and wrote 9-53% slower at long context) and
+removed with the Gemma-only engine: Gemma 4 broke with its cache at 4 bits,
+and at 16 bits its cache is small (16-20 KB a token for 12B and 26B). The
+measures are in [experiment-log.md](experiment-log.md).
 
-At long context the cache at fewer bits writes slower: measured 2026-10-14 at
-120k-240k tokens, 4 bits kept 47-91% of the 16-bit writing speed, and 8 bits
-were slower than 4 in all four models. `PWR_MLX_KV_START=needed` keeps the
-cache at 16 bits while the memory the window gives it (what PWR counts at the
-fewer bits) holds it, and converts the layers that grow, one at a time, when a
-read or a reply would pass that. Not yet measured through the sidecar.
+**Updated 2026-10-14: Gemma 4 only.** PWR runs the Gemma 4 family alone
+(12B, 26B-A4B, 31B; owner's decision). The engine loads a Gemma 4 pack
+through mlx-vlm and refuses anything else; the paths it had for other
+families -- Qwen's three-axis image positions and cut-back cache, gpt-oss's
+history, Liquid's template, Seed's budget, the XML call rules, YaRN -- are
+gone. A reply stops at Google's own stops, `<turn|>` and `<|tool_response>`
+(mlx-lm's tokenizer kept only `<eos>`, and the engine had cut every reply at
+its first `<tool_call|>`): a reply may hold several calls.
 
 **Updated 2026-10-14, Gemma 4.** Two changes made against Google's own
 description of the family. After a tool result Gemma's template opens no new
@@ -89,14 +84,13 @@ processor no longer forbids opening the channel at the start of a reply --
 only a second block in the same reply. Outside PWR, with its template and
 Google's sampling, Gemma 4 26B wrote the empty block and a well-formed call
 six times out of six; with the channel forbidden it gave empty replies or
-repeated lines in another language. And Gemma 4 keeps its context cache at 16
-bits whatever `PWR_MLX_KV_BITS` asks (`KV_FULL_WIDTH`): its global layers use
-their keys as values, and with the quantized cache it broke; the `attention`
-request carries the model type so the window counts the full width.
+repeated lines in another language. Gemma 4 keeps its context cache at 16
+bits: its global layers use their keys as values, and with a quantized cache
+it broke.
 
 Images, Gemma 4. The vision path was Qwen's (three-axis positions,
 `image_grid_thw`) and stopped on Gemma with a missing key; it now passes
-every array the processor gives and, for Gemma, one position a token. Gemma
+every array the processor gives, one position a token. Gemma
 reads an image's tokens with attention both ways; mlx-vlm does so only for a
 prompt read whole from an empty cache, so the engine lays the image's block on
 the mask of every step that holds one (`image_masks`) and moves a step's end,

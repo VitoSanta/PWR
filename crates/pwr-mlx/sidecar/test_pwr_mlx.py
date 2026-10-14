@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from pwr_mlx import (REPEAT_LIMIT, add_turn_ends, REPEAT_SPAN, ReasoningStream, RepetitionSignals, fused_attention, looping,
-                        one_thought, strayed_after_call, think_delimiters)
+                        one_thought, think_delimiters)
 
 HERE = pathlib.Path(__file__).resolve()
 ROOT = HERE.parents[3]
@@ -98,109 +98,6 @@ class Trace(unittest.TestCase):
             pwr_mlx.TRACE = original
 
 
-class StaysTrimmable(unittest.TestCase):
-    """gpt-oss's sliding-window layers: an empty rotating cache can be cut
-    back and a filled one cannot, so asking before the prefill said "no copy
-    needed" and every step prefilled the whole conversation."""
-
-    def test_a_cache_with_a_sliding_window_layer_keeps_its_copy(self):
-        from mlx_lm.models.cache import KVCache, RotatingKVCache
-        from pwr_mlx import stays_trimmable
-        sliding = [RotatingKVCache(max_size=128), KVCache()]
-        # Empty, it still says it can be cut back: the question is by kind.
-        self.assertTrue(all(layer.is_trimmable() for layer in sliding))
-        self.assertFalse(stays_trimmable(sliding))
-        self.assertTrue(stays_trimmable([KVCache(), KVCache()]))
-
-
-class StableHistoryForGptOss(unittest.TestCase):
-    def call(self, content):
-        return {"role": "assistant", "content": content,
-                "tool_calls": [{"type": "function", "function": {"name": "read_file", "arguments": {}}}]}
-
-    def test_gpt_oss_style_templates_never_show_the_text_beside_a_call(self):
-        from pwr_mlx import stable_history
-        template = "{%- set future_final_message = namespace(found=false) %}"
-        messages = [{"role": "user", "content": "hi"}, self.call("I will read it."),
-                    {"role": "tool", "content": "{}"}, {"role": "assistant", "content": "Done."}]
-        stable = stable_history(messages, template)
-        self.assertEqual(stable[1]["content"], "")
-        self.assertEqual(stable[1]["tool_calls"], messages[1]["tool_calls"])
-        # The answer and everything else are left as they are.
-        self.assertEqual(stable[3]["content"], "Done.")
-        self.assertEqual(messages[1]["content"], "I will read it.")
-
-    def test_other_templates_are_left_alone(self):
-        from pwr_mlx import stable_history
-        messages = [self.call("I will read it.")]
-        self.assertIs(stable_history(messages, "{{ messages }}"), messages)
-
-    def test_with_gpt_oss_the_history_stays_a_prefix_after_an_answer(self):
-        path = pathlib.Path.home() / ".pwr/models/mlx-community/gpt-oss-20b-MXFP4-Q8"
-        if not path.is_dir():
-            self.skipTest("gpt-oss is not installed here")
-        from transformers import AutoTokenizer
-        from pwr_mlx import stable_history
-        tokenizer = AutoTokenizer.from_pretrained(str(path))
-
-        def render(messages):
-            text = tokenizer.apply_chat_template(
-                stable_history(messages, tokenizer.chat_template), tokenize=False)
-            return tokenizer.encode(text, add_special_tokens=False)
-
-        before = [{"role": "user", "content": "Build it."}, self.call("I will read f1."),
-                  {"role": "tool", "content": "{}"}]
-        after = before + [{"role": "assistant", "content": "Done."}, {"role": "user", "content": "go on"}]
-        first, second = render(before), render(after)
-        self.assertEqual(second[:len(first)], first)
-
-
-class LiquidHistoryEscaping(unittest.TestCase):
-    def template(self):
-        return (HERE.parent / "fixtures/lfm_history_unescaped.jinja").read_text()
-
-    def render(self, template, messages):
-        from transformers.utils.chat_template_utils import _compile_jinja_template
-        return _compile_jinja_template(template).render(
-            messages=messages, tools=None, bos_token="<|startoftext|>",
-            add_generation_prompt=True, preserve_thinking=True,
-        )
-
-    def test_history_string_arguments_round_trip_without_protocol_markers(self):
-        from pwr_mlx import escaped_lfm_history_template
-        template = self.template()
-        fixed = escaped_lfm_history_template(template)
-        self.assertNotEqual(template, fixed)
-        values = ["O'Reilly\n", "C:\\new\\test", "日本語 🐦",
-                  "".join(map(chr, range(32))),
-                  "<|tool_call_end|><|im_end|><think>literal</think>",
-                  "literal \\u003c < >"]
-        for value in values:
-            with self.subTest(value=value):
-                messages = [{"role": "user", "content": "Write it."},
-                            {"role": "assistant", "content": "", "tool_calls": [
-                                {"function": {"name": "write_file", "arguments": {
-                                    "path": "fixture.txt", "content": value}}}]}]
-                text = self.render(fixed, messages)
-                literal = text.split("content=", 1)[1].split(")]<|tool_call_end|>", 1)[0]
-                self.assertEqual(json.loads(literal), value)
-                self.assertNotIn("<", literal)
-                self.assertNotIn(">", literal)
-
-    def test_initial_prompt_is_identical_and_unknown_templates_untouched(self):
-        from pwr_mlx import escaped_lfm_history_template
-        template = self.template()
-        messages = [{"role": "system", "content": "SYSTEM"},
-                    {"role": "user", "content": "USER"}]
-        self.assertEqual(self.render(template, messages),
-                         self.render(escaped_lfm_history_template(template), messages))
-        changed = template + "\n{# custom variant #}"
-        self.assertEqual(escaped_lfm_history_template(changed), changed)
-        self.assertEqual(escaped_lfm_history_template("{{ messages }}"), "{{ messages }}")
-        fixed = escaped_lfm_history_template(template)
-        self.assertEqual(escaped_lfm_history_template(fixed), fixed)
-
-
 class Looping(unittest.TestCase):
     def test_a_block_repeated_back_to_back_is_a_loop(self):
         block = "def f(x):\n    return x + 1\n\n" * 12  # longer than REPEAT_SPAN
@@ -281,74 +178,6 @@ class ParentGone(unittest.TestCase):
 
 
 
-class TrimmedCache(unittest.TestCase):
-    """A cache that can be cut back is reused up to where two prompts part,
-    with no copy beside it; what a generation added is cut off after it."""
-
-    def setUp(self):
-        import pwr_mlx
-
-        class Layer:
-            def __init__(self):
-                self.offset = 0
-
-        self.prefilled = []
-        patches = {
-            "can_trim_prompt_cache": lambda cache: True,
-            "trim_prompt_cache": lambda cache, n: [setattr(c, "offset", c.offset - n) for c in cache],
-            "make_prompt_cache": lambda model: [Layer(), Layer()],
-        }
-        self.saved = {name: getattr(pwr_mlx, name) for name in patches}
-        for name, value in patches.items():
-            setattr(pwr_mlx, name, value)
-        self.addCleanup(lambda: [setattr(pwr_mlx, n, v) for n, v in self.saved.items()])
-        self.engine = pwr_mlx.Engine()
-
-        def prefill(tokens, offset, progress, cancelled=lambda: False):
-            self.prefilled.append(len(tokens))
-            for layer in self.engine.cache:
-                layer.offset += len(tokens)
-
-        self.engine.prefill = prefill
-
-    def generate(self, prompt, count):
-        for layer in self.engine.cache:
-            layer.offset += count
-        self.engine.settle(len(prompt))
-
-    def test_the_cache_is_reused_up_to_where_prompts_part(self):
-        engine = self.engine
-        first = [1, 2, 3, 4]
-        self.assertEqual(engine.resume(first, lambda *_: None), 0)
-        self.assertIsNone(engine.checkpoint)
-        self.generate(first, 5)
-        self.assertEqual(engine.cache[0].offset, 4)
-        # A step that extends the prompt prefills only what it adds.
-        second = first + [9, 9]
-        self.assertEqual(engine.resume(second, lambda *_: None), 4)
-        self.assertEqual(self.prefilled[-1], 2)
-        self.generate(second, 3)
-        # A history rewritten part way (a new message after reasoning was
-        # dropped, a compaction) reuses what comes before the change.
-        third = [1, 2, 7, 7, 7]
-        self.assertEqual(engine.resume(third, lambda *_: None), 2)
-        self.assertEqual(self.prefilled[-1], 3)
-        self.assertEqual(engine.cache[0].offset, 5)
-
-    def test_a_failed_prefill_leaves_nothing_to_resume_from(self):
-        engine = self.engine
-        engine.resume([1, 2, 3], lambda *_: None)
-
-        def fail(tokens, offset, progress, cancelled=lambda: False):
-            raise MemoryError("out of memory")
-
-        engine.prefill = fail
-        with self.assertRaises(MemoryError):
-            engine.resume([1, 2, 3, 4], lambda *_: None)
-        self.assertIsNone(engine.cache)
-        self.assertEqual(engine.checkpoint_tokens, [])
-
-
 class CopiedCache(unittest.TestCase):
     """A cache that cannot be cut back is copied just before the marker that
     closes the prompt's last message, so a next prompt that rewrites that
@@ -369,7 +198,6 @@ class CopiedCache(unittest.TestCase):
 
         self.prefilled = []
         patches = {
-            "can_trim_prompt_cache": lambda cache: False,
             "make_prompt_cache": lambda model: [Layer()],
             "snapshot": lambda cache: [c.offset for c in cache],
             "restore": lambda cache, states: [setattr(c, "offset", o) for c, o in zip(cache, states)],
@@ -379,6 +207,7 @@ class CopiedCache(unittest.TestCase):
             setattr(pwr_mlx, name, value)
         self.addCleanup(lambda: [setattr(pwr_mlx, n, v) for n, v in self.saved.items()])
         self.engine = pwr_mlx.Engine()
+        self.engine.model = Images()
         self.engine.tokenizer = Tokenizer()
 
         def prefill(tokens, offset, progress, cancelled=lambda: False):
@@ -494,18 +323,18 @@ class LayerCheckpoint(unittest.TestCase):
     def test_a_copy_that_cannot_be_put_back_starts_the_prompt_from_nothing(self):
         module = self.module
         fresh = [object()]
-        saved = (module.make_prompt_cache, module.restore, module.can_trim_prompt_cache, module.snapshot)
+        saved = (module.make_prompt_cache, module.restore, module.snapshot)
         self.addCleanup(lambda: [setattr(module, n, v) for n, v in zip(
-            ("make_prompt_cache", "restore", "can_trim_prompt_cache", "snapshot"), saved)])
+            ("make_prompt_cache", "restore", "snapshot"), saved)])
         module.make_prompt_cache = lambda model: fresh
 
         def refuse(cache, states):
             raise ValueError("the cache is shorter than its copy")
 
         module.restore = refuse
-        module.can_trim_prompt_cache = lambda cache: False
         module.snapshot = lambda cache: ["copy"]
         engine = module.Engine()
+        engine.model = Images()
 
         class Tokenizer:
             eos_token_ids = set()
@@ -550,183 +379,8 @@ class ScoreBudget(unittest.TestCase):
         self.assertEqual(engine.prefill_step(200_000), 96)
 
 
-class FewerBits(unittest.TestCase):
-    """Asked for, the layers that append keep keys and values at 8 or 4 bits."""
-
-    def setUp(self):
-        import pwr_mlx
-        self.module = pwr_mlx
-        was = pwr_mlx.KV_BITS
-        self.addCleanup(lambda: setattr(pwr_mlx, "KV_BITS", was))
-
-    def test_only_8_and_4_are_bits_and_only_where_the_head_divides_into_groups(self):
-        module = self.module
-        module.KV_BITS = None
-        self.assertIsNone(module.kv_bits(256))
-        module.KV_BITS = "8"
-        self.assertEqual(module.kv_bits(256), 8)
-        self.assertIsNone(module.kv_bits(96))
-        module.KV_BITS = "3"
-        self.assertIsNone(module.kv_bits(256))
-
-    def test_what_the_cache_weighs_is_told_in_thousandths(self):
-        # 256 values: 256 or 128 bytes packed, and four groups' scale and bias.
-        self.assertEqual(self.module.cache_per_mille(256, 8), 532)
-        self.assertEqual(self.module.cache_per_mille(256, 4), 282)
-
-    def test_only_the_appending_layers_are_held_at_fewer_bits(self):
-        class KVCache:
-            def to_quantized(self, group_size, bits):
-                return ("quantized", group_size, bits)
-
-        class ArraysCache:
-            pass
-
-        fixed, grows = ArraysCache(), KVCache()
-        self.assertEqual(self.module.quantized([fixed, grows], None), [fixed, grows])
-        self.assertEqual(self.module.quantized([fixed, grows], 4), [fixed, ("quantized", 64, 4)])
-
-    def test_a_quantized_layer_is_cut_back_not_copied(self):
-        class QuantizedKVCache:
-            offset = 3
-
-            def trim(self, n):
-                return n
-
-        self.assertTrue(self.module.appends_only(QuantizedKVCache()))
-
-
-class FewerBitsWhenNeeded(unittest.TestCase):
-    """Asked for, the cache stays at the activations' width until the window's
-    memory would not hold it, then goes to fewer bits one layer at a time."""
-
-    def setUp(self):
-        import mlx.core as mx
-        import pwr_mlx
-        self.mx, self.module = mx, pwr_mlx
-        saved = (pwr_mlx.KV_START, pwr_mlx.KV_BITS)
-        self.addCleanup(lambda: (setattr(pwr_mlx, "KV_START", saved[0]), setattr(pwr_mlx, "KV_BITS", saved[1])))
-        converted = self.converted = []
-
-        class Quantized:
-            def __init__(self, offset):
-                self.offset, self.state = offset, [mx.zeros((1,))]
-
-        Quantized.__name__ = "QuantizedKVCache"
-
-        class KVCache:
-            def __init__(self, offset):
-                self.offset = offset
-                self.keys = mx.zeros((1, 4, 8, 256), dtype=mx.bfloat16)
-                self.values = mx.zeros((1, 4, 8, 256), dtype=mx.bfloat16)
-
-            def to_quantized(self, group_size, bits):
-                converted.append((group_size, bits))
-                return Quantized(self.offset)
-
-        class Fixed:
-            pass
-
-        self.KVCache, self.Fixed = KVCache, Fixed
-
-    def test_the_threshold_is_where_the_full_width_cache_fills_the_window_memory(self):
-        q = self.module.quantize_from
-        # Qwen3.5 9B: 8 layers, 32,768 bytes a token; 4 bits weigh 282 per mille.
-        self.assertEqual(q(262_144, 32_768, 8, 282), 262_144 * (9_241 + 8_192) // (32_768 + 8_192))
-        self.assertEqual(q(None, 32_768, 8, 282), 0)
-        self.assertEqual(q(262_144, 0, 0, 282), 0)
-
-    def test_the_widths_are_read_from_the_layers_that_append(self):
-        cache = [self.Fixed(), self.KVCache(10), self.KVCache(10)]
-        self.assertEqual(self.module.cache_widths(cache), (2 * (4 * 256 * 2) * 2, 2))
-
-    def test_layers_are_converted_in_place_and_the_others_left(self):
-        fixed = self.Fixed()
-        cache = [fixed, self.KVCache(10), self.KVCache(10)]
-        self.assertEqual(self.module.quantize_in_place(cache, 4), 2)
-        self.assertIs(cache[0], fixed)
-        self.assertEqual([type(c).__name__ for c in cache[1:]], ["QuantizedKVCache"] * 2)
-        self.assertEqual(self.converted, [(64, 4), (64, 4)])
-
-    def test_the_engine_converts_once_past_the_threshold_and_only_when_asked(self):
-        module = self.module
-        engine = module.Engine()
-        engine.kv_bits, engine.window = 4, 262_144
-        engine.cache = [self.Fixed(), self.KVCache(100), self.KVCache(100)]
-        limit = module.quantize_from(262_144, *module.cache_widths(engine.cache), module.cache_per_mille(256, 4))
-        module.KV_START = None
-        engine.make_room(limit + 1)
-        self.assertEqual(self.converted, [])
-        module.KV_START = "needed"
-        engine.make_room(limit)
-        self.assertEqual(self.converted, [])
-        engine.make_room(limit + 1)
-        self.assertEqual(len(self.converted), 2)
-        engine.make_room(limit * 2)
-        self.assertEqual(len(self.converted), 2)
-
-    def test_asked_for_a_new_conversation_starts_at_full_width(self):
-        module = self.module
-        module.KV_START = "needed"
-        saved = module.make_prompt_cache
-        self.addCleanup(lambda: setattr(module, "make_prompt_cache", saved))
-        module.make_prompt_cache = lambda model: [self.KVCache(0)]
-        engine = module.Engine()
-        engine.kv_bits = 4
-        self.assertEqual(type(engine.fresh_cache()[0]).__name__, "KVCache")
-
-
-class StableHistory(unittest.TestCase):
-    """D.E2E-21: a user message must not re-render the history before it."""
-
-    def test_a_notice_after_a_tool_result_resumes_from_the_copy(self):
-        import pathlib
-        import os
-        root = pathlib.Path(os.environ.get("PWR_MLX_MODELS", pathlib.Path.home() / ".pwr/models"))
-        path = root / "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit"
-        if not (path / "chat_template.jinja").exists():
-            self.skipTest("Qwen3.6 is not on this machine")
-        import pwr_mlx
-        from mlx_lm.tokenizer_utils import load as load_tokenizer
-
-        engine = pwr_mlx.Engine()
-        engine.tokenizer = load_tokenizer(path)
-        call = {"role": "assistant", "content": "I will read.", "tool_calls": [
-            {"id": "c1", "type": "function",
-             "function": {"name": "read_file", "arguments": {"path": "a.txt"}}}]}
-        history = [{"role": "system", "content": "sys"}, {"role": "user", "content": "do it"},
-                   call, {"role": "tool", "tool_call_id": "c1", "content": "a"}]
-        noticed = history + [{"role": "tool", "content": '{"looping_reply": "act"}'}]
-        before = engine.render(history, None, False, False)[0]
-        after = engine.render(noticed, None, False, False)[0]
-        copy = before[:engine.checkpoint_point(before)]
-        self.assertEqual(after[:len(copy)], copy)
-
-    def test_a_user_message_keeps_the_rendered_history_as_a_prefix(self):
-        import pathlib
-        import os
-        root = pathlib.Path(os.environ.get("PWR_MLX_MODELS", pathlib.Path.home() / ".pwr/models"))
-        path = root / "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit"
-        if not (path / "chat_template.jinja").exists():
-            self.skipTest("Qwen3.6 is not on this machine")
-        import pwr_mlx
-        from mlx_lm.tokenizer_utils import load as load_tokenizer
-
-        engine = pwr_mlx.Engine()
-        engine.tokenizer = load_tokenizer(path)
-        call = {"role": "assistant", "content": "I will read.", "tool_calls": [
-            {"id": "c1", "type": "function",
-             "function": {"name": "read_file", "arguments": {"path": "a.txt"}}}]}
-        history = [{"role": "system", "content": "sys"}, {"role": "user", "content": "do it"},
-                   call, {"role": "tool", "tool_call_id": "c1", "content": "a"}]
-        steered = history + [{"role": "user", "content": "checks failed"}]
-        for thinking in (True, False):
-            before = engine.tokenizer.decode(engine.render(history, None, thinking, False)[0])
-            after = engine.tokenizer.decode(engine.render(steered, None, thinking, False)[0])
-            self.assertTrue(after.startswith(before), thinking)
-
-
-QWEN = ("<think>", "</think>")
+# Any pair: the tracker reads the delimiters it is given.
+PAIR = ("<think>", "</think>")
 
 
 def run(tracker, pieces):
@@ -747,12 +401,10 @@ def run(tracker, pieces):
 
 class Delimiters(unittest.TestCase):
     def test_the_pair_comes_from_the_template(self):
-        self.assertEqual(think_delimiters("x <think> y </think>"), QWEN)
-        self.assertEqual(think_delimiters("<seed:think></seed:think>"),
-                         ("<seed:think>", "</seed:think>"))
-        self.assertIsNone(think_delimiters("<|channel|>analysis<|message|>"))
+        self.assertEqual(think_delimiters("x <|channel>thought y <channel|>"), ("<|channel>thought", "<channel|>"))
+        self.assertIsNone(think_delimiters("x <think> y </think>"))
         # An opening tag alone is not a pair the engine can close.
-        self.assertIsNone(think_delimiters("<think> only"))
+        self.assertIsNone(think_delimiters("<|channel>thought only"))
 
 
 class Stream(unittest.TestCase):
@@ -765,7 +417,7 @@ class Stream(unittest.TestCase):
         self.assertEqual(content, "<|tool_call>call:read_file{}<tool_call|>")
 
     def test_reasoning_opened_by_the_template_is_counted_in_tokens(self):
-        tracker = ReasoningStream(QWEN, starts_inside=True)
+        tracker = ReasoningStream(PAIR, starts_inside=True)
         reasoning, content = run(tracker, ["The", " user", " wants", " 5", "</th", "ink>", "\n\n5"])
         self.assertEqual(reasoning, "The user wants 5")
         self.assertEqual(content.strip(), "5")
@@ -774,13 +426,13 @@ class Stream(unittest.TestCase):
         self.assertTrue(tracker.answered)
 
     def test_a_block_the_model_opens_itself_is_reasoning_too(self):
-        tracker = ReasoningStream(QWEN, starts_inside=False)
+        tracker = ReasoningStream(PAIR, starts_inside=False)
         reasoning, content = run(tracker, ["\n", "<th", "ink>", "hmm", "</think>", "Hello"])
         self.assertEqual(reasoning, "hmm")
         self.assertEqual(content, "Hello")
 
     def test_an_answer_that_merely_starts_with_a_bracket_is_not_held(self):
-        tracker = ReasoningStream(QWEN, starts_inside=False)
+        tracker = ReasoningStream(PAIR, starts_inside=False)
         reasoning, content = run(tracker, ["<", "div>", " ok"])
         self.assertEqual(reasoning, "")
         self.assertEqual(content, "<div> ok")
@@ -792,7 +444,7 @@ class Stream(unittest.TestCase):
         self.assertEqual(tracker.reasoning_tokens, 0)
 
     def test_reopening_after_a_forced_close_is_detected(self):
-        tracker = ReasoningStream(QWEN, starts_inside=True)
+        tracker = ReasoningStream(PAIR, starts_inside=True)
         run(tracker, ["a", "b"])
         tracker.force_close()
         tracker.feed("\n")
@@ -801,7 +453,7 @@ class Stream(unittest.TestCase):
         self.assertFalse(tracker.answered)
 
     def test_a_tool_call_after_the_close_is_an_answer_and_is_not_split(self):
-        tracker = ReasoningStream(QWEN, starts_inside=True)
+        tracker = ReasoningStream(PAIR, starts_inside=True)
         call = '<tool_call>{"name": "read_file", "arguments": {"path": "a"}}</tool_call>'
         reasoning, content = run(tracker, ["think", "</think>", "\n"] + list(call))
         self.assertEqual(content.strip(), call)
@@ -814,15 +466,15 @@ class FakeResponse:
 
 
 class FakeTokenizer:
-    """Tokens are characters; the template opens a think block."""
+    """Tokens are characters; the template opens a thought channel."""
 
-    chat_template = "{{ enable_thinking }} <think> </think>"
+    chat_template = "{{ enable_thinking }} <|channel>thought <channel|>"
 
     def apply_chat_template(self, messages, add_generation_prompt=False, **kwargs):
         self.kwargs = kwargs
         prompt = "".join(m["content"] for m in messages)
         if add_generation_prompt:
-            prompt += "|<think>" if kwargs.get("enable_thinking", True) else "|<think></think>"
+            prompt += "|<|channel>thought" if kwargs.get("enable_thinking", True) else "|<|channel>thought<channel|>"
         return [ord(c) for c in prompt]
 
     def decode(self, tokens):
@@ -830,6 +482,16 @@ class FakeTokenizer:
 
     def encode(self, text, add_special_tokens=False):
         return [ord(c) for c in text]
+
+
+class Images:
+    """A model with no image in its prompt."""
+
+    def set_prompt(self, tokens, images=None, digest=None):
+        pass
+
+    def whole_images(self, start, end):
+        return end
 
 
 def scripted(first, after_close=None):
@@ -840,7 +502,7 @@ def scripted(first, after_close=None):
     def generate(model, tokenizer, prompt, max_tokens, **kwargs):
         prompt_text = "".join(chr(int(t)) for t in prompt.tolist())
         calls.append((prompt_text, max_tokens))
-        script = after_close if prompt_text.startswith("</think>") else first
+        script = after_close if prompt_text.startswith("<channel|>") else first
         for index, text in enumerate(script[:max_tokens]):
             last = index == len(script) - 1
             yield FakeResponse(text, "stop" if last else None)
@@ -861,7 +523,7 @@ class Chat(unittest.TestCase):
         pwr_mlx.snapshot = lambda cache: None
         pwr_mlx.restore = lambda cache, states: None
         engine = pwr_mlx.Engine()
-        engine.model = object()
+        engine.model = Images()
         engine.tokenizer = FakeTokenizer()
         engine.prefill = lambda tokens, offset, progress=None, cancelled=lambda: False: None
         self.engine = engine
@@ -999,7 +661,7 @@ class Chat(unittest.TestCase):
         self.assertTrue(calls[1].startswith("<channel|>"))
 
     def test_a_reopened_block_after_the_close_fails_once_and_does_not_loop(self):
-        generate = scripted(list("abcdefghij"), ["<think>"] + list("more"))
+        generate = scripted(list("abcdefghij"), ["<|channel>thought"] + list("more"))
         done, _, _, _ = self.chat(generate, reasoning_budget=4, max_tokens=1000)
         self.assertEqual(done["finish_reason"], "reasoning_unfinished")
         self.assertEqual(len(generate.calls), 2)
@@ -1015,7 +677,7 @@ class Chat(unittest.TestCase):
         self.assertEqual(done["usage"]["reasoning_tokens"], 1024 - self.module.FINAL_RESERVE)
 
     def test_no_budget_means_no_close(self):
-        generate = scripted(list("abc") + ["</think>"] + list("ok"))
+        generate = scripted(list("abc") + ["<channel|>"] + list("ok"))
         done, reasoning, content, _ = self.chat(generate, max_tokens=1000)
         self.assertFalse(done["budget_forced"])
         self.assertEqual((reasoning, content), ("abc", "ok"))
@@ -1023,7 +685,7 @@ class Chat(unittest.TestCase):
 
     def test_a_template_without_delimiters_is_not_budgeted_or_counted(self):
         self.engine.tokenizer.chat_template = "{{ messages }}"
-        generate = scripted(list("<think>abcdefgh"))
+        generate = scripted(list("<|channel>thoughtabcdefgh"))
         done, _, _, _ = self.chat(generate, reasoning_budget=2, max_tokens=1000)
         self.assertFalse(done["budget_forced"])
         self.assertFalse(done["reasoning_tracked"])
@@ -1039,64 +701,6 @@ class Chat(unittest.TestCase):
         done, _, _, _ = self.chat(generate, cancelled, reasoning_budget=5000, max_tokens=8000)
         self.assertEqual(done["finish_reason"], "cancelled")
         self.assertLessEqual(len(seen), 3)
-
-    def test_the_level_and_the_native_budget_reach_the_template(self):
-        self.engine.tokenizer.chat_template = "<think></think> thinking_budget reasoning_effort"
-        self.chat(scripted(list("a</think>ok")), reasoning_budget=1300, reasoning_effort="high",
-                  max_tokens=4000)
-        kwargs = self.engine.tokenizer.kwargs
-        self.assertEqual(kwargs["thinking_budget"], 1024)
-        self.assertEqual(kwargs["reasoning_effort"], "high")
-
-
-CALL = "<tool_call>\n<function=read_file>\n<parameter=path>\nsrc/a.ts\n</parameter>\n</function>\n"
-
-
-class StrayAfterCall(unittest.TestCase):
-    """Qwen3-Coder-30B wrote `</function>` and went on with prose (2026-10-02)."""
-
-    def test_prose_after_a_closed_call_is_stray(self):
-        self.assertTrue(strayed_after_call(CALL + "ocks\n\nLet me focus on the dates"))
-        self.assertTrue(strayed_after_call(CALL + "</tool_call>\nNow I will"))
-
-    def test_the_wrappers_close_and_the_next_call_are_not(self):
-        for tail in ("", "\n", "</tool", "</tool_call>\n", "</tool_call>\n<tool_call>\n<function=re",
-                     "</tool_call>\n<tool_call>\n<function=read_file>\n<parameter=path>\nb</paramet"):
-            self.assertFalse(strayed_after_call(CALL + tail), tail)
-
-    def test_a_close_inside_a_parameter_value_is_not_a_close(self):
-        content = ("<tool_call>\n<function=write_file>\n<parameter=content>\n"
-                   "example: </function></tool_call> and more text")
-        self.assertFalse(strayed_after_call(content))
-
-    def test_text_without_a_call_is_not(self):
-        self.assertFalse(strayed_after_call("The answer is 42."))
-
-
-class XmlCallEndsTheReply(Chat):
-    """The whole path: a reply in the XML call format ends where it strays."""
-
-    def setUp(self):
-        super().setUp()
-        self.engine.tokenizer.chat_template = "{{ enable_thinking }} <think> </think> <function="
-
-    def test_generation_stops_after_the_stray_text_begins(self):
-        script = list(CALL) + list("ocks and a long ramble that never ends") + ["x"] * 500
-        done, _, content, _ = self.chat(scripted(script), thinking=False)
-        self.assertEqual(done["finish_reason"], "stop")
-        self.assertTrue(content.startswith(CALL))
-        self.assertLess(done["usage"]["completion_tokens"], len(CALL) + 10)
-
-    def test_two_calls_in_one_reply_both_arrive(self):
-        two = CALL + "</tool_call>\n" + CALL + "</tool_call>"
-        done, _, content, _ = self.chat(scripted(list(two)), thinking=False)
-        self.assertEqual(content, two)
-
-    def test_other_templates_are_left_alone(self):
-        self.engine.tokenizer.chat_template = "{{ enable_thinking }} <think> </think>"
-        script = list(CALL) + list("ocks and more")
-        done, _, content, _ = self.chat(scripted(script), thinking=False)
-        self.assertEqual(content, CALL + "ocks and more")
 
 
 class CacheCheckpointMetadata(unittest.TestCase):
@@ -1235,14 +839,6 @@ class GemmaEmptyThought(unittest.TestCase):
         self.assertEqual(pwr_mlx.empty_thought(self.Tokenizer(), "<|tool_call> <|channel>", True), [])
         self.assertEqual(pwr_mlx.empty_thought(self.Tokenizer(), "<tool_call> <think>", False), [])
 
-    def test_gemma_keeps_its_cache_at_full_width(self):
-        import pwr_mlx
-        was = pwr_mlx.KV_BITS
-        self.addCleanup(lambda: setattr(pwr_mlx, "KV_BITS", was))
-        pwr_mlx.KV_BITS = "4"
-        self.assertIsNone(pwr_mlx.kv_bits(256, "gemma4"))
-        self.assertIsNone(pwr_mlx.kv_bits(256, "gemma4_unified"))
-        self.assertEqual(pwr_mlx.kv_bits(256, "qwen3_5"), 4)
 
 
 class GemmaImages(unittest.TestCase):
@@ -1350,7 +946,7 @@ class GemmaImages(unittest.TestCase):
         import pwr_mlx
         self.assertEqual(pwr_mlx.image_masks(None, ["causal"], None, None, None), ["causal"])
 
-    def test_render_passes_every_array_and_the_image_budget_to_gemma_only(self):
+    def test_render_passes_every_array_and_the_image_budget(self):
         import base64, io
         import numpy as np
         import pwr_mlx
@@ -1377,13 +973,10 @@ class GemmaImages(unittest.TestCase):
         pwr_mlx.IMAGE_TOKENS = 1120
         engine = pwr_mlx.Engine()
         engine.tokenizer, engine.processor = Tokenizer(), processor
-        for gemma in (True, False):
-            seen.clear()
-            engine.model = type("Model", (), {"gemma": gemma})()
-            tokens, images = engine.render(messages, None, False, True)
-            self.assertEqual(tokens, [9, 9, 1])
-            self.assertEqual(sorted(images["arrays"]), ["image_position_ids", "mm_token_type_ids", "pixel_values"])
-            self.assertEqual(seen, {"max_soft_tokens": 1120} if gemma else {})
+        tokens, images = engine.render(messages, None, False, True)
+        self.assertEqual(tokens, [9, 9, 1])
+        self.assertEqual(sorted(images["arrays"]), ["image_position_ids", "mm_token_type_ids", "pixel_values"])
+        self.assertEqual(seen, {"max_soft_tokens": 1120})
 
 
 class GemmaHistory(unittest.TestCase):
@@ -1437,6 +1030,36 @@ class GemmaHistory(unittest.TestCase):
                             {"role": "user", "content": "next"}])
         self.assertIn('<|tool_response>response:read_file{content:<|"|>\ndef a():\n    return "x"<|"|>,'
                       'first_line:1,path:<|"|>src/a.py<|"|>,redacted:false}<tool_response|><turn|>\n', text)
+
+    def test_a_user_message_after_results_keeps_the_copy_a_prefix(self):
+        """D.E2E-21: a message after a tool result -- a notice, the checks'
+        report -- must not re-render the history before it, or the next
+        prompt cannot resume from the copy."""
+        import pwr_mlx
+        from mlx_lm.utils import load_tokenizer
+        if not (self.PACK / "chat_template.jinja").exists():
+            self.skipTest("no Gemma 4 pack on this machine")
+        engine = pwr_mlx.Engine()
+        engine.tokenizer = load_tokenizer(self.PACK)
+        pwr_mlx.add_turn_ends(engine.tokenizer)
+        history = [{"role": "system", "content": "sys"}, {"role": "user", "content": "Fix a."}, self.CALL, self.RESULT]
+        for thinking in (True, False):
+            before = engine.render(history, None, thinking, False)[0]
+            after = engine.render(history + [{"role": "user", "content": "[PWR] checks: 2 failed"}], None, thinking, False)[0]
+            copy = before[:engine.checkpoint_point(before)]
+            self.assertEqual(after[:len(copy)], copy, thinking)
+            self.assertEqual(after[:len(before)], before, thinking)
+
+    def test_gemmas_stops_end_generation(self):
+        import pwr_mlx
+        from mlx_lm.utils import load_tokenizer
+        if not (self.PACK / "chat_template.jinja").exists():
+            self.skipTest("no Gemma 4 pack on this machine")
+        tokenizer = load_tokenizer(self.PACK)
+        pwr_mlx.add_turn_ends(tokenizer)
+        stops = {tokenizer.convert_tokens_to_ids(m) for m in ("<turn|>", "<|tool_response>")}
+        self.assertLessEqual(stops, set(tokenizer.eos_token_ids))
+        self.assertNotIn(tokenizer.convert_tokens_to_ids("<tool_call|>"), tokenizer.eos_token_ids)
 
     def test_another_template_is_left_alone(self):
         import pwr_mlx
@@ -1497,55 +1120,22 @@ class PromptDump(unittest.TestCase):
             self.assertTrue((pathlib.Path(folder) / "prompt-0001.json").exists())
 
 
-class TurnEndsStopGeneration(unittest.TestCase):
-    """Qwen2.5-Coder names only `<|im_end|>` and writes `<|endoftext|>`."""
-
-    class Tokenizer:
-        unk_token_id = 0
-        vocabulary = {"<|im_end|>": 5, "<|endoftext|>": 6}
-
-        def __init__(self):
-            self.eos_token_ids = {5}
-
-        def convert_tokens_to_ids(self, token):
-            return self.vocabulary.get(token, self.unk_token_id)
-
-        def add_eos_token(self, token):
-            self.eos_token_ids.add(self.vocabulary[token])
-
-    def test_gemma_tool_response_handoff_is_an_eos(self):
-        tokenizer = self.Tokenizer()
-        tokenizer.chat_template = "<|tool_call>call:name{}<tool_call|>"
-        tokenizer.vocabulary = {**tokenizer.vocabulary, "<turn|>": 7,
-                                "<|tool_response>": 8, "<tool_call|>": 9}
-        add_turn_ends(tokenizer)
-        self.assertEqual(tokenizer.eos_token_ids, {5, 6, 7, 8})
-        # The closing call delimiter must remain visible to the parser.
-        self.assertNotIn(9, tokenizer.eos_token_ids)
-
-    def test_gemma_markers_are_not_added_for_another_protocol(self):
-        tokenizer = self.Tokenizer()
-        tokenizer.chat_template = "<function=name>"
-        tokenizer.vocabulary = {**tokenizer.vocabulary, "<turn|>": 7,
-                                "<|tool_response>": 8}
-        add_turn_ends(tokenizer)
-        self.assertEqual(tokenizer.eos_token_ids, {5, 6})
-
-    def test_missing_gemma_markers_never_add_the_unknown_token(self):
-        tokenizer = self.Tokenizer()
-        tokenizer.chat_template = "<|tool_call>"
-        add_turn_ends(tokenizer)
-        self.assertEqual(tokenizer.eos_token_ids, {5, 6})
-
-    def test_every_marker_the_vocabulary_has_stops_and_no_other(self):
-        tokenizer = self.Tokenizer()
-        add_turn_ends(tokenizer)
-        self.assertEqual(tokenizer.eos_token_ids, {5, 6})
-
-
 if __name__ == "__main__":
     unittest.main()
 
+
+
+class Stepped:
+    """A model stand-in for prefill: a function over each step, no images."""
+
+    def __init__(self, step):
+        self.step = step
+
+    def __call__(self, tokens, cache):
+        return self.step(tokens, cache)
+
+    def whole_images(self, start, end):
+        return end
 
 
 class PrefillCancellation(unittest.TestCase):
@@ -1564,7 +1154,7 @@ class PrefillCancellation(unittest.TestCase):
             sizes.append(tokens.shape[1])
             clock[0] += tokens.shape[1] / 50  # long context: 50 tokens/sec
 
-        engine.model = slow
+        engine.model = Stepped(slow)
         with patch("pwr_mlx.time.perf_counter", side_effect=lambda: clock[0]):
             engine.prefill(list(range(1000)), 108000)
         self.assertEqual(sum(sizes), 1000)
@@ -1585,7 +1175,7 @@ class PrefillCancellation(unittest.TestCase):
         def slow(tokens, cache):
             sizes.append(tokens.shape[1])
             time.sleep(tokens.shape[1] * 0.002)  # 500 tokens a second
-        engine.model = slow
+        engine.model = Stepped(slow)
         original = pwr_mlx.PREFILL_CHUNK_SECS
         pwr_mlx.PREFILL_CHUNK_SECS = 0.3  # 150 tokens' worth, rounded down
         try:
@@ -1605,7 +1195,7 @@ class PrefillCancellation(unittest.TestCase):
         engine.cache = [SimpleNamespace(state=mx.array([0]))]
         engine.prefill_step = lambda offset: pwr_mlx.PREFILL_STEP
         sizes = []
-        engine.model = lambda tokens, cache: sizes.append(tokens.shape[1])
+        engine.model = Stepped(lambda tokens, cache: sizes.append(tokens.shape[1]))
         engine.prefill(list(range(20000)), 0)
         self.assertEqual(sum(sizes), 20000)
         self.assertEqual(sizes[0], pwr_mlx.PREFILL_FIRST_STEP)
@@ -1619,7 +1209,7 @@ class PrefillCancellation(unittest.TestCase):
         engine.cache = [SimpleNamespace(state=mx.array([0]))]
         engine.prefill_step = lambda offset: 2
         calls = []
-        engine.model = lambda tokens, cache: calls.append(tokens)
+        engine.model = Stepped(lambda tokens, cache: calls.append(tokens))
         with self.assertRaises(PrefillCancelled):
             engine.prefill([1, 2, 3, 4, 5, 6], 0, cancelled=lambda: bool(calls))
         self.assertEqual(len(calls), 1)

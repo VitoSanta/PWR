@@ -1,33 +1,25 @@
 #!/usr/bin/env python3
-"""PWR's MLX engine sidecar: one model, driven over JSON lines on stdio.
+"""PWR's MLX engine sidecar for Gemma 4: one model, driven over JSON lines on stdio.
 
-Why it exists (backlog A.17, roadmap step 4): the reasoning of a model like
-Qwen3.6 is switched by its chat template, which pre-fills an empty think block
-when `enable_thinking` is false. Only a caller that renders the template itself
-controls the reasoning -- switching it off, or giving it a real budget. LM
-Studio renders the template for PWR and ignores the request, so runaway
-reasoning confounded every measurement taken through it.
-
-This process renders the template, generates with mlx-lm, and reuses the
-prompt cache across turns. It does nothing else: tool calls come back as the
-model wrote them, and PWR's family adapters read them, as they do for every
-other backend. Policy, sandbox and audit stay in PWR.
+PWR is built around the Gemma 4 family (12B, 26B-A4B, 31B; decision of
+2026-10-14). This process loads a Gemma 4 pack through mlx-vlm -- weights,
+vision encoder, Google's chat template -- renders the template itself, generates,
+and reuses the prompt cache across turns. It does nothing else: tool calls come
+back as the model wrote them (`<|tool_call>call:NAME{...}<tool_call|>`) and PWR's
+Gemma adapter reads them. Policy, sandbox and audit stay in PWR.
 
 Protocol. One JSON object per line in each direction.
 
-  -> {"id": 1, "op": "load", "path": "/path/to/model", "rope_scaling": {...} | absent}
-  <- {"id": 1, "event": "loaded", "model_type": "...", "weights_bytes": N, "vision": bool,
-      "rope_scaling": {...} | null}
+  -> {"id": 1, "op": "load", "path": "/path/to/model"}
+  <- {"id": 1, "event": "loaded", "model_type": "...", "weights_bytes": N, "vision": true,
+      "rope_scaling": null}
 
 A message's content is a string, or a list of parts: {"type": "text", "text":
 "..."} and {"type": "image", "path": "/abs/file.png"} or {"type": "image",
-"data": "<base64>"}. Images are accepted only by a model loaded with its
-vision encoder ("vision": true on load), which is one load of the weights
-through mlx-vlm driven by the same generation loop as text (backlog C.25).
+"data": "<base64>"}.
 
   -> {"id": 2, "op": "chat", "messages": [...], "tools": [...] | null,
       "thinking": true | false | null, "reasoning_budget": N | null,
-      "reasoning_effort": "low" | "medium" | "high" | null,
       "max_tokens": N, "temperature": t, "top_p": p, "top_k": k, "seed": s}
   <- {"id": 2, "event": "delta", "channel": "reasoning" | "content", "text": "..."}
   <- {"id": 2, "event": "finalizing", "reasoning_tokens": N}   (budget reached)
@@ -36,13 +28,11 @@ through mlx-vlm driven by the same generation loop as text (backlog C.25).
       | "reasoning_unfinished", "budget_forced": bool, "reasoning_tracked": bool,
       "usage": {...}, "timings": {...}}
 
-`reasoning_budget` is enforced only when the chat template uses a thinking
-delimiter pair the engine tracks (THINK_DELIMITERS): after that many tokens
-inside the block the engine appends the closing delimiter, once, and lets the
-answer follow within `max_tokens`. If the model reopens its reasoning or ends
-without an answer, the request finishes `reasoning_unfinished`. A template
-that reads `thinking_budget` is also told the budget; one that reads
-`reasoning_effort` is given the level.
+`thinking` true puts `<|think|>` in the system turn (the template's
+`enable_thinking`). `reasoning_budget` is enforced on the thought channel:
+after that many tokens inside it the engine writes `<channel|>`, once, and lets
+the answer follow within `max_tokens`. If the model reopens its reasoning or
+ends without an answer, the request finishes `reasoning_unfinished`.
 
   -> {"id": 3, "op": "attention", "head_dim": 256}
   <- {"id": 3, "event": "attention", "fused": false, "scores_bytes": N}
@@ -83,10 +73,8 @@ if sys.platform == "darwin":
 
 import mlx.core as mx
 import mlx.nn as nn
-from mlx_lm import load, stream_generate
-from mlx_lm.models.cache import (
-    RotatingKVCache, can_trim_prompt_cache, make_prompt_cache, trim_prompt_cache,
-)
+from mlx_lm import stream_generate
+from mlx_lm.models.cache import make_prompt_cache
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.utils import load_tokenizer
 
@@ -138,22 +126,6 @@ CHECKPOINT = os.environ.get("PWR_MLX_CHECKPOINT", "whole")
 SCORES_MB = os.environ.get("PWR_MLX_SCORES_MB")
 BUDGET_SCORE_BYTES = 3
 SCORES_FLOOR_BYTES = 512 * 1024**2
-# Bits the full-attention layers keep their keys and values at, 8 or 4, in
-# place of the activations' 16: MLX's quantized cache, in groups of
-# `KV_GROUP`. Weighed 2026-10-13 on Bonsai 27B, 53% and 28% of the bytes; on
-# Qwen3.5 9B at 41k tokens it read and wrote within a tenth of the plain
-# cache's speed. What it costs a model in what it finds far back is measured
-# per model, not assumed. Unset, the cache is as the model builds it.
-KV_BITS = os.environ.get("PWR_MLX_KV_BITS")
-KV_GROUP = 64
-# When the cache goes to `KV_BITS`. Unset, from the first token. "needed": it
-# stays at the activations' width while the memory the window gives the cache
-# -- what PWR counts for it at `KV_BITS` -- holds it, and is converted when a
-# read or a reply would pass that. Measured 2026-10-14 at long context, a cache
-# at 4 bits wrote 9-53% slower than at 16 (Ornith 1.5 35B-A3B at 240k: 11.9
-# tokens a second against 25.5); at 41k the 9B wrote as fast. Recorded runs
-# reached a median of 55k tokens.
-KV_START = os.environ.get("PWR_MLX_KV_START")
 # Tokens an image takes in Gemma 4's prompt, one of the budgets Google gives
 # (70, 140, 280, 560, 1120; the high ones for text and documents). Unset, the
 # model's own (280: 273 image tokens for a 1280x800 screenshot, 1,092 at 1120).
@@ -169,8 +141,7 @@ REPEAT_LIMIT = 4
 # The thinking-block delimiters the engine tracks, most specific first. The
 # pair a model uses is read from its own chat template (`think_delimiters`);
 # pwr-domain's `TemplateReasoning::KNOWN_DELIMITERS` carries the same list.
-THINK_DELIMITERS = (("<|channel>thought", "<channel|>"),
-                    ("<seed:think>", "</seed:think>"), ("<think>", "</think>"))
+THINK_DELIMITERS = (("<|channel>thought", "<channel|>"),)
 # How a thinking phase that reached its budget is ended: the template's own
 # closing delimiter, then a blank line. Nothing else is injected -- no
 # model-family prose -- and only for a template that uses the delimiter.
@@ -182,10 +153,6 @@ FINALIZATION_ATTEMPTS = 1
 # A backstop under PWR's own reserve: whatever budget a caller sends, this
 # many tokens of the request's cap stay for the answer.
 FINAL_RESERVE = 512
-# A template with a native budget is told it in these steps, so a budget that
-# moves by a few tokens as the context fills does not re-render the system
-# prompt and miss the prompt cache. The engine still enforces the exact one.
-NATIVE_BUDGET_STEP = 512
 
 
 # A model folder's own Python (custom tokenizers, processors) is never run:
@@ -210,22 +177,6 @@ def vlm_available() -> bool:
         return True
     except ImportError:
         return False
-
-
-def stays_trimmable(cache) -> bool:
-    """Whether a cache can still be cut back once a prompt is in it.
-
-    A sliding-window layer's cache (`RotatingKVCache`) can be cut back only
-    while it holds less than its window, so asking an empty one says yes and
-    is wrong a prompt later. That is what `resume` asked, before its prefill:
-    gpt-oss (128-token windows) kept no copy, could not be cut back on the
-    next step either, and prefilled the whole conversation every step --
-    measured 2026-09-29, 0 tokens reused at 50k, two minutes a step for two
-    hours. So a cache with such a layer keeps its copy, judged by kind.
-    """
-    return can_trim_prompt_cache(cache) and not any(
-        isinstance(layer, RotatingKVCache) for layer in cache
-    )
 
 
 def trace(record: dict) -> None:
@@ -264,40 +215,6 @@ def looping(text: str) -> bool:
     if period * REPEAT_LIMIT > len(text):
         return False
     return text[-period * REPEAT_LIMIT:] == text[-period:] * REPEAT_LIMIT
-
-
-# What may follow a closed call in the XML call format (`<function=NAME>`):
-# the wrapper's own close, or the next call.
-CALL_CLOSES = ("</function>", "</tool_call>")
-CALL_FOLLOWERS = ("</tool_call>", "<tool_call>", "<function=")
-
-
-def strayed_after_call(answer: str) -> bool:
-    """Whether the answer closed a call and went on with something that is
-    neither the wrapper's close nor another call.
-
-    Measured 2026-10-02: Qwen3-Coder-30B-A3B wrote `</function>`, skipped
-    `</tool_call>` and the turn end, and went on writing prose until the
-    length limit -- 52k and 55k characters, 11 and 12 minutes of one
-    30-minute task. The call before the stray text is whole, and PWR's
-    adapter reads it without its `</tool_call>`, so the reply can end there.
-    A close inside a parameter value (a file that holds such text) is not a
-    close: the parameter it is in is still open. Only the last call is
-    read, so the check stays short however long the reply."""
-    start = max(answer.rfind("<tool_call>"), answer.rfind("<function="), 0)
-    answer = answer[start:]
-    if answer.count("<parameter=") > answer.count("</parameter>"):
-        return False
-    end = max((answer.rfind(close) + len(close)
-               for close in CALL_CLOSES if close in answer), default=-1)
-    if end < 0:
-        return False
-    rest = answer[end:].lstrip()
-    if not rest:
-        return False
-    return not any(rest.startswith(follower) or follower.startswith(rest)
-                   for follower in CALL_FOLLOWERS)
-
 
 
 class OneThought:
@@ -389,35 +306,30 @@ def empty_thought(tokenizer, template: str, thinking) -> list:
     return list(tokenizer.encode(EMPTY_THOUGHT, add_special_tokens=False))
 
 
-# Markers that end a turn in every template that has them, whatever the
-# model's config names as its end. Measured 2026-09-29: Qwen2.5-Coder-14B
-# names only `<|im_end|>`, wrote `<|endoftext|>` after a tool call, and went
-# on generating an invented question and answer until the length limit --
-# three of its four tasks lost that way.
-TURN_ENDS = ("<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<end_of_turn>")
+# Where Gemma 4 hands control back (Google's prompt formatting): the end of
+# its turn, and `<|tool_response>`, written after its calls for the caller
+# to answer. The pack's generation_config lists them; mlx-lm's tokenizer
+# keeps only `<eos>`. `<tool_call|>` is not one: a reply may hold several calls.
+TURN_ENDS = ("<turn|>", "<|tool_response>")
 
 
 def add_turn_ends(tokenizer) -> None:
-    """Adds each marker the vocabulary has as a single special token to the
-    tokens that stop generation. A marker the vocabulary lacks is skipped:
-    converting it would give the unknown token, and stopping on that would
-    end generation at any unknown word."""
+    """Adds each of Gemma's stops the vocabulary has as a single special
+    token to the tokens that stop generation. A marker the vocabulary lacks is
+    skipped: converting it would give the unknown token, and stopping on that
+    would end generation at any unknown word."""
     add = getattr(tokenizer, "add_eos_token", None)
     if add is None:
         return
     unknown = getattr(tokenizer, "unk_token_id", None)
-    markers = TURN_ENDS
-    if "<|tool_call>" in str(getattr(tokenizer, "chat_template", "") or ""):
-        # Gemma's native protocol hands control to the caller at this marker.
-        # Keep <tool_call|> visible: the tool parser needs that closing token.
-        markers += ("<turn|>", "<|tool_response>")
-    for marker in markers:
+    for marker in TURN_ENDS:
         try:
             token = tokenizer.convert_tokens_to_ids(marker)
         except Exception:
             continue
         if isinstance(token, int) and token != unknown and token >= 0:
             add(marker)
+
 
 class RepetitionSignals:
     """Small, content-free diagnostics for repeated generated token windows.
@@ -683,99 +595,24 @@ def score_budget() -> int:
     return budget
 
 
-# Model types whose cache stays at the activations' width whatever was asked.
-# Gemma 4's global layers use their keys as values too (512-wide heads):
-# measured 2026-10-14 on 26B-A4B, with the cache at 4 bits it wrote one line
-# in another language over and over and broke file names; at 16 bits it did
-# not. Its cache is small at 16 bits anyway (16-20 KB a token for 12B, 26B).
-KV_FULL_WIDTH = ("gemma4",)
-
-
-def kv_bits(head_dim: int, model_type=None):
-    """The bits asked for, where the cache can be held at them."""
-    bits = int(KV_BITS) if KV_BITS in ("4", "8") else None
-    if model_type and str(model_type).startswith(KV_FULL_WIDTH):
-        return None
-    return bits if bits and head_dim % KV_GROUP == 0 else None
-
-
-def cache_per_mille(head_dim: int, bits: int) -> int:
-    """What a quantized key or value weighs against its 16-bit one, in
-    thousandths, rounded up: its packed bits and, for every group, a scale and
-    a bias in the activations' two bytes."""
-    plain = head_dim * 2
-    held = head_dim * bits // 8 + 2 * (head_dim // KV_GROUP) * 2
-    return -(-held * 1000 // plain)
-
-
-def cache_widths(cache):
-    """Bytes a token costs the layers that append, at the width they hold
-    now, and how many such layers there are."""
-    plain, layers = 0, 0
-    for c in cache:
-        keys, values = getattr(c, "keys", None), getattr(c, "values", None)
-        if type(c).__name__ == "KVCache" and keys is not None and values is not None:
-            plain += (keys.shape[1] * keys.shape[3] + values.shape[1] * values.shape[3]) * keys.dtype.size
-            layers += 1
-    return plain, layers
-
-
-def quantize_from(window: int, plain: int, layers: int, per_mille: int) -> int:
-    """The context length up to which a cache at the activations' width fits
-    the memory the window gives it at fewer bits. PWR counts a token at what
-    the cache keeps plus two layers' keys and values at the activations' width
-    for what a prefill step holds (`window::decide`); the same count here."""
-    if not window or not plain or not layers:
-        return 0
-    step = 2 * plain // layers
-    held = -(-plain * per_mille // 1000)
-    return window * (held + step) // (plain + step)
-
-
-def quantize_in_place(cache, bits) -> int:
-    """The appending layers of `cache` taken to `bits`, one at a time: each
-    converted and evaluated before the next, so the conversion holds one
-    layer twice, never the whole cache."""
-    converted, layer = 0, None
-    for index in range(len(cache)):
-        layer = cache[index]
-        if type(layer).__name__ == "KVCache" and callable(getattr(layer, "to_quantized", None)):
-            held = layer.to_quantized(group_size=KV_GROUP, bits=bits)
-            mx.eval(held.state)
-            cache[index] = held
-            converted += 1
-    del layer
-    mx.clear_cache()
-    return converted
-
-
-def quantized(cache, bits):
-    """The cache with its appending KV layers held at `bits`."""
-    if not bits:
-        return cache
-    return [c.to_quantized(group_size=KV_GROUP, bits=bits)
-            if type(c).__name__ == "KVCache" and callable(getattr(c, "to_quantized", None)) else c
-            for c in cache]
-
-
 class Offset(int):
     """Where a layer that is cut back, not copied, stood when a copy was taken."""
 
 
 def appends_only(layer) -> bool:
     """Whether a layer's cache only ever writes past its offset, so cutting
-    the offset back to where it stood gives back what was there: mlx-lm's and
-    mlx-vlm's `KVCache` and its quantized kind. Judged by kind, and narrowly: a sliding-window cache
-    rewrites its ring, and a kind not listed here is copied as before."""
-    return (type(layer).__name__ in ("KVCache", "QuantizedKVCache")
+    the offset back to where it stood gives back what was there: mlx-vlm's
+    `KVCache`, Gemma's global layers. Judged by kind, and narrowly: a
+    sliding-window cache rewrites its ring, and is copied."""
+    return (type(layer).__name__ == "KVCache"
             and isinstance(getattr(layer, "offset", None), int)
             and callable(getattr(layer, "trim", None)))
 
 
 def snapshot(cache):
-    """Copies of the cache state. A KV cache writes into its buffer in place,
-    and Qwen 3.5/3.6's linear-attention layers cannot be trimmed back, so the
-    only way to reuse a prompt is to keep a copy taken where it ended.
+    """Copies of the cache state. Gemma's sliding-window layers rewrite their
+    ring in place and cannot be cut back once full, so the only way to reuse a
+    prompt is to keep a copy taken where it ended.
 
     With `CHECKPOINT` "layers" a layer that only appends keeps its offset in
     place of a copy; see `appends_only`."""
@@ -816,41 +653,31 @@ def restore(cache, states) -> None:
 
 
 class VisionText(nn.Module):
-    """A model loaded by mlx-vlm, shaped as an mlx-lm model, so the one
+    """A Gemma 4 pack loaded by mlx-vlm, shaped as an mlx-lm model, so the one
     generation loop below -- prompt cache, checkpoints, reasoning budget --
     drives text and images alike, and the weights are loaded once (C.25).
 
-    Qwen's vision models place tokens with three-axis positions, and an image
-    takes fewer positions than tokens. Positions and image embeddings are
-    held for the whole prompt and sliced by the cache offset on every call,
-    so a prefill resumed from a checkpoint sees what one from the start would.
-    Measured 2026-09-23 on Qwen3.6-35B-A3B: text output identical token for
-    token to mlx-lm's own load, same speed, 0.9 GB more at peak.
-
-    Gemma 4 places tokens one position each, and reads an image's tokens
-    with attention both ways: each sees the whole image. mlx-vlm does that
-    only for a prompt read whole from an empty cache; here every step that
-    holds an image gets it (`image_masks`), and no step cuts an image in two
+    A prompt's image embeddings are held for the whole prompt and sliced by
+    the cache offset on every call, so a prefill resumed from a checkpoint
+    sees what one from the start would. Gemma reads an image's tokens with
+    attention both ways: each sees the whole image. mlx-vlm does that only for
+    a prompt read whole from an empty cache; here every step that holds an
+    image gets it (`image_masks`), and no step cuts an image in two
     (`whole_images`)."""
 
     def __init__(self, vlm):
         super().__init__()
         self.vlm = vlm
         self.language = vlm.language_model
-        self.gemma = str(getattr(vlm.config, "model_type", "")).startswith("gemma4")
-        self.fa_idx = getattr(self.language.model, "fa_idx", 0)
         self.embeds = None      # (1, N, D) for a prompt with images
-        self.positions = None   # (3, 1, N)
-        self.delta = 0          # position minus index after the prompt
         self.features = {}      # image digest -> vision features, the last few
-        self.per_layer = None   # Gemma's per-layer inputs, where it has them
-        self.blocks = None      # Gemma: image number of each prompt token, -1 for text
+        self.per_layer = None   # per-layer inputs, where the model has them
+        self.blocks = None      # image number of each prompt token, -1 for text
         self.step_blocks = None  # the same for the tokens of the step being read
-        if self.gemma:
-            model = self.language.model
-            plain = model._make_masks
-            model._make_masks = lambda h, cache, types=None: image_masks(
-                model, plain(h, cache, None), h, cache, self.step_blocks)
+        model = self.language.model
+        plain = model._make_masks
+        model._make_masks = lambda h, cache, types=None: image_masks(
+            model, plain(h, cache, None), h, cache, self.step_blocks)
 
     @property
     def layers(self):
@@ -860,9 +687,8 @@ class VisionText(nn.Module):
         return self.language.make_cache()
 
     def set_prompt(self, tokens, images=None, digest=None) -> None:
-        self.per_layer = self.blocks = None
+        self.embeds = self.per_layer = self.blocks = None
         if not images:
-            self.embeds, self.positions, self.delta = None, None, 0
             return
         store = self.features
 
@@ -876,26 +702,14 @@ class VisionText(nn.Module):
                 store[key] = value
 
         arrays = images["arrays"]
-        if self.gemma:
-            features = self.vlm.get_input_embeddings(
-                mx.array(tokens)[None], mx.array(arrays["pixel_values"]),
-                **{k: mx.array(arrays[k]) for k in ("image_position_ids",) if k in arrays},
-                vision_cache=Features(), _image_key=digest,
-            )
-            self.embeds, self.per_layer = features.inputs_embeds, features.per_layer_inputs
-            self.positions, self.delta = None, 0
-            self.blocks = image_blocks(tokens, self.vlm.config.image_token_id)
-            mx.eval(self.embeds)
-            return
         features = self.vlm.get_input_embeddings(
             mx.array(tokens)[None], mx.array(arrays["pixel_values"]),
-            image_grid_thw=mx.array(arrays["image_grid_thw"]),
+            **{k: mx.array(arrays[k]) for k in ("image_position_ids",) if k in arrays},
             vision_cache=Features(), _image_key=digest,
         )
-        self.embeds = features.inputs_embeds
-        self.positions = features.position_ids
-        self.delta = int(features.rope_deltas.reshape(-1)[0].item())
-        mx.eval(self.embeds, self.positions)
+        self.embeds, self.per_layer = features.inputs_embeds, features.per_layer_inputs
+        self.blocks = image_blocks(tokens, self.vlm.config.image_token_id)
+        mx.eval(self.embeds)
 
     def whole_images(self, start: int, end: int) -> int:
         """Where a step of the prompt from `start` to `end` ends without
@@ -915,24 +729,6 @@ class VisionText(nn.Module):
         return last
 
     def __call__(self, inputs, cache=None, input_embeddings=None):
-        if self.gemma:
-            return self.gemma_call(inputs, cache)
-        offset = int(cache[self.fa_idx].offset) if cache is not None else 0
-        n = inputs.shape[-1]
-        embeds = input_embeddings
-        if self.positions is not None and offset + n <= self.positions.shape[-1]:
-            positions = self.positions[..., offset:offset + n]
-            if embeds is None:
-                embeds = self.embeds[:, offset:offset + n]
-        else:
-            start = offset + self.delta
-            positions = mx.broadcast_to(
-                mx.arange(start, start + n)[None, None], (3, inputs.shape[0], n)
-            )
-        out = self.language(inputs, inputs_embeds=embeds, cache=cache, position_ids=positions)
-        return out.logits if hasattr(out, "logits") else out
-
-    def gemma_call(self, inputs, cache):
         offset = int(cache[0].offset) if cache is not None else 0
         n = inputs.shape[-1]
         embeds = per_layer = None
@@ -992,30 +788,6 @@ def image_masks(model, masks, h, cache, blocks):
     return out
 
 
-def stable_history(messages, template: str):
-    """The messages, so a template renders past steps the same way whatever
-    follows them.
-
-    gpt-oss's template shows the text beside a tool call as analysis only
-    until a final answer follows it, then drops it from every earlier step:
-    the history is rewritten from the first step on, and a prompt cache --
-    which only a prefix can reuse -- is lost once per answer. Measured
-    2026-09-29 with its tokenizer: a history of two steps and an answer
-    shared 129 of 529 tokens with the same history before the answer. Such a
-    template (it looks for a `future_final_message`) gets that text never,
-    so the history stays a prefix; the model's reasoning, which the template
-    never shows once an answer follows, is not lost by it either.
-    """
-    if "future_final_message" not in template:
-        return messages
-    return [
-        {**message, "content": ""}
-        if message.get("role") == "assistant" and message.get("tool_calls") and message.get("content")
-        else message
-        for message in messages
-    ]
-
-
 def image_parts(messages, accept: bool = True):
     """The images in `messages`, in order, and the messages as the chat
     template takes them: each image part becomes `{"type": "image"}`."""
@@ -1043,23 +815,6 @@ def image_parts(messages, accept: bool = True):
                 parts.append({"type": "text", "text": part.get("text", "")})
         shaped.append({**message, "content": parts})
     return images, shaped
-
-
-def escaped_lfm_history_template(template: str) -> str:
-    """Repair string serialization in the verified Liquid tool-history template.
-
-    The vendor macro wraps raw strings in single quotes. JSON quoting keeps
-    apostrophes, backslashes and control characters lossless; escaping angle
-    brackets keeps literal protocol markers from becoming special tokens.
-    Unknown templates, including future vendor fixes, remain untouched.
-    """
-    if hashlib.sha256(template.encode()).hexdigest() != (
-        "f434e8c96e6c0a63a022a3ad0a299bb94e58aa90e3c9ebe65034f8e8c6188aa9"
-    ):
-        return template
-    old = "{{- \"'\" + arg_value + \"'\" -}}"
-    new = r"{{- arg_value | tojson | replace('<', '\\u003c') | replace('>', '\\u003e') -}}"
-    return template.replace(old, new, 1)
 
 
 # Gemma 4's template (Google's, as packed by mlx-community, 2026-10) and the
@@ -1205,23 +960,18 @@ class Engine:
         self.observe("load")
         path = pathlib.Path(request["path"]).expanduser()
         config = json.loads((path / "config.json").read_text())
+        model_type = str(config.get("model_type", ""))
+        if not model_type.startswith("gemma4") or "vision_config" not in config:
+            raise RuntimeError(f"PWR runs Gemma 4 only; {path.name} is {model_type or 'of no known type'}")
+        if not vlm_available():
+            raise RuntimeError("mlx-vlm and Pillow are needed to load Gemma 4")
         self.model = self.tokenizer = self.processor = None
         self.chunk_limit = PREFILL_FIRST_STEP
         mx.clear_cache()
-        if "vision_config" in config and vlm_available():
-            from mlx_vlm import load as load_vision
-            vlm, self.processor = load_vision(str(path))
-            self.model = VisionText(vlm)
-            self.tokenizer = load_tokenizer(path, NO_REMOTE_CODE)
-        else:
-            # A context extension the family publishes and the config leaves
-            # off (YaRN), when PWR's window goes past the trained length: given
-            # to the model as it is built, the files untouched.
-            rope = request.get("rope_scaling")
-            self.model, self.tokenizer = load(
-                str(path), tokenizer_config=NO_REMOTE_CODE,
-                model_config={"rope_scaling": rope} if rope else None)
-        self.rope_scaling = request.get("rope_scaling") if self.processor is None else None
+        from mlx_vlm import load as load_vision
+        vlm, self.processor = load_vision(str(path))
+        self.model = VisionText(vlm)
+        self.tokenizer = load_tokenizer(path, NO_REMOTE_CODE)
         add_turn_ends(self.tokenizer)
         self.path = path
         self.cache = None
@@ -1232,65 +982,37 @@ class Engine:
         head_dim = int(text.get("head_dim") or text["hidden_size"] // self.heads)
         self.score_budget = score_budget()
         self.fused = fused_attention(head_dim)
-        self.kv_bits = kv_bits(head_dim, config.get("model_type"))
         weights = sum(p.stat().st_size for p in path.glob("*.safetensors"))
         return {
             "event": "loaded",
-            "model_type": config.get("model_type"),
+            "model_type": model_type,
             "weights_bytes": weights,
-            "vision": self.processor is not None,
-            "rope_scaling": self.rope_scaling,
+            "vision": True,
+            "rope_scaling": None,
         }
 
-    def render(self, messages, tools, thinking, generation_prompt: bool,
-               budget=None, effort=None):
+    def render(self, messages, tools, thinking, generation_prompt: bool):
         """The prompt's tokens, and the processed images when it has any."""
-        # Past assistant turns rendered the same way whatever follows them.
-        # Qwen 3.6's template gives an assistant turn an empty think block
-        # only while no user message comes after it, so every user message
-        # (steering, a check-in, the checks' report) re-rendered the history
-        # before it and the prompt cache missed: 100-130 s of prefill on
-        # steps that added 2-3K tokens (D.E2E-21). `preserve_thinking` keeps
-        # the block on every turn; a template without the variable ignores it.
         template = str(getattr(self.tokenizer, "chat_template", "") or "")
-        messages = stable_history(messages, template)
         images, messages = image_parts(messages, accept=self.processor is not None)
-        if gemma_history_template(template) != template:
-            messages = gemma_tool_results(messages)
+        messages = gemma_tool_results(messages)
         kwargs = {
             "add_generation_prompt": generation_prompt,
             "tokenize": not images,
-            "preserve_thinking": True,
+            "chat_template": gemma_history_template(template),
         }
         if tools:
             kwargs["tools"] = tools
-        if thinking is not False and budget is not None and "thinking_budget" in template:
-            # The template's own budget (Seed-OSS), in steps; see NATIVE_BUDGET_STEP.
-            kwargs["thinking_budget"] = int(budget) // NATIVE_BUDGET_STEP * NATIVE_BUDGET_STEP
-        if thinking is not False and effort in ("low", "medium", "high"):
-            # A template that takes a level (harmony's reasoning_effort).
-            kwargs["reasoning_effort"] = effort
         if thinking is not None:
             kwargs["enable_thinking"] = bool(thinking)
-            if not thinking:
-                # Seed-OSS's template switches reasoning off with a zero
-                # thinking budget (and pre-fills a closed think block, as
-                # Qwen's does for enable_thinking). A template that does not
-                # use the variable ignores it.
-                kwargs["thinking_budget"] = 0
-                # gpt-oss cannot switch reasoning off; its least is "low".
-                kwargs["reasoning_effort"] = "low"
-        escaped_template = gemma_history_template(escaped_lfm_history_template(template))
-        if escaped_template != template:
-            kwargs["chat_template"] = escaped_template
         rendered = self.tokenizer.apply_chat_template(messages, **kwargs)
         if not images:
             return list(rendered), None
-        # The processor expands each image placeholder to the image's patch
+        # The processor expands each image placeholder to the image's soft
         # tokens; the same image expands the same way every turn, so the
         # prompt cache still matches the history.
         budget_kwargs = {}
-        if IMAGE_TOKENS and getattr(self.model, "gemma", False):
+        if IMAGE_TOKENS:
             budget_kwargs["max_soft_tokens"] = IMAGE_TOKENS
         processed = self.processor(text=[rendered], images=[image for _, image in images],
                                    return_tensors="np", **budget_kwargs)
@@ -1325,10 +1047,8 @@ class Engine:
             progress(start, len(tokens))
             step = min(self.prefill_step(offset + start),
                        getattr(self, "chunk_limit", PREFILL_FIRST_STEP))
-            if isinstance(self.model, VisionText):
-                step = self.model.whole_images(offset + start, offset + start + step) - offset - start
+            step = self.model.whole_images(offset + start, offset + start + step) - offset - start
             chunk = tokens[start:start + step]
-            self.make_room(offset + start + len(chunk) + getattr(self, "reply_room", 0))
             self.observe("prefill", offset=offset + start, chunk_tokens=len(chunk))
             began = time.perf_counter()
             self.model(mx.array(chunk)[None], cache=self.cache)
@@ -1348,68 +1068,13 @@ class Engine:
         mx.clear_cache()
 
     def fresh_cache(self):
-        if KV_START == "needed":
-            return make_prompt_cache(self.model)
-        return quantized(make_prompt_cache(self.model), getattr(self, "kv_bits", None))
-
-    def make_room(self, upcoming: int) -> None:
-        """Under `KV_START` "needed", the cache taken to `kv_bits` once
-        `upcoming` tokens would pass what the window's memory holds of it at
-        the activations' width."""
-        bits = getattr(self, "kv_bits", None)
-        if KV_START != "needed" or not bits or not self.cache:
-            return
-        if any(type(c).__name__ == "QuantizedKVCache" for c in self.cache):
-            return
-        plain, layers = cache_widths(self.cache)
-        head = next((c.keys.shape[3] for c in self.cache
-                     if type(c).__name__ == "KVCache" and getattr(c, "keys", None) is not None), 0)
-        if not layers or not head:
-            return
-        limit = quantize_from(getattr(self, "window", None), plain, layers, cache_per_mille(head, bits))
-        if not limit or upcoming <= limit:
-            return
-        self.observe("quantize", prompt_tokens=upcoming, limit=limit)
-        quantize_in_place(self.cache, bits)
-        if CHECKPOINT != "layers":
-            # A whole copy is of 16-bit layers the cache no longer has.
-            self.checkpoint = None
-            self.checkpoint_tokens = []
-
-    def settle(self, prompt_length: int) -> None:
-        """After a generation, a cache that can be cut back keeps only the
-        prompt: what was generated is sent back as history, rendered by the
-        template, and matched against it from there. One that cannot keeps
-        its copy (`checkpoint`), taken before generating."""
-        if self.checkpoint is not None or self.cache is None:
-            return
-        try:
-            extra = self.cache[0].offset - prompt_length
-            if extra > 0:
-                trim_prompt_cache(self.cache, extra)
-        except Exception:
-            # Unsure what the cache holds: start the next prompt from nothing
-            # rather than from a state that may not match it.
-            self.cache = None
-            self.checkpoint_tokens = []
+        return make_prompt_cache(self.model)
 
     def resume(self, base: list[int], progress, cancelled=lambda: False) -> int:
         """Brings the cache to the end of `base`, reusing what it can of the
         last prompt, and returns how many tokens were reused."""
         reused = 0
-        trimmable = (self.cache is not None and not isinstance(self.model, VisionText)
-                     and can_trim_prompt_cache(self.cache))
-        if trimmable and self.checkpoint is None:
-            # A cache that can be cut back is cut back to what the new prompt
-            # shares with the last one, wherever they part -- no copy held
-            # beside it. The copy doubled the memory a dense model's cache
-            # takes, and a prompt that differed anywhere was prefilled whole.
-            reused = common_prefix(self.checkpoint_tokens, base)
-            if reused:
-                trim_prompt_cache(self.cache, self.cache[0].offset - reused)
-            else:
-                self.cache = self.fresh_cache()
-        elif self.checkpoint is not None and base[:len(self.checkpoint_tokens)] == self.checkpoint_tokens:
+        if self.checkpoint is not None and base[:len(self.checkpoint_tokens)] == self.checkpoint_tokens:
             self.observe("restore", prompt_tokens=len(base))
             try:
                 restore(self.cache, self.checkpoint)
@@ -1430,20 +1095,15 @@ class Engine:
                        "now": decode(base[max(0, at - 40):at + 80])})
             self.cache = self.fresh_cache()
             self.checkpoint = None
-        # Qwen 3.5/3.6's linear-attention layers, and a model reading images,
-        # cannot be cut back: for them the prompt's state is copied, to be
-        # restored when the next prompt extends this one.
-        keeps_copy = isinstance(self.model, VisionText) or not stays_trimmable(self.cache)
-        cut = max(reused, self.checkpoint_point(base)) if keeps_copy else len(base)
-        if isinstance(self.model, VisionText):
-            cut = max(reused, self.model.whole_images(reused, cut))
+        # Gemma's sliding-window layers cannot be cut back once full: the
+        # prompt's state is copied, to be restored when the next prompt
+        # extends this one.
+        cut = max(reused, self.checkpoint_point(base))
+        cut = max(reused, self.model.whole_images(reused, cut))
         try:
             self.prefill(base[reused:cut], reused, progress, cancelled)
-            if keeps_copy:
-                self.observe("checkpoint", prompt_tokens=cut)
-                self.checkpoint = snapshot(self.cache)
-            else:
-                self.checkpoint = None
+            self.observe("checkpoint", prompt_tokens=cut)
+            self.checkpoint = snapshot(self.cache)
             if cut < len(base):
                 self.prefill(base[cut:], cut, progress, cancelled)
         except BaseException:
@@ -1452,7 +1112,7 @@ class Engine:
             self.checkpoint = None
             self.checkpoint_tokens = []
             raise
-        self.checkpoint_tokens = base[:cut] if keeps_copy else base
+        self.checkpoint_tokens = base[:cut]
         return reused
 
     def checkpoint_point(self, tokens: list[int]) -> int:
@@ -1460,22 +1120,13 @@ class Engine:
         end-of-turn marker that closes its last message.
 
         The copy is only of use to a next prompt that begins with it, and the
-        marker closing the last message is not always there in the next one.
-        Qwen's template writes consecutive tool results as one block, so a
-        tool result followed by another -- the notice PWR sends after a reply
-        it could not use -- rewrites `</tool_response><|im_end|>` as
-        `</tool_response>\n<tool_response>`. Taken after the marker, the copy
-        stopped being a prefix and the whole conversation was prefilled
-        again: measured 2026-09-26, eight times in one ninety-minute run, up
-        to 471 seconds each at 123k tokens. Taken before it, it costs the two
-        tokens of the marker and a newline on every prompt."""
+        marker closing the last message is not always there in the next one:
+        a model turn ended on tool results is closed only when a user message
+        follows it (`gemma_history_template`). Measured 2026-09-26 on another
+        template, a copy taken after such a marker stopped being a prefix and
+        the whole conversation was prefilled again, eight times in one
+        ninety-minute run. Taken before it, it costs the marker's tokens."""
         marks = set(getattr(self.tokenizer, "eos_token_ids", None) or [])
-        try:
-            mark = self.tokenizer.convert_tokens_to_ids("<|im_end|>")
-            if isinstance(mark, int) and mark != getattr(self.tokenizer, "unk_token_id", None):
-                marks.add(mark)
-        except Exception:
-            pass
         for index in range(len(tokens) - 1, max(-1, len(tokens) - 64), -1):
             if tokens[index] in marks:
                 return index
@@ -1504,7 +1155,6 @@ class Engine:
         tools = request.get("tools")
         thinking = request.get("thinking")
         budget = request.get("reasoning_budget")
-        effort = request.get("reasoning_effort")
         max_tokens = int(request.get("max_tokens") or 8192)
         template = str(getattr(self.tokenizer, "chat_template", "") or "")
         delimiters = think_delimiters(template)
@@ -1534,39 +1184,31 @@ class Engine:
 
         started = time.perf_counter()
         self.observe("render")
-        full, images = self.render(messages, tools, thinking, True, budget, effort)
+        full, images = self.render(messages, tools, thinking, True)
         context_tokens = request.get("context_tokens")
-        # What `make_room` measures against: the window, and what this reply may add.
-        self.window = int(context_tokens) if context_tokens else None
-        self.reply_room = max_tokens
         if context_tokens is not None:
             context_tokens = int(context_tokens)
             # Count the actual template, schema and image-expanded token vector
             # before touching the model or its KV cache.
-            while True:
-                if context_tokens <= 0 or len(full) >= context_tokens:
-                    return {"event": "error", "code": "context_limit",
-                            "message": "rendered prompt leaves no generation space",
-                            "prompt_tokens": len(full), "context_tokens": context_tokens}
-                max_tokens = min(max_tokens, context_tokens - len(full))
-                adjusted = None if budget is None else max(0, min(budget, max_tokens - FINAL_RESERVE))
-                if adjusted == budget:
-                    break
-                budget = adjusted
-                full, images = self.render(messages, tools, thinking, True, budget, effort)
-        base, _ = self.render(messages, tools, thinking, False, budget, effort)
+            if context_tokens <= 0 or len(full) >= context_tokens:
+                return {"event": "error", "code": "context_limit",
+                        "message": "rendered prompt leaves no generation space",
+                        "prompt_tokens": len(full), "context_tokens": context_tokens}
+            max_tokens = min(max_tokens, context_tokens - len(full))
+            if budget is not None:
+                budget = max(0, min(budget, max_tokens - FINAL_RESERVE))
+        base, _ = self.render(messages, tools, thinking, False)
         if full == base:
             # A model turn going on after a tool result (Gemma 4).
             full = full + empty_thought(self.tokenizer, template, thinking)
         if PROMPT_DUMP:
             dump_prompt(request, full, self.tokenizer)
-        if isinstance(self.model, VisionText):
-            self.observe("vision", prompt_tokens=len(full))
-            self.model.set_prompt(full, images, images and images["digest"])
+        self.observe("vision", prompt_tokens=len(full))
+        self.model.set_prompt(full, images, images and images["digest"])
         if len(full) == len(base) or full[:len(base)] != base:
-            # The template does not render the history the same way with and
-            # without a generation prompt, or adds no generation token after
-            # a tool result (Gemma 4). Generation still needs one prompt token.
+            # The template adds no generation token after a tool result: the
+            # model goes on with its own turn. Generation still needs one
+            # prompt token.
             base = full[:-1]
         try:
             reused = self.resume(base, lambda done, total: reply(
@@ -1591,14 +1233,9 @@ class Engine:
         written = []          # everything generated, both channels, for the loop check
         written_len = 0
         repetition = RepetitionSignals()
-        # The XML call format (`<function=NAME>`): its replies end at a call
-        # that closes and is followed by anything but another call.
-        xml_calls = "<function=" in template
-        answer = ""
-        closed = False
 
         def stream(prompt_tokens, limit):
-            nonlocal generated, finish, written_len, answer, closed
+            nonlocal generated, finish, written_len
             self.observe("generation", prompt_tokens=len(full), generated_tokens=generated)
             for response in stream_generate(
                 self.model, self.tokenizer, mx.array(prompt_tokens), max_tokens=limit,
@@ -1627,19 +1264,10 @@ class Engine:
                                 else "answer", text)
                 for channel, piece in pieces:
                     reply({"event": "delta", "channel": channel, "text": piece})
-                    if channel == "content" and xml_calls:
-                        answer += piece
-                        closed = closed or any(c in answer[-40:] for c in CALL_CLOSES)
-                if closed and strayed_after_call(answer):
-                    finish = "stop"
-                    return finish
-                # Gemma 4's template closes a tool call or a turn with these
-                # tokens. mlx-lm may keep generating after them (observed:
-                # repeated empty tool responses), so end at the first close.
-                if "<|tool_call>" in template and (
-                    "<tool_call|>" in "".join(written[-12:])
-                    or "<turn|>" in "".join(written[-12:])
-                ):
+                # Gemma's stops are among the tokenizer's (`add_turn_ends`);
+                # should one come through as text all the same, the reply
+                # ends there.
+                if any(marker in "".join(written[-12:]) for marker in TURN_ENDS):
                     finish = "stop"
                     return finish
                 if tracker.reopened:
@@ -1651,27 +1279,22 @@ class Engine:
                     return finish
             return finish
 
-        try:
-            self.make_room(next((c.offset for c in self.cache if isinstance(getattr(c, "offset", None), int)), 0)
-                           + len(full) - len(base) + max_tokens)
-            outcome = stream(full[len(base):], max_tokens)
-            while outcome == "budget" and finalizations < FINALIZATION_ATTEMPTS:
-                forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,
-                                                    add_special_tokens=False))
-                remaining = max_tokens - generated - forced_tokens - len(forced)
-                if remaining <= 0:
-                    break
-                forced_tokens += len(forced)
-                # Close the reasoning with the template's own delimiter and let
-                # the answer follow, inside what is left of the cap.
-                finalizations += 1
-                for channel, piece in tracker.force_close():
-                    reply({"event": "delta", "channel": channel, "text": piece})
-                reply({"event": "finalizing", "reasoning_tokens": tracker.reasoning_tokens})
-                finish = "length"
-                outcome = stream(forced, remaining)
-        finally:
-            self.settle(len(base))
+        outcome = stream(full[len(base):], max_tokens)
+        while outcome == "budget" and finalizations < FINALIZATION_ATTEMPTS:
+            forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,
+                                                add_special_tokens=False))
+            remaining = max_tokens - generated - forced_tokens - len(forced)
+            if remaining <= 0:
+                break
+            forced_tokens += len(forced)
+            # Close the reasoning with the template's own delimiter and let
+            # the answer follow, inside what is left of the cap.
+            finalizations += 1
+            for channel, piece in tracker.force_close():
+                reply({"event": "delta", "channel": channel, "text": piece})
+            reply({"event": "finalizing", "reasoning_tokens": tracker.reasoning_tokens})
+            finish = "length"
+            outcome = stream(forced, remaining)
         for channel, piece in tracker.flush():
             reply({"event": "delta", "channel": channel, "text": piece})
         if (finalizations or outcome == "budget") and finish not in ("cancelled", "repetition") and (
@@ -1749,14 +1372,13 @@ def main() -> None:
                 # computed before a model is loaded.
                 fused = fused_attention(int(request["head_dim"]))
                 held = score_budget() + (SCORES_FLOOR_BYTES if SCORES_MB else 0)
-                bits = kv_bits(int(request["head_dim"]), request.get("model_type"))
                 emit({"id": ident, "event": "attention", "fused": fused,
                       "scores_bytes": 0 if fused else held,
                       # How the copy of a cache that cannot be cut back is
-                      # kept, and what the cache weighs against its 16-bit
-                      # one, for the window's account of memory.
+                      # kept, for the window's account of memory. Gemma's
+                      # cache is held at the activations' width.
                       "checkpoint": CHECKPOINT,
-                      "cache_per_mille": cache_per_mille(int(request["head_dim"]), bits) if bits else None})
+                      "cache_per_mille": None})
             elif op == "load":
                 emit({"id": ident, **engine.load(request)})
             elif op == "chat":
