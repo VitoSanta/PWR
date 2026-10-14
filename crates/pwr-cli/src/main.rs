@@ -3563,6 +3563,14 @@ impl ConsoleTurns {
                     .into(),
             );
         }
+        // A headless client can open a workspace without visiting Settings.
+        // Persist the granted window before `run` reads the configuration
+        // again: `context_setting` alone otherwise leaves the default 8k in
+        // force, regardless of the pack's context or the requested ceiling.
+        compute_context(&self.runtime, &mut config)
+            .await
+            .map_err(|error| error.context)?;
+        save_chat_config(&root, &config).map_err(|error| error.context)?;
         Ok(root)
     }
 }
