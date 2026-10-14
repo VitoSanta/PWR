@@ -712,17 +712,18 @@ class CacheCheckpointMetadata(unittest.TestCase):
         first = mx.arange(6).reshape(1, 1, 3, 2)
         cache.update_and_fetch(first, first)
         saved = snapshot([cache])
-        expected_meta = cache.meta_state
+        expected_meta = (cache.offset, cache.keep, cache.max_size, cache._idx)
         # Cross the window while generating, then roll back to the prompt.
         cache.update_and_fetch(mx.ones((1, 1, 4, 2)), mx.ones((1, 1, 4, 2)))
         restore([cache], saved)
-        self.assertEqual(cache.meta_state, expected_meta)
+        self.assertEqual((cache.offset, cache.keep, cache.max_size, cache._idx), expected_meta)
         reference = RotatingKVCache(max_size=4, keep=0)
         reference.update_and_fetch(first, first)
         next_tokens = mx.full((1, 1, 2, 2), 7)
         actual = cache.update_and_fetch(next_tokens, next_tokens)
         expected = reference.update_and_fetch(next_tokens, next_tokens)
-        self.assertEqual(cache.meta_state, reference.meta_state)
+        self.assertEqual((cache.offset, cache.keep, cache.max_size, cache._idx),
+                         (reference.offset, reference.keep, reference.max_size, reference._idx))
         for a, b in zip(actual, expected):
             self.assertTrue(mx.array_equal(a, b).item())
 
@@ -737,11 +738,13 @@ class CacheCheckpointMetadata(unittest.TestCase):
         cache.update_and_fetch(mx.ones((1, 1, 2, 2)), mx.ones((1, 1, 2, 2)))
         restore([cache], saved)
         self.assertEqual(cache.offset, 3)
-        self.assertTrue(mx.array_equal(cache.state[0], first).item())
+        for tensor in cache.state[:2]:
+            self.assertTrue(mx.array_equal(tensor[..., :cache.offset, :], first).item())
         cache.update_and_fetch(mx.ones((1, 1, 1, 2)), mx.ones((1, 1, 1, 2)))
         restore([cache], saved)
         self.assertEqual(cache.offset, 3)
-        self.assertTrue(mx.array_equal(cache.state[0], first).item())
+        for tensor in cache.state[:2]:
+            self.assertTrue(mx.array_equal(tensor[..., :cache.offset, :], first).item())
 
 
 class OneThoughtPerReply(unittest.TestCase):

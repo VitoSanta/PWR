@@ -625,10 +625,11 @@ def snapshot(cache):
         return x + 0 if isinstance(x, mx.array) else x
 
     by_layer = CHECKPOINT == "layers"
-    # Tensor setters do not restore RotatingKVCache offset/ring position.
-    # Keep metadata alongside tensors so the checkpoint describes one state.
+    # mlx-lm 0.32 folds offsets and ring metadata into state. Older caches
+    # expose meta_state separately: preserve it where present, without dropping
+    # metadata from either representation.
     states = [Offset(c.offset) if by_layer and appends_only(c)
-              else (copy(c.state), copy(c.meta_state)) for c in cache]
+              else (copy(c.state), copy(getattr(c, "meta_state", None))) for c in cache]
     mx.eval(arrays_of(states))
     return states
 
@@ -649,7 +650,8 @@ def restore(cache, states) -> None:
         else:
             state, metadata = kept
             c.state = copy(state)
-            c.meta_state = copy(metadata)
+            if hasattr(c, "meta_state"):
+                c.meta_state = copy(metadata)
 
 
 class VisionText(nn.Module):

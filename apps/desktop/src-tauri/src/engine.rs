@@ -15,9 +15,9 @@ use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-/// The versions the engine was measured on; the same as `scripts/setup-mlx.sh`.
-const PYTHON_VERSION: &str = "3.11";
-const PACKAGES: &[&str] = &["mlx==0.32.3", "mlx-lm==0.31.3", "mlx-embeddings==0.1.0", "mlx-vlm==0.7.2"];
+/// Runtime pins verified for the Gemma line; keep setup-mlx.sh aligned.
+const PYTHON_VERSION: &str = "3.14.8";
+const PACKAGES: &[&str] = &["mlx==0.32.3", "mlx-lm==0.32.0", "mlx-embeddings==0.1.0", "mlx-vlm==0.7.8"];
 /// The encoder the semantic section ranking uses; the sidecar reads it offline.
 const ENCODER: &str = "intfloat/multilingual-e5-small";
 /// Written last, so a half-finished install is never taken for a ready one.
@@ -121,6 +121,7 @@ fn find(app: &AppHandle) -> Option<(&'static str, PathBuf)> {
 fn marker_current(marker: &[u8]) -> bool {
     serde_json::from_slice::<serde_json::Value>(marker)
         .ok()
+        .filter(|marker| marker.get("python").and_then(serde_json::Value::as_str) == Some(PYTHON_VERSION))
         .and_then(|marker| marker.get("packages").and_then(|packages| packages.as_array().cloned()))
         .is_some_and(|packages| packages.iter().map(|package| package.as_str()).eq(PACKAGES.iter().map(|package| Some(*package))))
 }
@@ -354,11 +355,13 @@ mod tests {
         let current = serde_json::json!({ "python": PYTHON_VERSION, "packages": PACKAGES });
         assert!(marker_current(&serde_json::to_vec(&current).unwrap()));
         let earlier = serde_json::json!({
-            "packages": ["mlx==0.32.3", "mlx-lm==0.31.3", "mlx-embeddings==0.1.0", "mlx-vlm==0.6.17"]
+            "packages": ["mlx==0.32.3", "mlx-lm==0.32.0", "mlx-embeddings==0.1.0", "mlx-vlm==0.6.17"]
         });
         assert!(!marker_current(&serde_json::to_vec(&earlier).unwrap()));
         assert!(!marker_current(br#"{"packages":["mlx==0.32.3"]}"#));
         assert!(!marker_current(br#"{"python":"3.11"}"#));
+        let older_python = serde_json::json!({"python":"3.11","packages":PACKAGES});
+        assert!(!marker_current(&serde_json::to_vec(&older_python).unwrap()));
         assert!(!marker_current(b""));
     }
 }

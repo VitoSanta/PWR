@@ -56,7 +56,7 @@ selected candidate; historical CI is not new artifact evidence.
 | The release workflow requires the reused CI jobs before packaging; candidate execution and artifact provenance still need verification | `needs: checks` | W9.1 / next-release checklist |
 | The engine installs its four direct pins (`mlx==0.32.3`, `mlx-lm==0.31.3`, `mlx-embeddings==0.1.0`, `mlx-vlm==0.7.2`) with no lock of their transitive dependencies and no hashes | `engine.rs`, `scripts/setup-mlx.sh` | W9.2 |
 | Managed-engine package pins are compared with the installation marker. Obsolete pins offer reinstallation; a candidate upgrade/cancel/retry walk is still needed. Explicit environment/checkout interpreters have separate discovery semantics | `marker_current` / `find` in `engine.rs` | W9.2 / native upgrade check |
-| Python is `3.11`, not a patch release | `engine.rs` | W9.2 |
+| Python pinned to `3.14.8` since 2026-10-14; transitive Python dependencies still are not locked | `engine.rs` | W9.2, partial |
 | CI's sidecar job installs only `mlx` and `mlx-lm` | `ci.yml` | W9.2 |
 | No licence or supply-chain inventory ships with the release | — | W9.3 |
 | Not notarized | — | W9.4 |

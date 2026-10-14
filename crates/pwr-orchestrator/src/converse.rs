@@ -655,6 +655,7 @@ impl<'a> Metered<'a> {
 
     /// Replaces the estimate with the engine's counts, where a finished reply
     /// carries them. An abandoned reply keeps its estimate: it was work too.
+    #[allow(deprecated, reason = "try_update is newer than the workspace MSRV; fetch_update retains the same atomic semantics")]
     pub fn settle(&self, metrics: Option<&pwr_domain::GenerationMetrics>) {
         use std::sync::atomic::Ordering;
         let Some(generated) = metrics.and_then(|metrics| metrics.generated_tokens) else {

@@ -133,7 +133,7 @@ login shell, so the checks a workspace declares (`npm`, `cargo`) are found.
 On an Apple-silicon Mac with no engine, PWR opens a setup screen instead of
 the app. **Install engine** creates a private environment in
 `~/Library/Application Support/ai.pwr.desktop/engine` with the `uv` bundled
-in the app: a standalone Python 3.11 (not the system's, no Xcode tools
+in the app: a standalone Python 3.14.8 (not the system's, no Xcode tools
 needed), the pinned `mlx`, `mlx-lm`, `mlx-embeddings` and `mlx-vlm` of
 `scripts/setup-mlx.sh`, and the search encoder in the Hugging Face cache --
 about 1.2 GB, with progress, cancel and retry. It is marked ready only once a

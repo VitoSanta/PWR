@@ -7,19 +7,18 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VENV="$ROOT/.venv-mlx"
-PYTHON=${PYTHON:-python3}
+SETUP_UV=${UV:-$(command -v uv || true)}
+[ -n "$SETUP_UV" ] || { printf "%s\n" "Install uv or set UV=/path/to/uv." >&2; exit 1; }
 
 if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
     printf '%s\n' "The MLX engine needs an Apple-silicon Mac." >&2
     exit 1
 fi
 
-"$PYTHON" -m venv "$VENV"
-"$VENV/bin/python" -m pip install --upgrade pip
+"$SETUP_UV" venv --python "${PWR_MLX_PYTHON:-3.14.8}" "$VENV"
 # mlx-vlm loads a model that has a vision encoder once, for text and images
-# alike (backlog C.25). 0.7.2 since 2026-10-05: the first that loads 1-bit
-# weights (Bonsai 27B); 0.6.17 before.
-"$VENV/bin/python" -m pip install "mlx==0.32.3" "mlx-lm==0.31.3" "mlx-embeddings==0.1.0" "mlx-vlm==0.7.2"
+# alike. Gemma runtime pins updated 2026-10-14; Python 3.14.8 in the app.
+"$SETUP_UV" pip install --python "$VENV/bin/python" "mlx==0.32.3" "mlx-lm==0.32.0" "mlx-embeddings==0.1.0" "mlx-vlm==0.7.8"
 
 # The encoder the semantic section ranking uses (backlog C.22), fetched once
 # here so that nothing downloads at run time: the embedding sidecar runs with
