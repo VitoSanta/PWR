@@ -106,6 +106,16 @@ unset, the model's 280: 273 tokens for a 1280x800 screenshot, 1,092 at 1120).
 Not yet measured with the model: criteria in the benchmark's
 `audits/linea-gemma4/studio/CRITERI-MODIFICA-3.md`.
 
+History, Gemma 4. Its template, given the OpenAI-shaped history PWR sends,
+put the text a reply wrote before its calls after their results and closed
+the turn there, and left a model turn ended on results open when a user
+message followed (a notice, the checks' report). The engine renders with the
+template corrected at those two places (`gemma_history_template`), and gives
+tool results as mappings -- `response:read_file{content:...,path:...}`, the
+file text unescaped -- where they were one JSON string
+(`gemma_tool_results`). `PWR_MLX_PROMPT_DUMP` writes every request and its
+exact prompt tokens to a folder, to replay a reply outside PWR.
+
 On macOS the sidecar sets `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` **before importing
 MLX**, preserving an explicitly supplied value (including `0`). This is the
 [driver workaround adopted by llama.cpp](https://github.com/ggml-org/llama.cpp/pull/22216)

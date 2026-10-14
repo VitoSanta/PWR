@@ -424,6 +424,71 @@
         "enabled": false
       },
       "provenance": "Added 2026-09-19 for the catalogue (roadmap step 7), chosen with the maintainer on paper before download: a 30B MoE with ~3B active and multi-head latent attention, 53 KiB of cached latent a token, 16.9 GB at 4-bit; window on a 64 GiB host its trained 202,752 -- below the 262,144 large-repository requirement, so it does not qualify for that tier. Its own call format (<arg_key>/<arg_value>) is read by the glm adapter; reasoning off through enable_thinking. Sampling is its generation_config.json (temperature only)."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "mlx-community/gemma-4-12B-it-4bit",
+      "context": {"minimum": 262144, "default": 262144, "maximum": 262144},
+      "context_source": "pwr_override",
+      "sampling": {
+        "temperature": {"value": 1.0, "source": "official_model_card"},
+        "top_p": {"value": 0.95, "source": "official_model_card"},
+        "top_k": {"value": 64, "source": "official_model_card"}
+      },
+      "reasoning": {"kind": "think", "enabled": false},
+      "provenance": "Added 2026-10-14 for the Gemma 4 line (16 GB: 12B; 24-32 GB: 26B-A4B; 64 GB+: 31B). Sampling is Google's for all use cases, the same as the pack's generation_config.json. Reasoning off, as every Gemma run so far measured it; the engine then writes the empty thought block Google advises after a tool result. Whether thinking on serves the agent better is open and measured separately. Context: the trained 262,144; the window a run gets is computed per host."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "mlx-community/gemma-4-26b-a4b-it-4bit",
+      "context": {"minimum": 262144, "default": 262144, "maximum": 262144},
+      "context_source": "pwr_override",
+      "sampling": {
+        "temperature": {"value": 1.0, "source": "official_model_card"},
+        "top_p": {"value": 0.95, "source": "official_model_card"},
+        "top_k": {"value": 64, "source": "official_model_card"}
+      },
+      "reasoning": {"kind": "think", "enabled": false},
+      "provenance": "Added 2026-10-14 for the Gemma 4 line (16 GB: 12B; 24-32 GB: 26B-A4B; 64 GB+: 31B). Sampling is Google's for all use cases, the same as the pack's generation_config.json. Reasoning off, as every Gemma run so far measured it; the engine then writes the empty thought block Google advises after a tool result. Whether thinking on serves the agent better is open and measured separately. Context: the trained 262,144; the window a run gets is computed per host."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
+      "context": {"minimum": 262144, "default": 262144, "maximum": 262144},
+      "context_source": "pwr_override",
+      "sampling": {
+        "temperature": {"value": 1.0, "source": "official_model_card"},
+        "top_p": {"value": 0.95, "source": "official_model_card"},
+        "top_k": {"value": 64, "source": "official_model_card"}
+      },
+      "reasoning": {"kind": "think", "enabled": false},
+      "provenance": "Added 2026-10-14 for the Gemma 4 line (16 GB: 12B; 24-32 GB: 26B-A4B; 64 GB+: 31B). Sampling is Google's for all use cases, the same as the pack's generation_config.json. Reasoning off, as every Gemma run so far measured it; the engine then writes the empty thought block Google advises after a tool result. Whether thinking on serves the agent better is open and measured separately. Context: the trained 262,144; the window a run gets is computed per host."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "mlx-community/gemma-4-26b-a4b-it-6bit",
+      "context": {"minimum": 262144, "default": 262144, "maximum": 262144},
+      "context_source": "pwr_override",
+      "sampling": {
+        "temperature": {"value": 1.0, "source": "official_model_card"},
+        "top_p": {"value": 0.95, "source": "official_model_card"},
+        "top_k": {"value": 64, "source": "official_model_card"}
+      },
+      "reasoning": {"kind": "think", "enabled": false},
+      "provenance": "Added 2026-10-14 for the Gemma 4 line (16 GB: 12B; 24-32 GB: 26B-A4B; 64 GB+: 31B). Sampling is Google's for all use cases, the same as the pack's generation_config.json. Reasoning off, as every Gemma run so far measured it; the engine then writes the empty thought block Google advises after a tool result. Whether thinking on serves the agent better is open and measured separately. Context: the trained 262,144; the window a run gets is computed per host."
+    },
+    {
+      "schema_version": 1,
+      "model_selector": "mlx-community/gemma-4-31b-it-8bit",
+      "context": {"minimum": 262144, "default": 262144, "maximum": 262144},
+      "context_source": "pwr_override",
+      "sampling": {
+        "temperature": {"value": 1.0, "source": "official_model_card"},
+        "top_p": {"value": 0.95, "source": "official_model_card"},
+        "top_k": {"value": 64, "source": "official_model_card"}
+      },
+      "reasoning": {"kind": "think", "enabled": false},
+      "provenance": "Added 2026-10-14 for the Gemma 4 line (16 GB: 12B; 24-32 GB: 26B-A4B; 64 GB+: 31B). Sampling is Google's for all use cases, the same as the pack's generation_config.json. Reasoning off, as every Gemma run so far measured it; the engine then writes the empty thought block Google advises after a tool result. Whether thinking on serves the agent better is open and measured separately. Context: the trained 262,144; the window a run gets is computed per host."
     }
   ]
 }

@@ -196,6 +196,11 @@ NO_REMOTE_CODE = {"trust_remote_code": False}
 # here as JSON lines: the one place the model's own text exists before PWR
 # reads calls out of it, which is what a misread call has to be checked against.
 TRACE = os.environ.get("PWR_MLX_TRACE")
+# When set, a folder: every chat request is written there whole -- messages,
+# tools, sampling -- with the exact tokens the model is given, one file a
+# request, so a reply can be replayed outside PWR. Holds the person's text,
+# like the trace.
+PROMPT_DUMP = os.environ.get("PWR_MLX_PROMPT_DUMP")
 
 
 def vlm_available() -> bool:
@@ -228,6 +233,15 @@ def trace(record: dict) -> None:
         record = {"at_ms": int(time.time() * 1000), **record}
         with open(TRACE, "a") as handle:
             handle.write(json.dumps(record) + "\n")
+
+
+def dump_prompt(request: dict, tokens: list[int], tokenizer) -> None:
+    folder = pathlib.Path(PROMPT_DUMP)
+    folder.mkdir(parents=True, exist_ok=True)
+    number = len(list(folder.glob("prompt-*.json")))
+    record = {"at_ms": int(time.time() * 1000), "request": request, "tokens": tokens,
+              "text": tokenizer.decode(tokens)}
+    (folder / f"prompt-{number:04d}.json").write_text(json.dumps(record, ensure_ascii=False))
 
 
 def looping(text: str) -> bool:
@@ -1048,6 +1062,111 @@ def escaped_lfm_history_template(template: str) -> str:
     return template.replace(old, new, 1)
 
 
+# Gemma 4's template (Google's, as packed by mlx-community, 2026-10) and the
+# history PWR sends in the OpenAI shape. Two things it renders otherwise than
+# the model wrote or reads them:
+GEMMA_CALLS = "{%- if message['tool_calls'] -%}"
+GEMMA_CONTENT = "{%- if message['content'] is string -%}"
+GEMMA_TURN_END = """        {%- elif not (ns_tr_out.flag and not has_content) -%}
+            {{- '<turn|>\\n' -}}
+        {%- endif -%}"""
+
+
+def gemma_history_template(template: str) -> str:
+    """Gemma 4's template, rendering a history the way the model writes one.
+
+    The text a reply has beside its calls is what the model wrote before
+    them; the template puts it after the calls' results, where Gemma writes
+    the answer that follows them, and then closes the turn the model is still
+    in. And a model turn that ends on tool results stays open when a user
+    message follows -- a notice, the checks' report, the person's steering --
+    so the user turn opened inside it. Here the text goes before the calls,
+    and a turn left open on results is closed when a user message comes next.
+    A template without these passages is left as it is."""
+    if not all(template.count(part) == 1 for part in (GEMMA_CALLS, GEMMA_CONTENT, GEMMA_TURN_END)):
+        return template
+    before = (
+        "{%- if role == 'model' and message.get('tool_calls') and message['content'] is string -%}"
+        "{{- strip_thinking(message['content']) -}}"
+        "{%- endif -%}\n            " + GEMMA_CALLS)
+    content = "{%- if message['content'] is string and not (role == 'model' and message.get('tool_calls')) -%}"
+    closing = """        {%- elif not (ns_tr_out.flag and not has_content) -%}
+            {{- '<turn|>\\n' -}}
+        {%- else -%}
+            {%- set ns_next = namespace(role=None) -%}
+            {%- for k in range(loop.index0 + 1, loop_messages | length) -%}
+                {%- if ns_next.role is none and loop_messages[k]['role'] != 'tool' -%}
+                    {%- set ns_next.role = loop_messages[k]['role'] -%}
+                {%- endif -%}
+            {%- endfor -%}
+            {%- if ns_next.role is not none and ns_next.role != 'assistant' -%}
+                {{- '<turn|>\\n' -}}
+            {%- endif -%}
+        {%- endif -%}"""
+    return (template.replace(GEMMA_CALLS, before).replace(GEMMA_CONTENT, content)
+            .replace(GEMMA_TURN_END, closing))
+
+
+def tool_result_mapping(text: str):
+    """A PWR tool result as the mapping it is: the JSON it begins with -- the
+    `result` object itself when that is all it holds -- with the file text
+    that follows it (`<content>` ... `</content>`) in place of its "<content>
+    below" note, and no empty fields. None when the text is not one."""
+    try:
+        head, end = json.JSONDecoder().raw_decode(text)
+    except ValueError:
+        return None
+    if not isinstance(head, dict):
+        return None
+    mapping = head["result"] if list(head) == ["result"] and isinstance(head["result"], dict) else head
+    mapping = {k: v for k, v in mapping.items() if v is not None}
+    rest = text[end:].strip()
+    if rest.startswith("<content>"):
+        body = rest[len("<content>"):]
+        if body.endswith("</content>"):
+            body = body[:-len("</content>")]
+        # One line break after the opening tag and one before the closing one
+        # are the wrapping; blank lines of the file itself stay.
+        body = body.removeprefix("\n").removesuffix("\n")
+        placeholder = next((k for k, v in mapping.items() if v == "<content> below"), None)
+        mapping[placeholder or "content"] = body
+    elif rest:
+        mapping["text"] = rest
+    return mapping
+
+
+def gemma_tool_results(messages):
+    """The history with each call's results given to Gemma 4 as mappings.
+
+    Gemma reads a result as `response:NAME{key:value,...}`. PWR's results are
+    JSON with the file text after it; written as one string, the model reads
+    them as `response:NAME{value:"{\\"result\\":...}"}`, quotes escaped. The
+    template takes a mapping only as `tool_responses` on the reply holding the
+    calls, so the results move there; a reply whose results are not all such
+    text (an image) keeps them as they are."""
+    out, index = [], 0
+    while index < len(messages):
+        message = messages[index]
+        index += 1
+        if message.get("role") != "assistant" or not message.get("tool_calls"):
+            out.append(message)
+            continue
+        follow = []
+        while index + len(follow) < len(messages) and messages[index + len(follow)].get("role") == "tool":
+            follow.append(messages[index + len(follow)])
+        mappings = [tool_result_mapping(f["content"]) if isinstance(f.get("content"), str) else None
+                    for f in follow]
+        if not follow or any(m is None for m in mappings):
+            out.append(message)
+            continue
+        names = {call.get("id"): call.get("function", {}).get("name") for call in message["tool_calls"]}
+        responses = [{"name": names.get(f.get("tool_call_id")) or f.get("name") or "unknown", "response": m}
+                     for f, m in zip(follow, mappings)]
+        out.append({**message, "tool_responses": responses})
+        index += len(follow)
+    return out
+
+
 class PrefillCancelled(Exception):
     """An interrupted prefill has no reusable cache state."""
 
@@ -1136,6 +1255,8 @@ class Engine:
         template = str(getattr(self.tokenizer, "chat_template", "") or "")
         messages = stable_history(messages, template)
         images, messages = image_parts(messages, accept=self.processor is not None)
+        if gemma_history_template(template) != template:
+            messages = gemma_tool_results(messages)
         kwargs = {
             "add_generation_prompt": generation_prompt,
             "tokenize": not images,
@@ -1159,7 +1280,7 @@ class Engine:
                 kwargs["thinking_budget"] = 0
                 # gpt-oss cannot switch reasoning off; its least is "low".
                 kwargs["reasoning_effort"] = "low"
-        escaped_template = escaped_lfm_history_template(template)
+        escaped_template = gemma_history_template(escaped_lfm_history_template(template))
         if escaped_template != template:
             kwargs["chat_template"] = escaped_template
         rendered = self.tokenizer.apply_chat_template(messages, **kwargs)
@@ -1437,6 +1558,8 @@ class Engine:
         if full == base:
             # A model turn going on after a tool result (Gemma 4).
             full = full + empty_thought(self.tokenizer, template, thinking)
+        if PROMPT_DUMP:
+            dump_prompt(request, full, self.tokenizer)
         if isinstance(self.model, VisionText):
             self.observe("vision", prompt_tokens=len(full))
             self.model.set_prompt(full, images, images and images["digest"])

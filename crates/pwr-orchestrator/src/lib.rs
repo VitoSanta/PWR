@@ -4684,7 +4684,7 @@ pub const AGENT_SYSTEM_PROMPT: &str = concat!(
     "the provided tools, except that you may ask for up to six independent reads in the ",
     "same turn -- read_file, search, list_tree, vcs_status, vcs_diff -- and they are all ",
     "performed and answered together. Anything that changes the workspace is one per turn. ",
-    "the provided tools. Edits are hash-guarded: read a file and pass the artifact_hash it ",
+    "Edits are hash-guarded: read a file and pass the artifact_hash it ",
     "returns as expected_hash, and re-read a file after editing it because its hash has ",
     "changed. Change part of a file with replace_text, quoting enough surrounding text to ",
     "match exactly once. Rewrite a whole file with apply_replace only when most of it ",

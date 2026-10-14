@@ -74,6 +74,7 @@ Slash commands inside `pwr chat` and the app: `/changes`, `/verify`,
 | `PWR_MLX_KV_BITS` | `8` or `4`: keep the full-attention layers' keys and values at that many bits (53% and 28% of the context cache's bytes); unset, as the model builds them |
 | `PWR_MLX_KV_START` | `needed`: with `PWR_MLX_KV_BITS`, keep the cache at 16 bits while the window's memory holds it and convert it, one layer at a time, when it would not; unset, quantized from the first token |
 | `PWR_MLX_IMAGE_TOKENS` | Gemma 4: tokens an image takes, `70`, `140`, `280`, `560` or `1120` (Google's budgets, the high ones for text and documents); unset, the model's own (280) |
+| `PWR_MLX_PROMPT_DUMP` | A folder: every chat request is written there whole with the exact prompt tokens, one file a request (holds model and repository text; never published) |
 | `PWR_MLX_TRACE` | Engine request tracing: every request's last messages and the model's raw output, appended as JSON lines (holds model text; never published) |
 | `PWR_EMBED_MODEL`, `PWR_EMBED_POOLING` | The embedding model and pooling for semantic retrieval |
 | `PWR_HARNESS_REV` | The harness revision a campaign records (declared by the runner) |

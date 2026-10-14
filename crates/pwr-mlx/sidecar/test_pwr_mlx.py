@@ -1386,6 +1386,117 @@ class GemmaImages(unittest.TestCase):
             self.assertEqual(seen, {"max_soft_tokens": 1120} if gemma else {})
 
 
+class GemmaHistory(unittest.TestCase):
+    """Gemma 4's template, given PWR's history, renders it as the model
+    writes it: text before the calls, and a turn ended on tool results closed
+    before a user message."""
+
+    PACK = pathlib.Path.home() / ".pwr/models/mlx-community/gemma-4-26b-a4b-it-4bit"
+
+    def render(self, messages, patched=True):
+        import pwr_mlx
+        from mlx_lm.utils import load_tokenizer
+        if not (self.PACK / "chat_template.jinja").exists():
+            self.skipTest("no Gemma 4 pack on this machine")
+        tokenizer = load_tokenizer(self.PACK)
+        if patched:
+            # The engine's own rendering, as a chat gets it.
+            engine = pwr_mlx.Engine()
+            engine.tokenizer = tokenizer
+            tokens, _ = engine.render(messages, None, False, True)
+            return tokenizer.decode(tokens)
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True,
+                                             enable_thinking=False)
+
+    CALL = {"role": "assistant", "content": "Reading the parser.",
+            "tool_calls": [{"id": "c1", "type": "function",
+                            "function": {"name": "read_file", "arguments": {"path": "src/a.py"}}}]}
+    RESULT = {"role": "tool", "tool_call_id": "c1", "content": "def a(): pass"}
+
+    def test_the_text_comes_before_the_call_and_the_turn_stays_open_on_results(self):
+        text = self.render([{"role": "user", "content": "Fix a."}, self.CALL, self.RESULT])
+        self.assertIn("<|turn>model\nReading the parser.<|tool_call>call:read_file{path:", text)
+        self.assertTrue(text.endswith("<tool_response|>"), text[-80:])
+
+    def test_a_user_message_after_results_closes_the_model_turn(self):
+        text = self.render([{"role": "user", "content": "Fix a."}, self.CALL, self.RESULT,
+                            {"role": "user", "content": "[PWR] checks: 2 failed"}])
+        self.assertIn("<tool_response|><turn|>\n<|turn>user\n[PWR] checks: 2 failed<turn|>\n", text)
+        self.assertTrue(text.endswith("<|turn>model\n<|channel>thought\n<channel|>"), text[-80:])
+
+    def test_unpatched_template_shows_what_was_wrong(self):
+        text = self.render([{"role": "user", "content": "Fix a."}, self.CALL, self.RESULT,
+                            {"role": "user", "content": "next"}], patched=False)
+        self.assertIn("<tool_response|>Reading the parser.<turn|>", text)
+
+    def test_results_reach_gemma_as_mappings_with_the_file_text_unescaped(self):
+        result = {"role": "tool", "tool_call_id": "c1", "content":
+                  '{"result":{"content":"<content> below","path":"src/a.py","first_line":1,"redacted":false,"note":null}}'
+                  '\n\n<content>\n\ndef a():\n    return "x"\n</content>'}
+        text = self.render([{"role": "user", "content": "Fix a."}, self.CALL, result,
+                            {"role": "user", "content": "next"}])
+        self.assertIn('<|tool_response>response:read_file{content:<|"|>\ndef a():\n    return "x"<|"|>,'
+                      'first_line:1,path:<|"|>src/a.py<|"|>,redacted:false}<tool_response|><turn|>\n', text)
+
+    def test_another_template_is_left_alone(self):
+        import pwr_mlx
+        self.assertEqual(pwr_mlx.gemma_history_template("{{ messages }}"), "{{ messages }}")
+
+
+class ToolResultMapping(unittest.TestCase):
+    def test_json_with_file_text(self):
+        import pwr_mlx
+        mapping = pwr_mlx.tool_result_mapping('{"result":{"content":"<content> below","n":2}}\n\n<content>\n\nx\n</content>')
+        self.assertEqual(mapping, {"content": "\nx", "n": 2})
+
+    def test_json_alone_and_errors_keep_their_shape(self):
+        import pwr_mlx
+        self.assertEqual(pwr_mlx.tool_result_mapping('{"result":{"ok":true}}'), {"ok": True})
+        self.assertEqual(pwr_mlx.tool_result_mapping('{"error":{"kind":"x"}}'), {"error": {"kind": "x"}})
+        self.assertEqual(pwr_mlx.tool_result_mapping('{"result":{"a":1}} trailing'), {"a": 1, "text": "trailing"})
+
+    def test_plain_text_is_not_a_mapping(self):
+        import pwr_mlx
+        self.assertIsNone(pwr_mlx.tool_result_mapping("command not found"))
+        self.assertIsNone(pwr_mlx.tool_result_mapping("[1, 2]"))
+
+    def test_results_move_to_the_reply_only_when_all_are_mappings(self):
+        import pwr_mlx
+        call = {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "a", "function": {"name": "read_file", "arguments": {}}},
+            {"id": "b", "function": {"name": "search", "arguments": {}}}]}
+        ok = [call, {"role": "tool", "tool_call_id": "a", "content": '{"result":{"x":1}}'},
+              {"role": "tool", "tool_call_id": "b", "content": '{"result":{"y":2}}'}, {"role": "user", "content": "go"}]
+        shaped = pwr_mlx.gemma_tool_results(ok)
+        self.assertEqual([m["role"] for m in shaped], ["assistant", "user"])
+        self.assertEqual(shaped[0]["tool_responses"], [{"name": "read_file", "response": {"x": 1}},
+                                                        {"name": "search", "response": {"y": 2}}])
+        mixed = [call, {"role": "tool", "tool_call_id": "a", "content": '{"result":{"x":1}}'},
+                 {"role": "tool", "tool_call_id": "b", "content": [{"type": "image"}]}]
+        self.assertEqual(pwr_mlx.gemma_tool_results(mixed), mixed)
+
+
+class PromptDump(unittest.TestCase):
+    def test_every_request_is_written_whole_with_its_tokens(self):
+        import pwr_mlx
+
+        class Tokenizer:
+            def decode(self, tokens):
+                return "|".join(map(str, tokens))
+
+        was = pwr_mlx.PROMPT_DUMP
+        self.addCleanup(lambda: setattr(pwr_mlx, "PROMPT_DUMP", was))
+        with tempfile.TemporaryDirectory() as folder:
+            pwr_mlx.PROMPT_DUMP = folder
+            pwr_mlx.dump_prompt({"messages": [{"role": "user", "content": "hi"}], "temperature": 1.0}, [1, 2], Tokenizer())
+            pwr_mlx.dump_prompt({"messages": []}, [3], Tokenizer())
+            first = json.loads((pathlib.Path(folder) / "prompt-0000.json").read_text())
+            self.assertEqual(first["tokens"], [1, 2])
+            self.assertEqual(first["text"], "1|2")
+            self.assertEqual(first["request"]["temperature"], 1.0)
+            self.assertTrue((pathlib.Path(folder) / "prompt-0001.json").exists())
+
+
 class TurnEndsStopGeneration(unittest.TestCase):
     """Qwen2.5-Coder names only `<|im_end|>` and writes `<|endoftext|>`."""
 
