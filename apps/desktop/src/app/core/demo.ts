@@ -55,7 +55,7 @@ function fit(level: string, label: string, weights: number, window: number | nul
   return {
     level, label, weightsBytes: weights, expectedBytes: weights + GIB, budgetBytes: 48 * GIB, windowTokens: window,
     gpuResident: null, explanation,
-    assumptions: ['the engine costs about 1.0 GB beyond the weights', 'the host keeps a quarter of its memory (at least 8 GiB) for the system and other apps'],
+    assumptions: ['the engine costs about 1.0 GB beyond the weights', 'the host keeps a quarter of its memory (at least 6 GiB) for the system and other apps'],
   };
 }
 

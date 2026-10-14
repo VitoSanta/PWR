@@ -146,6 +146,14 @@ SCORES_FLOOR_BYTES = 512 * 1024**2
 # per model, not assumed. Unset, the cache is as the model builds it.
 KV_BITS = os.environ.get("PWR_MLX_KV_BITS")
 KV_GROUP = 64
+# When the cache goes to `KV_BITS`. Unset, from the first token. "needed": it
+# stays at the activations' width while the memory the window gives the cache
+# -- what PWR counts for it at `KV_BITS` -- holds it, and is converted when a
+# read or a reply would pass that. Measured 2026-10-14 at long context, a cache
+# at 4 bits wrote 9-53% slower than at 16 (Ornith 1.5 35B-A3B at 240k: 11.9
+# tokens a second against 25.5); at 41k the 9B wrote as fast. Recorded runs
+# reached a median of 55k tokens.
+KV_START = os.environ.get("PWR_MLX_KV_START")
 # A generation that keeps writing the same passage is stopped rather than left
 # to run to its cap. Seen 2026-09-18: after a reasoning budget closed the think
 # block, Qwen3.6 continued reasoning in the answer and wrote one code block
@@ -646,6 +654,47 @@ def cache_per_mille(head_dim: int, bits: int) -> int:
     return -(-held * 1000 // plain)
 
 
+def cache_widths(cache):
+    """Bytes a token costs the layers that append, at the width they hold
+    now, and how many such layers there are."""
+    plain, layers = 0, 0
+    for c in cache:
+        keys, values = getattr(c, "keys", None), getattr(c, "values", None)
+        if type(c).__name__ == "KVCache" and keys is not None and values is not None:
+            plain += (keys.shape[1] * keys.shape[3] + values.shape[1] * values.shape[3]) * keys.dtype.size
+            layers += 1
+    return plain, layers
+
+
+def quantize_from(window: int, plain: int, layers: int, per_mille: int) -> int:
+    """The context length up to which a cache at the activations' width fits
+    the memory the window gives it at fewer bits. PWR counts a token at what
+    the cache keeps plus two layers' keys and values at the activations' width
+    for what a prefill step holds (`window::decide`); the same count here."""
+    if not window or not plain or not layers:
+        return 0
+    step = 2 * plain // layers
+    held = -(-plain * per_mille // 1000)
+    return window * (held + step) // (plain + step)
+
+
+def quantize_in_place(cache, bits) -> int:
+    """The appending layers of `cache` taken to `bits`, one at a time: each
+    converted and evaluated before the next, so the conversion holds one
+    layer twice, never the whole cache."""
+    converted, layer = 0, None
+    for index in range(len(cache)):
+        layer = cache[index]
+        if type(layer).__name__ == "KVCache" and callable(getattr(layer, "to_quantized", None)):
+            held = layer.to_quantized(group_size=KV_GROUP, bits=bits)
+            mx.eval(held.state)
+            cache[index] = held
+            converted += 1
+    del layer
+    mx.clear_cache()
+    return converted
+
+
 def quantized(cache, bits):
     """The cache with its appending KV layers held at `bits`."""
     if not bits:
@@ -1006,6 +1055,7 @@ class Engine:
             step = min(self.prefill_step(offset + start),
                        getattr(self, "chunk_limit", PREFILL_FIRST_STEP))
             chunk = tokens[start:start + step]
+            self.make_room(offset + start + len(chunk) + getattr(self, "reply_room", 0))
             self.observe("prefill", offset=offset + start, chunk_tokens=len(chunk))
             began = time.perf_counter()
             self.model(mx.array(chunk)[None], cache=self.cache)
@@ -1025,7 +1075,33 @@ class Engine:
         mx.clear_cache()
 
     def fresh_cache(self):
+        if KV_START == "needed":
+            return make_prompt_cache(self.model)
         return quantized(make_prompt_cache(self.model), getattr(self, "kv_bits", None))
+
+    def make_room(self, upcoming: int) -> None:
+        """Under `KV_START` "needed", the cache taken to `kv_bits` once
+        `upcoming` tokens would pass what the window's memory holds of it at
+        the activations' width."""
+        bits = getattr(self, "kv_bits", None)
+        if KV_START != "needed" or not bits or not self.cache:
+            return
+        if any(type(c).__name__ == "QuantizedKVCache" for c in self.cache):
+            return
+        plain, layers = cache_widths(self.cache)
+        head = next((c.keys.shape[3] for c in self.cache
+                     if type(c).__name__ == "KVCache" and getattr(c, "keys", None) is not None), 0)
+        if not layers or not head:
+            return
+        limit = quantize_from(getattr(self, "window", None), plain, layers, cache_per_mille(head, bits))
+        if not limit or upcoming <= limit:
+            return
+        self.observe("quantize", prompt_tokens=upcoming, limit=limit)
+        quantize_in_place(self.cache, bits)
+        if CHECKPOINT != "layers":
+            # A whole copy is of 16-bit layers the cache no longer has.
+            self.checkpoint = None
+            self.checkpoint_tokens = []
 
     def settle(self, prompt_length: int) -> None:
         """After a generation, a cache that can be cut back keeps only the
@@ -1185,6 +1261,9 @@ class Engine:
         self.observe("render")
         full, images = self.render(messages, tools, thinking, True, budget, effort)
         context_tokens = request.get("context_tokens")
+        # What `make_room` measures against: the window, and what this reply may add.
+        self.window = int(context_tokens) if context_tokens else None
+        self.reply_room = max_tokens
         if context_tokens is not None:
             context_tokens = int(context_tokens)
             # Count the actual template, schema and image-expanded token vector
@@ -1293,6 +1372,8 @@ class Engine:
             return finish
 
         try:
+            self.make_room(next((c.offset for c in self.cache if isinstance(getattr(c, "offset", None), int)), 0)
+                           + len(full) - len(base) + max_tokens)
             outcome = stream(full[len(base):], max_tokens)
             while outcome == "budget" and finalizations < FINALIZATION_ATTEMPTS:
                 forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,

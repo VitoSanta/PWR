@@ -73,6 +73,13 @@ document all found at 41k and at 126k tokens, at 16, 8 and 4 bits alike. One
 model, one kind of text: what a cache at fewer bits costs a model at work is
 measured per model on tasks.
 
+At long context the cache at fewer bits writes slower: measured 2026-10-14 at
+120k-240k tokens, 4 bits kept 47-91% of the 16-bit writing speed, and 8 bits
+were slower than 4 in all four models. `PWR_MLX_KV_START=needed` keeps the
+cache at 16 bits while the memory the window gives it (what PWR counts at the
+fewer bits) holds it, and converts the layers that grow, one at a time, when a
+read or a reply would pass that. Not yet measured through the sidecar.
+
 On macOS the sidecar sets `AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1` **before importing
 MLX**, preserving an explicitly supplied value (including `0`). This is the
 [driver workaround adopted by llama.cpp](https://github.com/ggml-org/llama.cpp/pull/22216)
@@ -192,7 +199,7 @@ Computed, not probed (`crates/pwr-runtime/src/window.rs`). `window::decide`
 keeps every ceiling and names the one that bound:
 
 - the model's trained length (and its RoPE extension, if the family has one);
-- memory: total memory **minus a reserve of a quarter of it, at least 8 GiB**
+- memory: total memory **minus a reserve of a quarter of it, at least 6 GiB** (8 GiB until 2026-10-14)
   (`default_reserve_bytes`), minus the weights and about 1 GiB of engine
   overhead, divided by what one token of cache costs according to the model's
   `config.json`, with a second copy of the cache for prefill;

@@ -14,7 +14,7 @@
 //!   memory-mapped formats to within a few percent);
 //! - the engine itself -- Python and MLX, or llama-server -- costs
 //!   [`RUNTIME_OVERHEAD_BYTES`];
-//! - the host keeps a quarter of its memory, never less than 8 GiB, for the
+//! - the host keeps a quarter of its memory, never less than 6 GiB, for the
 //!   system and everything else running ([`window::default_reserve_bytes`]);
 //! - prefill's transient is what each engine reports to the window
 //!   computation: a copy of the cache for PWR's MLX engine (fused
@@ -175,7 +175,7 @@ pub fn estimate(capacity: &Capacity, model: &Footprint) -> FitEstimate {
             "the engine costs about {} beyond the weights",
             gib(RUNTIME_OVERHEAD_BYTES)
         ),
-        "the host keeps a quarter of its memory (at least 8 GiB) for the system and other apps"
+        "the host keeps a quarter of its memory (at least 6 GiB) for the system and other apps"
             .to_owned(),
     ];
     let mut result = FitEstimate {

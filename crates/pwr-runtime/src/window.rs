@@ -44,12 +44,17 @@ pub const PREFILL_TRANSIENT_FACTOR: u64 = 4;
 
 /// What the host keeps for itself and for everything the user is also running.
 ///
-/// A quarter of memory, never less than 8 GiB. On a 64 GB machine that leaves
+/// A quarter of memory, never less than 6 GiB. On a 64 GB machine that leaves
 /// 48 GB to the model, which is the order of what Metal lets a process wire by
 /// default on Apple silicon. It is a reserve, not a measurement: the app will
 /// replace it with observed pressure once turns are recorded.
+///
+/// The floor was 8 GiB until 2026-10-14, when the owner chose 6: with 8 a 16 GB
+/// Mac held about 212k tokens of a 9B's context by the memory measured at 243k,
+/// with 6 the full 262k; a 24 GB Mac gains the same 2 GiB. The cost is less room
+/// for everything else on a small machine, to be measured on one.
 pub fn default_reserve_bytes(total_memory_bytes: u64) -> u64 {
-    (total_memory_bytes / 4).max(8 * GIB)
+    (total_memory_bytes / 4).max(6 * GIB)
 }
 
 /// Windows are rounded down to this, so a computed window reads as a choice
@@ -1021,7 +1026,7 @@ mod tests {
             extended_max: None,
         };
         let decision = decide(&whole, Some(&host), None, None).unwrap();
-        assert_eq!(decision.tokens, 91_136);
+        assert_eq!(decision.tokens, 107_520);
         let by_layer = ModelShape {
             checkpoint_by_layer: Some(true),
             step_bytes_per_token: None,
@@ -1029,7 +1034,7 @@ mod tests {
         };
         let decision = decide(&by_layer, Some(&host), None, None).unwrap();
         assert_eq!(decision.bound_by, Some(Ceiling::Memory));
-        assert_eq!(decision.tokens, 126_976);
+        assert_eq!(decision.tokens, 153_600);
         assert!(decision.rationale.contains("held once"), "{}", decision.rationale);
         // Fused attention reports no scores: the copy made while the cache
         // grows was measured there, and is still counted.
@@ -1038,7 +1043,7 @@ mod tests {
             ..by_layer
         };
         let decision = decide(&fused, Some(&host), None, None).unwrap();
-        assert_eq!(decision.tokens, 91_136);
+        assert_eq!(decision.tokens, 107_520);
     }
 
     /// Qwen3.5 9B on a 24 GiB host with its cache at 4 bits: what it keeps
@@ -1066,7 +1071,7 @@ mod tests {
         assert_eq!(held.kv_bytes_per_token, Some(9_241));
         assert_eq!(held.step_bytes_per_token, Some(8_192));
         let host = HostBudget::with_default_reserve(16 * GIB);
-        let room = 8 * GIB - 5_950_221_072 - (GIB + GIB / 2);
+        let room = 10 * GIB - 5_950_221_072 - (GIB + GIB / 2);
         let tokens = |shape: &ModelShape| decide(shape, Some(&host), None, None).unwrap().tokens;
         assert_eq!(u64::from(tokens(&plain)), room / 40_960 / 1024 * 1024);
         assert_eq!(u64::from(tokens(&held)), room / (9_241 + 8_192) / 1024 * 1024);
@@ -1087,8 +1092,10 @@ mod tests {
     }
 
     #[test]
-    fn the_reserve_is_a_quarter_but_never_below_8_gib() {
+    fn the_reserve_is_a_quarter_but_never_below_6_gib() {
         assert_eq!(default_reserve_bytes(64 * GIB), 16 * GIB);
-        assert_eq!(default_reserve_bytes(16 * GIB), 8 * GIB);
+        assert_eq!(default_reserve_bytes(32 * GIB), 8 * GIB);
+        assert_eq!(default_reserve_bytes(24 * GIB), 6 * GIB);
+        assert_eq!(default_reserve_bytes(16 * GIB), 6 * GIB);
     }
 }

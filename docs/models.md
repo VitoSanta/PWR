@@ -231,7 +231,7 @@ incompatible: PWR never runs code from a model repository.
 `pwr_models::fit::estimate` rates a variant for this machine with the window
 arithmetic ([inference.md](inference.md#the-working-window)): weights take
 their file size; the engine about 1 GiB; the host keeps a quarter of memory,
-at least 8 GiB; prefill holds a second copy of the cache (MLX) or four times
+at least 6 GiB; prefill holds a second copy of the cache (MLX) or four times
 it (llama.cpp).
 
 | Rating | Meaning |

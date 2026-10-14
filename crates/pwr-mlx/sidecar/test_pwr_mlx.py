@@ -596,6 +596,86 @@ class FewerBits(unittest.TestCase):
         self.assertTrue(self.module.appends_only(QuantizedKVCache()))
 
 
+class FewerBitsWhenNeeded(unittest.TestCase):
+    """Asked for, the cache stays at the activations' width until the window's
+    memory would not hold it, then goes to fewer bits one layer at a time."""
+
+    def setUp(self):
+        import mlx.core as mx
+        import pwr_mlx
+        self.mx, self.module = mx, pwr_mlx
+        saved = (pwr_mlx.KV_START, pwr_mlx.KV_BITS)
+        self.addCleanup(lambda: (setattr(pwr_mlx, "KV_START", saved[0]), setattr(pwr_mlx, "KV_BITS", saved[1])))
+        converted = self.converted = []
+
+        class Quantized:
+            def __init__(self, offset):
+                self.offset, self.state = offset, [mx.zeros((1,))]
+
+        Quantized.__name__ = "QuantizedKVCache"
+
+        class KVCache:
+            def __init__(self, offset):
+                self.offset = offset
+                self.keys = mx.zeros((1, 4, 8, 256), dtype=mx.bfloat16)
+                self.values = mx.zeros((1, 4, 8, 256), dtype=mx.bfloat16)
+
+            def to_quantized(self, group_size, bits):
+                converted.append((group_size, bits))
+                return Quantized(self.offset)
+
+        class Fixed:
+            pass
+
+        self.KVCache, self.Fixed = KVCache, Fixed
+
+    def test_the_threshold_is_where_the_full_width_cache_fills_the_window_memory(self):
+        q = self.module.quantize_from
+        # Qwen3.5 9B: 8 layers, 32,768 bytes a token; 4 bits weigh 282 per mille.
+        self.assertEqual(q(262_144, 32_768, 8, 282), 262_144 * (9_241 + 8_192) // (32_768 + 8_192))
+        self.assertEqual(q(None, 32_768, 8, 282), 0)
+        self.assertEqual(q(262_144, 0, 0, 282), 0)
+
+    def test_the_widths_are_read_from_the_layers_that_append(self):
+        cache = [self.Fixed(), self.KVCache(10), self.KVCache(10)]
+        self.assertEqual(self.module.cache_widths(cache), (2 * (4 * 256 * 2) * 2, 2))
+
+    def test_layers_are_converted_in_place_and_the_others_left(self):
+        fixed = self.Fixed()
+        cache = [fixed, self.KVCache(10), self.KVCache(10)]
+        self.assertEqual(self.module.quantize_in_place(cache, 4), 2)
+        self.assertIs(cache[0], fixed)
+        self.assertEqual([type(c).__name__ for c in cache[1:]], ["QuantizedKVCache"] * 2)
+        self.assertEqual(self.converted, [(64, 4), (64, 4)])
+
+    def test_the_engine_converts_once_past_the_threshold_and_only_when_asked(self):
+        module = self.module
+        engine = module.Engine()
+        engine.kv_bits, engine.window = 4, 262_144
+        engine.cache = [self.Fixed(), self.KVCache(100), self.KVCache(100)]
+        limit = module.quantize_from(262_144, *module.cache_widths(engine.cache), module.cache_per_mille(256, 4))
+        module.KV_START = None
+        engine.make_room(limit + 1)
+        self.assertEqual(self.converted, [])
+        module.KV_START = "needed"
+        engine.make_room(limit)
+        self.assertEqual(self.converted, [])
+        engine.make_room(limit + 1)
+        self.assertEqual(len(self.converted), 2)
+        engine.make_room(limit * 2)
+        self.assertEqual(len(self.converted), 2)
+
+    def test_asked_for_a_new_conversation_starts_at_full_width(self):
+        module = self.module
+        module.KV_START = "needed"
+        saved = module.make_prompt_cache
+        self.addCleanup(lambda: setattr(module, "make_prompt_cache", saved))
+        module.make_prompt_cache = lambda model: [self.KVCache(0)]
+        engine = module.Engine()
+        engine.kv_bits = 4
+        self.assertEqual(type(engine.fresh_cache()[0]).__name__, "KVCache")
+
+
 class StableHistory(unittest.TestCase):
     """D.E2E-21: a user message must not re-render the history before it."""
 
