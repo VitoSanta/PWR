@@ -106,3 +106,7 @@ partial: the scripted runner's own JSON is not migrated).
 Protocol tests in `serve.rs` drive the server with a fake runner and assert
 the messages: lifecycle, streaming, permissions, cancellation, goal endings,
 steering. Recorded transcripts are under `crates/pwr-cli/tests/fixtures/acp/`.
+
+`_pwr/test_recipe` is a PWR extension notification with `sessionId` and `report`,
+sent only when that optional aid is enabled. It is not a `session/update` variant:
+ACP's published notification schema admits no `test_recipe` update.

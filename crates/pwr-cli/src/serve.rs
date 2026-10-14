@@ -649,10 +649,13 @@ impl<R: TurnRunner + 'static> SessionHost for ServerHost<'_, R> {
         }
     }
     fn record_test_recipe(&self, report: &pwr_orchestrator::test_recipe::Report) {
-        self.server.update(
-            self.session_id,
-            json!({"sessionUpdate": "test_recipe", "report": report}),
-        );
+        if !report.aid_enabled {
+            return;
+        }
+        self.server.send(notification(
+            "_pwr/test_recipe",
+            json!({"sessionId": self.session_id, "report": report}),
+        ));
     }
 
     async fn run_turn(&self, input: TurnInput) -> Result<(TurnReport, Vec<ChatMessage>), String> {
@@ -4653,6 +4656,7 @@ mod tests {
                 | "_pwr/compacted"
                 | "_pwr/download_progress"
                 | "_pwr/turn_event"
+                | "_pwr/test_recipe"
                 | "_pwr/turn_started"
                 | "_pwr/model_progress"
                 | "_pwr/calibration_progress"
