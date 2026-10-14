@@ -792,7 +792,7 @@ pub struct GoalAids {
     /// Tell the goal, in its first request, which files its failing
     /// acceptance tests use ([`crate::proposals::pointers`]; plan W2.10).
     pub pointers: bool,
-    /// Offered a goal's turns the ten tools of [`converse::CORE_TOOLS`] instead
+    /// Offered a goal's turns the core tools of [`converse::CORE_TOOLS`] instead
     /// of the whole catalogue (plan W2.11). Since 2026-10-14 the core set is
     /// every turn's catalogue; the field is still accepted, and ignored, so a
     /// workspace that names it keeps working.

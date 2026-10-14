@@ -15,6 +15,7 @@ fn profile(capability: ReasoningCapability) -> ReasoningProfile {
         disabled_by_profile: false,
         budgets: None,
         finalization_verified: None,
+        off_at_low: false,
     }
 }
 
@@ -38,6 +39,7 @@ fn low_medium_high_are_genuinely_different_budgets() {
     for finalization in [None, Some(true)] {
         let explicit = ReasoningProfile {
             finalization_verified: finalization,
+            off_at_low: false,
             ..profile(ReasoningCapability::ExplicitThinkingStream)
         };
         let (low, medium, high) = (
@@ -70,6 +72,7 @@ fn a_provisional_model_gets_the_conservative_mapping_and_a_calibrated_one_the_wi
 
     let calibrated = ReasoningProfile {
         finalization_verified: Some(true),
+        off_at_low: false,
         evidence: ReasoningEvidence::Calibration,
         ..provisional
     };
@@ -192,6 +195,7 @@ fn a_profile_that_turns_thinking_off_is_respected_at_every_level() {
 fn a_model_whose_forced_close_failed_calibration_gets_no_budget() {
     let unsafe_close = ReasoningProfile {
         finalization_verified: Some(false),
+        off_at_low: false,
         ..profile(ReasoningCapability::ExplicitThinkingStream)
     };
     assert!(!unsafe_close.effort_applies());
@@ -243,6 +247,7 @@ proptest! {
         let envelope = GenerationEnvelope { context_limit, input_tokens, answer_allowance: allowance };
         let profile = ReasoningProfile {
             finalization_verified: calibrated.then_some(true),
+            off_at_low: false,
             ..profile(capability)
         };
         let plan = plan_reasoning(effort, &profile, envelope);

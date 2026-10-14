@@ -7,9 +7,6 @@ import {
   ContextWindow,
   EngineProgress,
   EngineStatus,
-  ModelCompatibility,
-  ReasoningEffort,
-  ReasoningInfo,
   Entry,
   FileDiff,
   PermissionRequest,
@@ -78,16 +75,10 @@ export class AgentStore {
     return model !== null && this.visionModels().includes(model);
   });
   readonly model = signal<string | null>(null);
-  readonly reasoningEffort = signal<ReasoningEffort>('medium');
-  /** How Reasoning Effort applies to the selected model, as the core decided. */
-  readonly reasoning = signal<ReasoningInfo | null>(null);
-  readonly compatibility = signal<ModelCompatibility | null>(null);
-  readonly calibrating = signal(false);
-  readonly calibrationProgress = signal<{ step: number; total: number; name: string } | null>(
-    null,
-  );
-  readonly calibrationError = signal('');
-  private calibrationId: string | null = null;
+  /** Gemma's thinking: off unless the person turns it on. */
+  readonly thinking = signal(false);
+  /** The most a thought may run before the engine closes it. */
+  readonly thoughtCap = signal(4096);
   readonly backendNote = signal('');
   readonly context = signal<ContextWindow | null>(null);
 
@@ -413,9 +404,8 @@ export class AgentStore {
     this.models.set(reply.installed ?? []);
     this.visionModels.set(reply.vision ?? []);
     this.model.set(reply.model ?? null);
-    this.reasoningEffort.set(reply.reasoningEffort ?? 'medium');
-    this.reasoning.set(reply.reasoning ?? null);
-    this.compatibility.set(reply.compatibility ?? null);
+    this.thinking.set(reply.thinking === true);
+    this.thoughtCap.set(reply.thoughtCapTokens ?? 4096);
     this.backendNote.set(reply.backendUnavailable ?? '');
     const decision = reply.contextDecision ?? {};
     this.context.set({
@@ -441,7 +431,7 @@ export class AgentStore {
   }
 
   selectModel(ref: string): Promise<void> {
-    if (this.turnActive() || this.calibrating()) return Promise.resolve();
+    if (this.turnActive()) return Promise.resolve();
     return this.refreshModels({ model: ref });
   }
 
@@ -454,48 +444,8 @@ export class AgentStore {
     }
   }
 
-  setReasoningEffort(effort: ReasoningEffort): Promise<void> {
-    return this.refreshModels({ reasoningEffort: effort });
-  }
-
-  /** "Use Conservative Defaults": remembered, so the choice is not offered again. */
-  useConservativeDefaults(): Promise<void> {
-    return this.refreshModels({ acknowledgeProvisional: true });
-  }
-
-  /** Quick Calibration of the selected model: bounded, cancellable, local. */
-  async quickCalibrate(): Promise<void> {
-    if (this.turnActive() || this.calibrating() || !this.model()) return;
-    const calibrationId = crypto.randomUUID();
-    this.calibrationId = calibrationId;
-    this.calibrationError.set('');
-    this.calibrationProgress.set(null);
-    this.calibrating.set(true);
-    const stop = this.on('_pwr/calibration_progress', (params) => {
-      if (params.calibrationId === calibrationId)
-        this.calibrationProgress.set({ step: params.step, total: params.total, name: params.name });
-    });
-    try {
-      const reply = await this.request('_pwr/quick_calibration', {
-        cwd: this.workspace(),
-        calibrationId,
-      });
-      if (reply.assessment) this.compatibility.set(reply.assessment);
-      if (reply.reasoning) this.reasoning.set(reply.reasoning);
-      await this.refreshModels();
-    } catch (error) {
-      this.calibrationError.set(String(error).replace(/^Error: /, ''));
-    } finally {
-      stop();
-      this.calibrating.set(false);
-      this.calibrationProgress.set(null);
-      this.calibrationId = null;
-    }
-  }
-
-  cancelQuickCalibration(): void {
-    if (this.calibrationId)
-      this.notify('_pwr/quick_calibration_cancel', { calibrationId: this.calibrationId });
+  setThinking(on: boolean): Promise<void> {
+    return this.refreshModels({ thinking: on });
   }
 
   stepContext(direction: 1 | -1): Promise<void> {

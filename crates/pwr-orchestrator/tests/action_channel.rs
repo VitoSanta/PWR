@@ -980,8 +980,9 @@ mod family_conventions {
     #[test]
     fn a_call_written_into_the_answer_reaches_the_loop_as_that_action() {
         let embedded = pwr_provider::ModelReply {
-            content: "Reading it now.<|tool_call>call:read_file{path:<|\"|>src/lib.rs<|\"|>}<tool_call|>"
-                .into(),
+            content:
+                "Reading it now.<|tool_call>call:read_file{path:<|\"|>src/lib.rs<|\"|>}<tool_call|>"
+                    .into(),
             ..Default::default()
         };
         let native = pwr_provider::ModelReply {
@@ -1029,8 +1030,14 @@ mod family_conventions {
     #[test]
     fn the_adapter_is_chosen_from_evidence_and_never_assumed() {
         assert_eq!(adapter_for(Some("gemma4"), "x").id(), "gemma4");
-        assert_eq!(adapter_for(None, "mlx-community/gemma-4-31b-it-8bit").id(), "gemma4");
-        assert_eq!(adapter_for(Some("qwen3_5"), "qwen/qwen3.5-9b").id(), "generic");
+        assert_eq!(
+            adapter_for(None, "mlx-community/gemma-4-31b-it-8bit").id(),
+            "gemma4"
+        );
+        assert_eq!(
+            adapter_for(Some("qwen3_5"), "qwen/qwen3.5-9b").id(),
+            "generic"
+        );
     }
 }
 

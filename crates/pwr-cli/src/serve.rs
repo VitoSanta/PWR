@@ -40,32 +40,13 @@ const LIST_PAGE: usize = 50;
 /// Progress emitted while a download is written to its `.part` files.
 pub type DownloadProgress = Box<dyn FnMut(&pwr_models::download::Progress)>;
 
-/// Quick Calibration's progress: step, steps, and what it is checking.
-pub type CalibrationProgress = Box<dyn FnMut(usize, usize, &str)>;
-
 /// What a client asks to download.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadRequest {
-    /// An artifact declared in the registry (`strategies/artifacts.json`).
+    /// A pack of the Gemma line, by its registry entry
+    /// (`strategies/artifacts.json`): pinned revision, every file's size and
+    /// SHA-256 known before a byte is fetched.
     Artifact(String),
-    /// A variant found by the Model Manager, pinned to a commit. The core
-    /// re-reads its files, sizes and checksums from the Hub at that commit;
-    /// the client names what, never what to trust.
-    Hub {
-        repository: String,
-        revision: String,
-        variant: String,
-        format: pwr_models::catalog::Format,
-    },
-}
-
-/// A Model Manager search.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CatalogRequest {
-    pub query: String,
-    pub format: Option<pwr_models::catalog::Format>,
-    pub cursor: Option<String>,
-    pub filters: pwr_models::Filters,
 }
 
 struct DownloadHandle {
@@ -158,16 +139,6 @@ pub trait TurnRunner {
     }
     /// The workspace's settings a client reads or changes, as JSON.
     async fn settings(&self, root: &Path, request: SettingsRequest) -> Result<Value, String>;
-    /// Quick Calibration of the workspace's model. `stop` cancels it,
-    /// including the generation in progress; nothing is recorded then.
-    async fn quick_calibrate(
-        &self,
-        _root: &Path,
-        _progress: CalibrationProgress,
-        _stop: Arc<AtomicBool>,
-    ) -> Result<Value, String> {
-        Err("quick calibration is not available for this runner".into())
-    }
     /// Download and verify an artifact for a workspace. The server owns
     /// cancellation (`stop`); a runner leaves an interrupted `.part` for
     /// resume.
@@ -187,23 +158,10 @@ pub trait TurnRunner {
     async fn hardware(&self) -> Result<Value, String> {
         Err("hardware detection is not available for this runner".into())
     }
-    /// Models this machine could download and run.
-    async fn catalog(&self, _root: &Path, _request: CatalogRequest) -> Result<Value, String> {
-        Err("the model catalog is not available for this runner".into())
-    }
-    /// The models on this machine, for every engine, with the one in use.
+    /// The Gemma line as this machine sees it: each pack, whether it is
+    /// here, and the context this machine holds for it.
     async fn local_models(&self, _root: &Path) -> Result<Value, String> {
         Err("listing local models is not available for this runner".into())
-    }
-    /// Effective backend sampler, plus a replaceable user profile for one
-    /// installed model. The core validates values before saving them.
-    async fn model_sampling(
-        &self,
-        _root: &Path,
-        _model_ref: &str,
-        _values: Option<BTreeMap<String, Value>>,
-    ) -> Result<Value, String> {
-        Err("model sampling profiles are not available for this runner".into())
     }
     /// Deletes one model from its engine's folder, refusing the one in use.
     async fn delete_model(
@@ -334,10 +292,8 @@ pub enum SettingsRequest {
     Models {
         selected: Option<String>,
         context_tokens: Option<u32>,
-        reasoning_effort: Option<pwr_domain::ReasoningEffort>,
-        /// The person chose "Use Conservative Defaults" for the selected,
-        /// untested model: remembered so the app stops offering the choice.
-        acknowledge_provisional: bool,
+        /// Turn Gemma's thinking on or off.
+        thinking: Option<bool>,
     },
     /// The window in force, the model, and the auto-compaction threshold
     /// (replaced first when given, in percent of the window).
@@ -614,7 +570,6 @@ struct Server<R> {
     pending: Pending,
     next_id: Arc<AtomicI64>,
     downloads: Rc<RefCell<HashMap<String, DownloadHandle>>>,
-    calibrations: Rc<RefCell<HashMap<String, Arc<AtomicBool>>>>,
     /// The engine's own count after each session's last reply: (used, window).
     usage: Rc<RefCell<HashMap<String, (u64, u64)>>>,
     /// Whether wiki summaries are being written in the background.
@@ -746,7 +701,6 @@ where
         pending: Arc::default(),
         next_id: Arc::new(AtomicI64::new(1)),
         downloads: Rc::default(),
-        calibrations: Rc::default(),
         usage: Rc::default(),
         summarising: Rc::default(),
         summary_cancel: RefCell::default(),
@@ -793,9 +747,6 @@ where
     // finishes what is queued once every sender is gone.
     server.closing.set(true);
     server.summary_cancel.borrow().cancel();
-    for stop in server.calibrations.borrow().values() {
-        stop.store(true, Ordering::Relaxed);
-    }
     for (id, session) in server.sessions.borrow().iter() {
         session.stop.store(true, Ordering::Relaxed);
         cancel_questions(&server.pending, id);
@@ -839,11 +790,6 @@ impl<R: TurnRunner + 'static> Server<R> {
             && let Some(handle) = self.downloads.borrow().get(download)
         {
             handle.stop.store(true, Ordering::Relaxed);
-        } else if method == "_pwr/quick_calibration_cancel"
-            && let Some(handle) = params.get("calibrationId").and_then(Value::as_str)
-            && let Some(stop) = self.calibrations.borrow().get(handle)
-        {
-            stop.store(true, Ordering::Relaxed);
         }
     }
 
@@ -918,23 +864,17 @@ impl<R: TurnRunner + 'static> Server<R> {
                     SettingsRequest::Models {
                         selected,
                         context_tokens,
-                        reasoning_effort: match params.get("reasoningEffort") {
+                        thinking: match params.get("thinking") {
                             None | Some(Value::Null) => None,
-                            Some(value) => {
-                                match value.as_str().and_then(pwr_domain::ReasoningEffort::parse) {
-                                    Some(effort) => Some(effort),
-                                    None => {
-                                        return self.send(error_response(
-                                            id.clone(),
-                                            -32602,
-                                            "reasoningEffort must be low, medium or high",
-                                        ));
-                                    }
-                                }
+                            Some(Value::Bool(on)) => Some(*on),
+                            Some(_) => {
+                                return self.send(error_response(
+                                    id.clone(),
+                                    -32602,
+                                    "thinking must be true or false",
+                                ));
                             }
                         },
-                        acknowledge_provisional: params.get("acknowledgeProvisional")
-                            == Some(&Value::Bool(true)),
                     },
                 );
             }
@@ -948,9 +888,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     });
                 });
             }
-            "_pwr/catalog" => self.catalog(id, &params),
             "_pwr/local_models" | "_pwr/model_delete" => self.local(id, method, &params),
-            "_pwr/model_sampling" => self.model_sampling(id, &params),
             "_pwr/profile" => self.send(profile_request(id, &params)),
             "_pwr/memory" => self.send(memory_request(id, &params)),
             "_pwr/projects" => self.send(projects_request(id, &params)),
@@ -971,7 +909,6 @@ impl<R: TurnRunner + 'static> Server<R> {
                 self.summarise_while_idle(root);
                 self.send(result(id, json!({"started": started})));
             }
-            "_pwr/quick_calibration" => self.quick_calibration(id, &params),
             "_pwr/context" => self.context(id, &params).await,
             "_pwr/wiki_settings" => {
                 let enabled = match params.get("enabled") {
@@ -1274,34 +1211,14 @@ impl<R: TurnRunner + 'static> Server<R> {
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned)
         };
-        let request = match (text("artifact"), text("repository")) {
-            (Some(artifact), None) => DownloadRequest::Artifact(artifact),
-            (None, Some(repository)) => {
-                let format = text("format").and_then(|f| pwr_models::catalog::Format::parse(&f));
-                match (text("revision"), text("variant"), format) {
-                    (Some(revision), Some(variant), Some(format)) => DownloadRequest::Hub {
-                        repository,
-                        revision,
-                        variant,
-                        format,
-                    },
-                    _ => {
-                        return self.send(error_response(
-                            id,
-                            -32602,
-                            "a Hub download needs repository, revision, variant and format",
-                        ));
-                    }
-                }
-            }
-            _ => {
-                return self.send(error_response(
-                    id,
-                    -32602,
-                    "_pwr/download needs artifact, or repository with revision, variant and format",
-                ));
-            }
+        let Some(artifact) = text("artifact") else {
+            return self.send(error_response(
+                id,
+                -32602,
+                "_pwr/download needs the artifact of a Gemma pack",
+            ));
         };
+        let request = DownloadRequest::Artifact(artifact);
         let download_id = match params.get("downloadId").and_then(Value::as_str) {
             Some(download_id) if !download_id.trim().is_empty() => download_id.to_owned(),
             _ => {
@@ -1338,22 +1255,7 @@ impl<R: TurnRunner + 'static> Server<R> {
             },
         };
         let stop = Arc::new(AtomicBool::new(false));
-        let model = match &request {
-            DownloadRequest::Hub {
-                repository,
-                variant,
-                format,
-                ..
-            } => Some((
-                *format,
-                if *format == pwr_models::catalog::Format::Mlx {
-                    repository.clone()
-                } else {
-                    format!("{repository}/{variant}")
-                },
-            )),
-            DownloadRequest::Artifact(_) => None,
-        };
+        let model: Option<(pwr_models::catalog::Format, String)> = None;
         self.downloads.borrow_mut().insert(
             download_id.clone(),
             DownloadHandle {
@@ -1430,56 +1332,6 @@ impl<R: TurnRunner + 'static> Server<R> {
         });
     }
 
-    /// `_pwr/quick_calibration`: runs Quick Calibration on the workspace's
-    /// model, reporting `_pwr/calibration_progress`; cancelled by
-    /// `_pwr/quick_calibration_cancel` with the same `calibrationId`.
-    fn quick_calibration(self: &Rc<Self>, id: Value, params: &Value) {
-        let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
-            return self.send(error_response(id, -32602, "quick calibration needs a cwd"));
-        };
-        let Some(calibration_id) = params
-            .get("calibrationId")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty() && value.len() <= 80)
-            .map(str::to_owned)
-        else {
-            return self.send(error_response(
-                id,
-                -32602,
-                "quick calibration needs a calibrationId",
-            ));
-        };
-        if !self.calibrations.borrow().is_empty() {
-            return self.send(error_response(
-                id,
-                -32602,
-                "a calibration is already running",
-            ));
-        }
-        let stop = Arc::new(AtomicBool::new(false));
-        self.calibrations
-            .borrow_mut()
-            .insert(calibration_id.clone(), stop.clone());
-        let server = Rc::clone(self);
-        let progress_server = Rc::clone(self);
-        let progress_id = calibration_id.clone();
-        tokio::task::spawn_local(async move {
-            let progress: CalibrationProgress = Box::new(move |step, total, name| {
-                progress_server.send(json!({
-                    "jsonrpc": "2.0",
-                    "method": "_pwr/calibration_progress",
-                    "params": {"calibrationId": progress_id, "step": step, "total": total, "name": name},
-                }));
-            });
-            let outcome = server.runner.quick_calibrate(&root, progress, stop).await;
-            server.calibrations.borrow_mut().remove(&calibration_id);
-            server.send(match outcome {
-                Ok(value) => result(id, value),
-                Err(why) => error_response(id, -32000, &why),
-            });
-        });
-    }
-
     /// `_pwr/local_models` and `_pwr/model_delete`: the models on this
     /// machine, and removing one of them.
     fn local(self: &Rc<Self>, id: Value, method: &str, params: &Value) {
@@ -1533,111 +1385,6 @@ impl<R: TurnRunner + 'static> Server<R> {
                 None => server.runner.local_models(&root).await,
             };
             server.send(match outcome {
-                Ok(value) => result(id, value),
-                Err(why) => error_response(id, -32000, &why),
-            });
-        });
-    }
-
-    fn model_sampling(self: &Rc<Self>, id: Value, params: &Value) {
-        let Some(root) = params.get("cwd").and_then(Value::as_str).map(PathBuf::from) else {
-            return self.send(error_response(id, -32602, "name the workspace with cwd"));
-        };
-        let Some(model_ref) = params
-            .get("modelRef")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        else {
-            return self.send(error_response(
-                id,
-                -32602,
-                "name an installed model with modelRef",
-            ));
-        };
-        let values = match params.get("values") {
-            None => None,
-            Some(Value::Object(values)) => Some(
-                values
-                    .iter()
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect(),
-            ),
-            Some(_) => {
-                return self.send(error_response(
-                    id,
-                    -32602,
-                    "values must be an object of sampling parameters",
-                ));
-            }
-        };
-        let model_ref = model_ref.to_owned();
-        let server = Rc::clone(self);
-        tokio::task::spawn_local(async move {
-            let outcome = server
-                .runner
-                .model_sampling(&root, &model_ref, values)
-                .await;
-            server.send(match outcome {
-                Ok(value) => result(id, value),
-                Err(why) => error_response(id, -32000, &why),
-            });
-        });
-    }
-
-    /// `_pwr/catalog`: a Model Manager search, filtered in the core.
-    fn catalog(self: &Rc<Self>, id: Value, params: &Value) {
-        let root = match params.get("cwd").and_then(Value::as_str) {
-            Some(cwd) => PathBuf::from(cwd),
-            None => match self
-                .sessions
-                .borrow()
-                .get(session_param(params))
-                .map(|session| session.root.clone())
-            {
-                Some(root) => root,
-                None => {
-                    return self.send(error_response(
-                        id,
-                        -32602,
-                        "name the workspace with cwd or a sessionId",
-                    ));
-                }
-            },
-        };
-        let format = match params.get("format").and_then(Value::as_str) {
-            None | Some("" | "any") => None,
-            Some(raw) => match pwr_models::catalog::Format::parse(raw) {
-                Some(format) => Some(format),
-                None => {
-                    return self.send(error_response(id, -32602, "format is mlx, gguf or any"));
-                }
-            },
-        };
-        let filters = match params.get("filters") {
-            None | Some(Value::Null) => pwr_models::Filters::default(),
-            Some(value) => match serde_json::from_value(value.clone()) {
-                Ok(filters) => filters,
-                Err(error) => {
-                    return self.send(error_response(id, -32602, &format!("filters: {error}")));
-                }
-            },
-        };
-        let request = CatalogRequest {
-            query: params
-                .get("query")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
-            format,
-            cursor: params
-                .get("cursor")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            filters,
-        };
-        let server = Rc::clone(self);
-        tokio::task::spawn_local(async move {
-            server.send(match server.runner.catalog(&root, request).await {
                 Ok(value) => result(id, value),
                 Err(why) => error_response(id, -32000, &why),
             });
@@ -4659,7 +4406,6 @@ mod tests {
                 | "_pwr/test_recipe"
                 | "_pwr/turn_started"
                 | "_pwr/model_progress"
-                | "_pwr/calibration_progress"
                 | "_pwr/memory_proposed"
                 | "_pwr/wiki_updated"
                 | "_pwr/wiki_summarising" => {
@@ -5188,64 +4934,6 @@ mod tests {
                     .unwrap()
                     .contains("not available")
             );
-        })
-        .await;
-    }
-
-    #[tokio::test]
-    async fn sampling_profile_request_requires_a_model_and_numeric_value_object() {
-        with_server(|mut client| async move {
-            for (id, params) in [
-                (1, json!({"cwd": "/workspace"})),
-                (
-                    2,
-                    json!({"cwd": "/workspace", "modelRef": "a/b", "values": []}),
-                ),
-                (
-                    3,
-                    json!({"modelRef": "a/b", "values": {"temperature": 0.7}}),
-                ),
-            ] {
-                client.request(id, "_pwr/model_sampling", params).await;
-                assert_eq!(
-                    client.until_response(id).await.pop().unwrap()["error"]["code"],
-                    -32602
-                );
-            }
-        })
-        .await;
-    }
-
-    #[tokio::test]
-    async fn a_hub_download_names_everything_the_core_must_re_read() {
-        with_server(|mut client| async move {
-            client
-                .request(
-                    1,
-                    "_pwr/download",
-                    json!({"cwd": "/workspace", "downloadId": "d1", "repository": "a/b", "variant": "mlx"}),
-                )
-                .await;
-            let refused = client.until_response(1).await.pop().unwrap();
-            assert_eq!(refused["error"]["code"], -32602);
-            client
-                .request(
-                    2,
-                    "_pwr/download",
-                    json!({"cwd": "/workspace", "downloadId": "d2", "repository": "a/b",
-                           "revision": "0123456789abcdef0123456789abcdef01234567",
-                           "variant": "mlx", "format": "mlx"}),
-                )
-                .await;
-            let messages = client.until_response(2).await;
-            // The scripted runner cannot download; the state still ends, and
-            // the failure carries its kind.
-            let last_state = messages
-                .iter()
-                .rfind(|message| message["method"] == "_pwr/download_progress")
-                .expect("no download state");
-            assert_eq!(last_state["params"]["state"]["state"], "failed");
-            assert_eq!(messages.last().unwrap()["error"]["data"]["kind"], "io");
         })
         .await;
     }

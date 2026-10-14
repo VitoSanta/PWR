@@ -4,7 +4,7 @@
 what bounds it, and where the bounds end. The operational summary for users is
 [SECURITY.md](../SECURITY.md); this page is the engineering account.
 
-The Gemma product catalogue starts with ten core actions. Workspace turns add
+The Gemma product catalogue starts with nine core actions. No edit asks the model for a file hash: `replace_text` is made against the file as it is (its `find` must occur exactly once), `write_file` replaces a whole file only after the conversation has read it, and `delete_path` removes only a file the conversation has seen. Workspace turns add
 three memory tools (`remember`, `recall_project`, `wiki_query`) and three web/service
 tools (`fetch_url`, `start_service`, `stop_service`). Both groups default on and can
 be disabled independently in `.pwr/chat-config.json`:

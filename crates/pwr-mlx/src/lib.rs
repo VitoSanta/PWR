@@ -1038,7 +1038,6 @@ fn template_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         .collect()
 }
 
-
 /// The chat template an MLX model ships, as text, never rendered here:
 /// `chat_template.jinja` (newer exports, and what the tokenizer prefers when
 /// present), `chat_template.json`, or `tokenizer_config.json`'s
@@ -2451,8 +2450,7 @@ for line in sys.stdin:
             "usage": {"prompt_tokens": 10, "completion_tokens": 20},
             "timings": {"prefill_secs": 0.1, "generation_secs": 0.2}
         });
-        let Step::Finish(Ok(chunk)) = step_of(&done, written, &pwr_compat::Gemma4Adapter)
-        else {
+        let Step::Finish(Ok(chunk)) = step_of(&done, written, &pwr_compat::Gemma4Adapter) else {
             panic!("a finished reply");
         };
         assert!(chunk.done);

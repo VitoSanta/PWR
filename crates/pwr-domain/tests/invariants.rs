@@ -977,9 +977,13 @@ fn packaged_artifact_registry_is_the_gemma_line_with_checked_files() {
         .eligible_for(ArtifactPlatform::MacosAppleSilicon, None)
         .unwrap();
     assert_eq!(mac_artifacts.len(), 5);
-    assert!(mac_artifacts.iter().all(|artifact| artifact.format == ArtifactFormat::Mlx
-        && artifact.family.starts_with("gemma4")
-        && matches!(artifact.source, ArtifactSource::HuggingFace { .. })));
+    assert!(
+        mac_artifacts
+            .iter()
+            .all(|artifact| artifact.format == ArtifactFormat::Mlx
+                && artifact.family.starts_with("gemma4")
+                && matches!(artifact.source, ArtifactSource::HuggingFace { .. }))
+    );
     assert!(mac_artifacts.iter().all(|artifact| {
         artifact
             .download_plan(std::path::Path::new("/models"))

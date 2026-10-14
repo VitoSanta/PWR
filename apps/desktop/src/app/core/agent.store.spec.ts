@@ -4,26 +4,22 @@ import { TestBed } from '@angular/core/testing';
 import { AgentStore } from './agent.store';
 
 describe('AgentStore context', () => {
-  it('keeps the selected model fixed during calibration and an active turn', async () => {
+  it('keeps the selected model fixed during an active turn', async () => {
     const request = vi.spyOn(store as any, 'request').mockResolvedValue({});
-    store.calibrating.set(true);
-    await store.selectModel('candidate-9b');
-    store.calibrating.set(false);
     store.turnActive.set(true);
-    await store.selectModel('candidate-9b');
+    await store.selectModel('mlx-community/gemma-4-26b-a4b-it-4bit');
     expect(request).not.toHaveBeenCalled();
     store.turnActive.set(false);
-    await store.selectModel('candidate-9b');
-    expect(request).toHaveBeenCalledWith('_pwr/models', expect.objectContaining({ model: 'candidate-9b' }));
+    await store.selectModel('mlx-community/gemma-4-26b-a4b-it-4bit');
+    expect(request).toHaveBeenCalledWith('_pwr/models', expect.objectContaining({ model: 'mlx-community/gemma-4-26b-a4b-it-4bit' }));
   });
 
-  it('does not start model calibration during an active turn', async () => {
-    store.model.set('candidate-9b');
-    store.turnActive.set(true);
-    const request = vi.spyOn(store as any, 'request').mockResolvedValue({});
-    await store.quickCalibrate();
-    expect(request).not.toHaveBeenCalled();
-    expect(store.calibrating()).toBe(false);
+  it('turns thinking on and off through the core and shows what it said', async () => {
+    const request = vi.spyOn(store as any, 'request').mockResolvedValue({ thinking: true, thoughtCapTokens: 4096 });
+    await store.setThinking(true);
+    expect(request).toHaveBeenCalledWith('_pwr/models', expect.objectContaining({ thinking: true }));
+    expect(store.thinking()).toBe(true);
+    expect(store.thoughtCap()).toBe(4096);
   });
 
   it('does not send the current terminal to a request from another session', () => {

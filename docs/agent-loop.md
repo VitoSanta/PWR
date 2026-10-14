@@ -237,8 +237,10 @@ verification, no second turn.
    with the files its failing tests use (`proposals::pointers`), said to be
    where to look and not what is wrong. Not measured.
    **Core tools (default since 2026-10-14; plan W2.11).** Every turn, goal
-   or conversation, is offered the ten tools of `converse::CORE_TOOLS`
-   (read, search, list, the three edits, delete, run, complete, decline),
+   or conversation, is offered the nine tools of `converse::CORE_TOOLS`
+   (read, search, list, two edits -- `replace_text` for part of a file,
+   `write_file` for a whole one, neither asking for a hash -- delete, run,
+   complete, decline),
    plus the supported memory and web/service groups (three tools each,
    disabled by `tool_groups.memory`/`web` in chat config), `look_at` for a
    model that reads images, `read_terminal` when the app shows the terminal

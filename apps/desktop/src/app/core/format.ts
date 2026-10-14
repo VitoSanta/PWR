@@ -32,26 +32,6 @@ export function parameters(value: number | null | undefined): string {
   return `${Math.round(value / 1e6)}M`;
 }
 
-export type FitLevel =
-  'recommended' | 'should_fit' | 'tight_fit' | 'not_recommended' | 'incompatible' | 'unknown';
-
-/** The colour a fit level is drawn in. */
-export function fitTone(level: FitLevel | string): 'ok' | 'fine' | 'warn' | 'bad' | 'muted' {
-  switch (level) {
-    case 'recommended':
-      return 'ok';
-    case 'should_fit':
-      return 'fine';
-    case 'tight_fit':
-      return 'warn';
-    case 'not_recommended':
-    case 'incompatible':
-      return 'bad';
-    default:
-      return 'muted';
-  }
-}
-
 /** How full a window is, for the indicator's colour. */
 export function fullness(percentUsed: number, thresholdPercent = 75): 'low' | 'mid' | 'high' {
   if (percentUsed >= thresholdPercent) return 'high';

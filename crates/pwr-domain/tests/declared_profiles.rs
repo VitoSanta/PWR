@@ -75,9 +75,24 @@ fn every_qualifying_deployment_is_allocated_the_full_ceiling() {
 fn every_gemma_pack_samples_as_google_advises() {
     for profile in declared() {
         let options = profile.sampling_options();
-        assert_eq!(options["temperature"], serde_json::json!(1.0), "{}", profile.model_selector);
-        assert_eq!(options["top_p"], serde_json::json!(0.95), "{}", profile.model_selector);
-        assert_eq!(options["top_k"], serde_json::json!(64), "{}", profile.model_selector);
+        assert_eq!(
+            options["temperature"],
+            serde_json::json!(1.0),
+            "{}",
+            profile.model_selector
+        );
+        assert_eq!(
+            options["top_p"],
+            serde_json::json!(0.95),
+            "{}",
+            profile.model_selector
+        );
+        assert_eq!(
+            options["top_k"],
+            serde_json::json!(64),
+            "{}",
+            profile.model_selector
+        );
         assert_eq!(
             profile.sampling["temperature"].source,
             ParameterSource::OfficialModelCard

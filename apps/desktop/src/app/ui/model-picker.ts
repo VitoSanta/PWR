@@ -1,15 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
-import {
-  capabilityResult,
-  confidenceLabel,
-  offersFirstChoice,
-  reasoningHelp,
-  statusTitle,
-  testedCapabilities,
-} from '../core/compatibility';
 import { tokens } from '../core/format';
-import { ModelCompatibility, ReasoningEffort, modelLabel } from '../core/model';
+import { modelLabel } from '../core/model';
 import { ModelsStore } from '../core/models.store';
 import { roveFocus } from '../core/ui';
 import { Icon } from './kit/icon';
@@ -72,7 +64,7 @@ import { Tooltip } from './kit/tooltip';
                   [attr.aria-checked]="ref === store.model()"
                   [attr.tabindex]="ref === store.model() || (!store.model() && $first) ? 0 : -1"
                   (click)="choose(ref)"
-                  [disabled]="store.turnActive() || store.calibrating()"
+                  [disabled]="store.turnActive()"
                   [attr.title]="ref"
                 >
                   <span class="radio" aria-hidden="true"></span>
@@ -89,85 +81,6 @@ import { Tooltip } from './kit/tooltip';
               }
             </div>
           </section>
-
-          @if (store.compatibility(); as compatibility) {
-            <section class="popover-section" aria-labelledby="compat-title">
-              <div class="compat-head">
-                <h3 class="section-label" id="compat-title">Compatibility</h3>
-                <span class="badge" [class]="'badge ' + statusTone(compatibility.status)">{{ title(compatibility) }}</span>
-              </div>
-              <p class="fine">Quick Calibration checks tool compatibility. Coding performance is measured separately on coding tasks.</p>
-              @switch (compatibility.status) {
-                @case ('provisional') {
-                  @if (firstChoice(compatibility)) {
-                    <p class="fine">This model has not yet been tested by PWR.</p>
-                  } @else if (compatibility.reasons?.length) {
-                    @for (reason of compatibility.reasons; track reason) {
-                      <p class="fine">{{ sentence(reason) }}</p>
-                    }
-                  } @else {
-                    <p class="fine">Untested: PWR uses conservative defaults. Nothing about this model has been measured yet.</p>
-                  }
-                }
-                @case ('limited') {
-                  <p class="fine">{{ compatibility.features?.note }}</p>
-                  <p class="fine">Available: chat without a workspace.</p>
-                  <p class="fine">Suggested: run Quick Calibration again, try another quantization, or use another model.</p>
-                }
-                @case ('incompatible') {
-                  @for (reason of compatibility.reasons ?? []; track reason) {
-                    <p class="fine">{{ reason }}</p>
-                  }
-                }
-                @default {
-                  <p class="fine">Profile confidence: {{ confidence(compatibility) }}</p>
-                  @for (reason of compatibility.reasons ?? []; track reason) {
-                    <p class="fine">{{ sentence(reason) }}</p>
-                  }
-                }
-              }
-              @if (tested(compatibility).length) {
-                <dl class="capabilities">
-                  @for (line of tested(compatibility); track line.label) {
-                    <dt>{{ line.label }}</dt>
-                    <dd [class.text-danger]="line.result === 'not_reliable'">{{ result(line.result) }}</dd>
-                  }
-                </dl>
-              }
-              @if (store.calibrating()) {
-                <div class="calibration" aria-live="polite">
-                  <span class="spinner spinner-sm" aria-hidden="true"></span>
-                  <span class="fine flex-1">
-                    @if (store.calibrationProgress(); as progress) {
-                      Checking {{ progress.name }} ({{ progress.step }} of {{ progress.total }})…
-                    } @else {
-                      Starting bounded local checks…
-                    }
-                  </span>
-                  <button class="btn btn-sm" (click)="store.cancelQuickCalibration()">Cancel</button>
-                </div>
-              } @else if (compatibility.status !== 'incompatible' && (compatibility.recalibrate || compatibility.status === 'limited' || firstChoice(compatibility))) {
-                <div class="button-row">
-                  @if (compatibility.recalibrate || compatibility.status === 'limited') {
-                    <button
-                      class="btn btn-sm"
-                      (click)="store.quickCalibrate()"
-                      [disabled]="store.turnActive()"
-                      paTooltip="About nine short requests, checked mechanically. Takes a minute or two on most models."
-                    >
-                      <pa-icon name="gauge" [size]="14" /> Run Quick Calibration
-                    </button>
-                  }
-                  @if (firstChoice(compatibility)) {
-                    <button class="btn btn-sm btn-ghost" (click)="store.useConservativeDefaults()">Use Conservative Defaults</button>
-                  }
-                </div>
-              }
-              @if (store.calibrationError()) {
-                <p class="banner banner-danger" role="alert"><pa-icon name="alert" [size]="16" />{{ store.calibrationError() }}</p>
-              }
-            </section>
-          }
 
           <section class="popover-section" aria-label="Generation settings">
             @if (store.context(); as context) {
@@ -193,25 +106,29 @@ import { Tooltip } from './kit/tooltip';
             <div class="field-row">
               <span
                 class="field-label"
-                id="effort-label"
-                paTooltip="How much of a reply the model may spend thinking before it must answer or act. Not the number of steps or tool calls."
-                >Reasoning effort</span
+                id="thinking-label"
+                paTooltip="Gemma thinks before it answers or acts. Slower, sometimes better on hard steps."
+                >Thinking</span
               >
-              <span class="effort-select">
-                <select
-                  aria-labelledby="effort-label"
-                  [value]="store.reasoningEffort()"
-                  (change)="setEffort($any($event.target).value)"
-                  [disabled]="store.turnActive() || !store.reasoning()?.applies"
-                >
-                  @for (option of effortOptions; track option.value) {
-                    <option [value]="option.value" [selected]="option.value === store.reasoningEffort()">{{ option.label }}</option>
-                  }
-                </select>
-                <pa-icon name="chevron-down" [size]="16" aria-hidden="true" />
-              </span>
+              <button
+                type="button"
+                class="switch-button"
+                role="switch"
+                aria-labelledby="thinking-label"
+                [attr.aria-checked]="store.thinking()"
+                [disabled]="store.turnActive()"
+                (click)="store.setThinking(!store.thinking())"
+              >
+                <span class="switch" aria-hidden="true"></span>
+              </button>
             </div>
-            <p class="fine">{{ reasoningHelp(store.reasoning()) }}</p>
+            <p class="fine">
+              @if (store.thinking()) {
+                On: each reply may think first, up to {{ t(store.thoughtCap()) }} tokens.
+              } @else {
+                Off: Gemma answers and acts directly.
+              }
+            </p>
           </section>
         </div>
         <footer class="popover-foot">
@@ -239,38 +156,8 @@ export class ModelPicker {
     return trimmed.charAt(0).toUpperCase() + trimmed.slice(1) + '.';
   }
 
-  protected readonly title = statusTitle;
-  protected readonly confidence = confidenceLabel;
-  protected readonly firstChoice = offersFirstChoice;
-  protected readonly tested = testedCapabilities;
-  protected readonly result = capabilityResult;
-  protected readonly reasoningHelp = reasoningHelp;
-
   protected choose(ref: string): void {
     if (ref !== this.store.model()) void this.store.selectModel(ref);
-  }
-
-  protected readonly effortOptions = (['low', 'medium', 'high'] as const).map((value) => ({
-    value,
-    label: value.charAt(0).toUpperCase() + value.slice(1),
-  }));
-
-  protected setEffort(effort: ReasoningEffort): void {
-    if (effort !== this.store.reasoningEffort()) void this.store.setReasoningEffort(effort);
-  }
-
-  protected statusTone(status: ModelCompatibility['status']): string {
-    switch (status) {
-      case 'verified':
-      case 'locally_calibrated':
-        return 'badge-success';
-      case 'limited':
-        return 'badge-warning';
-      case 'incompatible':
-        return 'badge-danger';
-      default:
-        return '';
-    }
   }
 
   protected listKeys(event: KeyboardEvent): void {

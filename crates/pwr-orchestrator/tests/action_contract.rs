@@ -525,9 +525,10 @@ async fn expiry_kills_command_before_its_later_effect_and_keeps_intent() {
 #[tokio::test]
 async fn malformed_closing_uses_the_same_two_attempt_limit_as_a_denied_edit() {
     let root = root();
+    // Malformed: `replace` is missing.
     let invalid = call(
         "replace_text",
-        json!({"path":"allowed.py","find":"old","replace":"bad"}),
+        json!({"path":"allowed.py","find":"old"}),
     );
     let raw = call(
         "__raw_fixture",

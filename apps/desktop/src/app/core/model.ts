@@ -53,51 +53,6 @@ export interface ContextWindow {
   setting: number | null;
 }
 
-export type ProfileStatus =
-  | 'verified'
-  | 'locally_calibrated'
-  | 'provisional'
-  | 'limited'
-  | 'incompatible';
-
-export interface CalibrationCheck {
-  name: string;
-  /** `null`: not run. */
-  passed: boolean | null;
-  critical: boolean;
-  detail: string;
-}
-
-export interface CapabilityLine {
-  label: string;
-  result: 'supported' | 'not_reliable' | 'detected' | 'not_detected' | 'provisional' | 'not_tested';
-}
-
-/** What the core knows about the selected model (`pwr_models::profile::Assessment`). */
-export interface ModelCompatibility {
-  status: ProfileStatus;
-  confidence?: 'established' | 'preliminary' | 'reduced' | 'untested';
-  summary?: string;
-  reasons?: string[];
-  features?: { chat: boolean; agent: boolean; note: string | null };
-  checks?: CalibrationCheck[];
-  capabilities?: CapabilityLine[];
-  recalibrate?: boolean;
-  /** The person chose conservative defaults for this untested model. */
-  acknowledged?: boolean;
-}
-
-export type ReasoningEffort = 'low' | 'medium' | 'high';
-
-/** How Reasoning Effort applies to the selected model; policy stays in the core. */
-export interface ReasoningInfo {
-  effort: ReasoningEffort;
-  applies: boolean;
-  control: 'budget' | 'level' | 'off_by_profile' | 'unsafe' | 'none' | 'observable_only' | 'unknown';
-  budgets: Record<ReasoningEffort, number> | null;
-  budgetSource: 'profile' | 'calibrated' | 'conservative' | null;
-}
-
 export interface SessionSummary {
   sessionId: string;
   title: string;
@@ -188,80 +143,6 @@ export interface BackendStatus {
   modelsRoot: string;
 }
 
-export interface FitEstimate {
-  level: 'recommended' | 'should_fit' | 'tight_fit' | 'not_recommended' | 'incompatible' | 'unknown';
-  label: string;
-  weightsBytes: number;
-  expectedBytes: number;
-  budgetBytes: number | null;
-  windowTokens: number | null;
-  gpuResident: boolean | null;
-  explanation: string;
-  assumptions: string[];
-}
-
-export interface CatalogVariant {
-  id: string;
-  format: 'mlx' | 'gguf';
-  quantization: string | null;
-  quantizationSource: string | null;
-  files: { path: string; bytes: number }[];
-  bytes: number;
-  modelRef: string;
-  fit: FitEstimate;
-  local: 'missing' | 'partial' | 'present';
-  localBytes: number;
-  installed: boolean;
-  blocked: string | null;
-}
-
-export interface CatalogEntry {
-  repository: string;
-  name: string;
-  author: string | null;
-  url: string;
-  revision: string | null;
-  format: 'mlx' | 'gguf';
-  backend: string;
-  baseModel: string | null;
-  architecture: string | null;
-  architectureSource: string | null;
-  parameters: number | null;
-  parametersSource: string | null;
-  contextLength: number | null;
-  contextSource: string | null;
-  license: string | null;
-  downloads: number | null;
-  likes: number | null;
-  gated: boolean;
-  pipelineTag: string | null;
-  vision: boolean;
-  variants: CatalogVariant[];
-  bestFit: CatalogVariant['fit']['level'];
-  notes: string[];
-}
-
-export interface CatalogFilters {
-  compatibleOnly: boolean;
-  family?: string;
-  minParameters?: number;
-  maxParameters?: number;
-  quantization?: string;
-  minContext?: number;
-  maxBytes?: number;
-  /** The Hub's own order, across every page; most downloaded when unset. */
-  sort?: 'likes' | 'lastModified';
-  /** By parameters, walked across the whole catalogue by the core. */
-  order?: 'smallestFirst' | 'largestFirst';
-}
-
-/**
- * How the Model Manager lists results, every one over the whole catalogue:
- * the Hub's own orders, and by parameters, which the core walks the Hub for.
- */
-export type ModelOrder = 'downloads' | 'likes' | 'lastModified' | 'smallestFirst' | 'largestFirst';
-
-/** A download as the core's state machine reports it. */
 export type DownloadState =
   | { state: 'preparing' }
   | { state: 'downloading'; bytes: number; total: number }
@@ -284,37 +165,26 @@ export interface DownloadView {
   nextStep?: string | null;
 }
 
-/** A model on this machine, as `_pwr/local_models` lists it. */
-export interface LocalModel {
-  modelRef: string;
-  format: 'mlx' | 'gguf';
-  backend: 'mlx' | 'llama';
-  path: string;
-  bytes: number;
-  files: number;
+/** One pack of the Gemma 4 line, as `_pwr/local_models` describes it on this Mac. */
+export interface LinePack {
+  model: string;
+  label: string;
+  tier: 'low' | 'middle' | 'high';
+  tierMemoryGib: number;
+  weightsBytes: number;
+  /** The registry entry it downloads from. */
+  artifact: string | null;
+  installed: boolean;
   partial: boolean;
+  bytesOnDisk: number;
   inUse: boolean;
-  usable: boolean;
+  /** The context this Mac holds for it, null when its memory is unknown. */
+  windowTokens: number | null;
+  fullContext: boolean;
+  neededBytes: number;
+  assistant: { model: string; installed: boolean };
 }
 
-export interface ModelSamplingField {
-  name: string;
-  /** Null when nothing sets it and the engine applies none (the penalties). */
-  value: number | null;
-  source: string | { kind: string; url?: string; revision?: string; declared_source?: string };
-  automatic: number | null;
-  automaticSource: string | { kind: string; url?: string; revision?: string; declared_source?: string };
-  override: number | null;
-}
-
-export interface ModelSamplingView {
-  modelRef: string;
-  backend: 'mlx';
-  fields: ModelSamplingField[];
-  overrides: Record<string, number>;
-}
-
-/** The MLX engine's Python environment, as the desktop shell found it. */
 export interface EngineStatus {
   /** This platform runs models on MLX, so it needs the environment. */
   needed: boolean;

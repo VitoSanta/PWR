@@ -1035,7 +1035,11 @@ mod tests {
         let decision = decide(&by_layer, Some(&host), None, None).unwrap();
         assert_eq!(decision.bound_by, Some(Ceiling::Memory));
         assert_eq!(decision.tokens, 153_600);
-        assert!(decision.rationale.contains("held once"), "{}", decision.rationale);
+        assert!(
+            decision.rationale.contains("held once"),
+            "{}",
+            decision.rationale
+        );
         // Fused attention reports no scores: the copy made while the cache
         // grows was measured there, and is still counted.
         let fused = ModelShape {
@@ -1074,7 +1078,10 @@ mod tests {
         let room = 10 * GIB - 5_950_221_072 - (GIB + GIB / 2);
         let tokens = |shape: &ModelShape| decide(shape, Some(&host), None, None).unwrap().tokens;
         assert_eq!(u64::from(tokens(&plain)), room / 40_960 / 1024 * 1024);
-        assert_eq!(u64::from(tokens(&held)), room / (9_241 + 8_192) / 1024 * 1024);
+        assert_eq!(
+            u64::from(tokens(&held)),
+            room / (9_241 + 8_192) / 1024 * 1024
+        );
     }
 
     #[test]

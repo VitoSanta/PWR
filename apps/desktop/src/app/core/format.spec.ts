@@ -1,4 +1,4 @@
-import { bytes, ceilingLabel, fitTone, fullness, osLabel, parameters, percent, shortDate, tokens } from './format';
+import { bytes, ceilingLabel, fullness, osLabel, parameters, percent, shortDate, tokens } from './format';
 
 describe('format', () => {
   it('writes sizes as the OS reports them', () => {
@@ -30,10 +30,6 @@ describe('format', () => {
   });
 
   it('colours fit levels and fullness against the compaction threshold', () => {
-    expect(fitTone('recommended')).toBe('ok');
-    expect(fitTone('tight_fit')).toBe('warn');
-    expect(fitTone('incompatible')).toBe('bad');
-    expect(fitTone('unknown')).toBe('muted');
     expect(fullness(80, 75)).toBe('high');
     expect(fullness(60, 75)).toBe('mid');
     expect(fullness(20, 75)).toBe('low');

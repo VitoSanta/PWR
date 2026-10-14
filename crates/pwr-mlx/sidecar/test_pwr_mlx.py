@@ -290,8 +290,11 @@ class LayerCheckpoint(unittest.TestCase):
         self.assertEqual(self.cache[1].offset, 100)
         self.assertEqual(self.cache[0].state[0].item(), 1.0)
 
-    def test_unasked_every_layer_is_copied(self):
-        self.assertEqual(self.module.CHECKPOINT, "whole")
+    def test_unasked_only_the_layers_that_cannot_be_cut_back_are_copied(self):
+        self.assertEqual(self.module.CHECKPOINT, "layers")
+
+    def test_asked_whole_every_layer_is_copied(self):
+        self.module.CHECKPOINT = "whole"
         kept = self.module.snapshot(self.cache)
         self.assertEqual([type(k).__name__ for k in kept], ["tuple", "tuple", "tuple"])
 
@@ -357,12 +360,14 @@ class ScoreBudget(unittest.TestCase):
         was = pwr_mlx.SCORES_MB
         self.addCleanup(lambda: setattr(pwr_mlx, "SCORES_MB", was))
         pwr_mlx.SCORES_MB = None
-        unasked = pwr_mlx.score_budget()
+        # Unasked, 1 GiB: room for the full context on every tier.
+        self.assertEqual(pwr_mlx.score_budget(), 1024**3)
         pwr_mlx.SCORES_MB = "512"
-        self.assertEqual(pwr_mlx.score_budget(), min(unasked, 512 * 1024**2))
-        # Never more than the engine allowed itself before.
+        self.assertEqual(pwr_mlx.score_budget(), 512 * 1024**2)
+        # Never more than a quarter of the largest Metal buffer.
         pwr_mlx.SCORES_MB = str(10**9)
-        self.assertEqual(pwr_mlx.score_budget(), unasked)
+        limit = pwr_mlx.mx.device_info().get("max_buffer_length") or 8 * 1024**3
+        self.assertEqual(pwr_mlx.score_budget(), int(limit) // 4)
 
     def test_a_small_budget_shortens_the_step_as_the_context_grows(self):
         import pwr_mlx

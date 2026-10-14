@@ -655,7 +655,10 @@ impl<'a> Metered<'a> {
 
     /// Replaces the estimate with the engine's counts, where a finished reply
     /// carries them. An abandoned reply keeps its estimate: it was work too.
-    #[allow(deprecated, reason = "try_update is newer than the workspace MSRV; fetch_update retains the same atomic semantics")]
+    #[allow(
+        deprecated,
+        reason = "try_update is newer than the workspace MSRV; fetch_update retains the same atomic semantics"
+    )]
     pub fn settle(&self, metrics: Option<&pwr_domain::GenerationMetrics>) {
         use std::sync::atomic::Ordering;
         let Some(generated) = metrics.and_then(|metrics| metrics.generated_tokens) else {
@@ -1074,12 +1077,11 @@ pub fn with_page_check(catalog: ToolCatalog) -> ToolCatalog {
 /// catalogue is about 25 definitions and 3,700 tokens in every prompt; whether
 /// fewer serve a weak model better has not been measured here. Offered tools
 /// only: a call to one left out is refused as any unknown call is.
-pub const CORE_TOOLS: [&str; 10] = [
+pub const CORE_TOOLS: [&str; 9] = [
     "read_file",
     "search",
     "list_tree",
     "replace_text",
-    "apply_replace",
     "write_file",
     "delete_path",
     "run_command",
@@ -4905,18 +4907,18 @@ mod tests {
     }
 
     #[test]
-    fn the_core_catalogue_is_ten_of_the_conversation_s_tools_and_can_finish_a_goal() {
+    fn the_core_catalogue_is_a_few_of_the_conversation_s_tools_and_can_finish_a_goal() {
         let whole = chat_tool_catalog();
         let core = core_tool_catalog(with_goal_verification(chat_tool_catalog()));
         let names: Vec<&str> = core.tools.iter().map(|tool| tool.name.as_str()).collect();
         // Every core tool exists in the catalogue a conversation is given:
-        // a name here that the catalogue dropped would silently offer nine.
+        // a name here that the catalogue dropped would silently offer fewer.
         assert_eq!(names.len(), CORE_TOOLS.len(), "{names:?}");
         assert!(whole.tools.len() > 2 * names.len());
         for needed in [
             "read_file",
             "write_file",
-            "apply_replace",
+            "replace_text",
             "run_command",
             "complete",
         ] {

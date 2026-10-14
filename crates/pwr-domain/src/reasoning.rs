@@ -211,6 +211,10 @@ pub struct ReasoningProfile {
     /// enforced; `None` means it was not tested.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finalization_verified: Option<bool>,
+    /// The lowest effort switches thinking off rather than giving it the
+    /// smallest budget: Gemma 4's Fast, Balanced and Deep ([`crate::gemma`]).
+    #[serde(default)]
+    pub off_at_low: bool,
 }
 
 impl Default for ReasoningProfile {
@@ -229,6 +233,7 @@ impl ReasoningProfile {
             disabled_by_profile: false,
             budgets: None,
             finalization_verified: None,
+            off_at_low: false,
         }
     }
 
@@ -358,6 +363,12 @@ pub fn plan_reasoning(
         return plan(
             ReasoningDirective::Off,
             "Thinking is turned off for this model by its profile.",
+        );
+    }
+    if profile.off_at_low && effort == ReasoningEffort::Low && profile.switchable {
+        return plan(
+            ReasoningDirective::Off,
+            "Thinking is off at this level; the model answers and acts directly.",
         );
     }
     match profile.capability {

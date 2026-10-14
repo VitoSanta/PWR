@@ -284,6 +284,10 @@ pub enum ActionProposal {
     },
     ReplaceText {
         path: String,
+        /// Not asked of the model: PWR gives the edit the file's current
+        /// hash before it runs (`with_current_hash` in the orchestrator); a
+        /// call that names one is still checked against it.
+        #[serde(default)]
         expected_hash: String,
         find: String,
         replace: String,

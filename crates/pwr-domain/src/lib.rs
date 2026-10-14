@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 pub mod outcome;
 pub use outcome::*;
+pub mod gemma;
 pub mod reasoning;
 pub use reasoning::{
     ANSWER_RESERVE_MIN, BudgetSource, GenerationEnvelope, MIN_USEFUL_REASONING, ReasoningBudgets,

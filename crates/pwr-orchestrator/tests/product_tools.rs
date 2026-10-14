@@ -167,7 +167,7 @@ async fn web_service_is_started_fetched_and_stopped_by_the_product_loop() {
 #[test]
 fn compact_catalogue_and_page_descriptions_follow_enabled_groups() {
     let on = converse::product_tool_catalog(ToolGroups::default(), false);
-    assert_eq!(on.tools.len(), 16);
+    assert_eq!(on.tools.len(), 15);
     assert!(on.get("remember").is_some() && on.get("fetch_url").is_some());
     let off = converse::product_tool_catalog(
         ToolGroups {
@@ -176,7 +176,7 @@ fn compact_catalogue_and_page_descriptions_follow_enabled_groups() {
         },
         false,
     );
-    assert_eq!(off.tools.len(), 10);
+    assert_eq!(off.tools.len(), 9);
     assert!(
         !converse::with_vision(off.clone())
             .get("look_at")

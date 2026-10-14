@@ -112,11 +112,16 @@ SCORE_BYTES = 2
 # it (65,536 bytes a token) are plain KV buffers. Copied whole, the context
 # was held twice: 125 recorded runs of Qwen3.5 9B stood at 1.9 copies between
 # generations. The next token's scores were the same either way, to the bit,
-# on Bonsai 27B 1-bit and Qwen3.5 9B. "whole" unless asked for.
-CHECKPOINT = os.environ.get("PWR_MLX_CHECKPOINT", "whole")
+# on Bonsai 27B 1-bit and Qwen3.5 9B. For Gemma the sliding layers are the
+# ones copied (1,024 tokens each) and the global layers are cut back:
+# "layers" by default since 2026-10-14, so the 262,144-token context is held
+# once; "whole" stays as the switch to compare against.
+CHECKPOINT = os.environ.get("PWR_MLX_CHECKPOINT", "layers")
 # The most a prefill step may hold in attention scores where attention is not
-# fused, in MB; unset, a quarter of the largest Metal buffer (10.4 GB on a
-# 64 GB machine). Measured 2026-10-13 on Qwen3.5 9B at 17k and 42k tokens and
+# fused, in MB; unset, 1 GiB (`pwr_domain::gemma::SCORES_BYTES`): Gemma's
+# global layers have 512-wide heads, which MLX does not fuse, and a quarter of
+# the largest Metal buffer (10.4 GB on a 64 GB machine) took the room the
+# 262,144-token context needs on every tier. Measured 2026-10-13 on Qwen3.5 9B at 17k and 42k tokens and
 # on Bonsai 27B at 17k: a step holds 2.7-2.9 bytes for every head, token of
 # the step and token of context, over a floor of 0.26-0.37 GB that the step
 # does not move; steps of 64 tokens and more read at the same speed, 16 and 32
@@ -124,8 +129,16 @@ CHECKPOINT = os.environ.get("PWR_MLX_CHECKPOINT", "whole")
 # measures: `BUDGET_SCORE_BYTES` a score, and `SCORES_FLOOR_BYTES` told to PWR
 # beside it.
 SCORES_MB = os.environ.get("PWR_MLX_SCORES_MB")
+DEFAULT_SCORES_BYTES = 1024**3
 BUDGET_SCORE_BYTES = 3
 SCORES_FLOOR_BYTES = 512 * 1024**2
+# Bits the global layers keep their keys and values at: 16 unless asked
+# for 8 (`PWR_MLX_KV_BITS=8`), the one lever left where a tier's memory does not
+# hold the full context at 16 (`pwr_domain::gemma::window`). Gemma's cache
+# broke at 4 bits (2026-10-14, 26B-A4B: one line in another language over and
+# over), so 4 is refused. The sliding layers stay at 16: they hold 1,024 tokens.
+KV_BITS = 8 if os.environ.get("PWR_MLX_KV_BITS") == "8" else None
+KV_GROUP = 64
 # Tokens an image takes in Gemma 4's prompt, one of the budgets Google gives
 # (70, 140, 280, 560, 1120; the high ones for text and documents). Unset, the
 # model's own (280: 273 image tokens for a 1280x800 screenshot, 1,092 at 1120).
@@ -589,22 +602,30 @@ def arrays_of(states) -> list:
 def score_budget() -> int:
     """What a prefill step may hold in attention scores, in bytes."""
     limit = mx.device_info().get("max_buffer_length") or 8 * 1024**3
-    budget = int(limit) // 4
-    if SCORES_MB:
-        budget = min(budget, int(float(SCORES_MB) * 1024**2))
-    return budget
+    asked = float(SCORES_MB) * 1024**2 if SCORES_MB else DEFAULT_SCORES_BYTES
+    return min(int(limit) // 4, int(asked))
 
 
 class Offset(int):
     """Where a layer that is cut back, not copied, stood when a copy was taken."""
 
 
+def quantized(cache, bits):
+    """The cache with its global layers -- the plain KV caches that grow with
+    the context -- held at `bits`; the sliding layers as they are."""
+    if not bits:
+        return cache
+    return [c.to_quantized(group_size=KV_GROUP, bits=bits)
+            if type(c).__name__ == "KVCache" and callable(getattr(c, "to_quantized", None)) else c
+            for c in cache]
+
+
 def appends_only(layer) -> bool:
     """Whether a layer's cache only ever writes past its offset, so cutting
     the offset back to where it stood gives back what was there: mlx-vlm's
-    `KVCache`, Gemma's global layers. Judged by kind, and narrowly: a
+    `KVCache`, Gemma's global layers, and its quantized kind. Judged by kind, and narrowly: a
     sliding-window cache rewrites its ring, and is copied."""
-    return (type(layer).__name__ == "KVCache"
+    return (type(layer).__name__ in ("KVCache", "QuantizedKVCache")
             and isinstance(getattr(layer, "offset", None), int)
             and callable(getattr(layer, "trim", None)))
 
@@ -1070,7 +1091,7 @@ class Engine:
         mx.clear_cache()
 
     def fresh_cache(self):
-        return make_prompt_cache(self.model)
+        return quantized(make_prompt_cache(self.model), KV_BITS)
 
     def resume(self, base: list[int], progress, cancelled=lambda: False) -> int:
         """Brings the cache to the end of `base`, reusing what it can of the
@@ -1380,7 +1401,7 @@ def main() -> None:
                       # kept, for the window's account of memory. Gemma's
                       # cache is held at the activations' width.
                       "checkpoint": CHECKPOINT,
-                      "cache_per_mille": None})
+                      "cache_per_mille": 531 if KV_BITS == 8 else None})
             elif op == "load":
                 emit({"id": ident, **engine.load(request)})
             elif op == "chat":

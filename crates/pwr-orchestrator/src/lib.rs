@@ -1186,11 +1186,35 @@ impl ReadHistory {
             .filter(|resolved| resolved.is_file())
             .and_then(|resolved| std::fs::read(resolved).ok())
             .map(pwr_domain::hash_bytes);
+        // A find-and-replace sent without a hash -- the model is not asked
+        // for one -- is made against the file as it is: the text it names
+        // must be there, exactly once, which is the guard that matters.
+        let unsent = sent.is_empty() && matches!(action, ActionProposal::ReplaceText { .. });
         let Some(current) = current.filter(|current| {
-            *current != sent && self.known.get(&known_key(&path)) == Some(current)
+            *current != sent && (unsent || self.known.get(&known_key(&path)) == Some(current))
         }) else {
             return (action, None);
         };
+        if unsent {
+            let ActionProposal::ReplaceText {
+                path,
+                find,
+                replace,
+                ..
+            } = action
+            else {
+                unreachable!("matched above")
+            };
+            return (
+                ActionProposal::ReplaceText {
+                    path,
+                    expected_hash: current,
+                    find,
+                    replace,
+                },
+                None,
+            );
+        }
         let refreshed = match action {
             ActionProposal::ReplaceText {
                 path,
@@ -4868,14 +4892,13 @@ pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
         ),
         function(
             "replace_text",
-            "Change part of a file: replace one exact, unique occurrence of find with replace. Preferred over apply_replace, which rewrites the whole file.",
+            "Change part of a file: replace one exact occurrence of find with replace. find must appear exactly once in the file, so quote enough of the surrounding lines to make it unique. To rewrite a whole file, use write_file.",
             serde_json::json!({
                 "path": {"type": "string"},
-                "expected_hash": {"type": "string"},
                 "find": {"type": "string"},
                 "replace": {"type": "string"},
             }),
-            &["path", "expected_hash", "find", "replace"],
+            &["path", "find", "replace"],
         ),
         function(
             "extract_document",
@@ -5005,10 +5028,9 @@ pub fn action_tool_catalog() -> pwr_domain::ToolCatalog {
         ),
         function(
             "delete_path",
-            "Remove a file, passing the expected_hash a read returned; or a directory with recursive set. A delete is the least reversible edit there is, so a file needs its current hash exactly as an edit does.",
+            "Remove a file you have read or written in this conversation, or a directory with recursive set. A file you have not seen is refused: read it first.",
             serde_json::json!({
                 "path": {"type": "string"},
-                "expected_hash": {"type": "string"},
                 "recursive": {"type": "boolean"},
             }),
             &["path"],

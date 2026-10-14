@@ -131,25 +131,9 @@ function demoAnswer(method: string, params: any): any {
         ],
         model: 'mlx-community/gemma-4-26b-a4b-it-4bit',
         contextTokens: 262144,
-        reasoningEffort: params.reasoningEffort ?? 'medium',
-        reasoning: {
-          effort: params.reasoningEffort ?? 'medium',
-          applies: true,
-          control: 'budget',
-          budgets: { low: 1024, medium: 4096, high: 8192 },
-          budgetSource: 'conservative',
-        },
-        compatibility: {
-          status: 'provisional',
-          confidence: 'untested',
-          summary: 'New model detected',
-          reasons: [],
-          features: { chat: true, agent: true, note: null },
-          checks: [],
-          capabilities: [],
-          recalibrate: true,
-          acknowledged: !!params.acknowledgeProvisional,
-        },
+        thinking: params.thinking ?? false,
+        thoughtCapTokens: 4096,
+        vision: ['mlx-community/gemma-4-26b-a4b-it-4bit', 'mlx-community/gemma-4-31b-it-8bit'],
       };
     default:
       return {};
