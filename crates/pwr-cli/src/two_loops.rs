@@ -2895,12 +2895,10 @@ fn reasoning_that_ends_without_an_answer_is_retried_once_with_thinking_off() {
 
 #[test]
 fn a_tool_call_inside_reasoning_is_not_run_and_gets_an_answer_phase_retry() {
-    let misplaced = || {
-        ModelChunk {
-        thinking: Some("<tool_call><function=read_file><parameter=path>code.rs</parameter></function></tool_call>".into()),
+    let misplaced = || ModelChunk {
+        thinking: Some("<|tool_call>call:read_file{path:<|\"|>code.rs<|\"|>}<tool_call|>".into()),
         done: true,
         ..Default::default()
-    }
     };
     let provider = Reasoned::new(vec![Ok(misplaced()), Ok(says("Ready."))]);
     let (report, store, conversation) = reasoned_turn(
@@ -2932,12 +2930,10 @@ fn a_tool_call_inside_reasoning_is_not_run_and_gets_an_answer_phase_retry() {
 
 #[test]
 fn repeated_tool_calls_inside_reasoning_stop_with_the_right_cause() {
-    let misplaced = || {
-        ModelChunk {
-        thinking: Some("<tool_call><function=read_file><parameter=path>code.rs</parameter></function></tool_call>".into()),
+    let misplaced = || ModelChunk {
+        thinking: Some("<|tool_call>call:read_file{path:<|\"|>code.rs<|\"|>}<tool_call|>".into()),
         done: true,
         ..Default::default()
-    }
     };
     let provider = Reasoned::new(vec![Ok(misplaced()), Ok(misplaced()), Ok(misplaced())]);
     let (report, _, _) = reasoned_turn(
@@ -3997,11 +3993,10 @@ fn replies_that_fall_apart_twice_cut_the_conversation_back_to_start_clean() {
     );
 }
 
-/// Measured 2026-09-30: Qwen3.5-9B on its card's sampling still looped in its
-/// reasoning; the vendor's remedy is a presence penalty, so the tries after a
-/// loop ask for one -- and a value somebody set is never lowered.
+/// Recovery on Gemma keeps the chosen sampling: repetition does not justify
+/// importing the automatic presence penalty introduced for Qwen.
 #[test]
-fn a_generation_that_looped_is_retried_with_a_presence_penalty() {
+fn a_generation_that_looped_preserves_the_requested_presence_penalty() {
     let run = |declared: Option<f64>, error: fn() -> ProviderError| {
         let dir = workspace();
         let provider = std::sync::Arc::new(LoopsOnce {
@@ -4031,20 +4026,19 @@ fn a_generation_that_looped_is_retried_with_a_presence_penalty() {
     let engine = || ProviderError::Truncated {
         safe_context: "the MLX engine stopped the reply (repetition) after 672 tokens".into(),
     };
-    let seen = run(None, engine);
-    assert_eq!(
-        seen[1].sampling["presence_penalty"], 1.0,
-        "the engine's repetition stop"
-    );
-    assert_eq!(seen[1].sampling["presence_context_size"], 1024);
-    let seen = run(None, reader);
-    assert_eq!(seen.len(), 2);
-    assert!(!seen[0].sampling.contains_key("presence_penalty"));
-    assert_eq!(seen[1].sampling["presence_penalty"], 1.0);
-    // Wide enough to see a loop: the engine's own window is 20 tokens.
-    assert_eq!(seen[1].sampling["presence_context_size"], 1024);
-    // A value somebody set is never lowered.
-    assert_eq!(run(Some(1.5), reader)[1].sampling["presence_penalty"], 1.5);
+    for error in [engine as fn() -> ProviderError, reader] {
+        let seen = run(None, error);
+        assert_eq!(seen.len(), 2);
+        for request in seen {
+            assert!(!request.sampling.contains_key("presence_penalty"));
+            assert!(!request.sampling.contains_key("presence_context_size"));
+        }
+        for value in [0.25, 1.5] {
+            let seen = run(Some(value), error);
+            assert_eq!(seen[1].sampling["presence_penalty"], value);
+            assert!(!seen[1].sampling.contains_key("presence_context_size"));
+        }
+    }
     // A cut-off for another reason is not a loop.
     let length = || ProviderError::Truncated {
         safe_context: "the MLX engine stopped the reply (length) after 16384 tokens".into(),

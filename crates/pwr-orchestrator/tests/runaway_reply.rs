@@ -231,7 +231,7 @@ fn only_a_reply_the_turn_cannot_use_is_the_deployments_to_fix() {
     // way out, for both.
     let told = ReplyFault::Unparsed("bad escape".into()).told();
     assert!(told.contains("bad escape"), "{told}");
-    assert!(told.contains("backslash"), "{told}");
+    assert!(told.contains("<|tool_call>call:NAME"), "{told}");
     let told = ReplyFault::RanAway("cut off".into()).told();
     assert!(told.contains("cut off"), "{told}");
     assert!(told.contains("Do less in one turn"), "{told}");

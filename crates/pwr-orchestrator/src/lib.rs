@@ -907,9 +907,9 @@ impl ReplyFault {
         let told_detail = self.told_detail();
         match self {
             Self::Unparsed(detail) => format!(
-                "Your last tool call could not be read: {detail}. Nothing was done. Send it \
-                 again as exactly one native tool call. Inside a JSON string, a double quote is \
-                 written \\\" and a backslash is written \\\\; an apostrophe needs no escape at all."
+                "Your last tool call could not be read: {detail}. Nothing was done. Send a \
+                 complete Gemma tool call: <|tool_call>call:NAME{{KEY:<|\"|>VALUE<|\"|>}}<tool_call|>. \
+                 Close every string with <|\"|>, then close the arguments and call."
             ),
             Self::RanAway(detail) if detail.contains("unfinished tool call") => format!(
                 "Your last tool call was cut off before it ended, so nothing in it was done: \
@@ -933,9 +933,8 @@ impl ReplyFault {
                  so nothing in it was done. Do not work the problem out again in prose: act \
                  on what you concluded with one tool call (make the change, or run the \
                  failing test and read its output), and let the result tell you what next. \
-                 If what you are unsure of is how a language, library or database feature \
-                 works, read its official documentation (fetch_url) instead of reasoning \
-                 about it."
+                 If evidence is missing, read the relevant file or search the workspace \
+                 before attempting a change."
             ),
         }
     }

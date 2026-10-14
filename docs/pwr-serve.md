@@ -82,6 +82,7 @@ PWR's own class (`stop_reason`):
 | `BudgetSpent` | `max_turn_requests` | `budget` |
 | `ContextFull`, `Looping` | `max_tokens` | `recovery` |
 | `NoProgress` | `end_turn` | `recovery` |
+| `RecoveryExhausted` | `end_turn` | `recovery` |
 | `Silent`, `ToolCallInReasoning`, `Unparseable`, `ReasoningUnfinished` | `end_turn` | `protocol` |
 | `BackendFailing` | `end_turn` | `provider` |
 | Goal paused at its action budget | `max_turn_requests` | `budget` |

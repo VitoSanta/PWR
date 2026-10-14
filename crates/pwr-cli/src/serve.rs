@@ -3641,7 +3641,8 @@ pub fn stop_reason(report: &TurnReport) -> (&'static str, Option<pwr_domain::Ter
                 | StopReason::NoProgress
                 | StopReason::ReasoningUnfinished
                 | StopReason::HandedOver
-                | StopReason::ContractBlocked => "end_turn",
+                | StopReason::ContractBlocked
+                | StopReason::RecoveryExhausted => "end_turn",
             },
             Some(reason.terminal_class()),
         ),
@@ -7441,6 +7442,7 @@ mod tests {
         );
         assert_eq!(ended(Some(StopReason::Silent)), "end_turn");
         assert_eq!(ended(Some(StopReason::BackendFailing)), "end_turn");
+        assert_eq!(ended(Some(StopReason::RecoveryExhausted)), "end_turn");
         assert_eq!(tool_kind("apply_patch"), "edit");
         assert_eq!(tool_kind("list_tree"), "search");
         assert_eq!(tool_kind("ask_user"), "other");

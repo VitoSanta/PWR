@@ -2492,6 +2492,35 @@ mod tests {
         }
     }
 
+    #[test]
+    fn recovery_exhaustion_ends_a_goal_without_another_turn() {
+        let mut stopped = report(7, false);
+        stopped.edited = true;
+        stopped.stopped = Some(converse::StopReason::RecoveryExhausted);
+        let host = Fake::new(vec![stopped], vec![Err(VerifyError::NoSuchSession)]);
+        let result = run(&host, Policy::Goal, GoalLimits::default());
+        match result.end {
+            SessionEnd::Reply {
+                report,
+                total_actions,
+                goal,
+                verification,
+            } => {
+                assert!(goal);
+                assert_eq!(total_actions, 7);
+                assert!(report.edited);
+                assert!(!report.completed);
+                assert_eq!(
+                    report.stopped,
+                    Some(converse::StopReason::RecoveryExhausted)
+                );
+                assert!(verification.is_none());
+            }
+            _ => panic!("unexpected goal ending"),
+        }
+        assert_eq!(host.ran.load(Ordering::Relaxed), 1);
+    }
+
     /// A conversation is one turn: no verification, no second turn, whatever
     /// the turn says.
     #[test]

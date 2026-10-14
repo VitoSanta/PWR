@@ -156,18 +156,11 @@ const DEGENERATE_RESET_ROOM: usize = 8_192;
 /// seen at 27,000.
 const DEGENERATE_RESET_MIN_PROMPT_TOKENS: usize = 20_000;
 
-/// The presence penalty a turn asks for after one of its generations looped.
-/// Qwen's cards say to raise it, between 0 and 2, "to reduce endless
-/// repetitions"; 1.0 is half way. Measured 2026-09-30: Qwen3.5-9B with its
-/// card's sampling (penalty 0) still looped in its reasoning on a Bash task --
-/// the same passage four times, five generations in an hour.
-const ANTI_LOOP_PRESENCE_PENALTY: f64 = 1.0;
+/// Automatic fault recoveries per turn, shared across causes and never reset
+/// by a successful action. A resource bound to measure on Gemma, not a claim
+/// about how many retries improve its quality.
+pub const RECOVERIES_PER_TURN: usize = 6;
 
-/// How far back the engine looks for a token already written, once a reply has
-/// looped. mlx-lm's own window is 20 tokens (read from its source, 2026-10-01),
-/// which cannot see a passage repeated at length: the penalty above did
-/// nothing against exactly the loops it was added for.
-const ANTI_LOOP_PRESENCE_WINDOW: u64 = 1_024;
 /// Replies a turn may lose to being cut off inside a tool call, in all.
 ///
 /// Not consecutive, unlike the counters beside it. Measured 2026-09-30 (Bonsai
@@ -206,6 +199,8 @@ pub enum StopReason {
     ContextFull,
     /// The turn used its compaction allowance before finishing.
     CompactionBudget,
+    /// The turn exhausted its shared automatic fault-recovery allowance.
+    RecoveryExhausted,
     /// The deployment produced neither an answer nor an action, repeatedly.
     Silent,
     /// The deployment wrote tool calls only inside its reasoning phase.
@@ -244,7 +239,9 @@ impl StopReason {
             | Self::ReasoningUnfinished
             | Self::ContractBlocked => TerminalClass::Protocol,
             Self::BackendFailing => TerminalClass::Provider,
-            Self::ContextFull | Self::NoProgress | Self::HandedOver => TerminalClass::Recovery,
+            Self::ContextFull | Self::NoProgress | Self::HandedOver | Self::RecoveryExhausted => {
+                TerminalClass::Recovery
+            }
         }
     }
 
@@ -258,10 +255,11 @@ impl StopReason {
     /// Test-only, and said so rather than kept alive by a token use in the
     /// product: its whole job is to make the fixture unable to miss a variant.
     #[cfg(test)]
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Interrupted,
         Self::ContextFull,
         Self::CompactionBudget,
+        Self::RecoveryExhausted,
         Self::Silent,
         Self::ToolCallInReasoning,
         Self::Unparseable,
@@ -293,6 +291,10 @@ impl StopReason {
                  everything done is kept. Continue in another turn or ask for a narrower task"
                     .to_owned()
             }
+            Self::RecoveryExhausted => format!(
+                "this turn used its {RECOVERIES_PER_TURN} automatic fault recoveries and stopped; \
+                 everything done is kept. Inspect the recorded failures before continuing"
+            ),
             Self::Silent => {
                 "the deployment produced neither an answer nor an action three times running, so \
                  it was stopped; its replies may be in a form this backend cannot parse into tool \
@@ -1842,9 +1844,6 @@ async fn take_turn_inner<P: ModelProvider>(
     // The step before this generation was an action that worked.
     let mut routine = false;
     let mut runaway_retry = false;
-    // Set once a generation of this turn looped: every later one is sampled
-    // with a presence penalty (see `ANTI_LOOP_PRESENCE_PENALTY`).
-    let mut anti_loop = false;
     // Replies of this turn that fell apart (a loop, or the engine's repetition
     // stop) since the last good one, and the clean starts made for them.
     let mut degenerate_replies = 0usize;
@@ -1887,6 +1886,28 @@ async fn take_turn_inner<P: ModelProvider>(
     // Retries since the last usable output, of every cause, so a front end
     // can say the turn recovered and after how many.
     let mut retrying = 0usize;
+    let mut recoveries = 0usize;
+    // Charge before attempting a recovery, including inside a multi-call
+    // batch. take_turn closes any pending calls when this returns early.
+    macro_rules! recover {
+        ($cause:expr) => {{
+            let allowed = recoveries < RECOVERIES_PER_TURN;
+            store.append(
+                Some(conversation_id),
+                if allowed { "turn.recovery" } else { "turn.recovery_exhausted" },
+                serde_json::json!({
+                    "cause": $cause,
+                    "spent": recoveries + usize::from(allowed),
+                    "limit": RECOVERIES_PER_TURN,
+                }),
+            ).map_err(|error| error.to_string())?;
+            if !allowed {
+                return stopped(actions, edited, StopReason::RecoveryExhausted);
+            }
+            recoveries += 1;
+        }};
+    }
+
     // A compaction trigger this turn cannot get under: an objective, kept
     // verbatim, larger than it, or a compaction that left the prompt above it.
     // Compacting on it again folds nothing that helps and spends the turn's
@@ -2075,6 +2096,7 @@ async fn take_turn_inner<P: ModelProvider>(
             && prompt_tokens_now(messages, measured_prompt, measured_upto)
                 > DEGENERATE_RESET_MIN_PROMPT_TOKENS
         {
+            recover!("degenerate_context_reset");
             if let Some(note) = compact_and_record(
                 store,
                 conversation_id,
@@ -2097,33 +2119,6 @@ async fn take_turn_inner<P: ModelProvider>(
             }
         }
         let mut request_sampling = sampling.clone();
-        if full && anti_loop {
-            let current = request_sampling
-                .get("presence_penalty")
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0);
-            // A person's or a profile's own value is never lowered, and a
-            // higher one is kept.
-            if current < ANTI_LOOP_PRESENCE_PENALTY {
-                request_sampling.insert(
-                    "presence_penalty".into(),
-                    serde_json::json!(ANTI_LOOP_PRESENCE_PENALTY),
-                );
-                request_sampling.insert(
-                    "presence_context_size".into(),
-                    serde_json::json!(ANTI_LOOP_PRESENCE_WINDOW),
-                );
-                if let Some(sources) = request_sampling
-                    .get_mut("_pwr_sampling_sources")
-                    .and_then(serde_json::Value::as_object_mut)
-                {
-                    sources.insert(
-                        "presence_penalty".into(),
-                        serde_json::json!("pwr_loop_recovery"),
-                    );
-                }
-            }
-        }
         if std::mem::take(&mut runaway_retry) && full {
             let current = request_sampling
                 .get("max_tokens")
@@ -2397,6 +2392,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 on_step(TurnStep::Refused(format!(
                     "{error} ({unparseable} of {UNPARSEABLE_CALLS_BEFORE_GIVING_UP})"
                 )));
+                recover!(kind);
                 messages.push(ChatMessage::text(
                     "tool",
                     serde_json::json!({kind: "the reply could not be used"}).to_string(),
@@ -2427,6 +2423,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 on_step(TurnStep::Refused(format!(
                     "{safe_context}; asking the model to answer without further reasoning"
                 )));
+                recover!("reasoning_unfinished");
                 retrying += 1;
                 on_step(TurnStep::Retry {
                     cause: "reasoning_unfinished",
@@ -2477,13 +2474,11 @@ async fn take_turn_inner<P: ModelProvider>(
                 // The engine's own repetition stop is the commoner way a reply
                 // falls apart (seen 2026-10-01 in the app, Gemma 4: one line
                 // written again and again), and it must count as a loop for the
-                // presence penalty too -- it did not, and the retries asked for
-                // none.
+                // bounded clean-start recovery too.
                 if matches!(fault, crate::ReplyFault::Looped(_))
                     || (matches!(fault, crate::ReplyFault::RanAway(_))
                         && fault.detail().contains("(repetition)"))
                 {
-                    anti_loop = true;
                     degenerate_replies += 1;
                 }
                 failed(&mut turn, fault.kind(), fault.detail().to_owned())?;
@@ -2495,6 +2490,7 @@ async fn take_turn_inner<P: ModelProvider>(
                     "{} ({unparseable} of {UNPARSEABLE_CALLS_BEFORE_GIVING_UP})",
                     fault.detail()
                 )));
+                recover!("reply_fault");
                 retrying += 1;
                 on_step(TurnStep::Retry {
                     cause: "reply_fault",
@@ -2562,6 +2558,7 @@ async fn take_turn_inner<P: ModelProvider>(
                          {lower} tokens, a window calibration measured -- this reloads the \
                          model on a backend that fixes its window at load time"
                     )));
+                    recover!("context_limit");
                     retrying += 1;
                     on_step(TurnStep::Retry {
                         cause: "context_limit",
@@ -2609,6 +2606,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 // drop down, and compaction is the whole answer.
                 if !full {
                     // The control drops its oldest exchange and asks again.
+                    recover!("context_limit");
                     let mut first = true;
                     let dropped = drop_oldest_exchanges(messages, |_| !std::mem::take(&mut first));
                     if dropped == 0 {
@@ -2624,6 +2622,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 if compactions >= COMPACTIONS_PER_TURN {
                     return stopped(actions, edited, StopReason::CompactionBudget);
                 }
+                recover!("context_limit");
                 match compact_and_record(
                     store,
                     conversation_id,
@@ -2654,6 +2653,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 on_step(TurnStep::Refused(format!(
                     "{error} ({backend_faults} of {BACKEND_FAULTS_BEFORE_GIVING_UP})"
                 )));
+                recover!("backend_fault");
                 retrying += 1;
                 on_step(TurnStep::Retry {
                     cause: "backend_fault",
@@ -2799,6 +2799,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 "{} ({broken_calls} of {UNPARSEABLE_CALLS_BEFORE_GIVING_UP})",
                 diagnostic.detail
             )));
+            recover!("reply_fault");
             retrying += 1;
             on_step(TurnStep::Retry {
                 cause: "reply_fault",
@@ -2836,8 +2837,7 @@ async fn take_turn_inner<P: ModelProvider>(
             // one that spends a turn.
             if reply.narrative.trim().is_empty() {
                 silent = silent.saturating_add(1);
-                let call_in_reasoning = reply.thinking.contains("<tool_call>")
-                    && reply.thinking.contains("</tool_call>");
+                let call_in_reasoning = reply.thinking.contains("<|tool_call>");
                 reasoning_calls = if call_in_reasoning {
                     reasoning_calls.saturating_add(1)
                 } else {
@@ -2863,6 +2863,11 @@ async fn take_turn_inner<P: ModelProvider>(
                 on_step(TurnStep::Refused(format!(
                     "{detail} ({silent} of {EMPTY_TURNS_BEFORE_GIVING_UP})"
                 )));
+                recover!(if call_in_reasoning {
+                    "tool_in_reasoning"
+                } else {
+                    "silent"
+                });
                 retrying += 1;
                 on_step(TurnStep::Retry {
                     cause: if call_in_reasoning {
@@ -2989,7 +2994,12 @@ async fn take_turn_inner<P: ModelProvider>(
                             ));
                             return stopped(actions, edited, StopReason::Unparseable);
                         }
-                        serde_json::json!({"not_recorded": problem})
+                        messages.push(tool_message(
+                            call,
+                            serde_json::json!({"not_recorded": problem}),
+                        ));
+                        recover!("malformed_plan");
+                        continue;
                     }
                 };
                 messages.push(tool_message(call, outcome));
@@ -3027,6 +3037,7 @@ async fn take_turn_inner<P: ModelProvider>(
                         return stopped(actions, edited, StopReason::Unparseable);
                     }
                     on_step(TurnStep::Refused(format!("{}: {problem}", call.name)));
+                    recover!("malformed_call");
                     retrying += 1;
                     on_step(TurnStep::Retry {
                         cause: "malformed_call",
@@ -5636,7 +5647,8 @@ mod tests {
                 | StopReason::NoProgress
                 | StopReason::ReasoningUnfinished
                 | StopReason::HandedOver
-                | StopReason::ContractBlocked => {}
+                | StopReason::ContractBlocked
+                | StopReason::RecoveryExhausted => {}
             }
             let said = reason.said();
             assert!(!said.is_empty());

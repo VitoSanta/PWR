@@ -88,7 +88,8 @@ generates tool-call arguments, and the worker bounds its own engine's silence at
 300 s. A timeout is a backend fault, retried like one. Abandoning an unfinished response signals cancellation;
 MLX receives its explicit `cancel` operation, and HTTP streams release their body.
 This is a per-response bound, including runtime calls made by the scripted runner.
-Ordinary conversations still have no overall wall/token/recovery budget (W1.10).
+Ordinary conversations still have no overall wall/token budget (W1.10);
+automatic fault recovery has the per-turn bound below.
 An abandoned MLX opening discards its worker protocol, including a partial
 pipe write/load/drain, before reuse. Real stop latency and cancellation of
 separate lifecycle calls remain unmeasured.
@@ -131,6 +132,7 @@ the next user message is rendered ([core audit](reviews/2026-10-02-core-audit.md
 |---|---|---|---|
 | Actions before checking in | 100 (was 26 until 2026-09-30); `actions_per_turn` in `.pwr/chat-config.json` | `DEFAULT_ACTIONS_PER_TURN` | The turn stops and says so; the next message continues. A goal's own limit (`goal_budget`) is used instead and is no longer capped at 26 |
 | Compactions per turn | 2 | `COMPACTIONS_PER_TURN` | Stop as compaction budget exhausted. A trigger the turn cannot get under (verbatim objective above it, or a compaction that left the prompt above it) stops counting; only a full window compacts ([context.md](context.md)) |
+| Automatic fault recoveries, cumulative | 6 | `RECOVERIES_PER_TURN` | Stop as recovery exhausted; successful actions do not reset it |
 | Consecutive empty replies | 3 | `EMPTY_TURNS_BEFORE_GIVING_UP` | Stop as silent |
 | Consecutive unreadable calls | 3 | `UNPARSEABLE_CALLS_BEFORE_GIVING_UP` | Stop as unparseable |
 | Replies cut off inside a tool call, **in all** (not consecutive) | 3 | `CUT_OFF_REPLIES_PER_TURN` | The retry is capped at 8,192 tokens and the model is told to split the file (`replace_text`/`apply_patch` for the rest); the third stops the turn as unparseable |
@@ -146,33 +148,39 @@ the next user message is rendered ([core audit](reviews/2026-10-02-core-audit.md
 | Replies that fell apart, in a row, on a prompt over 20,000 tokens | 2 | `DEGENERATE_REPLIES_BEFORE_RESET`, `DEGENERATE_RESETS_PER_TURN` (2), `DEGENERATE_RESET_ROOM` (8,192), `DEGENERATE_RESET_MIN_PROMPT_TOKENS` (20,000) | The history is compacted to that room and the turn goes on |
 | A file written again and again | every 12th write of one path | `REWRITES_BEFORE_NOTE`, `stall.rs` | The write's result carries a note naming the count and the ways out; no limit |
 
-Each limit has its own counter; there is no shared recovery budget (plan W2.6).
+Consecutive counters remain separate; automatic fault recoveries also spend
+the shared budget below (plan W2.6, product turn).
 
 ### Replies that fall apart
 
-Three mechanisms act on a generation that loops or collapses, all added on
-2026-10-01 from runs of Qwen3.5-9B and Qwen3-Coder-30B
-([experiment-log.md](experiment-log.md)), and none of them measured for its
-effect yet:
+The stream reader and engine repetition stop still end replies that repeat
+passages. The next reply is bounded at 8,192 tokens. Two collapsed replies in a
+row on a prompt over 20,000 tokens may compact the history to an 8,192-token
+room, at most twice per turn; each reset also spends a shared fault recovery.
+These thresholds remain hypotheses pending Gemma product-path measurements.
 
-- the engine's own repetition stop and PWR's reader of the stream both end a
-  reply that writes one passage again and again (`looping_reply`, or
-  `runaway_reply` with a repetition detail);
-- once a reply of the turn has looped — **by PWR's reader of the stream or by the engine's own repetition stop** (the commoner one; until 2026-10-01 only the first counted, so the penalty never fired in the app) — every later generation of the turn asks
-  for a **presence penalty of 1.0 over the last 1,024 tokens** (the engine's
-  own window is 20, which cannot see a repeated passage), unless a higher value
-  is set — `presence_penalty`, `presence_context_size` in the request;
-- two such replies in a row compact the history (above), **only above 20,000
-  tokens**: the same model answers a fresh 30,000-token prompt correctly, so on a
-  long history what is cut back is what it was lost in. On a short one it is
-  not (Gemma 4 26B, 2026-10-01: six clean starts at 11,000–15,000 tokens and the
-  replies went on repeating), so nothing is cut.
+Since 2026-10-14 the loop leaves the requested presence penalty and its window
+unchanged. The automatic penalty introduced from Qwen's model cards has been
+removed: it was not evidence for Gemma sampling.
+
+All automatic fault recoveries share **six attempts per turn**, cumulative across
+causes and successful actions. Reply faults, silent replies, unfinished
+reasoning, malformed calls/plans, backend faults, and recovery after a refused
+context all spend it before their recovery begins. Ordinary compaction to make
+room does not. The existing consecutive limits still stop earlier. This is an
+initial resource allowance, not a measured optimum. Events `turn.recovery` and
+`turn.recovery_exhausted` record cause, spent count and limit. Exhaustion ends
+with `RecoveryExhausted`, keeps completed actions and closes outstanding tool
+calls with unexecuted/unknown results. A goal stops on this reason without
+automatically opening another turn; a new user request starts a new allowance.
+The scripted runner keeps its separate total generation allowance.
 
 ### Stop reasons
 
 `StopReason`: `Interrupted`, `ContextFull`, `CompactionBudget`,
 `Silent`, `ToolCallInReasoning`, `Unparseable`, `BudgetSpent`,
-`BackendFailing`, `NoProgress`, `ReasoningUnfinished`. How they reach the app
+`BackendFailing`, `NoProgress`, `ReasoningUnfinished`, `HandedOver`,
+`ContractBlocked`, `RecoveryExhausted`. How they reach the app
 is in [pwr-serve.md](pwr-serve.md#stop-reasons).
 
 ## Goal mode
@@ -385,6 +393,6 @@ The B0 (conventional loop) and B2 (fixed staged workflow) controls live in
 |---|---|---|
 | Post-turn verification happens after the turn ended, so a failing verdict does not send the model back | `executor::close_turn` | W7.1 decides |
 | The app, the console and Goal mode share one executor; the scripted loop (`pwr run`, `eval run`) still has its own holds, compaction, recovery and catalogue | [plan/executor-parity.md](plan/executor-parity.md); the evaluator is not on the executor | W2.4 (open) |
-| A dozen independent limits and no shared recovery budget | table above | W2.6 |
+| Scripted run still has separate recovery semantics; app/chat/goal share six fault-recovery attempts per turn | table above | W2.6, scripted parity open |
 | A model that thrashes (rewrites one file seventy times) is told, not stopped; a goal's wall-clock is what ends it | `dev11-qwen3-coder`, 130 actions in 60 min | measure the note, then decide |
 | The objective is kept whole, outside what compaction may shorten (W4.1) | — | done on `develop`; CI not run |
