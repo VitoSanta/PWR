@@ -320,6 +320,19 @@ impl MlxConfig {
             .is_some_and(|kind| kind.contains("_vl") || kind.ends_with("vl"));
         Some(declared || vision_type)
     }
+
+    /// The folder of the assistant Google publishes beside a pack of the
+    /// Gemma line (`pwr_domain::gemma::Pack::assistant`), when it is on disk.
+    /// Experimental decoding can use it when explicitly enabled. Text parity
+    /// and speed must be measured before enabling it by default for a pack.
+    pub fn assistant_dir(&self, dir: &Path) -> Option<PathBuf> {
+        let model_ref = dir.strip_prefix(&self.models_root).ok()?.to_str()?;
+        let assistant = self
+            .models_root
+            .join(pwr_domain::gemma::pack(model_ref)?.assistant);
+        (assistant.join("config.json").is_file() && MlxProvider::model_weights_complete(&assistant))
+            .then_some(assistant)
+    }
 }
 
 struct Sidecar {
@@ -777,6 +790,9 @@ impl MlxProvider {
         let mut load = serde_json::json!({"op": "load", "path": dir});
         if let Some(rope) = &rope {
             load["rope_scaling"] = rope.clone();
+        }
+        if let Some(assistant) = self.config.assistant_dir(dir) {
+            load["assistant"] = serde_json::json!(assistant);
         }
         let id = sidecar.request(load).await?;
         loop {
@@ -2489,6 +2505,32 @@ for line in sys.stdin:
         assert!(config.model_dir("pub/model").is_err());
         std::fs::write(model.join("config.json"), "{}").unwrap();
         assert_eq!(config.model_dir("pub/model").unwrap(), model);
+    }
+
+    #[test]
+    fn assistants_are_selected_from_the_pack_only_when_download_is_complete() {
+        let root = tempfile::tempdir().unwrap();
+        let config = MlxConfig {
+            python: "python3".into(),
+            sidecar: "x".into(),
+            models_root: root.path().into(),
+        };
+        let pack = &pwr_domain::gemma::PACKS[0];
+        let model = root.path().join(pack.model_ref);
+        let assistant = root.path().join(pack.assistant);
+        assert!(config.assistant_dir(&model).is_none());
+        std::fs::create_dir_all(&assistant).unwrap();
+        std::fs::write(assistant.join("config.json"), "{}").unwrap();
+        assert!(config.assistant_dir(&model).is_none());
+        std::fs::write(assistant.join("model.safetensors"), [1_u8]).unwrap();
+        assert_eq!(config.assistant_dir(&model), Some(assistant.clone()));
+        std::fs::write(assistant.join("download.part"), [1_u8]).unwrap();
+        assert!(config.assistant_dir(&model).is_none());
+        assert!(
+            config
+                .assistant_dir(&root.path().join("unknown/model"))
+                .is_none()
+        );
     }
 
     #[test]

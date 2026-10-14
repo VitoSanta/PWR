@@ -25,6 +25,11 @@ history is in [experiment-log.md](experiment-log.md) and the benchmark's
 
 Each pack has a small "assistant" model Google publishes for speculative
 decoding; it is kept for that and is never offered as a model to run.
+The experimental engine integration finds the matching assistant only after
+its weights are fully downloaded. It is **off by default**: the 2026-10-14
+short comparisons failed the exact-text and/or 1.4× speed gates. Explicit
+`PWR_MLX_ASSISTANT=on` enables research runs; penalties and 8-bit KV use normal
+decoding. No pack has passed the full assistant gate yet.
 
 **Context and memory.** The window is the full 262,144 tokens unless the
 person asks for less or this Mac's memory holds less for the pack
@@ -37,6 +42,10 @@ not hold 262k on 16 GB nor the 26B on 24 GB at 16 bits; an 8-bit cache for
 the global layers (`PWR_MLX_KV_BITS=8`) is the lever, its quality to be
 measured. The measured figures replace the estimate where they differ
 (benchmark `audits/linea-gemma4/prove-finali`).
+At 16-bit KV the estimate also conservatively reserves the matching bf16
+assistant weights (0.84–0.94 GB), even while the experimental feature is off.
+The 8-bit path does not load or reserve an assistant. These are estimates,
+not certification of a memory tier.
 
 ## Sampling
 

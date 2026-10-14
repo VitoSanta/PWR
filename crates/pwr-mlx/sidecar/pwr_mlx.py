@@ -138,6 +138,13 @@ SCORES_FLOOR_BYTES = 512 * 1024**2
 # broke at 4 bits (2026-10-14, 26B-A4B: one line in another language over and
 # over), so 4 is refused. The sliding layers stay at 16: they hold 1,024 tokens.
 KV_BITS = 8 if os.environ.get("PWR_MLX_KV_BITS") == "8" else None
+# Google's assistant for the pack (multi-token prediction): it drafts a few
+# tokens and the model verifies them. Experimental: the 2026-10-14 short
+# comparisons did not meet exact-text/speed gates. Explicit opt-in only until
+# a pack passes those gates; loading a drafter alone is not evidence of them.
+# `PWR_MLX_DRAFT_BLOCK` fixes the block, otherwise the assistant's own.
+ASSISTANT = os.environ.get("PWR_MLX_ASSISTANT", "off") == "on"
+DRAFT_BLOCK = int(os.environ.get("PWR_MLX_DRAFT_BLOCK") or 0) or None
 KV_GROUP = 64
 # Tokens an image takes in Gemma 4's prompt, one of the budgets Google gives
 # (70, 140, 280, 560, 1120; the high ones for text and documents). Unset, the
@@ -751,7 +758,9 @@ class VisionText(nn.Module):
             last += 1
         return last
 
-    def __call__(self, inputs, cache=None, input_embeddings=None):
+    def __call__(self, inputs, cache=None, input_embeddings=None, **outputs):
+        """The logits of a step; with `outputs` (mlx-vlm's `return_hidden`,
+        `return_shared_kv`), the language model's whole output."""
         offset = int(cache[0].offset) if cache is not None else 0
         n = inputs.shape[-1]
         embeds = per_layer = None
@@ -763,9 +772,11 @@ class VisionText(nn.Module):
             if n > 1 and any(b >= 0 for b in step):
                 self.step_blocks = step
         try:
-            out = self.language(inputs, inputs_embeds=embeds, cache=cache, per_layer_inputs=per_layer)
+            out = self.language(inputs, inputs_embeds=embeds, cache=cache, per_layer_inputs=per_layer, **outputs)
         finally:
             self.step_blocks = None
+        if outputs:
+            return out
         return out.logits if hasattr(out, "logits") else out
 
 
@@ -1329,6 +1340,98 @@ class PrefillCancelled(Exception):
     """An interrupted prefill has no reusable cache state."""
 
 
+def load_assistant(vlm, path):
+    """The pack's assistant ready to draft for `vlm`, or None and why not."""
+    if not ASSISTANT:
+        return None, "off (PWR_MLX_ASSISTANT)"
+    if KV_BITS:
+        # It reads the global layers' keys and values as they are kept.
+        return None, f"the global layers' cache is held at {KV_BITS} bits"
+    try:
+        from mlx_vlm.speculative.drafters import load_drafter, validate_drafter_compatibility
+        drafter, kind = load_drafter(str(path), kind="mtp")
+        validate_drafter_compatibility(vlm, drafter, kind)
+        return drafter, None
+    except Exception as error:
+        return None, f"{type(error).__name__}: {error}"[:300]
+
+
+class Response:
+    """One step of a speculative reply, shaped as mlx-lm's."""
+
+    def __init__(self, text: str, finish_reason=None):
+        self.text, self.finish_reason = text, finish_reason
+
+
+class ThoughtSampler:
+    """Apply the thought constraint to target positions, never to draft state.
+
+    MTP may sample a whole verified block before yielding its first token.
+    Updating a mask when tokens are yielded is too late for that block. A
+    rejected suffix is overwritten when verification resumes at its position.
+    Markers in earlier conversation turns do not belong to this reply.
+    """
+
+    def __init__(self, sampler, thought, prompt_tokens):
+        self.sampler, self.thought = sampler, thought
+        boundary = prompt_tokens[-1] if prompt_tokens else None
+        self.states = {0: (thought.shut or not thought.allow_thought or boundary in (thought.open_id, thought.close_id),
+                           thought.closed or not thought.allow_thought or boundary == thought.close_id)} if thought else {0: (False, False)}
+
+    def __call__(self, logits):
+        # Proposals cannot modify the target's history. Verification applies
+        # the constraint and rejects any proposal that violates it.
+        return self.sampler(logits)
+
+    def sample_target(self, logits, *, row_ids, positions):
+        if any(row != 0 for row in row_ids):
+            raise ValueError("PWR speculative sampling serves one conversation")
+        sampled = []
+        for row, position in enumerate(positions):
+            shut, closed = self.states[position]
+            scores = logits[row:row + 1]
+            if self.thought is not None:
+                ids = mx.arange(scores.shape[-1])
+                forbidden = ((ids == self.thought.open_id) & shut) | ((ids == self.thought.close_id) & closed)
+                scores = mx.where(forbidden, -mx.inf, scores)
+            token = self.sampler(scores)
+            value = int(token.item())
+            if self.thought is not None:
+                shut = shut or value in (self.thought.open_id, self.thought.close_id)
+                closed = closed or value == self.thought.close_id
+            self.states[position + 1] = (shut, closed)
+            sampled.append(token.reshape(-1))
+        return mx.concatenate(sampled)
+
+
+class ConstrainedTarget:
+    """Keep MTP on its sampler-aware verifier, including at temperature zero.
+
+    The fused argmax shortcut bypasses logits processors. Everything else,
+    including the model's exact cache transaction, stays with mlx-vlm.
+    """
+
+    def __init__(self, model):
+        self._target = model
+
+    def __getattr__(self, name):
+        if name in ("speculative_argmax_from_hidden", "speculative_verify_logits"):
+            raise AttributeError(name)
+        return getattr(self._target, name)
+
+
+def unbuffered(cache) -> list:
+    """The cache with its sliding layers back to the kind it was made with.
+
+    The speculative rounds hold a sliding layer as mlx-vlm's buffered kind,
+    which keeps a few rejected tokens' room. The copy of a prompt was taken
+    of the plain kind and the next turn puts it back there: the layer is
+    given back empty, to be restored from the copy or made anew."""
+    from mlx_vlm.models.cache import BufferedRotatingKVCache, RotatingKVCache
+    return [RotatingKVCache(max_size=c.max_size, keep=c.keep) if isinstance(c, BufferedRotatingKVCache) else c
+            for c in cache]
+
+
 class Engine:
     def __init__(self) -> None:
         self.model = None
@@ -1341,6 +1444,7 @@ class Engine:
         self.checkpoint = None
         self.checkpoint_tokens: list[int] = []
         self.operation = {}
+        self.drafter = None
 
     def observe(self, phase: str, **fields) -> None:
         # Sample before GPU work: after a Metal failure querying/evaluating the
@@ -1368,7 +1472,7 @@ class Engine:
             raise RuntimeError(f"PWR runs Gemma 4 only; {path.name} is {model_type or 'of no known type'}")
         if not vlm_available():
             raise RuntimeError("mlx-vlm and Pillow are needed to load Gemma 4")
-        self.model = self.tokenizer = self.processor = None
+        self.model = self.tokenizer = self.processor = self.drafter = None
         self.chunk_limit = PREFILL_FIRST_STEP
         mx.clear_cache()
         from mlx_vlm import load as load_vision
@@ -1387,12 +1491,17 @@ class Engine:
         self.score_budget = score_budget()
         self.fused = fused_attention(head_dim)
         weights = sum(p.stat().st_size for p in path.glob("*.safetensors"))
+        assistant_error = None
+        if request.get("assistant"):
+            self.drafter, assistant_error = load_assistant(vlm, request["assistant"])
         return {
             "event": "loaded",
             "model_type": model_type,
             "weights_bytes": weights,
             "vision": True,
             "rope_scaling": None,
+            "assistant": self.drafter is not None,
+            "assistant_error": assistant_error,
         }
 
     def render(self, messages, tools, thinking, generation_prompt: bool):
@@ -1536,6 +1645,71 @@ class Engine:
                 return index
         return len(tokens)
 
+    def speculate(self, prompt_tokens, max_tokens, sampler, greedy: bool, thought):
+        """A reply written with the assistant, yielded as `stream_generate`
+        yields one: mlx-vlm's speculative rounds on this engine's cache, after
+        the last prompt tokens are read with the hidden state and keys the
+        assistant drafts from. The rounds apply no logits processors, so the
+        thought channel is held to one opening (`OneThought`) by the sampler."""
+        from mlx_vlm.speculative.utils import run_speculative_rounds
+        tokens = [int(t) for t in prompt_tokens]
+        sample = ThoughtSampler(sampler, thought, tokens)
+
+        inputs = mx.array(tokens)[None]
+        start = int(self.cache[0].offset)
+        out = self.model(inputs, cache=self.cache, return_hidden=True, return_shared_kv=True)
+        logits = out.logits[:, -1, :]
+        logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
+        first = sample.sample_target(logprobs, row_ids=[0], positions=[0])
+        detokenizer = self.tokenizer.detokenizer
+        detokenizer.reset()
+        ends = set(self.tokenizer.eos_token_ids)
+        written = []
+        try:
+            for token, _ in run_speculative_rounds(
+                    ConstrainedTarget(self.model.language), self.drafter, self.cache, inputs, first, logprobs, out,
+                    draft_kind="mtp", max_tokens=max_tokens, sampler=sample,
+                    draft_block_size=DRAFT_BLOCK, sampler_is_greedy=greedy):
+                token = int(token)
+                if token in ends:
+                    detokenizer.finalize()
+                    yield Response(detokenizer.last_segment, "stop")
+                    return
+                written.append(token)
+                detokenizer.add_token(token)
+                if len(written) >= max_tokens:
+                    detokenizer.finalize()
+                    yield Response(detokenizer.last_segment, "length")
+                    return
+                yield Response(detokenizer.last_segment)
+        finally:
+            if thought is not None:
+                thought.shut, thought.closed = sample.states[len(written)]
+            self.settle(start + len(tokens), written)
+
+    def settle(self, prompt_end: int, written: list) -> None:
+        """The cache holding the prompt and exactly the tokens written, as one
+        written a token at a time holds them, so a reply forced on (the
+        reasoning budget) goes on from what was written. A round commits its
+        accepted tokens before they are given out, and the last token given
+        out is not yet read: a reply stopped inside a round holds a few more,
+        one stopped after it one fewer."""
+        target = prompt_end + len(written)
+        held = int(self.cache[0].offset)
+        if held > target:
+            for layer in self.cache:
+                layer.trim(held - target)
+        elif held == target - 1 and written:
+            mx.eval(self.model(mx.array([[written[-1]]]), cache=self.cache))
+
+    def drafted(self, before):
+        """What the assistant drafted in this reply, or None without it."""
+        if before is None:
+            return None
+        now = {name: getattr(self.drafter, f"speculative_total_{name}", 0) - before[name]
+               for name in ("rounds", "accepted", "drafted")}
+        return {"rounds": int(now["rounds"]), "drafted": int(now["drafted"]), "accepted": round(float(now["accepted"]), 1)}
+
     def chat(self, request: dict, reply, cancelled=lambda: False) -> dict:
         """One request. An `aside` -- a wiki summary written while the person
         reads the last answer -- runs on a cache of its own and leaves the
@@ -1583,6 +1757,13 @@ class Engine:
             repetition_penalty=request.get("repetition_penalty"),
         )
         thought = one_thought(self.tokenizer, template)
+        # With the assistant unless the request asks for penalties, which the
+        # speculative rounds cannot apply.
+        speculative = (self.drafter is not None and not request.get("presence_penalty")
+                       and not request.get("repetition_penalty"))
+        greedy = not float(request.get("temperature") or 0.0)
+        drafted_before = {name: getattr(self.drafter, f"speculative_total_{name}", 0)
+                          for name in ("rounds", "accepted", "drafted")} if speculative else None
         if thought is not None:
             logits_processors = [*(logits_processors or []), thought]
 
@@ -1641,7 +1822,7 @@ class Engine:
         def stream(prompt_tokens, limit):
             nonlocal generated, finish, written_len
             self.observe("generation", prompt_tokens=len(full), generated_tokens=generated)
-            for response in stream_generate(
+            responses = self.speculate(prompt_tokens, limit, sampler, greedy, thought) if speculative else stream_generate(
                 self.model, self.tokenizer, mx.array(prompt_tokens), max_tokens=limit,
                 sampler=sampler, logits_processors=logits_processors,
                 prompt_cache=self.cache,
@@ -1650,7 +1831,16 @@ class Engine:
                 prompt_progress_callback=lambda done, total: reply(
                     {"event": "prefill", "processed": int(done), "total": int(total)}
                 ),
-            ):
+            )
+            try:
+                return read(responses)
+            finally:
+                if speculative:
+                    responses.close()
+
+        def read(responses):
+            nonlocal generated, finish, written_len
+            for response in responses:
                 generated += 1
                 if cancelled():
                     finish = "cancelled"
@@ -1683,22 +1873,28 @@ class Engine:
                     return finish
             return finish
 
-        outcome = stream(full[len(base):], max_tokens)
-        while outcome == "budget" and finalizations < FINALIZATION_ATTEMPTS:
-            forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,
-                                                add_special_tokens=False))
-            remaining = max_tokens - generated - forced_tokens - len(forced)
-            if remaining <= 0:
-                break
-            forced_tokens += len(forced)
-            # Close the reasoning with the template's own delimiter and let
-            # the answer follow, inside what is left of the cap.
-            finalizations += 1
-            for channel, piece in tracker.force_close():
-                reply({"event": "delta", "channel": channel, "text": piece})
-            reply({"event": "finalizing", "reasoning_tokens": tracker.reasoning_tokens})
-            finish = "length"
-            outcome = stream(forced, remaining)
+        try:
+            outcome = stream(full[len(base):], max_tokens)
+            while outcome == "budget" and finalizations < FINALIZATION_ATTEMPTS:
+                forced = list(self.tokenizer.encode(delimiters[1] + CLOSE_SUFFIX,
+                                                    add_special_tokens=False))
+                remaining = max_tokens - generated - forced_tokens - len(forced)
+                if remaining <= 0:
+                    break
+                forced_tokens += len(forced)
+                # Close the reasoning with the template's own delimiter and let
+                # the answer follow, inside what is left of the cap.
+                finalizations += 1
+                if thought is not None:
+                    thought.shut = thought.closed = True
+                for channel, piece in tracker.force_close():
+                    reply({"event": "delta", "channel": channel, "text": piece})
+                reply({"event": "finalizing", "reasoning_tokens": tracker.reasoning_tokens})
+                finish = "length"
+                outcome = stream(forced, remaining)
+        finally:
+            if speculative and self.cache is not None:
+                self.cache = unbuffered(self.cache)
         for channel, piece in tracker.flush():
             reply({"event": "delta", "channel": channel, "text": piece})
         if (finalizations or outcome == "budget") and finish not in ("cancelled", "repetition") and (
@@ -1715,6 +1911,7 @@ class Engine:
                "prefilled_tokens": len(base) - reused,
                "prefill_s": round(prefilled - started, 3),
                "copied_cache": self.checkpoint is not None,
+               "assistant": self.drafted(drafted_before),
                "peak_memory_gb": round(mx.get_peak_memory() / 1e9, 2),
                "active_memory_gb": round(mx.get_active_memory() / 1e9, 2),
                "cache_memory_gb": round(mx.get_cache_memory() / 1e9, 2)})
@@ -1725,6 +1922,7 @@ class Engine:
             "finish_reason": finish if finish in (
                 "stop", "repetition", "cancelled", "reasoning_unfinished") else "length",
             "budget_forced": finalizations > 0,
+            "assistant": self.drafted(drafted_before),
             "repetition_signals": repetition.summary(),
             # Whether the reasoning counts below are the engine's own: only
             # where the template's delimiters let it see the phase.

@@ -688,13 +688,13 @@ class Chat(unittest.TestCase):
         self.assertEqual((reasoning, content), ("abc", "ok"))
         self.assertEqual(len(generate.calls), 1)
 
-    def test_a_template_without_delimiters_is_not_budgeted_or_counted(self):
+    def test_cached_model_template_cannot_disable_gemmas_reasoning_budget(self):
         self.engine.tokenizer.chat_template = "{{ messages }}"
-        generate = scripted(list("<|channel>thoughtabcdefgh"))
+        generate = scripted(list("<|channel>thoughtabcdefgh"), list("answer"))
         done, _, _, _ = self.chat(generate, reasoning_budget=2, max_tokens=1000)
-        self.assertFalse(done["budget_forced"])
-        self.assertFalse(done["reasoning_tracked"])
-        self.assertIsNone(done["usage"]["reasoning_tokens"])
+        self.assertTrue(done["budget_forced"])
+        self.assertTrue(done["reasoning_tracked"])
+        self.assertIsNotNone(done["usage"]["reasoning_tokens"])
 
     def test_cancelling_stops_inside_the_reasoning_without_waiting_for_the_budget(self):
         seen = []

@@ -95,6 +95,20 @@ pub struct Pack {
     pub assistant: &'static str,
 }
 
+impl Pack {
+    /// Assistant weights measured from the local verified bf16 artifacts.
+    /// Reserved conservatively even before download; the 8-bit KV path does
+    /// not load the assistant. Runtime peak measurements still decide fit.
+    pub fn assistant_bytes(&self) -> u64 {
+        match self.assistant {
+            "mlx-community/gemma-4-12B-it-assistant-bf16" => 845_719_253,
+            "mlx-community/gemma-4-26B-A4B-it-assistant-bf16" => 839_427_840,
+            "mlx-community/gemma-4-31B-it-assistant-bf16" => 939_042_560,
+            _ => 0,
+        }
+    }
+}
+
 const GEMMA_12B: Attention = Attention {
     global_layers: 8,
     global_kv_heads: 1,
@@ -195,6 +209,11 @@ const GIB: u64 = 1024 * 1024 * 1024;
 pub fn memory_for(pack: &Pack, tokens: u32, kv_bits: u32) -> u64 {
     let per_token = pack.attention.cache_bytes_per_token() * u64::from(kv_bits.clamp(8, 16)) / 16;
     pack.weights_bytes
+        + if kv_bits >= 16 {
+            pack.assistant_bytes()
+        } else {
+            0
+        }
         + per_token * u64::from(tokens)
         + pack.attention.sliding_bytes()
         + SCORES_BYTES
@@ -304,7 +323,7 @@ mod tests {
         // 31B at 8 bits: weights 31.4 GiB, global cache 20 GiB at 262k,
         // sliding layers 1.6 GiB (50 layers of 16 heads), then scores,
         // engine and reserve.
-        assert!((gib(memory_for(p31, CONTEXT_TOKENS, 16)) - 61.5).abs() < 0.3);
+        assert!((gib(memory_for(p31, CONTEXT_TOKENS, 16)) - 62.4).abs() < 0.3);
         assert_eq!(window(p31, 64 * GIB, 16), CONTEXT_TOKENS);
         let p12 = pack("mlx-community/gemma-4-12B-it-4bit").unwrap();
         // On 16 GB the 12B does not hold 262k at 16 bits, whatever is hoped.
