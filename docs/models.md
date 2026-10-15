@@ -17,11 +17,16 @@ history is in [experiment-log.md](experiment-log.md) and the benchmark's
 
 ## The line
 
-| Tier | Pack | Weights | Notes |
-|---|---|---|---|
-| 16 GB | `mlx-community/gemma-4-12B-it-4bit` | 6.7 GB | Gemma 4 12B "unified" (vision without a separate encoder) |
-| 24–32 GB | `mlx-community/gemma-4-26b-a4b-it-4bit` | 15.3 GB | MoE, 3.8B active; QAT 4-bit (15.6 GB) and 6-bit (21.6 GB) packs also listed |
-| 64 GB+ | `mlx-community/gemma-4-31b-it-8bit` | 33.8 GB | dense |
+| Tier | Pack | Weights | Context | Notes |
+|---|---|---|---|---|
+| 16 GB | `mlx-community/gemma-4-e2b-it-4bit` | 3.6 GB | 131,072 | Gemma 4 E2B |
+| 16 GB | `mlx-community/gemma-4-e4b-it-4bit` | 5.1 GB | 131,072 | Gemma 4 E4B; a QAT 4-bit pack is also listed |
+| 24 GB and up | `mlx-community/gemma-4-12B-it-4bit` | 6.7 GB | 262,144 | Gemma 4 12B "unified" (vision without a separate encoder) |
+| 24 GB and up | `mlx-community/gemma-4-26b-a4b-it-4bit` | 15.3 GB | 262,144 | MoE, 3.8B active; QAT 4-bit (15.6 GB) and 6-bit (21.6 GB) packs also listed |
+| 64 GB and up | `mlx-community/gemma-4-31b-it-8bit` | 33.8 GB | 262,144 | dense |
+
+The context is the pack's native maximum (`gemma::PACKS`), held in full where
+this Mac's memory allows it.
 
 Each pack has a small "assistant" model Google publishes for speculative
 decoding; it is kept for that and is never offered as a model to run.

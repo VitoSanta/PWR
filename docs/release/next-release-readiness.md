@@ -1,10 +1,11 @@
 # Next macOS alpha release — preparation checklist
 
-**Source review: 2026-10-07, `develop` at `90fe0dd4`. Status: preparation,
-not ready to tag.** No new version, candidate commit, DMG or release is
-designated by this document. The three uncommitted interface files present
-during the review must be reviewed together with subsequent changes before
-freezing a candidate. Historical suite passes are not candidate evidence.
+**v0.4.0-alpha was released on 2026-10-15** (tag on `b4f9e630`); what was
+checked for it is recorded in its
+[release notes](v0.4.0-alpha-release-notes.md). The checklist below is the
+one kept since v0.3.0-alpha: carry it to the next release, re-run every check
+on that release's candidate commit, and do not count passes recorded here as
+evidence for it. The manual native-app list was not run for v0.4.0-alpha.
 
 ## Public repository
 
