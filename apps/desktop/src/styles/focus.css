@@ -854,25 +854,40 @@
 @media (hover: hover) and (pointer: fine) {
   .shell-focus .composer-dock .composer {
     min-height: 56px;
-    overflow: hidden;
-    transition: width 460ms cubic-bezier(0.22, 1, 0.36, 1),
-      border-radius 460ms cubic-bezier(0.22, 1, 0.36, 1),
+    /* The form always keeps its final width. Only the surface morphs,
+       so text and controls never wrap or slide across one another. */
+    z-index: 1;
+    background: transparent;
+  }
+
+  .shell-focus .composer-dock::before {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    top: 24px;
+    bottom: 0;
+    left: 50%;
+    width: 100%;
+    border-radius: 28px;
+    background: var(--mat-sys-surface-container);
+    transform: translateX(-50%);
+    transition: width 480ms cubic-bezier(0.22, 1, 0.36, 1),
       background-color var(--dur) var(--ease);
   }
 
-  .shell-focus .composer-dock .composer:has([aria-expanded='true']) {
-    overflow: visible;
+  .shell-focus .composer-dock:focus-within::before {
+    background: var(--mat-sys-surface-container-high);
   }
 
   .shell-focus .composer-dock .composer > :not(.drop-hint) {
-    transition: opacity 160ms ease, visibility 0s;
+    transition: opacity 180ms ease 220ms, visibility 0s;
   }
 
   .shell-focus .composer-beacon {
     display: grid;
     place-items: center;
     position: absolute;
-    z-index: 1;
+    z-index: 2;
     bottom: 0;
     left: 50%;
     width: 56px;
@@ -890,13 +905,9 @@
 
   .shell-focus .composer-beacon pa-brand-mark { width: 32px; height: 32px; }
 
-  .shell-focus .composer-dock:not(:hover):not(:focus-within):not(.is-pinned):not(:has([aria-expanded='true'])) .composer {
+  .shell-focus .composer-dock:not(:hover):not(:focus-within):not(.is-pinned):not(:has([aria-expanded='true']))::before {
     width: 56px;
-    height: 56px;
-    min-height: 56px;
-    border-radius: 28px;
-    overflow: hidden;
-    transition-delay: 500ms;
+    transition-delay: 550ms;
   }
 
   .shell-focus .composer-dock:not(:hover):not(:focus-within):not(.is-pinned):not(:has([aria-expanded='true'])) .composer > :not(.drop-hint) {
@@ -913,6 +924,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .shell-focus .composer-dock::before,
   .shell-focus .composer-dock .composer,
   .shell-focus .composer-dock .composer > :not(.drop-hint),
   .shell-focus .composer-dock .composer-beacon {
