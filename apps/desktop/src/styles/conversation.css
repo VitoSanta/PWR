@@ -1488,10 +1488,25 @@ pa-trace-raw {
   color: var(--text-primary);
 }
 
-/* The work sits under the name, with no rail and no nodes. */
+/* As Gemini answers: the mark in its own narrow column, the answer
+   beside it from the first line -- no name, no header, no rail. */
+.turn {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: var(--space-4);
+  align-items: start;
+}
+
+.turn > .turn-avatar {
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: 0;
+}
+
 .turn-body {
   margin-left: 0;
-  padding-left: 30px;
+  padding: 0;
   border-left: 0;
 }
 

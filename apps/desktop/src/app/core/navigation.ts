@@ -89,6 +89,8 @@ export class NavigationService {
 @Injectable({ providedIn: 'root' })
 export class WindowState {
   readonly isMac = isMac;
+  /** In the app's own window, whose title bar is drawn over the page. */
+  readonly native = inTauri();
   readonly fullscreen = signal(false);
 
   constructor() {

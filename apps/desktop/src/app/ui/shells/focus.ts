@@ -17,24 +17,26 @@ import { DiagnosticExport } from '../parts/diagnostic-export';
 import { RunControls } from '../parts/run-controls';
 import { SessionSwitcher } from '../parts/session-switcher';
 import { ToolStrip } from '../parts/tool-strip';
+import { ToolWheel } from '../parts/tool-wheel';
 import { MemoryProposals } from '../personal';
 import { RunMetricsChip } from '../run-metrics';
 
 /**
  * What a right click leaves alone: text and whatever has its own menu --
- * copy, paste, look up, a link, an image -- and the tools and the bar, so
- * the row only ever opens over the conversation's empty space.
+ * copy, paste, look up, a link, an image -- the bar, and what a tool card
+ * shows; the wheel opens over empty space, in the conversation or around
+ * the tools, and on the cards' headers.
  */
 const NATIVE_MENU =
   'input, textarea, select, [contenteditable="true"], a, img, video, iframe, pre, code, .markdown, ' +
-  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, pa-inspector, .composer';
+  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, .wb-card-body, .composer';
 
 /**
  * Focus: no chrome. The conversation fills the window; everything else is
  * in the message bar -- the tools and where you are at its left, the run's
  * state and the model at its right -- as Google's assistants keep theirs.
- * The tools open as a list from that bar, or where a right click (a
- * two-finger click) lands on an empty part of the window. A selected tool gets its own column while
+ * The tools open as a list from that bar, or as a wheel where a right
+ * click (a two-finger click) lands on an empty part of the window. A selected tool gets its own column while
  * the conversation remains visible where space allows.
  */
 @Component({
@@ -54,6 +56,7 @@ const NATIVE_MENU =
     RunMetricsChip,
     SessionSwitcher,
     ToolStrip,
+    ToolWheel,
     Tooltip,
   ],
   template: `
@@ -63,6 +66,7 @@ const NATIVE_MENU =
       [class.tool-page]="open() && layout.right() !== 'docked'"
       [class.tool-full]="open() && !!work.focused()"
       [class.is-mac]="win.isMac"
+      [class.is-native]="win.native"
       [class.is-fullscreen]="win.fullscreen()"
       [class.is-resizing]="layout.resizing()"
       [style.--right-w.px]="layout.rightWidth()"
@@ -104,10 +108,10 @@ const NATIVE_MENU =
               (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
               [attr.aria-expanded]="strip() === 'bar'"
               aria-haspopup="menu"
-              aria-label="Tools"
-              paTooltip="Tools · or right-click an empty spot"
+              aria-label="Options"
+              paTooltip="Options · right-click an empty spot for the tools"
             >
-              <pa-icon name="grid" />
+              <pa-icon name="settings" />
             </button>
           </div>
           <div paComposerEnd class="composer-engine">
@@ -117,26 +121,25 @@ const NATIVE_MENU =
         </pa-composer>
       </main>
 
-      <!-- Where a right click landed: the tools open from there. -->
-      <span #pointerAnchor class="focus-pointer" [style.left.px]="pointer().x" [style.top.px]="pointer().y" aria-hidden="true"></span>
 
-      @if (strip(); as from) {
-        <!-- A new row for each opening, so it is placed where it was asked for. -->
+      @if (strip() === 'bar') {
         @for (opening of [stripOpenings()]; track opening) {
           <pa-popover
             class="tool-strip-popover"
-            [anchor]="from === 'bar' ? toolsButton : pointerAnchor"
-            [anchorAlign]="from === 'bar' ? 'start' : 'center'"
-            [within]="from === 'bar' ? null : main"
+            [anchor]="toolsButton"
+            anchorAlign="start"
             panelRole="menu"
-            ariaLabel="Tools"
+            ariaLabel="Options"
             (keydown)="stripKeys($event)"
             (closed)="strip.set(null)"
             animate.leave="anim-pop-out"
           >
-            <pa-tool-strip [vertical]="from === 'bar'" (done)="strip.set(null)" (run)="openRun(from)" />
+            <pa-tool-strip (done)="strip.set(null)" (run)="openRun()" />
           </pa-popover>
         }
+      } @else if (strip() === 'pointer') {
+        <!-- A right click: the tools as a wheel around where it landed. -->
+        <pa-tool-wheel [at]="pointer()" (close)="strip.set(null)" animate.leave="is-leaving" />
       }
 
       <!-- The run's figures, opened from the model's panel. -->
@@ -165,7 +168,6 @@ export class FocusShell {
   protected readonly pointer = signal({ x: 0, y: 0 });
   protected readonly stripOpenings = signal(0);
   private readonly toolsRef = viewChild.required<ElementRef<HTMLElement>>('toolsButton');
-  private readonly pointerRef = viewChild.required<ElementRef<HTMLElement>>('pointerAnchor');
 
   constructor() {
     // Focus uses standalone cards and starts with the conversation.
@@ -208,8 +210,7 @@ export class FocusShell {
    * down the list, along the row.
    */
   protected stripKeys(event: KeyboardEvent): void {
-    const orientation = this.strip() === 'bar' ? 'vertical' : 'horizontal';
-    roveFocus(event, event.currentTarget as HTMLElement, '[role^=menuitem]', orientation);
+    roveFocus(event, event.currentTarget as HTMLElement, '[role^=menuitem]', 'vertical');
   }
 
   protected openStrip(): void {
@@ -218,8 +219,8 @@ export class FocusShell {
   }
 
   /** The run's controls, opened from where the strip was. */
-  protected openRun(from: 'bar' | 'pointer'): void {
+  protected openRun(): void {
     this.strip.set(null);
-    this.ui.runControls.set((from === 'bar' ? this.toolsRef() : this.pointerRef()).nativeElement);
+    this.ui.runControls.set(this.toolsRef().nativeElement);
   }
 }
