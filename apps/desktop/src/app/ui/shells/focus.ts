@@ -19,7 +19,6 @@ import { SessionSwitcher } from '../parts/session-switcher';
 import { ToolStrip } from '../parts/tool-strip';
 import { MemoryProposals } from '../personal';
 import { RunMetricsChip } from '../run-metrics';
-import { TraceVisibilityControl } from '../trace';
 
 /**
  * What a right click leaves alone: text and whatever has its own menu --
@@ -53,7 +52,6 @@ const NATIVE_MENU =
     Popover,
     RunControls,
     RunMetricsChip,
-    TraceVisibilityControl,
     SessionSwitcher,
     ToolStrip,
     Tooltip,
@@ -72,6 +70,13 @@ const NATIVE_MENU =
     >
       <div class="focus-drag" data-tauri-drag-region="deep"></div>
 
+      <!-- Navigation where a Mac app keeps it: the conversations, beside the
+           window's buttons; and, in development builds, the trace export. -->
+      <nav class="focus-nav" aria-label="Conversations">
+        <pa-session-switcher [compact]="true" />
+        <pa-diagnostic-export />
+      </nav>
+
       <main #main class="main focus-main" aria-label="Conversation">
         @if (store.coreError()) {
           <div class="core-error banner banner-danger" role="alert">
@@ -85,11 +90,10 @@ const NATIVE_MENU =
           <!-- Everything lives in the message bar: the tools and the
                conversation at its left, the run's state and the model at
                its right. -->
-          <!-- Icons only, by what they are for. At the left, what you add
-               or open: attach (the composer's own), the tools, the
-               conversations. At the right, the run's state -- what the
-               trace shows, the context, the speed -- then the model, and
-               send. Each names itself and its figures in its tooltip. -->
+          <!-- The message bar holds actions only: attach (the composer's
+               own) and the tools at the left; at the right the engine --
+               the context's ring and the model, whose panel holds thinking
+               and speed -- then stop and send. -->
           <div paComposerStart class="composer-tools">
             <button matIconButton
               #toolsButton
@@ -105,13 +109,9 @@ const NATIVE_MENU =
             >
               <pa-icon name="grid" />
             </button>
-            <pa-session-switcher [compact]="true" />
           </div>
-          <div paComposerEnd class="composer-status">
-            <pa-diagnostic-export />
-            <pa-trace-visibility />
+          <div paComposerEnd class="composer-engine">
             <pa-context-meter />
-            <pa-run-metrics />
             <pa-model-picker [compact]="true" />
           </div>
         </pa-composer>
@@ -138,6 +138,9 @@ const NATIVE_MENU =
           </pa-popover>
         }
       }
+
+      <!-- The run's figures, opened from the model's panel. -->
+      <pa-run-metrics [panelOnly]="true" side="top" />
 
       @if (ui.runControls(); as anchor) {
         <pa-run-controls [anchor]="anchor" (closed)="ui.runControls.set(null)" />

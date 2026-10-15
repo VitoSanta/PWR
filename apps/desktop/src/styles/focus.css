@@ -102,39 +102,101 @@
   padding-top: 16px;
 }
 
-/* The message bar's two ends: the tools and the conversation at the left,
-   the run's state and the model at the right. */
+/* The message bar's two ends: the tools at the left; the engine at the
+   right -- the context's ring and the model as one outlined chip. */
 .composer-tools,
-.composer-status {
+.composer-engine {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
 }
 
-.composer-tools pa-session-switcher {
-  flex: 0 1 auto;
-  min-width: 0;
+.composer-tools pa-icon {
+  --icon-size: 18px !important;
+  width: 18px !important;
+  height: 18px !important;
 }
 
-.composer-tools .switcher-trigger {
-  max-width: 220px;
-  height: var(--control-h-sm);
+.composer .composer-flag-label {
+  display: none;
+}
+
+.composer-engine {
+  gap: 0;
+  height: var(--control-h);
+  padding: 0 var(--space-1) 0 2px;
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: var(--radius-pill);
 }
 
-.composer-status .topbar-chip {
-  height: var(--control-h-sm);
-  border-color: transparent;
-  border-radius: var(--radius-pill);
+/* The ring: a round button at the chip's start. */
+.composer-engine .topbar-chip.meter {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
 }
 
-/* In the bar every control is an icon, a 32px circle as Material's icon
-   buttons are; names and figures are in their tooltips, the rest in what
-   they open. */
-.composer-status .topbar-chip,
-.composer-tools .switcher-trigger.is-icon {
-  position: relative;
+.composer-engine .meter .num {
+  display: none;
+}
+
+.composer-engine .meter-ring {
+  width: 18px;
+  height: 18px;
+}
+
+/* The model: its state dot, a short name, the chevron. */
+.composer-engine pa-model-picker .topbar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--mat-sys-on-surface);
+  font-size: var(--fs-body-sm);
+  font-weight: var(--fw-medium);
+}
+
+.composer-engine .topbar-chip:hover {
+  background: var(--surface-hover);
+}
+
+.composer-engine .topbar-chip[aria-expanded='true'] {
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.composer-engine pa-model-picker .dot {
+  width: 7px;
+  height: 7px;
+  margin: 0;
+}
+
+/* Navigation at the top left, beside the window's buttons. */
+.focus-nav {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.shell-focus.is-mac:not(.is-fullscreen) .focus-nav {
+  left: 80px;
+}
+
+.focus-nav .switcher-trigger.is-icon {
   display: inline-grid;
   place-items: center;
   width: var(--control-h);
@@ -146,46 +208,14 @@
   color: var(--text-secondary);
 }
 
-.composer-status .topbar-chip:hover,
-.composer-tools .switcher-trigger.is-icon:hover {
+.focus-nav .switcher-trigger.is-icon:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
 
-.composer-status .topbar-chip[aria-expanded='true'],
-.composer-tools .switcher-trigger.is-icon[aria-expanded='true'] {
+.focus-nav .switcher-trigger.is-icon[aria-expanded='true'] {
   background: var(--mat-sys-secondary-container);
   color: var(--mat-sys-on-secondary-container);
-}
-
-.composer-status .topbar-chip .num,
-.composer-status .topbar-chip .meter-detail,
-.composer .composer-flag-label {
-  display: none;
-}
-
-.composer-status .meter-ring {
-  width: 18px;
-  height: 18px;
-}
-
-/* One icon size across the bar, whatever size each control asks for. */
-.composer-status .topbar-chip pa-icon,
-.composer-tools pa-icon {
-  --icon-size: 18px !important;
-  width: 18px !important;
-  height: 18px !important;
-}
-
-/* The model's state, a small badge on its icon. */
-.composer-status .topbar-chip > .dot {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 7px;
-  height: 7px;
-  margin: 0;
-  box-shadow: 0 0 0 2px var(--mat-sys-surface-container);
 }
 
 /* The two flags a run can carry stay in sight, as tinted icons. */
@@ -580,19 +610,15 @@
   border-radius: 50%;
 }
 
-/* Narrow windows: the message bar gives up the speed and the trace's
-   detail, then the conversation's name and the context. */
+/* Narrow windows: the model's chip gives up its name, then the ring. */
 @media (max-width: 900px) {
-  .composer-status pa-diagnostic-export,
-  .composer-status pa-run-metrics,
-  .composer-status pa-trace-visibility {
+  .composer-engine pa-model-picker .topbar-chip-label {
     display: none;
   }
 }
 
 @media (max-width: 640px) {
-  .composer-tools pa-session-switcher,
-  .composer-status pa-context-meter {
+  .composer-engine pa-context-meter {
     display: none;
   }
 }

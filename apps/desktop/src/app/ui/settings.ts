@@ -4,6 +4,8 @@ import { AgentStore } from '../core/agent.store';
 import { EngineStatus } from '../core/model';
 import { LAYOUT_PALETTE, Theme, ThemeMode, ThemeService } from '../core/theme';
 import { LAYOUT_SWATCHES, PALETTES, Swatch } from '../core/palettes';
+import { TRACE_VISIBILITIES } from '../core/trace';
+import { Select } from './kit/select';
 import { SHORTCUTS, UiStore, roveFocus, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
@@ -14,7 +16,7 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
 /** Preferences, one page at a time: kept out of the main screen. */
 @Component({
   selector: 'pa-settings',
-  imports: [MatButtonModule, Dialog, Icon, ProfileSettings, MemorySettings, ProjectsSettings],
+  imports: [MatButtonModule, Dialog, Icon, ProfileSettings, MemorySettings, ProjectsSettings, Select],
   template: `
     @if (ui.settingsOpen()) {
       <pa-dialog
@@ -131,6 +133,19 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
                       </div>
                     </div>
                   }
+                  <div class="settings-row">
+                    <div class="settings-row-text">
+                      <span class="settings-row-title" id="trace-detail-label">Trace detail</span>
+                      <span class="fine">How much of each run the conversation shows. The model does the same work.</span>
+                    </div>
+                    <pa-select
+                      size="sm"
+                      labelledBy="trace-detail-label"
+                      [options]="traceOptions"
+                      [value]="store.traceVisibility()"
+                      (valueChange)="store.setTraceVisibility($any($event))"
+                    />
+                  </div>
                   @if (store.engine(); as engine) {
                     @if (engine.needed) {
                       <div class="settings-row">
@@ -179,6 +194,7 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Settings {
+  protected readonly traceOptions = TRACE_VISIBILITIES.map((option) => ({ value: option.value, label: option.label }));
   protected readonly ui = inject(UiStore);
   protected readonly theme = inject(ThemeService);
   protected readonly store = inject(AgentStore);

@@ -1937,3 +1937,8 @@ pa-trace-raw {
   background: transparent;
   color: var(--mat-sys-on-surface-variant);
 }
+
+/* The speed of the reply being written, after "Working". */
+.working-speed {
+  color: var(--mat-sys-outline);
+}

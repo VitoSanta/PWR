@@ -13,7 +13,7 @@ import { AgentStore } from '../core/agent.store';
 import { Entry } from '../core/model';
 import { ModelsStore } from '../core/models.store';
 import { ConfirmService, ToastService } from '../core/ui';
-import { RunOutcome, Step, groupSteps } from '../core/trace';
+import { RunOutcome, Step, groupSteps, rate, runMetrics } from '../core/trace';
 import { BrandMark } from './kit/brand-mark';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
@@ -171,6 +171,9 @@ type Item =
                     <div class="step working" role="status" [attr.title]="workingHelp()">
                       <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
                       <span class="working-label">{{ workingLabel() }}</span>
+                      @if (speed(); as speed) {
+                        <span class="working-speed num">· {{ speed }} tok/s</span>
+                      }
                     </div>
                   } @else {
                     <time class="turn-finished num" [attr.datetime]="iso(item.endedAt)">Finished {{ clock(item.endedAt) }} · took {{ duration(item) }}</time>
@@ -256,6 +259,12 @@ export class Conversation {
     }
     for (const item of items) if (item.type === 'turn') item.steps = groupSteps(item.entries);
     return items;
+  });
+
+  /** The speed of the reply being written, beside "Working". */
+  protected readonly speed = computed(() => {
+    const value = runMetrics(this.store.timeline(), this.now(), this.store.turnActive()).generationTps;
+    return value === null ? '' : rate(value);
   });
 
   protected readonly workingLabel = computed(() => {
