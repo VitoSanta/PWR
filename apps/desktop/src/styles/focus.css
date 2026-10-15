@@ -25,14 +25,6 @@
   display: flex;
 }
 
-/* Keep the mark recognisable while softening its outer silhouette. */
-.welcome-mark,
-.turn-avatar,
-.setup-mark,
-.brand-mark {
-  border-radius: var(--radius-brand);
-}
-
 /* Model Manager: this machine and the line as Material cards on the
    dialog -- the lowest surface container -- the packs one list with
    dividers, not cards of their own. */

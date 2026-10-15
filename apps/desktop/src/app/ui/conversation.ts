@@ -138,16 +138,10 @@ type Item =
             }
             @case ('turn') {
               <article class="turn" [class.live]="item.live" aria-label="PWR">
-                <header class="turn-head">
-                  <pa-brand-mark class="turn-avatar" />
-                  <strong>PWR</strong>
-                  <!-- The model is in the bar above; said again here only in
-                       Raw Trace, which is read for exactly that kind of fact. -->
-                  @if (store.traceVisibility() === 'raw') {
-                    <span class="turn-meta truncate">{{ store.modelName() }} · started {{ clock(item.startedAt) }}</span>
-                  }
-                  <span class="turn-meta num">{{ item.live ? (store.chatMode() ? 'thinking' : 'working') : 'done' }} · {{ duration(item) }}</span>
-                </header>
+                <!-- As Gemini answers: the mark, then the answer -- no name, no
+                     header. The mark turns while PWR works. The model and the
+                     start time are said only in Raw Trace. -->
+                <pa-brand-mark class="turn-avatar" [active]="item.live" />
                 <div class="turn-body">
                   @switch (store.traceVisibility()) {
                     @case ('compact') {
@@ -167,6 +161,9 @@ type Item =
                       </button>
                     </div>
                   }
+                  @if (store.traceVisibility() === 'raw') {
+                    <span class="turn-meta truncate">{{ store.modelName() }} · started {{ clock(item.startedAt) }}</span>
+                  }
                   @if (item.live) {
                     <div class="step working" role="status" [attr.title]="workingHelp()">
                       <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -185,11 +182,7 @@ type Item =
         }
         @if (store.turnActive() && lastIsUser()) {
           <article class="turn live" aria-label="PWR">
-            <header class="turn-head">
-              <pa-brand-mark class="turn-avatar" />
-              <strong>PWR</strong>
-              <span class="turn-meta truncate">{{ store.modelName() }} · {{ store.chatMode() ? 'thinking' : 'working' }}</span>
-            </header>
+            <pa-brand-mark class="turn-avatar" [active]="true" />
             <div class="turn-body">
               <div class="step working" role="status">
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>

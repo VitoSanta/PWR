@@ -1,21 +1,62 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
-/** The PWR mark keeps its blue accent while the glyph follows the selected theme. */
+/**
+ * The PWR mark: a P drawn in two soft strokes, a stem and a ring, in
+ * PWR's blue. While PWR works the ring turns -- its light sweeps round the
+ * bowl -- and the mark breathes; at rest it is still. One mark everywhere,
+ * from the welcome to each answer.
+ */
 @Component({
   selector: 'pa-brand-mark',
-  host: { 'aria-hidden': 'true' },
+  host: { 'aria-hidden': 'true', '[class.is-active]': 'active()' },
   template: `
-    <svg viewBox="275 275 705 705" aria-hidden="true" focusable="false">
-      <path fill="currentColor" d="M 502 298 H 781 C 881 298 957 376 957 482 C 957 586 890 650 779 672 C 756 677 742 671 742 652 V 598 C 742 582 751 574 768 570 C 796 564 811 544 811 509 V 487 C 811 454 788 432 756 432 H 514 C 476 432 445 463 445 502 V 922 C 445 945 429 957 407 957 H 333 C 311 957 298 941 298 920 V 501 C 298 387 388 298 502 298 Z" />
-      <path fill="currentColor" d="M 535 710 H 627 C 645 710 657 724 657 742 V 922 C 657 944 642 957 623 957 H 539 C 518 957 504 942 504 921 V 742 C 504 724 517 710 535 710 Z" />
-      <rect class="accent" x="505" y="495" width="205" height="191" rx="35" />
+    <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="pa-mark-ring" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="var(--mark-a)" />
+          <stop offset="0.55" stop-color="var(--mark-b)" />
+          <stop offset="1" stop-color="var(--mark-c)" />
+        </linearGradient>
+      </defs>
+      <rect class="stem" x="6" y="5" width="6" height="23" rx="3" />
+      <g class="ring">
+        <circle cx="17.5" cy="13" r="7.5" fill="none" stroke="url(#pa-mark-ring)" stroke-width="6" />
+      </g>
     </svg>
   `,
   styles: [`
-    :host { display: block; color: var(--text-primary); }
-    svg { display: block; width: 100%; height: 100%; }
-    .accent { fill: #087cf7; }
+    :host {
+      --mark-a: light-dark(#1a73e8, #8ab4f8);
+      --mark-b: light-dark(#4c8df6, #a8c7fa);
+      --mark-c: light-dark(#a8c7fa, #d3e3fd);
+      display: block;
+    }
+    svg { display: block; width: 100%; height: 100%; overflow: visible; }
+    .stem { fill: var(--mark-a); }
+    .ring {
+      transform-box: view-box;
+      transform-origin: 17.5px 13px;
+    }
+    :host(.is-active) .ring {
+      animation: pa-mark-turn 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+    :host(.is-active) svg {
+      animation: pa-mark-breathe 1.6s ease-in-out infinite;
+    }
+    @keyframes pa-mark-turn {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes pa-mark-breathe {
+      50% { transform: scale(0.9); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      :host(.is-active) .ring,
+      :host(.is-active) svg { animation: none; }
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class BrandMark {}
+export class BrandMark {
+  /** PWR is working: the mark moves. */
+  readonly active = input(false);
+}
