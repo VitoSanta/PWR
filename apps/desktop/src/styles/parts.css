@@ -302,6 +302,14 @@ pa-popover.tool-strip-popover {
   text-align: left;
 }
 
+.tool-strip-label small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-regular);
+}
+
 .tool-strip.is-vertical .tool-strip-keys {
   flex: none;
 }

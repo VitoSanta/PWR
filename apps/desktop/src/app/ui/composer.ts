@@ -217,42 +217,19 @@ const MAX_HEIGHT = 260;
         rows="1"
       ></textarea>
       <div class="composer-bar">
-        @if (!store.chatMode()) {
-          @if (!store.sandboxed()) {
-            <span
-              class="composer-warning"
-              [paTooltip]="store.permissionMode() === 'full'
-                ? 'Full access: commands run with your rights and are not confined to the workspace.'
-                : 'This platform has no sandbox adapter: commands the model runs are not confined to the workspace.'"
-              tabindex="0"
-            >
-              <pa-icon name="alert" [size]="14" /><span class="composer-flag-label"> {{ store.permissionMode() === 'full' ? 'Full access' : 'Not sandboxed' }}</span>
-            </span>
-          }
-        } @else {
-          <span
-            class="badge badge-outline"
-            paTooltip="Chat mode: the model reads what you attach and cannot edit files or run commands."
-          >
-            <pa-icon name="lock" [size]="12" /> Read-only chat
-          </span>
-        }
-        @if (!store.chatMode() && (store.goalMode() || store.permissionMode() === 'auto')) {
-          <!-- Only while one is on: a state that changes what happens next stays in sight. -->
-          <button
-            #runNote
+        @if (!store.chatMode() && !store.sandboxed()) {
+          <button matIconButton
             type="button"
-            class="run-note"
-            [class.tone-warning]="store.permissionMode() === 'auto'"
-            (click)="ui.runControls.set(ui.runControls() ? null : runNote)"
+            class="icon-btn composer-warning"
+            (click)="ui.runControls.set(ui.runControls() ? null : $any($event.currentTarget))"
             [attr.aria-expanded]="!!ui.runControls()"
             aria-haspopup="dialog"
-            [paTooltip]="(store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal mode' : 'Auto-approve') + ' is on · goal and approvals'"
-            animate.enter="anim-pop-in"
-            animate.leave="anim-pop-out"
+            [attr.aria-label]="store.permissionMode() === 'full' ? 'Full access · manage permissions' : 'Not sandboxed · manage permissions'"
+            [paTooltip]="store.permissionMode() === 'full'
+              ? 'Full access: commands run with your rights. Manage permissions.'
+              : 'Commands are not confined to the workspace. Manage permissions.'"
           >
-            <pa-icon name="zap" [size]="12" />
-            <span class="composer-flag-label">{{ store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal' : 'Auto-approve' }}</span>
+            <pa-icon name="alert" [size]="16" />
           </button>
         }
         <span class="spacer"></span>
@@ -314,11 +291,7 @@ export class Composer implements OnInit, OnDestroy {
   }
 
   protected placeholder(): string {
-    if (this.store.turnActive())
-      return 'Write the next message — it is queued until this turn ends…';
-    if (this.store.chatMode())
-      return 'Ask anything — attach files, folders or images for it to read…';
-    return 'Ask PWR to build, fix or explain something…';
+    return this.store.turnActive() ? 'Write the next message…' : 'Ask PWR…';
   }
   protected readonly draft = signal('');
   protected readonly editingQueued = signal<number | null>(null);

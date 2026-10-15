@@ -30,7 +30,9 @@ import { Icon, IconName } from '../kit/icon';
         </button>
       }
       <span class="tool-strip-sep" aria-hidden="true"></span>
-      @if (!store.chatMode()) {
+      @if (store.chatMode()) {
+        <span class="tool-strip-heading" role="presentation">Read-only chat · no edits or commands</span>
+      } @else {
         <button
           class="tool-strip-item"
           role="menuitem"
@@ -39,7 +41,9 @@ import { Icon, IconName } from '../kit/icon';
           (click)="run.emit()"
         >
           <pa-icon name="zap" [size]="16" />
-          <span class="tool-strip-label">Goal &amp; approvals</span>
+          <span class="tool-strip-label">Goal &amp; approvals
+            <small>{{ store.goalMode() ? 'Goal on' : 'Goal off' }} · {{ store.permissionMode() === 'full' ? 'Full access' : store.permissionMode() === 'auto' ? 'Auto-approve' : 'Ask for approval' }}</small>
+          </span>
         </button>
       }
       <button class="tool-strip-item" role="menuitem" (click)="ui.paletteOpen.set(true); done.emit()">

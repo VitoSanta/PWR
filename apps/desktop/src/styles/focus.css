@@ -74,6 +74,8 @@
 /* Nothing is docked at the sides: the conversation is centred in the
    window, or beside the tools while they are open. */
 .focus-main {
+  container-type: inline-size;
+  container-name: conversation-room;
   flex: 1;
   /* Clear of the window's own title bar strip. */
   padding-top: 36px;
@@ -588,30 +590,18 @@
   width: 100%;
 }
 
-/* The message bar, as Google's search bar: one slim full-round line while
-   it holds a single line -- attach and tools, the text, then the engine,
-   stop and send. Text that wraps opens it into a writing surface, the
-   controls below the text. What is attached or queued sits above it, in
-   its tray. */
+/* Give the message its own full-width row; controls never squeeze it. */
 .shell-focus .composer {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas: 'attach input actions';
-  align-items: center;
-  column-gap: var(--space-1);
-  margin-bottom: var(--space-4);
-  padding: 6px 8px;
-  border-radius: var(--radius-pill);
-}
-
-.shell-focus .composer.is-expanded {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     'input input'
     'attach actions';
-  row-gap: var(--space-1);
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
   padding: var(--space-3) var(--space-3) var(--space-2);
-  border-radius: 36px;
+  border-radius: 28px;
 }
 
 /* The tray above the bar: the column the bar has, its chips lined up with
@@ -642,11 +632,11 @@
 .shell-focus .composer-input {
   grid-area: input;
   min-width: 0;
-  padding: 7px var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-1);
 }
 
-.shell-focus .composer.is-expanded .composer-input {
-  padding: var(--space-2) var(--space-2) var(--space-1);
+.shell-focus .composer-warning {
+  --mat-icon-button-icon-color: var(--warning-text);
 }
 
 .shell-focus .composer-bar {
@@ -664,14 +654,14 @@
   border-radius: 50%;
 }
 
-/* Narrow windows: the model's chip gives up its name, then the ring. */
-@media (max-width: 900px) {
+/* Follow available conversation width, including beside an open tool. */
+@container conversation-room (max-width: 600px) {
   .composer-engine pa-model-picker .topbar-chip-label {
     display: none;
   }
 }
 
-@media (max-width: 640px) {
+@container conversation-room (max-width: 400px) {
   .composer-engine pa-context-meter {
     display: none;
   }
