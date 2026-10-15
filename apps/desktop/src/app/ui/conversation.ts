@@ -170,7 +170,7 @@ type Item =
                   @if (item.live) {
                     <div class="step working" role="status" [attr.title]="workingHelp()">
                       <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                      {{ workingLabel() }}
+                      <span class="working-label">{{ workingLabel() }}</span>
                     </div>
                   } @else {
                     <time class="turn-finished num" [attr.datetime]="iso(item.endedAt)">Finished {{ clock(item.endedAt) }} · took {{ duration(item) }}</time>
@@ -190,7 +190,7 @@ type Item =
             <div class="turn-body">
               <div class="step working" role="status">
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                {{ workingLabel() }}
+                <span class="working-label">{{ workingLabel() }}</span>
               </div>
             </div>
           </article>

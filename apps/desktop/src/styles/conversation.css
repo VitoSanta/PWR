@@ -1712,3 +1712,206 @@ pa-trace-raw {
   width: 100%;
   height: auto;
 }
+
+/* ===================================================================
+ * The conversation in Google's manner (Material 3, as Gemini draws it):
+ * the answer as readable prose, your message as a filled bubble, the run's
+ * steps as quiet lines with the live one in blue, code and tables as
+ * Material surfaces.
+ * =================================================================== */
+
+/* Your message: a filled bubble, its top-right corner squared toward you;
+   the time and actions only when you look at it. */
+.message-user {
+  padding: var(--space-3) 18px;
+  border: 0;
+  border-radius: 24px 6px 24px 24px;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.message-user-group .message-time {
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.message-user-group:hover .message-time,
+.message-user-group:focus-within .message-time {
+  opacity: 1;
+}
+
+/* Material's assist chip: 8px corners, the outline variant. */
+.attachment-chip {
+  height: 28px;
+  padding: 0 10px 0 var(--space-2);
+  border-color: var(--mat-sys-outline-variant);
+  border-radius: var(--radius-inline);
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* The turn's head: the mark, the name, how long. */
+.turn-head strong {
+  font-weight: var(--fw-medium);
+}
+
+/* The answer: Google Sans at reading size. */
+.step.text,
+.step.text .markdown {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--mat-sys-on-surface);
+}
+
+.markdown strong {
+  font-weight: var(--fw-medium);
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+}
+
+.markdown h1 { font-size: 22px; }
+.markdown h2 { font-size: 19px; }
+.markdown h3 { font-size: 17px; }
+
+.markdown a {
+  color: var(--mat-sys-primary);
+  text-decoration: none;
+}
+
+.markdown a:hover {
+  text-decoration: underline;
+}
+
+.markdown blockquote {
+  border-left: 3px solid var(--mat-sys-outline-variant);
+}
+
+/* Code: inline as a small tonal token, blocks as a Material surface. */
+.markdown code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  font-size: 0.9em;
+}
+
+.markdown pre {
+  padding: var(--space-4) var(--space-5);
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--mat-sys-surface-container);
+}
+
+.markdown pre code {
+  background: none;
+}
+
+.code-copy {
+  top: var(--space-2);
+  right: var(--space-2);
+  background: var(--mat-sys-surface-container-high);
+}
+
+.md-glyph {
+  font-size: 16px;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+}
+
+/* Tables as Material's data table: outline-variant rules, a tonal head,
+   rounded as a card. */
+.markdown table {
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--radius-card);
+}
+
+.markdown th,
+.markdown td {
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.markdown tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown th {
+  background: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: var(--fw-medium);
+}
+
+/* The run's phases: quiet lines; the one at work in blue, its name lit by
+   a passing sheen, as Google's assistants show their thinking. */
+.phase-head,
+.actions-head {
+  gap: var(--space-2);
+  font-size: var(--fs-body-sm);
+}
+
+.phase-name {
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: var(--fw-medium);
+}
+
+.phase.running .phase-icon,
+.phase.running .phase-name {
+  color: var(--mat-sys-primary);
+}
+
+.phase.running .phase-name,
+.step.working .working-label {
+  background: linear-gradient(
+      90deg,
+      var(--mat-sys-primary) 0%,
+      var(--mat-sys-primary) 40%,
+      color-mix(in srgb, var(--mat-sys-primary) 35%, var(--mat-sys-surface)) 50%,
+      var(--mat-sys-primary) 60%,
+      var(--mat-sys-primary) 100%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: pa-sheen var(--dur-shimmer) linear infinite;
+}
+
+@keyframes pa-sheen {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase.running .phase-name,
+  .step.working .working-label {
+    animation: none;
+    color: var(--mat-sys-primary);
+    background: none;
+  }
+}
+
+.phase-summary,
+.phase-time {
+  color: var(--mat-sys-outline);
+}
+
+/* Working: Material's primary, the dots and the word. */
+.dots i {
+  background: var(--mat-sys-primary);
+}
+
+/* Each step of a tool call, a Material list row: state layer on hover. */
+.action-row:not(:disabled):hover {
+  background: var(--surface-hover);
+}
