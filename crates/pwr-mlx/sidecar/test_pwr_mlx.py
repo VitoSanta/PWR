@@ -838,7 +838,7 @@ class GemmaEmptyThought(unittest.TestCase):
 
     def test_gemma_with_reasoning_off_gets_the_block(self):
         import pwr_mlx
-        gemma = "<|tool_call> ... <|channel>"
+        gemma = pwr_mlx.GEMMA_TEMPLATE
         self.assertEqual(pwr_mlx.empty_thought(self.Tokenizer(), gemma, False), [100, 5, 101])
         self.assertEqual(pwr_mlx.empty_thought(self.Tokenizer(), gemma, None), [100, 5, 101])
 
@@ -1274,3 +1274,28 @@ class PrefillCancellation(unittest.TestCase):
         with self.assertRaises(PrefillCancelled):
             engine.prefill([1, 2, 3, 4, 5, 6], 0, cancelled=lambda: bool(calls))
         self.assertEqual(len(calls), 1)
+
+
+class EdgeNativeTemplate(unittest.TestCase):
+    def test_edge_off_uses_the_checkpoint_template_without_an_empty_thought(self):
+        import pwr_mlx
+        from mlx_lm.utils import load_tokenizer
+        base = pathlib.Path.home() / ".pwr/models/mlx-community"
+        for name in ("gemma-4-e2b-it-4bit", "gemma-4-e4b-it-4bit", "gemma-4-E4B-it-qat-4bit"):
+            with self.subTest(pack=name):
+                path = base / name
+                engine = pwr_mlx.Engine()
+                engine.tokenizer = load_tokenizer(path)
+                engine.template = pwr_mlx.model_template(path, json.loads((path / "config.json").read_text()))
+                text = engine.tokenizer.decode(engine.render([{"role":"user", "content":"Inspect."}], None, False, True)[0])
+                self.assertTrue(text.endswith("<|turn>model\n"), repr(text[-100:]))
+                on = engine.tokenizer.decode(engine.render([{"role":"user", "content":"Inspect."}], None, True, True)[0])
+                self.assertIn("<|think|>", on)
+                self.assertEqual(pwr_mlx.empty_thought(engine.tokenizer, engine.template, False), [])
+                history = [{"role":"user", "content":"Inspect."}, GemmaHistory.CALL, GemmaHistory.RESULT]
+                continuation = engine.tokenizer.decode(engine.render(history, None, False, True)[0])
+                self.assertNotIn(pwr_mlx.EMPTY_THOUGHT, continuation)
+        for name in ("gemma-4-12B-it-4bit", "gemma-4-26b-a4b-it-4bit", "gemma-4-31b-it-8bit"):
+            config = json.loads((base / name / "config.json").read_text())
+            self.assertEqual(pwr_mlx.model_template(base / name, config), pwr_mlx.GEMMA_TEMPLATE)
+

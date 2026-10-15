@@ -322,7 +322,8 @@ def empty_thought(tokenizer, template: str, thinking) -> list:
     which it writes at the start of every other turn -- is missing there.
     Google advises adding it for 26B and 31B "to stabilize behavior"
     (prompt formatting for Gemma 4). Nothing for any other template."""
-    if thinking is True or "<|channel>" not in template or "<|tool_call>" not in template:
+    has_empty_block = EMPTY_THOUGHT in template or EMPTY_THOUGHT.replace("\n", "\\n") in template
+    if thinking is True or not has_empty_block or "<|tool_call>" not in template:
         return []
     return list(tokenizer.encode(EMPTY_THOUGHT, add_special_tokens=False))
 
@@ -1445,9 +1446,18 @@ def unbuffered(cache) -> list:
             for c in cache]
 
 
+def model_template(path: pathlib.Path, config: dict) -> str:
+    """Edge checkpoints have a native prefix without the large-model empty thought."""
+    text = config.get("text_config", config)
+    if text.get("max_position_embeddings") == 131_072:
+        return (path / "chat_template.jinja").read_text()
+    return GEMMA_TEMPLATE
+
+
 class Engine:
     def __init__(self) -> None:
         self.model = None
+        self.template = GEMMA_TEMPLATE
         self.tokenizer = None
         self.processor = None   # set when the model was loaded with its vision encoder
         self.path = None
@@ -1492,7 +1502,8 @@ class Engine:
         vlm, self.processor = load_vision(str(path))
         self.model = VisionText(vlm)
         self.tokenizer = load_tokenizer(path, NO_REMOTE_CODE)
-        self.tokenizer.chat_template = GEMMA_TEMPLATE
+        self.template = model_template(path, config)
+        self.tokenizer.chat_template = self.template
         add_turn_ends(self.tokenizer)
         self.path = path
         self.cache = None
@@ -1520,7 +1531,7 @@ class Engine:
 
     def render(self, messages, tools, thinking, generation_prompt: bool):
         """The prompt's tokens, and the processed images when it has any."""
-        template = GEMMA_TEMPLATE
+        template = self.template
         images, messages = image_parts(messages, accept=self.processor is not None)
         messages = gemma_tool_results(messages)
         kwargs = {
@@ -1748,7 +1759,7 @@ class Engine:
         thinking = request.get("thinking")
         budget = request.get("reasoning_budget")
         max_tokens = int(request.get("max_tokens") or 8192)
-        template = GEMMA_TEMPLATE
+        template = self.template
         delimiters = think_delimiters(template)
         if budget is not None:
             budget = max(0, min(int(budget), max(0, max_tokens - FINAL_RESERVE)))
