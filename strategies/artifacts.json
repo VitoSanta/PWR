@@ -572,7 +572,7 @@
     {
       "schema_version": 1,
       "id": "hf-gemma-4-e2b-it-assistant-bf16",
-      "family": "gemma4",
+      "family": "gemma4_assistant",
       "variant": "E2B-it-assistant-bf16",
       "source": {
         "kind": "hugging_face",
@@ -618,7 +618,7 @@
     {
       "schema_version": 1,
       "id": "hf-gemma-4-e4b-it-assistant-bf16",
-      "family": "gemma4",
+      "family": "gemma4_assistant",
       "variant": "E4B-it-assistant-bf16",
       "source": {
         "kind": "hugging_face",

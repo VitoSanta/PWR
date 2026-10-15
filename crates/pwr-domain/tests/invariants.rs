@@ -977,13 +977,22 @@ fn packaged_artifact_registry_is_the_gemma_line_with_checked_files() {
     let mac_artifacts = registry
         .eligible_for(ArtifactPlatform::MacosAppleSilicon, None)
         .unwrap();
-    assert_eq!(mac_artifacts.len(), 8);
+    // Every pack of the line, and each distinct assistant once (packs of one
+    // size share theirs).
+    let assistants = pwr_domain::gemma::PACKS
+        .iter()
+        .map(|pack| pack.assistant)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        mac_artifacts.len(),
+        pwr_domain::gemma::PACKS.len() + assistants.len()
+    );
     assert_eq!(
         mac_artifacts
             .iter()
             .filter(|artifact| artifact.family == "gemma4_assistant")
             .count(),
-        3
+        assistants.len()
     );
     assert!(
         mac_artifacts
