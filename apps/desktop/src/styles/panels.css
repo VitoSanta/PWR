@@ -1798,21 +1798,6 @@ pa-trace-visibility {
   margin: 0;
 }
 
-.switch-button {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  padding: 2px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  cursor: pointer;
-}
-
-.switch-button:focus-visible {
-  outline: 2px solid var(--accent-border);
-}
-
 .memory-card {
   display: flex;
   flex-direction: column;

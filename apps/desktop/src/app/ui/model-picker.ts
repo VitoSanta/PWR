@@ -1,3 +1,4 @@
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
@@ -15,7 +16,7 @@ import { Tooltip } from './kit/tooltip';
  */
 @Component({
   selector: 'pa-model-picker',
-  imports: [MatButtonModule, Icon, Popover, Tooltip],
+  imports: [MatSlideToggleModule, MatButtonModule, Icon, Popover, Tooltip],
   template: `
     <button
       #chip
@@ -111,17 +112,12 @@ import { Tooltip } from './kit/tooltip';
                 paTooltip="Gemma thinks before it answers or acts. Slower, sometimes better on hard steps."
                 >Thinking</span
               >
-              <button
-                type="button"
-                class="switch-button"
-                role="switch"
+              <mat-slide-toggle
                 aria-labelledby="thinking-label"
-                [attr.aria-checked]="store.thinking()"
+                [checked]="store.thinking()"
                 [disabled]="store.turnActive()"
-                (click)="store.setThinking(!store.thinking())"
-              >
-                <span class="switch" aria-hidden="true"></span>
-              </button>
+                (change)="store.setThinking($event.checked)"
+              />
             </div>
             <p class="fine">
               @if (store.thinking()) {

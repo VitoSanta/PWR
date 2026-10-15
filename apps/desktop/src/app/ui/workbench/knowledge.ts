@@ -1,3 +1,4 @@
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatButtonModule } from '@angular/material/button';
 import {
   AfterViewInit,
@@ -250,7 +251,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
 /** Knowledge: the project as a graph, its modules, the work done, its overview. */
 @Component({
   selector: 'pa-knowledge-card',
-  imports: [MatButtonModule, Graph3d, Icon, Tooltip, Markdown, Select],
+  imports: [MatCheckboxModule, MatButtonModule, Graph3d, Icon, Tooltip, Markdown, Select],
   template: `
     @if (agent.chatMode() && projectOptions().length) {
       <div class="card-toolbar">
@@ -307,8 +308,8 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
             <form class="graph-search" (submit)="$event.preventDefault(); find(search.value)">
               <input #search class="input input-sm" placeholder="Find a file, folder or package" aria-label="Find in the graph" />
             </form>
-            <label class="check-label"><input type="checkbox" class="checkbox" [checked]="symbols()" (change)="toggleSymbols()" /> Symbols</label>
-            <label class="check-label"><input type="checkbox" class="checkbox" [checked]="builtins()" (change)="builtins.set(!builtins())" /> Standard library</label>
+            <mat-checkbox class="check-label" [checked]="symbols()" (change)="toggleSymbols()">Symbols</mat-checkbox>
+            <mat-checkbox class="check-label" [checked]="builtins()" (change)="builtins.set($event.checked)">Standard library</mat-checkbox>
           </div>
           <div class="graph-stage">
             @if (shownNodes().length < 2) {

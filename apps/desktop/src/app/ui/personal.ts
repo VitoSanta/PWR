@@ -1,3 +1,4 @@
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
@@ -91,7 +92,7 @@ export class ProfileSettings {
 /** Settings → Memory: the facts PWR keeps between conversations. */
 @Component({
   selector: 'pa-memory-settings',
-  imports: [MatButtonModule, Icon, Tooltip],
+  imports: [MatSlideToggleModule, MatButtonModule, Icon, Tooltip],
   template: `
     <header class="settings-page-head">
       <h3 class="settings-page-title">Memory</h3>
@@ -108,17 +109,12 @@ export class ProfileSettings {
         <span class="settings-row-title">Use memory</span>
         <span class="fine">Off keeps what is saved and stops using it.</span>
       </div>
-      <button
-        type="button"
-        class="switch-button"
-        role="switch"
-        [attr.aria-checked]="personal.profile().memoryEnabled"
+      <mat-slide-toggle
+        [checked]="personal.profile().memoryEnabled"
         aria-label="Use memory"
-        (click)="toggle()"
+        (change)="toggle()"
         [disabled]="personal.saving()"
-      >
-        <span class="switch" aria-hidden="true"></span>
-      </button>
+      />
     </div>
 
     @for (group of groups(); track group.scope) {

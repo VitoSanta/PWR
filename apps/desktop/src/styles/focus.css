@@ -231,6 +231,7 @@
 }
 
 .focus-run-option.tone-warning[aria-pressed='true'] > .switch {
+  border-color: var(--warning);
   background: var(--warning);
 }
 
