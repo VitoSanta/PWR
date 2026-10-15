@@ -14,8 +14,10 @@ release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/6da514a
 
 ## Where things stand
 
-- **Released:** v0.3.0-alpha (2026-10-07), macOS on Apple silicon, as a
-  prerelease ([notes](release/v0.3.0-alpha-release-notes.md)). Checks made
+- **Released:** v0.4.0-alpha (2026-10-15), macOS on Apple silicon, as a
+  prerelease ([notes](release/v0.4.0-alpha-release-notes.md)): PWR built
+  around Gemma 4 and a redesigned desktop app. Before it, v0.3.0-alpha
+  (2026-10-07, [notes](release/v0.3.0-alpha-release-notes.md)). Checks made
   between the two releases are recorded in
   [release/v0.2.x-mac-verification.md](release/v0.2.x-mac-verification.md).
 - **On `develop`, not released:** local commits since the
