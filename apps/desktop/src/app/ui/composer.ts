@@ -35,6 +35,123 @@ const MAX_HEIGHT = 260;
   selector: 'pa-composer',
   imports: [MatButtonModule, Icon, Tooltip, Popover],
   template: `
+    <!-- What goes with the next message -- queued messages, attachments --
+         sits just above the bar, outside it: attaching an image leaves the
+         bar one slim line. -->
+    @if (store.queue().length || store.attachments().length) {
+      <div class="composer-context composer-tray" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
+        @if (store.queue().length) {
+          <ol class="queue" aria-label="Queued messages">
+            @for (queued of store.queue(); track $index; let index = $index) {
+              <li class="queued" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
+                <span class="queued-badge num">{{ index + 1 }}</span>
+                @if (editingQueued() === index) {
+                  <input
+                    class="input input-sm queued-edit"
+                    [value]="queued"
+                    (keydown.enter)="
+                      $event.preventDefault(); commitQueued(index, $any($event.target).value)
+                    "
+                    (keydown.escape)="editingQueued.set(null)"
+                    (blur)="commitQueued(index, $any($event.target).value)"
+                    aria-label="Edit queued message"
+                  />
+                } @else {
+                  <button
+                    type="button"
+                    class="queued-text"
+                    (click)="editingQueued.set(index)"
+                    paTooltip="Edit"
+                  >
+                    {{ queued }}
+                  </button>
+                }
+                @if (store.queue().length > 1) {
+                  <button matIconButton
+                    type="button"
+                    class="icon-btn icon-btn-sm"
+                    (click)="store.moveQueued(index, -1)"
+                    [disabled]="index === 0"
+                    aria-label="Move up"
+                    paTooltip="Send earlier"
+                  >
+                    <pa-icon name="chevron-up" [size]="14" />
+                  </button>
+                  <button matIconButton
+                    type="button"
+                    class="icon-btn icon-btn-sm"
+                    (click)="store.moveQueued(index, 1)"
+                    [disabled]="index === store.queue().length - 1"
+                    aria-label="Move down"
+                    paTooltip="Send later"
+                  >
+                    <pa-icon name="chevron-down" [size]="14" />
+                  </button>
+                }
+                @if (store.turnActive()) {
+                  <button matButton
+                    type="button"
+                    class="btn btn-sm btn-ghost"
+                    (click)="store.steerNow(index)"
+                    paTooltip="Deliver now, between the model's next two actions"
+                  >
+                    <pa-icon name="corner-down-right" [size]="14" /> Send now
+                  </button>
+                }
+                <button matIconButton
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  (click)="store.unqueue(index)"
+                  aria-label="Remove queued message"
+                  paTooltip="Remove"
+                >
+                  <pa-icon name="x" [size]="14" />
+                </button>
+              </li>
+            }
+          </ol>
+        }
+        @if (hasImage() && !store.modelSees()) {
+          <div class="composer-note" role="alert">
+            <pa-icon name="alert" [size]="14" />
+            This model cannot see images, so a message with one is refused. Choose a model marked
+            “sees images”, or describe the image in words.
+          </div>
+        }
+        @if (store.attachments().length) {
+          <ul class="attachments" aria-label="Attachments">
+            @for (path of store.attachments(); track path) {
+              <li
+                class="attachment"
+                [class]="'attachment tone-' + kind(path).tone"
+                [attr.title]="path"
+                animate.enter="anim-pop-in"
+                animate.leave="anim-pop-out"
+              >
+                <span class="attachment-icon"
+                  ><pa-icon [name]="kind(path).icon" [size]="16"
+                /></span>
+                <span class="attachment-text">
+                  <strong>{{ name(path) }}</strong>
+                  <small
+                    >{{ kind(path).label
+                    }}{{ kind(path).tone === 'folder' ? ' · read-only reference' : '' }}</small
+                  >
+                </span>
+                <button matIconButton
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  (click)="store.detach(path)"
+                  [attr.aria-label]="'Remove ' + name(path)"
+                >
+                  <pa-icon name="x" [size]="14" />
+                </button>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    }
     <form
       #form
       class="composer"
@@ -47,120 +164,6 @@ const MAX_HEIGHT = 260;
       @if (dropping()) {
         <div class="drop-hint" aria-hidden="true">
           <pa-icon name="paperclip" [size]="16" /> Drop files or folders to attach
-        </div>
-      }
-      @if (store.queue().length || store.attachments().length) {
-        <div class="composer-context">
-          @if (store.queue().length) {
-            <ol class="queue" aria-label="Queued messages">
-              @for (queued of store.queue(); track $index; let index = $index) {
-                <li class="queued" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
-                  <span class="queued-badge num">{{ index + 1 }}</span>
-                  @if (editingQueued() === index) {
-                    <input
-                      class="input input-sm queued-edit"
-                      [value]="queued"
-                      (keydown.enter)="
-                        $event.preventDefault(); commitQueued(index, $any($event.target).value)
-                      "
-                      (keydown.escape)="editingQueued.set(null)"
-                      (blur)="commitQueued(index, $any($event.target).value)"
-                      aria-label="Edit queued message"
-                    />
-                  } @else {
-                    <button
-                      type="button"
-                      class="queued-text"
-                      (click)="editingQueued.set(index)"
-                      paTooltip="Edit"
-                    >
-                      {{ queued }}
-                    </button>
-                  }
-                  @if (store.queue().length > 1) {
-                    <button matIconButton
-                      type="button"
-                      class="icon-btn icon-btn-sm"
-                      (click)="store.moveQueued(index, -1)"
-                      [disabled]="index === 0"
-                      aria-label="Move up"
-                      paTooltip="Send earlier"
-                    >
-                      <pa-icon name="chevron-up" [size]="14" />
-                    </button>
-                    <button matIconButton
-                      type="button"
-                      class="icon-btn icon-btn-sm"
-                      (click)="store.moveQueued(index, 1)"
-                      [disabled]="index === store.queue().length - 1"
-                      aria-label="Move down"
-                      paTooltip="Send later"
-                    >
-                      <pa-icon name="chevron-down" [size]="14" />
-                    </button>
-                  }
-                  @if (store.turnActive()) {
-                    <button matButton
-                      type="button"
-                      class="btn btn-sm btn-ghost"
-                      (click)="store.steerNow(index)"
-                      paTooltip="Deliver now, between the model's next two actions"
-                    >
-                      <pa-icon name="corner-down-right" [size]="14" /> Send now
-                    </button>
-                  }
-                  <button matIconButton
-                    type="button"
-                    class="icon-btn icon-btn-sm"
-                    (click)="store.unqueue(index)"
-                    aria-label="Remove queued message"
-                    paTooltip="Remove"
-                  >
-                    <pa-icon name="x" [size]="14" />
-                  </button>
-                </li>
-              }
-            </ol>
-          }
-          @if (hasImage() && !store.modelSees()) {
-            <div class="composer-note" role="alert">
-              <pa-icon name="alert" [size]="14" />
-              This model cannot see images, so a message with one is refused. Choose a model marked
-              “sees images”, or describe the image in words.
-            </div>
-          }
-          @if (store.attachments().length) {
-            <ul class="attachments" aria-label="Attachments">
-              @for (path of store.attachments(); track path) {
-                <li
-                  class="attachment"
-                  [class]="'attachment tone-' + kind(path).tone"
-                  [attr.title]="path"
-                  animate.enter="anim-pop-in"
-                  animate.leave="anim-pop-out"
-                >
-                  <span class="attachment-icon"
-                    ><pa-icon [name]="kind(path).icon" [size]="16"
-                  /></span>
-                  <span class="attachment-text">
-                    <strong>{{ name(path) }}</strong>
-                    <small
-                      >{{ kind(path).label
-                      }}{{ kind(path).tone === 'folder' ? ' · read-only reference' : '' }}</small
-                    >
-                  </span>
-                  <button matIconButton
-                    type="button"
-                    class="icon-btn icon-btn-sm"
-                    (click)="store.detach(path)"
-                    [attr.aria-label]="'Remove ' + name(path)"
-                  >
-                    <pa-icon name="x" [size]="14" />
-                  </button>
-                </li>
-              }
-            </ul>
-          }
         </div>
       }
       <div class="composer-attach">
@@ -328,10 +331,8 @@ export class Composer implements OnInit, OnDestroy {
   protected readonly dropping = signal(false);
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
   private readonly form = viewChild.required<ElementRef<HTMLFormElement>>('form');
-  /** One slim line, or the writing surface: text that wraps, attachments, a queue. */
-  protected readonly open = computed(
-    () => this.expanded() || this.store.queue().length > 0 || this.store.attachments().length > 0,
-  );
+  /** One slim line, or the writing surface once the text wraps. */
+  protected readonly open = computed(() => this.expanded());
   private wasOpen: boolean | null = null;
   private lastHeight = 0;
   private unlisten?: UnlistenFn;
@@ -352,7 +353,7 @@ export class Composer implements OnInit, OnDestroy {
           easing: 'cubic-bezier(0.2, 0, 0, 1)',
         });
         grow.onfinish = grow.oncancel = () => (form.style.overflow = '');
-        for (const part of Array.from(form.querySelectorAll<HTMLElement>('.composer-attach, .composer-bar, .composer-context'))) {
+        for (const part of Array.from(form.querySelectorAll<HTMLElement>('.composer-attach, .composer-bar'))) {
           part.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 80, easing: 'ease-out', fill: 'backwards' });
         }
       }

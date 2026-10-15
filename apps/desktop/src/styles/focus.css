@@ -558,9 +558,9 @@
 
 /* The message bar, as Google's search bar: one slim full-round line while
    it holds a single line -- attach and tools, the text, then the engine,
-   stop and send. Text that wraps, attachments or queued messages open it
-   into a writing surface: what is attached above, the text, the controls
-   below. */
+   stop and send. Text that wraps opens it into a writing surface, the
+   controls below the text. What is attached or queued sits above it, in
+   its tray. */
 .shell-focus .composer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -575,7 +575,6 @@
 .shell-focus .composer.is-expanded {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    'context context'
     'input input'
     'attach actions';
   row-gap: var(--space-1);
@@ -583,9 +582,15 @@
   border-radius: 36px;
 }
 
-.shell-focus .composer-context {
-  grid-area: context;
-  min-width: 0;
+/* The tray above the bar: the column the bar has, its chips lined up with
+   the bar's text. */
+.composer-tray {
+  width: min(
+    calc(var(--content-max) - 2 * var(--column-inset)),
+    calc(100% - 2 * var(--column-inset))
+  );
+  margin: 0 auto var(--space-2);
+  padding: 0 var(--space-3);
 }
 
 .shell-focus .composer-attach {
