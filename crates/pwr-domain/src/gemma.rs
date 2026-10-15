@@ -463,7 +463,12 @@ mod tests {
                 .filter(|file| file["path"].as_str().unwrap().ends_with(".safetensors"))
                 .map(|file| file["bytes"].as_u64().unwrap())
                 .sum();
-            assert_eq!(assistant_weights, pack.assistant_bytes(), "{}", pack.assistant);
+            assert_eq!(
+                assistant_weights,
+                pack.assistant_bytes(),
+                "{}",
+                pack.assistant
+            );
         }
     }
 }
