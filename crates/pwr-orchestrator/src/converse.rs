@@ -280,7 +280,9 @@ impl StopReason {
                  tried to run and why it failed is in the last replies",
                 crate::repetition::FAILED_RUN_LIMIT
             ),
-            Self::Interrupted => "stopped at your request".to_owned(),
+            // This signal can also come from a deadline or an external
+            // controller. The caller records the cause when it knows it.
+            Self::Interrupted => "work interrupted".to_owned(),
             Self::ContextFull => {
                 "this conversation filled its context faster than it could be summarised; start \
                  a new one, or raise the context budget in Settings"
@@ -4881,6 +4883,13 @@ fn tool_message(call: &pwr_domain::ToolCall, outcome: serde_json::Value) -> Chat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_stop_does_not_invent_a_human_request() {
+        let message = StopReason::Interrupted.said();
+        assert!(message.contains("interrupt"), "{message}");
+        assert!(!message.contains("your request"), "{message}");
+    }
 
     #[test]
     fn a_closing_turn_answers_with_the_fuller_of_what_was_said_and_the_rationale() {

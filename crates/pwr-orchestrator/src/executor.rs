@@ -1063,7 +1063,7 @@ async fn drive<H: SessionHost + ?Sized>(
                     report.completed = false;
                     report.stopped = Some(converse::StopReason::Interrupted);
                     report.outcome.terminal = pwr_domain::TurnTerminal::Interrupted;
-                    report.outcome.checks = pwr_domain::ChecksOutcome::CouldNotRun { why: "Goal operation interrupted by the operator".into() };
+                    report.outcome.checks = pwr_domain::ChecksOutcome::CouldNotRun { why: "Goal operation interrupted".into() };
                     return SessionEnd::Reply { report, total_actions: budget.actions, goal: goal_mode, verification: None };
                 }
                 result = tokio::time::timeout(budget.remaining(), $operation) => result,
@@ -2058,9 +2058,9 @@ pub async fn close_turn_with_stop(
     report.stopped = Some(converse::StopReason::Interrupted);
     report.outcome.terminal = pwr_domain::TurnTerminal::Interrupted;
     report.outcome.checks = pwr_domain::ChecksOutcome::CouldNotRun {
-        why: "verification interrupted by the operator".into(),
+        why: "verification interrupted".into(),
     };
-    let verdict = "Independent verification interrupted at your request; changes are kept and remain unverified.";
+    let verdict = "Independent verification interrupted; changes are kept and remain unverified.";
     report.answer = format!("{}\n\n{verdict}", report.answer.trim());
     steps(TurnStep::Note(format!("– {verdict}")));
     messages.push(ChatMessage {
@@ -2796,6 +2796,18 @@ mod tests {
                     assert_eq!(report.stopped, Some(converse::StopReason::Interrupted));
                     assert!(!report.outcome.verified());
                     assert!(report.answer.contains("verification interrupted"));
+                    // The shared Stop is also raised by deadlines and external
+                    // controllers; its source is not evidence of a human request.
+                    for text in std::iter::once(report.answer.as_str())
+                        .chain(notes.iter().map(String::as_str))
+                        .chain(messages.iter().map(|message| message.content.as_str()))
+                    {
+                        assert!(!text.contains("at your request"), "{text}");
+                        assert!(!text.contains("by the operator"), "{text}");
+                    }
+                    if let pwr_domain::ChecksOutcome::CouldNotRun { why } = &report.outcome.checks {
+                        assert!(!why.contains("operator"), "{why}");
+                    }
                     assert!(notes.iter().all(|note| !note.starts_with('✓')));
                 } else {
                     assert!(
@@ -2897,6 +2909,9 @@ mod tests {
                     assert_eq!(report.stopped, Some(converse::StopReason::Interrupted));
                     assert!(!report.completed);
                     assert!(verification.is_none());
+                    if let pwr_domain::ChecksOutcome::CouldNotRun { why } = &report.outcome.checks {
+                        assert!(!why.contains("operator"), "{phase}: {why}");
+                    }
                     assert_eq!(
                         total_actions,
                         match phase {
