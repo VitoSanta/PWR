@@ -1942,3 +1942,109 @@ pa-trace-raw {
 .working-speed {
   color: var(--mat-sys-outline);
 }
+
+/* While PWR works: the message bar's edge lit in Google's four colours,
+   turning slowly, and a soft glow of them circling it -- the bar says the
+   model is at work without a word. The ring is a pseudo-element outside
+   the bar's box; the glow is its shadow, so it always sits behind the bar
+   (the bar is its own stacking context, for the view transitions). Still,
+   not turning, under reduced motion. */
+@property --composer-turn {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.composer.busy::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: -2px;
+  padding: 2px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--composer-turn),
+    #4285f4,
+    #ea4335,
+    #fbbc04,
+    #34a853,
+    #4285f4
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  opacity: 0.9;
+  pointer-events: none;
+  /* Lit as the turn starts, then turning. */
+  animation:
+    pa-fade-in 0.6s var(--ease-out) backwards,
+    pa-composer-turn 4s linear infinite;
+}
+
+.composer.busy {
+  --glow: 0.28;
+  animation: pa-composer-glow 4s linear infinite;
+}
+
+:root[data-theme='dark'] .composer.busy {
+  --glow: 0.38;
+}
+
+@keyframes pa-composer-turn {
+  to {
+    --composer-turn: 360deg;
+  }
+}
+
+/* Blue, red, yellow and green, each a blurred shadow, travelling round
+   the bar's four sides in the ring's direction. */
+@keyframes pa-composer-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 -10px 28px -6px rgb(66 133 244 / var(--glow)),
+      14px 0 28px -6px rgb(234 67 53 / var(--glow)),
+      0 10px 28px -6px rgb(251 188 4 / var(--glow)),
+      -14px 0 28px -6px rgb(52 168 83 / var(--glow));
+  }
+  25% {
+    box-shadow:
+      14px 0 28px -6px rgb(66 133 244 / var(--glow)),
+      0 10px 28px -6px rgb(234 67 53 / var(--glow)),
+      -14px 0 28px -6px rgb(251 188 4 / var(--glow)),
+      0 -10px 28px -6px rgb(52 168 83 / var(--glow));
+  }
+  50% {
+    box-shadow:
+      0 10px 28px -6px rgb(66 133 244 / var(--glow)),
+      -14px 0 28px -6px rgb(234 67 53 / var(--glow)),
+      0 -10px 28px -6px rgb(251 188 4 / var(--glow)),
+      14px 0 28px -6px rgb(52 168 83 / var(--glow));
+  }
+  75% {
+    box-shadow:
+      -14px 0 28px -6px rgb(66 133 244 / var(--glow)),
+      0 -10px 28px -6px rgb(234 67 53 / var(--glow)),
+      14px 0 28px -6px rgb(251 188 4 / var(--glow)),
+      0 10px 28px -6px rgb(52 168 83 / var(--glow));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer.busy::before {
+    animation: pa-fade-in 0.6s var(--ease-out) backwards;
+  }
+
+  .composer.busy {
+    animation: none;
+    box-shadow:
+      0 -10px 28px -6px rgb(66 133 244 / var(--glow)),
+      14px 0 28px -6px rgb(234 67 53 / var(--glow)),
+      0 10px 28px -6px rgb(251 188 4 / var(--glow)),
+      -14px 0 28px -6px rgb(52 168 83 / var(--glow));
+  }
+}

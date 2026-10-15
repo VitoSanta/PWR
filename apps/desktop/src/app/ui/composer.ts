@@ -6,6 +6,10 @@ import {
   HostListener,
   OnDestroy,
   OnInit,
+  DestroyRef,
+  afterNextRender,
+  afterRenderEffect,
+  computed,
   effect,
   inject,
   signal,
@@ -16,6 +20,9 @@ import { UnlistenFn } from '@tauri-apps/api/event';
 import { AgentStore } from '../core/agent.store';
 import { inTauri } from '../core/bridge';
 import { UiStore, roveFocus } from '../core/ui';
+
+const reducedMotion = () =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 import { fileKind } from './conversation';
 import { Icon } from './kit/icon';
 import { Popover } from './kit/popover';
@@ -29,10 +36,11 @@ const MAX_HEIGHT = 260;
   imports: [MatButtonModule, Icon, Tooltip, Popover],
   template: `
     <form
+      #form
       class="composer"
       [class.busy]="store.turnActive()"
       [class.dropping]="dropping()"
-      [class.is-expanded]="expanded() || store.queue().length > 0 || store.attachments().length > 0"
+      [class.is-expanded]="open()"
       (submit)="$event.preventDefault(); submit()"
       aria-label="Message"
     >
@@ -319,9 +327,48 @@ export class Composer implements OnInit, OnDestroy {
   }
   protected readonly dropping = signal(false);
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
+  private readonly form = viewChild.required<ElementRef<HTMLFormElement>>('form');
+  /** One slim line, or the writing surface: text that wraps, attachments, a queue. */
+  protected readonly open = computed(
+    () => this.expanded() || this.store.queue().length > 0 || this.store.attachments().length > 0,
+  );
+  private wasOpen: boolean | null = null;
+  private lastHeight = 0;
   private unlisten?: UnlistenFn;
 
   constructor() {
+    // Opening and closing grow and shrink the bar instead of jumping: from
+    // the height it had to the one it has now, Material's emphasized curve,
+    // its parts fading in where the layout moved them.
+    afterRenderEffect(() => {
+      const open = this.open();
+      const form = this.form().nativeElement;
+      const now = form.offsetHeight;
+      if (this.wasOpen !== null && open !== this.wasOpen && this.lastHeight && this.lastHeight !== now
+          && typeof form.animate === 'function' && !reducedMotion()) {
+        form.style.overflow = 'hidden';
+        const grow = form.animate([{ height: `${this.lastHeight}px` }, { height: `${now}px` }], {
+          duration: 260,
+          easing: 'cubic-bezier(0.2, 0, 0, 1)',
+        });
+        grow.onfinish = grow.oncancel = () => (form.style.overflow = '');
+        for (const part of Array.from(form.querySelectorAll<HTMLElement>('.composer-attach, .composer-bar, .composer-context'))) {
+          part.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 80, easing: 'ease-out', fill: 'backwards' });
+        }
+      }
+      this.wasOpen = open;
+      this.lastHeight = now;
+    });
+    // The height to grow from: what the bar measures as it changes otherwise
+    // (the text growing line by line).
+    if (typeof ResizeObserver === 'function') {
+      const watch = new ResizeObserver(() => {
+        const form = this.form().nativeElement;
+        if (!form.getAnimations?.().length) this.lastHeight = form.offsetHeight;
+      });
+      afterNextRender(() => watch.observe(this.form().nativeElement));
+      inject(DestroyRef).onDestroy(() => watch.disconnect());
+    }
     // A message being edited arrives here to be changed and sent again.
     effect(() => {
       const text = this.store.composerDraft();
