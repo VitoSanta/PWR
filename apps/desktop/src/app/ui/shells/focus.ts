@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { LayoutService } from '../../core/layout';
@@ -18,7 +19,6 @@ import { SessionSwitcher } from '../parts/session-switcher';
 import { ToolStrip } from '../parts/tool-strip';
 import { MemoryProposals } from '../personal';
 import { RunMetricsChip } from '../run-metrics';
-import { TraceVisibilityControl } from '../trace';
 
 /**
  * What a right click leaves alone: text and whatever has its own menu --
@@ -27,20 +27,20 @@ import { TraceVisibilityControl } from '../trace';
  */
 const NATIVE_MENU =
   'input, textarea, select, [contenteditable="true"], a, img, video, iframe, pre, code, .markdown, ' +
-  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, pa-inspector, .focus-bar';
+  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, pa-inspector, .composer';
 
 /**
- * Focus: no chrome. The conversation fills the window; everything else
- * floats over it on glass, in one bar at the top right -- where you are, the
- * engine, and the tools -- leaving the window's corners clear. The tools open
- * as a row from that bar, or where a right click (a two-finger click) lands
- * on an empty part of the window. A selected tool gets its own column while
+ * Focus: no chrome. The conversation fills the window; everything else is
+ * in the message bar -- the tools and where you are at its left, the run's
+ * state and the model at its right -- as Google's assistants keep theirs.
+ * The tools open as a list from that bar, or where a right click (a
+ * two-finger click) lands on an empty part of the window. A selected tool gets its own column while
  * the conversation remains visible where space allows.
  */
 @Component({
   selector: 'pa-shell-focus',
   host: { '(document:keydown.escape)': 'leaveFullScreen($event)' },
-  imports: [
+  imports: [MatButtonModule, 
     Composer,
     ContextMeter,
     Conversation,
@@ -52,7 +52,6 @@ const NATIVE_MENU =
     Popover,
     RunControls,
     RunMetricsChip,
-    TraceVisibilityControl,
     SessionSwitcher,
     ToolStrip,
     Tooltip,
@@ -71,6 +70,13 @@ const NATIVE_MENU =
     >
       <div class="focus-drag" data-tauri-drag-region="deep"></div>
 
+      <!-- Navigation where a Mac app keeps it: the conversations, beside the
+           window's buttons; and, in development builds, the trace export. -->
+      <nav class="focus-nav" aria-label="Conversations">
+        <pa-session-switcher [compact]="true" />
+        <pa-diagnostic-export />
+      </nav>
+
       <main #main class="main focus-main" aria-label="Conversation">
         @if (store.coreError()) {
           <div class="core-error banner banner-danger" role="alert">
@@ -80,32 +86,36 @@ const NATIVE_MENU =
         }
         <pa-conversation />
         <pa-memory-proposals />
-        <pa-composer />
+        <pa-composer>
+          <!-- Everything lives in the message bar: the tools and the
+               conversation at its left, the run's state and the model at
+               its right. -->
+          <!-- The message bar holds actions only: attach (the composer's
+               own) and the tools at the left; at the right the engine --
+               the context's ring and the model, whose panel holds thinking
+               and speed -- then stop and send. -->
+          <div paComposerStart class="composer-tools">
+            <button matIconButton
+              #toolsButton
+              type="button"
+              class="icon-btn composer-tools-button"
+              [class.has-goal]="store.goalMode() && !store.chatMode()"
+              [class.has-auto]="store.permissionMode() === 'auto' && !store.chatMode()"
+              (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
+              [attr.aria-expanded]="strip() === 'bar'"
+              aria-haspopup="menu"
+              aria-label="Tools"
+              paTooltip="Tools · or right-click an empty spot"
+            >
+              <pa-icon name="grid" />
+            </button>
+          </div>
+          <div paComposerEnd class="composer-engine">
+            <pa-context-meter />
+            <pa-model-picker [compact]="true" />
+          </div>
+        </pa-composer>
       </main>
-
-      <div class="focus-bar glass" data-popover-group>
-        <pa-session-switcher />
-        <span class="focus-bar-sep" aria-hidden="true"></span>
-        <pa-diagnostic-export />
-        <pa-context-meter />
-        <pa-run-metrics />
-        <pa-trace-visibility />
-        <pa-model-picker />
-        <span class="focus-bar-sep" aria-hidden="true"></span>
-        <button
-          #toolsButton
-          class="icon-btn focus-tools"
-          [class.has-goal]="store.goalMode() && !store.chatMode()"
-          [class.has-auto]="store.permissionMode() === 'auto' && !store.chatMode()"
-          (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
-          [attr.aria-expanded]="strip() === 'bar'"
-          aria-haspopup="menu"
-          aria-label="Tools"
-          paTooltip="Tools · or right-click an empty spot"
-        >
-          <pa-icon name="grid" />
-        </button>
-      </div>
 
       <!-- Where a right click landed: the tools open from there. -->
       <span #pointerAnchor class="focus-pointer" [style.left.px]="pointer().x" [style.top.px]="pointer().y" aria-hidden="true"></span>
@@ -116,7 +126,7 @@ const NATIVE_MENU =
           <pa-popover
             class="tool-strip-popover"
             [anchor]="from === 'bar' ? toolsButton : pointerAnchor"
-            [anchorAlign]="from === 'bar' ? 'end' : 'center'"
+            [anchorAlign]="from === 'bar' ? 'start' : 'center'"
             [within]="from === 'bar' ? null : main"
             panelRole="menu"
             ariaLabel="Tools"
@@ -128,6 +138,9 @@ const NATIVE_MENU =
           </pa-popover>
         }
       }
+
+      <!-- The run's figures, opened from the model's panel. -->
+      <pa-run-metrics [panelOnly]="true" side="top" />
 
       @if (ui.runControls(); as anchor) {
         <pa-run-controls [anchor]="anchor" (closed)="ui.runControls.set(null)" />

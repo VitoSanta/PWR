@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivityStore } from '../core/activity';
 import { AgentStore } from '../core/agent.store';
@@ -18,7 +19,7 @@ import { KnowledgeCard } from './workbench/knowledge';
  */
 @Component({
   selector: 'pa-inspector',
-  imports: [
+  imports: [MatButtonModule, 
     Icon,
     Popover,
     Tooltip,
@@ -37,7 +38,7 @@ import { KnowledgeCard } from './workbench/knowledge';
       <header class="workbench-head titlebar-row" data-tauri-drag-region="deep">
         <span class="workbench-title">Workbench</span>
         <span class="spacer" data-tauri-drag-region="deep"></span>
-        <button
+        <button matIconButton
           #addTrigger
           class="icon-btn icon-btn-sm"
           (click)="launcher.set(!launcher())"
@@ -65,7 +66,7 @@ import { KnowledgeCard } from './workbench/knowledge';
             </div>
           </pa-popover>
         }
-        <button
+        <button matIconButton
           class="icon-btn icon-btn-sm"
           (click)="layout.toggleRight()"
           aria-label="Hide the workbench"
@@ -106,7 +107,7 @@ import { KnowledgeCard } from './workbench/knowledge';
               <span class="spacer"></span>
               <span class="wb-card-actions">
                 @if (work.focusMode() && !work.focused() && work.visible().length > 1) {
-                  <button
+                  <button matIconButton
                     class="icon-btn icon-btn-sm"
                     (click)="work.setColumns(work.columns() === 2 ? 1 : 2)"
                     [attr.aria-label]="work.columns() === 2 ? 'Stack the tools' : 'Tools side by side'"
@@ -116,14 +117,14 @@ import { KnowledgeCard } from './workbench/knowledge';
                   </button>
                 }
                 @if (!work.focused() && work.visible().length > 1) {
-                  <button class="icon-btn icon-btn-sm" (click)="work.move(card.id, -1)" [disabled]="first" aria-label="Move up" paTooltip="Move up">
+                  <button matIconButton class="icon-btn icon-btn-sm" (click)="work.move(card.id, -1)" [disabled]="first" aria-label="Move up" paTooltip="Move up">
                     <pa-icon name="chevron-up" [size]="14" />
                   </button>
-                  <button class="icon-btn icon-btn-sm" (click)="work.move(card.id, 1)" [disabled]="last" aria-label="Move down" paTooltip="Move down">
+                  <button matIconButton class="icon-btn icon-btn-sm" (click)="work.move(card.id, 1)" [disabled]="last" aria-label="Move down" paTooltip="Move down">
                     <pa-icon name="chevron-down" [size]="14" />
                   </button>
                 }
-                  <button
+                  <button matIconButton
                     class="icon-btn icon-btn-sm"
                     (click)="work.maximize(card.id)"
                     [attr.aria-label]="work.focused() === card.id ? 'Restore' : 'Maximise'"
@@ -131,7 +132,7 @@ import { KnowledgeCard } from './workbench/knowledge';
                   >
                     <pa-icon [name]="work.focused() === card.id ? 'minimize' : 'maximize'" [size]="14" />
                   </button>
-                <button class="icon-btn icon-btn-sm" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + info(card.id).label" paTooltip="Close">
+                <button matIconButton class="icon-btn icon-btn-sm" (click)="work.close(card.id)" [attr.aria-label]="'Close ' + info(card.id).label" paTooltip="Close">
                   <pa-icon name="x" [size]="14" />
                 </button>
               </span>

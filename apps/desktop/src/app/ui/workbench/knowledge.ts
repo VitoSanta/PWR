@@ -1,3 +1,5 @@
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatButtonModule } from '@angular/material/button';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -249,7 +251,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
 /** Knowledge: the project as a graph, its modules, the work done, its overview. */
 @Component({
   selector: 'pa-knowledge-card',
-  imports: [Graph3d, Icon, Tooltip, Markdown, Select],
+  imports: [MatCheckboxModule, MatButtonModule, Graph3d, Icon, Tooltip, Markdown, Select],
   template: `
     @if (agent.chatMode() && projectOptions().length) {
       <div class="card-toolbar">
@@ -278,7 +280,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
         }
       </div>
       <span class="spacer"></span>
-      <button class="icon-btn icon-btn-sm" (click)="load()" [disabled]="loading()" aria-label="Refresh" paTooltip="Refresh">
+      <button matIconButton class="icon-btn icon-btn-sm" (click)="load()" [disabled]="loading()" aria-label="Refresh" paTooltip="Refresh">
         <pa-icon name="refresh" [size]="14" />
       </button>
     </div>
@@ -306,8 +308,8 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
             <form class="graph-search" (submit)="$event.preventDefault(); find(search.value)">
               <input #search class="input input-sm" placeholder="Find a file, folder or package" aria-label="Find in the graph" />
             </form>
-            <label class="check-label"><input type="checkbox" class="checkbox" [checked]="symbols()" (change)="toggleSymbols()" /> Symbols</label>
-            <label class="check-label"><input type="checkbox" class="checkbox" [checked]="builtins()" (change)="builtins.set(!builtins())" /> Standard library</label>
+            <mat-checkbox class="check-label" [checked]="symbols()" (change)="toggleSymbols()">Symbols</mat-checkbox>
+            <mat-checkbox class="check-label" [checked]="builtins()" (change)="builtins.set($event.checked)">Standard library</mat-checkbox>
           </div>
           <div class="graph-stage">
             @if (shownNodes().length < 2) {
@@ -328,9 +330,9 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
                   <strong class="truncate" [attr.title]="node.label">{{ node.label }}</strong>
                   <span class="spacer"></span>
                   @if (node.kind === 'file' && !agent.chatMode()) {
-                    <button class="icon-btn icon-btn-sm" (click)="work.openFile(node.label)" aria-label="Open in Files" paTooltip="Open in Files"><pa-icon name="file" [size]="14" /></button>
+                    <button matIconButton class="icon-btn icon-btn-sm" (click)="work.openFile(node.label)" aria-label="Open in Files" paTooltip="Open in Files"><pa-icon name="file" [size]="14" /></button>
                   }
-                  <button class="icon-btn icon-btn-sm" (click)="selected.set(null)" aria-label="Close"><pa-icon name="x" [size]="14" /></button>
+                  <button matIconButton class="icon-btn icon-btn-sm" (click)="selected.set(null)" aria-label="Close"><pa-icon name="x" [size]="14" /></button>
                 </header>
                 @if (node.summary) {
                   <p class="graph-summary">{{ node.summary }} <span class="t-meta">· {{ node.stale ? 'written before its files changed' : 'written by the model, unverified' }}</span></p>
@@ -357,7 +359,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
             <span class="t-meta">{{ summaryStatus() }}</span>
             <span class="spacer"></span>
             @if (!agent.chatMode()) {
-              <button class="btn btn-sm" (click)="summarise()" [disabled]="writing()">
+              <button matButton="outlined" class="btn btn-sm" (click)="summarise()" [disabled]="writing()">
                 <pa-icon name="sparkles" [size]="14" /> Write summaries
               </button>
             }

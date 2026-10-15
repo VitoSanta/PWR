@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject, isDevMode } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { bridge, inTauri } from '../../core/bridge';
@@ -8,10 +9,10 @@ import { Tooltip } from '../kit/tooltip';
 /** Development builds only: the chat and the model's raw trace, to a file. */
 @Component({
   selector: 'pa-diagnostic-export',
-  imports: [Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
     @if (available) {
-      <button
+      <button matIconButton
         class="icon-btn"
         (click)="export()"
         [disabled]="!store.timeline().length || store.turnActive()"

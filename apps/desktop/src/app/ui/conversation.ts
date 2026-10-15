@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -12,7 +13,7 @@ import { AgentStore } from '../core/agent.store';
 import { Entry } from '../core/model';
 import { ModelsStore } from '../core/models.store';
 import { ConfirmService, ToastService } from '../core/ui';
-import { RunOutcome, Step, groupSteps } from '../core/trace';
+import { RunOutcome, Step, groupSteps, rate, runMetrics } from '../core/trace';
 import { BrandMark } from './kit/brand-mark';
 import { Icon, IconName } from './kit/icon';
 import { Popover } from './kit/popover';
@@ -27,7 +28,7 @@ type Item =
 
 @Component({
   selector: 'pa-conversation',
-  imports: [BrandMark, Icon, Popover, Tooltip, TraceCompact, TraceSteps, TraceRaw],
+  imports: [MatButtonModule, BrandMark, Icon, Popover, Tooltip, TraceCompact, TraceSteps, TraceRaw],
   template: `
     <section class="conversation" #scroller (scroll)="onScroll()">
       @if (store.timeline().length === 0) {
@@ -59,7 +60,7 @@ type Item =
               Choose a model to start.
               {{ store.models().length ? 'Pick one of the models on this machine, or find another that fits it.' : 'There are no models on this machine yet — find one that fits it.' }}
             </p>
-            <button class="btn btn-primary btn-lg" (click)="models.show()">
+            <button matButton="filled" class="btn btn-primary btn-lg" (click)="models.show()">
               <pa-icon name="box" [size]="16" /> Open Model Manager
             </button>
           } @else if (store.coreState() === 'starting') {
@@ -92,14 +93,14 @@ type Item =
                 </div>
                 <time class="message-time num" [attr.datetime]="iso(item.entry.at)">{{ clock(item.entry.at) }}</time>
                 <div class="message-actions">
-                  <button class="icon-btn icon-btn-sm" (click)="copy(item.entry.text)" aria-label="Copy message" paTooltip="Copy">
+                  <button matIconButton class="icon-btn icon-btn-sm" (click)="copy(item.entry.text)" aria-label="Copy message" paTooltip="Copy">
                     <pa-icon name="copy" [size]="14" />
                   </button>
                   @if (item.entry.turn !== undefined && !store.turnActive()) {
-                    <button class="icon-btn icon-btn-sm" (click)="edit(item.entry)" [disabled]="store.rewinding()" aria-label="Edit message" paTooltip="Edit and send again">
+                    <button matIconButton class="icon-btn icon-btn-sm" (click)="edit(item.entry)" [disabled]="store.rewinding()" aria-label="Edit message" paTooltip="Edit and send again">
                       <pa-icon name="pencil" [size]="14" />
                     </button>
-                    <button
+                    <button matIconButton
                       #rewindTrigger
                       class="icon-btn icon-btn-sm"
                       (click)="rewindMenu.set(rewindMenu() === item.key ? null : item.key)"
@@ -161,7 +162,7 @@ type Item =
                   }
                   @if (!item.live && answer(item.entries); as text) {
                     <div class="message-actions turn-actions">
-                      <button class="icon-btn icon-btn-sm" (click)="copy(text)" aria-label="Copy answer" paTooltip="Copy answer">
+                      <button matIconButton class="icon-btn icon-btn-sm" (click)="copy(text)" aria-label="Copy answer" paTooltip="Copy answer">
                         <pa-icon name="copy" [size]="14" />
                       </button>
                     </div>
@@ -169,7 +170,10 @@ type Item =
                   @if (item.live) {
                     <div class="step working" role="status" [attr.title]="workingHelp()">
                       <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                      {{ workingLabel() }}
+                      <span class="working-label">{{ workingLabel() }}</span>
+                      @if (speed(); as speed) {
+                        <span class="working-speed num">· {{ speed }} tok/s</span>
+                      }
                     </div>
                   } @else {
                     <time class="turn-finished num" [attr.datetime]="iso(item.endedAt)">Finished {{ clock(item.endedAt) }} · took {{ duration(item) }}</time>
@@ -189,7 +193,7 @@ type Item =
             <div class="turn-body">
               <div class="step working" role="status">
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                {{ workingLabel() }}
+                <span class="working-label">{{ workingLabel() }}</span>
               </div>
             </div>
           </article>
@@ -199,9 +203,9 @@ type Item =
             <pa-icon [name]="outcomeIcon(outcome.tone)" [size]="14" />
             <span>{{ outcome.text }}</span>
             @if (outcome.confinement) { <span class="t-meta">{{ outcome.confinement }}</span> }
-            @if (outcome.acceptanceChanges?.length) { <button class="btn btn-sm" (click)="store.reviewAcceptanceChanges()" [disabled]="store.reviewingAcceptance() || store.turnActive()">Review acceptance changes</button> }
+            @if (outcome.acceptanceChanges?.length) { <button matButton="outlined" class="btn btn-sm" (click)="store.reviewAcceptanceChanges()" [disabled]="store.reviewingAcceptance() || store.turnActive()">Review acceptance changes</button> }
             @if (outcome.action) {
-              <button class="btn btn-sm" (click)="store.continueRun()">
+              <button matButton="outlined" class="btn btn-sm" (click)="store.continueRun()">
                 <pa-icon [name]="outcome.action === 'retry' ? 'refresh' : 'arrow-right'" [size]="14" />
                 {{ outcome.action === 'retry' ? 'Retry' : 'Continue' }}
               </button>
@@ -255,6 +259,12 @@ export class Conversation {
     }
     for (const item of items) if (item.type === 'turn') item.steps = groupSteps(item.entries);
     return items;
+  });
+
+  /** The speed of the reply being written, beside "Working". */
+  protected readonly speed = computed(() => {
+    const value = runMetrics(this.store.timeline(), this.now(), this.store.turnActive()).generationTps;
+    return value === null ? '' : rate(value);
   });
 
   protected readonly workingLabel = computed(() => {

@@ -78,6 +78,26 @@ svg {
   display: block;
 }
 
+/* Icons: Material Symbols at the size and weight pa-icon asks for. */
+pa-icon.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  vertical-align: middle;
+}
+
+pa-icon .mat-icon {
+  display: block;
+  width: var(--icon-size, 18px);
+  height: var(--icon-size, 18px);
+  font-size: var(--icon-size, 18px);
+  line-height: 1;
+  overflow: visible;
+  font-variation-settings: 'FILL' var(--icon-fill, 0), 'wght' var(--icon-weight, 400), 'GRAD' 0, 'opsz' 20;
+}
+
 ::selection {
   background: var(--accent-soft);
   color: inherit;
@@ -164,8 +184,7 @@ svg {
 .t-overline {
   font-size: var(--fs-caption);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--text-muted);
 }
 

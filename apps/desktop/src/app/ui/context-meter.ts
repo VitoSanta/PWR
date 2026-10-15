@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { ceilingLabel, fullness, percent, tokens, when } from '../core/format';
@@ -12,7 +13,7 @@ import { Tooltip } from './kit/tooltip';
  */
 @Component({
   selector: 'pa-context-meter',
-  imports: [Icon, Popover, Select, Tooltip],
+  imports: [MatButtonModule, Icon, Popover, Select, Tooltip],
   template: `
     <button
       #trigger
@@ -22,7 +23,7 @@ import { Tooltip } from './kit/tooltip';
       [attr.aria-expanded]="open()"
       aria-haspopup="dialog"
       [attr.aria-label]="usage() ? 'Context ' + used() + '% used' : 'Context window'"
-      paTooltip="Context window"
+      [paTooltip]="usage() ? 'Context ' + used() + '% · ' + t(usage()!.used) + ' / ' + t(usage()!.window) : 'Context window ' + t(window())"
     >
       <svg class="meter-ring" viewBox="0 0 36 36" aria-hidden="true">
         <circle class="track" cx="18" cy="18" r="14" />
@@ -47,7 +48,7 @@ import { Tooltip } from './kit/tooltip';
       >
         <div class="popover-head">
           <h2 class="popover-title">Context</h2>
-          <button class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
+          <button matIconButton class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
             <pa-icon name="x" [size]="16" />
           </button>
         </div>
@@ -150,7 +151,7 @@ import { Tooltip } from './kit/tooltip';
           </div>
 
           <footer class="popover-foot">
-            <button
+            <button matButton="outlined"
               class="btn btn-block"
               (click)="store.compactNow()"
               [disabled]="store.turnActive() || store.compacting()"

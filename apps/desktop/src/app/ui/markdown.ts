@@ -4,10 +4,10 @@ import { marked } from 'marked';
 
 marked.setOptions({ gfm: true, breaks: true });
 
-const COPY_ICON =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2Z"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
-const CHECK_ICON =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// Material Symbols glyphs (the font pa-icon draws from), as plain markup:
+// the copy button is added to rendered HTML, outside Angular's templates.
+const COPY_ICON = '<span class="material-symbols-rounded md-glyph" aria-hidden="true">content_copy</span>';
+const CHECK_ICON = '<span class="material-symbols-rounded md-glyph" aria-hidden="true">check</span>';
 
 /**
  * Text still arriving, made safe to render: a bold or a code span opened on

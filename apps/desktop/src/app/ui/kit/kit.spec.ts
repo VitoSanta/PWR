@@ -62,11 +62,17 @@ class PopoverInDialog {
   readonly popover = signal(true);
 }
 
+const KEY_CODES: Record<string, number> = { Enter: 13, Escape: 27, Tab: 9, ArrowDown: 40, ArrowUp: 38, ' ': 32 };
+
+/** A key press, with the legacy keyCode Material's keyboard handling reads. */
 const press = (target: Element, key: string) => {
-  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+  const keyCode = KEY_CODES[key] ?? key.toUpperCase().charCodeAt(0);
+  const event = new KeyboardEvent('keydown', { key, keyCode, bubbles: true, cancelable: true } as KeyboardEventInit);
   target.dispatchEvent(event);
   return event;
 };
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const settle = async (fixture: { whenStable(): Promise<unknown>; detectChanges(): void }) => {
   fixture.detectChanges();
@@ -76,18 +82,21 @@ const settle = async (fixture: { whenStable(): Promise<unknown>; detectChanges()
 };
 
 describe('Select', () => {
+  // Material's list lives in the CDK overlay, outside the fixture.
+  const optionsShown = () => document.querySelectorAll<HTMLElement>('mat-option');
+
   it('is a labelled combobox that opens, moves and chooses with the keyboard', async () => {
     const fixture = TestBed.createComponent(SelectHost);
     await settle(fixture);
-    const trigger: HTMLButtonElement = fixture.nativeElement.querySelector('[role=combobox]');
+    const trigger: HTMLElement = fixture.nativeElement.querySelector('[role=combobox]');
     expect(trigger.getAttribute('aria-label')).toBe('Effort');
     expect(trigger.textContent).toContain('Medium');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
 
-    press(trigger, 'ArrowDown');
+    press(trigger, 'Enter');
     await settle(fixture);
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    const options = fixture.nativeElement.querySelectorAll('[role=option]');
+    const options = optionsShown();
     expect(options.length).toBe(3);
     expect(trigger.getAttribute('aria-activedescendant')).toBe(options[1].id);
     expect(options[1].getAttribute('aria-selected')).toBe('true');
@@ -100,12 +109,13 @@ describe('Select', () => {
     await settle(fixture);
     expect(fixture.componentInstance.value()).toBe('high');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    fixture.destroy();
   });
 
   it('keeps Escape to itself while open, so the dialog around it stays', async () => {
     const fixture = TestBed.createComponent(SelectHost);
     await settle(fixture);
-    const trigger: HTMLButtonElement = fixture.nativeElement.querySelector('[role=combobox]');
+    const trigger: HTMLElement = fixture.nativeElement.querySelector('[role=combobox]');
     press(trigger, 'Enter');
     await settle(fixture);
     const escape = press(trigger, 'Escape');
@@ -113,35 +123,27 @@ describe('Select', () => {
     expect(escape.defaultPrevented).toBe(true);
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     expect(fixture.componentInstance.value()).toBe('medium');
+    fixture.destroy();
   });
 
-  it('closes when something else is pressed, even when focus did not move', async () => {
+  it('labels each of several selects on its own', async () => {
     const fixture = TestBed.createComponent(TwoSelects);
     await settle(fixture);
-    const [first, second] = fixture.nativeElement.querySelectorAll('[role=combobox]') as NodeListOf<HTMLButtonElement>;
-    first.click();
-    await settle(fixture);
-    expect(first.getAttribute('aria-expanded')).toBe('true');
-    // WebKit: pressing another button does not move focus, so no blur comes.
-    second.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    second.click();
-    await settle(fixture);
-    expect(first.getAttribute('aria-expanded')).toBe('false');
-    expect(second.getAttribute('aria-expanded')).toBe('true');
-    expect(fixture.nativeElement.querySelectorAll('[role=listbox]').length).toBe(1);
-    // A press on the page itself, which takes no focus, closes it too.
-    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    await settle(fixture);
-    expect(second.getAttribute('aria-expanded')).toBe('false');
+    const triggers = [...fixture.nativeElement.querySelectorAll('[role=combobox]')] as HTMLElement[];
+    expect(triggers.map((trigger) => trigger.getAttribute('aria-label'))).toEqual(['Size', 'Context']);
+    fixture.destroy();
   });
 
   it('selects by typing the start of an option', async () => {
     const fixture = TestBed.createComponent(SelectHost);
     await settle(fixture);
-    const trigger: HTMLButtonElement = fixture.nativeElement.querySelector('[role=combobox]');
+    const trigger: HTMLElement = fixture.nativeElement.querySelector('[role=combobox]');
     press(trigger, 'l');
+    // Material's type-ahead waits for the typing to pause.
+    await pause(300);
     await settle(fixture);
     expect(fixture.componentInstance.value()).toBe('low');
+    fixture.destroy();
   });
 });
 

@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -5,6 +6,10 @@ import {
   HostListener,
   OnDestroy,
   OnInit,
+  DestroyRef,
+  afterNextRender,
+  afterRenderEffect,
+  computed,
   effect,
   inject,
   signal,
@@ -15,6 +20,9 @@ import { UnlistenFn } from '@tauri-apps/api/event';
 import { AgentStore } from '../core/agent.store';
 import { inTauri } from '../core/bridge';
 import { UiStore, roveFocus } from '../core/ui';
+
+const reducedMotion = () =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 import { fileKind } from './conversation';
 import { Icon } from './kit/icon';
 import { Popover } from './kit/popover';
@@ -25,13 +33,131 @@ const MAX_HEIGHT = 260;
 
 @Component({
   selector: 'pa-composer',
-  imports: [Icon, Tooltip, Popover],
+  imports: [MatButtonModule, Icon, Tooltip, Popover],
   template: `
+    <!-- What goes with the next message -- queued messages, attachments --
+         sits just above the bar, outside it: attaching an image leaves the
+         bar one slim line. -->
+    @if (store.queue().length || store.attachments().length) {
+      <div class="composer-context composer-tray" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
+        @if (store.queue().length) {
+          <ol class="queue" aria-label="Queued messages">
+            @for (queued of store.queue(); track $index; let index = $index) {
+              <li class="queued" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
+                <span class="queued-badge num">{{ index + 1 }}</span>
+                @if (editingQueued() === index) {
+                  <input
+                    class="input input-sm queued-edit"
+                    [value]="queued"
+                    (keydown.enter)="
+                      $event.preventDefault(); commitQueued(index, $any($event.target).value)
+                    "
+                    (keydown.escape)="editingQueued.set(null)"
+                    (blur)="commitQueued(index, $any($event.target).value)"
+                    aria-label="Edit queued message"
+                  />
+                } @else {
+                  <button
+                    type="button"
+                    class="queued-text"
+                    (click)="editingQueued.set(index)"
+                    paTooltip="Edit"
+                  >
+                    {{ queued }}
+                  </button>
+                }
+                @if (store.queue().length > 1) {
+                  <button matIconButton
+                    type="button"
+                    class="icon-btn icon-btn-sm"
+                    (click)="store.moveQueued(index, -1)"
+                    [disabled]="index === 0"
+                    aria-label="Move up"
+                    paTooltip="Send earlier"
+                  >
+                    <pa-icon name="chevron-up" [size]="14" />
+                  </button>
+                  <button matIconButton
+                    type="button"
+                    class="icon-btn icon-btn-sm"
+                    (click)="store.moveQueued(index, 1)"
+                    [disabled]="index === store.queue().length - 1"
+                    aria-label="Move down"
+                    paTooltip="Send later"
+                  >
+                    <pa-icon name="chevron-down" [size]="14" />
+                  </button>
+                }
+                @if (store.turnActive()) {
+                  <button matButton
+                    type="button"
+                    class="btn btn-sm btn-ghost"
+                    (click)="store.steerNow(index)"
+                    paTooltip="Deliver now, between the model's next two actions"
+                  >
+                    <pa-icon name="corner-down-right" [size]="14" /> Send now
+                  </button>
+                }
+                <button matIconButton
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  (click)="store.unqueue(index)"
+                  aria-label="Remove queued message"
+                  paTooltip="Remove"
+                >
+                  <pa-icon name="x" [size]="14" />
+                </button>
+              </li>
+            }
+          </ol>
+        }
+        @if (hasImage() && !store.modelSees()) {
+          <div class="composer-note" role="alert">
+            <pa-icon name="alert" [size]="14" />
+            This model cannot see images, so a message with one is refused. Choose a model marked
+            “sees images”, or describe the image in words.
+          </div>
+        }
+        @if (store.attachments().length) {
+          <ul class="attachments" aria-label="Attachments">
+            @for (path of store.attachments(); track path) {
+              <li
+                class="attachment"
+                [class]="'attachment tone-' + kind(path).tone"
+                [attr.title]="path"
+                animate.enter="anim-pop-in"
+                animate.leave="anim-pop-out"
+              >
+                <span class="attachment-icon"
+                  ><pa-icon [name]="kind(path).icon" [size]="16"
+                /></span>
+                <span class="attachment-text">
+                  <strong>{{ name(path) }}</strong>
+                  <small
+                    >{{ kind(path).label
+                    }}{{ kind(path).tone === 'folder' ? ' · read-only reference' : '' }}</small
+                  >
+                </span>
+                <button matIconButton
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  (click)="store.detach(path)"
+                  [attr.aria-label]="'Remove ' + name(path)"
+                >
+                  <pa-icon name="x" [size]="14" />
+                </button>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    }
     <form
+      #form
       class="composer"
       [class.busy]="store.turnActive()"
       [class.dropping]="dropping()"
-      [class.is-expanded]="expanded() || store.queue().length > 0 || store.attachments().length > 0"
+      [class.is-expanded]="open()"
       (submit)="$event.preventDefault(); submit()"
       aria-label="Message"
     >
@@ -40,122 +166,8 @@ const MAX_HEIGHT = 260;
           <pa-icon name="paperclip" [size]="16" /> Drop files or folders to attach
         </div>
       }
-      @if (store.queue().length || store.attachments().length) {
-        <div class="composer-context">
-          @if (store.queue().length) {
-            <ol class="queue" aria-label="Queued messages">
-              @for (queued of store.queue(); track $index; let index = $index) {
-                <li class="queued" animate.enter="anim-pop-in" animate.leave="anim-pop-out">
-                  <span class="queued-badge num">{{ index + 1 }}</span>
-                  @if (editingQueued() === index) {
-                    <input
-                      class="input input-sm queued-edit"
-                      [value]="queued"
-                      (keydown.enter)="
-                        $event.preventDefault(); commitQueued(index, $any($event.target).value)
-                      "
-                      (keydown.escape)="editingQueued.set(null)"
-                      (blur)="commitQueued(index, $any($event.target).value)"
-                      aria-label="Edit queued message"
-                    />
-                  } @else {
-                    <button
-                      type="button"
-                      class="queued-text"
-                      (click)="editingQueued.set(index)"
-                      paTooltip="Edit"
-                    >
-                      {{ queued }}
-                    </button>
-                  }
-                  @if (store.queue().length > 1) {
-                    <button
-                      type="button"
-                      class="icon-btn icon-btn-sm"
-                      (click)="store.moveQueued(index, -1)"
-                      [disabled]="index === 0"
-                      aria-label="Move up"
-                      paTooltip="Send earlier"
-                    >
-                      <pa-icon name="chevron-up" [size]="14" />
-                    </button>
-                    <button
-                      type="button"
-                      class="icon-btn icon-btn-sm"
-                      (click)="store.moveQueued(index, 1)"
-                      [disabled]="index === store.queue().length - 1"
-                      aria-label="Move down"
-                      paTooltip="Send later"
-                    >
-                      <pa-icon name="chevron-down" [size]="14" />
-                    </button>
-                  }
-                  @if (store.turnActive()) {
-                    <button
-                      type="button"
-                      class="btn btn-sm btn-ghost"
-                      (click)="store.steerNow(index)"
-                      paTooltip="Deliver now, between the model's next two actions"
-                    >
-                      <pa-icon name="corner-down-right" [size]="14" /> Send now
-                    </button>
-                  }
-                  <button
-                    type="button"
-                    class="icon-btn icon-btn-sm"
-                    (click)="store.unqueue(index)"
-                    aria-label="Remove queued message"
-                    paTooltip="Remove"
-                  >
-                    <pa-icon name="x" [size]="14" />
-                  </button>
-                </li>
-              }
-            </ol>
-          }
-          @if (hasImage() && !store.modelSees()) {
-            <div class="composer-note" role="alert">
-              <pa-icon name="alert" [size]="14" />
-              This model cannot see images, so a message with one is refused. Choose a model marked
-              “sees images”, or describe the image in words.
-            </div>
-          }
-          @if (store.attachments().length) {
-            <ul class="attachments" aria-label="Attachments">
-              @for (path of store.attachments(); track path) {
-                <li
-                  class="attachment"
-                  [class]="'attachment tone-' + kind(path).tone"
-                  [attr.title]="path"
-                  animate.enter="anim-pop-in"
-                  animate.leave="anim-pop-out"
-                >
-                  <span class="attachment-icon"
-                    ><pa-icon [name]="kind(path).icon" [size]="16"
-                  /></span>
-                  <span class="attachment-text">
-                    <strong>{{ name(path) }}</strong>
-                    <small
-                      >{{ kind(path).label
-                      }}{{ kind(path).tone === 'folder' ? ' · read-only reference' : '' }}</small
-                    >
-                  </span>
-                  <button
-                    type="button"
-                    class="icon-btn icon-btn-sm"
-                    (click)="store.detach(path)"
-                    [attr.aria-label]="'Remove ' + name(path)"
-                  >
-                    <pa-icon name="x" [size]="14" />
-                  </button>
-                </li>
-              }
-            </ul>
-          }
-        </div>
-      }
       <div class="composer-attach">
-        <button
+        <button matIconButton
           #attachButton
           type="button"
           class="icon-btn"
@@ -191,6 +203,8 @@ const MAX_HEIGHT = 260;
             </button>
           </pa-popover>
         }
+        <!-- The shell's tools and where you are, beside attach. -->
+        <ng-content select="[paComposerStart]" />
       </div>
       <textarea
         #box
@@ -212,7 +226,7 @@ const MAX_HEIGHT = 260;
                 : 'This platform has no sandbox adapter: commands the model runs are not confined to the workspace.'"
               tabindex="0"
             >
-              <pa-icon name="alert" [size]="14" /> {{ store.permissionMode() === 'full' ? 'Full access' : 'Not sandboxed' }}
+              <pa-icon name="alert" [size]="14" /><span class="composer-flag-label"> {{ store.permissionMode() === 'full' ? 'Full access' : 'Not sandboxed' }}</span>
             </span>
           }
         } @else {
@@ -233,29 +247,31 @@ const MAX_HEIGHT = 260;
             (click)="ui.runControls.set(ui.runControls() ? null : runNote)"
             [attr.aria-expanded]="!!ui.runControls()"
             aria-haspopup="dialog"
-            paTooltip="Goal mode and approvals"
+            [paTooltip]="(store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal mode' : 'Auto-approve') + ' is on · goal and approvals'"
             animate.enter="anim-pop-in"
             animate.leave="anim-pop-out"
           >
             <pa-icon name="zap" [size]="12" />
-            {{ store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal' : 'Auto-approve' }}
+            <span class="composer-flag-label">{{ store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal' : 'Auto-approve' }}</span>
           </button>
         }
         <span class="spacer"></span>
         <span class="composer-hint" aria-hidden="true"
           ><span class="kbd">↵</span> send <span class="kbd">⇧↵</span> new line</span
         >
+        <!-- The shell's run status and model, before stop and send. -->
+        <ng-content select="[paComposerEnd]" />
         @if (store.turnActive()) {
-          <button
+          <button matIconButton
             type="button"
-            class="icon-btn icon-btn-outline composer-stop"
+            class="icon-btn composer-stop"
             (click)="store.cancel()"
             aria-label="Stop"
             paTooltip="Stop this turn"
           >
             <pa-icon name="stop" [size]="16" />
           </button>
-          <button
+          <button matIconButton
             type="submit"
             class="composer-send"
             [disabled]="!draft().trim()"
@@ -265,7 +281,7 @@ const MAX_HEIGHT = 260;
             <pa-icon name="list-plus" [size]="16" />
           </button>
         } @else {
-          <button
+          <button matIconButton
             type="submit"
             class="composer-send"
             [disabled]="!draft().trim() || !store.model()"
@@ -314,9 +330,60 @@ export class Composer implements OnInit, OnDestroy {
   }
   protected readonly dropping = signal(false);
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
+  private readonly form = viewChild.required<ElementRef<HTMLFormElement>>('form');
+  /** One slim line, or the writing surface once the text wraps. */
+  protected readonly open = computed(() => this.expanded());
+  private wasOpen: boolean | null = null;
+  private lastHeight = 0;
+  /** The height animation under way, and the height it last showed. */
+  private resizing?: Animation;
+  private get shown(): number {
+    return this.form().nativeElement.getBoundingClientRect().height;
+  }
   private unlisten?: UnlistenFn;
 
   constructor() {
+    // Opening and closing grow and shrink the bar instead of jumping: from
+    // the height it had to the one it has now, Material's emphasized curve,
+    // its parts fading in where the layout moved them.
+    afterRenderEffect(() => {
+      const open = this.open();
+      const form = this.form().nativeElement;
+      // The text's box first, in the layout it now has: measured in the
+      // other one it kept that one's height (two lines where one fits).
+      untracked(() => this.fit(this.box().nativeElement));
+      const now = form.offsetHeight;
+      if (this.wasOpen !== null && open !== this.wasOpen && this.lastHeight && this.lastHeight !== now
+          && typeof form.animate === 'function' && !reducedMotion()) {
+        // Turned back before it finished: from where it stands now.
+        const from = this.resizing?.playState === 'running' ? this.shown : this.lastHeight;
+        this.resizing?.cancel();
+        form.style.overflow = 'hidden';
+        const grow = form.animate([{ height: `${from}px` }, { height: `${now}px` }], {
+          duration: 260,
+          easing: 'cubic-bezier(0.2, 0, 0, 1)',
+        });
+        this.resizing = grow;
+        grow.onfinish = grow.oncancel = () => {
+          if (this.resizing === grow) form.style.overflow = '';
+        };
+        for (const part of Array.from(form.querySelectorAll<HTMLElement>('.composer-attach, .composer-bar'))) {
+          part.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 80, easing: 'ease-out', fill: 'backwards' });
+        }
+      }
+      this.wasOpen = open;
+      this.lastHeight = now;
+    });
+    // The height to grow from: what the bar measures as it changes otherwise
+    // (the text growing line by line).
+    if (typeof ResizeObserver === 'function') {
+      const watch = new ResizeObserver(() => {
+        const form = this.form().nativeElement;
+        if (!form.getAnimations?.().length) this.lastHeight = form.offsetHeight;
+      });
+      afterNextRender(() => watch.observe(this.form().nativeElement));
+      inject(DestroyRef).onDestroy(() => watch.disconnect());
+    }
     // A message being edited arrives here to be changed and sent again.
     effect(() => {
       const text = this.store.composerDraft();
@@ -386,18 +453,58 @@ export class Composer implements OnInit, OnDestroy {
    * its padding, and showed a scrollbar before anything was typed.
    */
   private grow(box: HTMLTextAreaElement): void {
+    this.decide(box);
+    this.fit(box);
+  }
+
+  /** The text's room on the slim line, measured while the bar is slim. */
+  private narrow = 0;
+  private ruler: CanvasRenderingContext2D | null | undefined;
+
+  /**
+   * One slim line, or the writing surface. The slim line keeps the text
+   * that fits on it; past that the bar opens, and it closes again once the
+   * text would fit on the slim line with room to spare -- by the text's
+   * width, not the box's height, since the open bar gives the text more
+   * room and one line there says nothing about the slim one. A line break
+   * always opens it.
+   */
+  private decide(box: HTMLTextAreaElement): void {
+    const text = box.value;
+    if (!text) return this.expanded.set(false);
+    if (text.includes('\n')) return this.expanded.set(true);
+    if (!this.expanded()) {
+      this.narrow = this.room(box);
+      // A word that does not fit wraps before the width is used up.
+      const wrapped = box.scrollHeight > MIN_HEIGHT + 8;
+      if (wrapped || this.width(box) > this.narrow) this.expanded.set(true);
+    } else if (this.narrow && this.width(box) < this.narrow - 24) {
+      this.expanded.set(false);
+    }
+  }
+
+  /** The box's height to its text, between one line and 30% of the window. */
+  private fit(box: HTMLTextAreaElement): void {
     box.style.height = 'auto';
     // In a short window the box stops growing sooner, so the conversation
     // above it always keeps room.
     const max = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(window.innerHeight * 0.3)));
     const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
-    // Taller once the text wraps, and one line again only when it is empty:
-    // the tall layout gives the text the whole width, where it fits on one
-    // line again, so deciding by height alone flipped the two at every key.
-    if (!box.value) this.expanded.set(false);
-    else if (wanted > MIN_HEIGHT + 8) this.expanded.set(true);
     box.style.height = `${Math.min(wanted, max)}px`;
     box.style.overflowY = wanted > max ? 'auto' : 'hidden';
+  }
+
+  private room(box: HTMLTextAreaElement): number {
+    const style = getComputedStyle(box);
+    return box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  }
+
+  private width(box: HTMLTextAreaElement): number {
+    if (this.ruler === undefined) this.ruler = document.createElement('canvas').getContext?.('2d') ?? null;
+    if (!this.ruler) return 0;
+    const style = getComputedStyle(box);
+    this.ruler.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    return this.ruler.measureText(box.value).width;
   }
 
   /** Whether an attachment is an image, which only a vision model could use. */

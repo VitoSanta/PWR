@@ -40,8 +40,8 @@ describe('theme', () => {
 
   it('opens a palette named in the address in its own scheme', () => {
     const saved = { getItem: () => 'light' };
-    expect(readThemeMode(saved, '?palette=midnight')).toBe('dark');
-    expect(readThemeMode(saved, '?palette=solar')).toBe('light');
+    expect(readThemeMode(saved, '?palette=contrast-dark')).toBe('dark');
+    expect(readThemeMode(saved, '?palette=contrast-light')).toBe('light');
     expect(readThemeMode(saved, '?palette=nonsense')).toBe('light');
   });
 });
@@ -57,15 +57,15 @@ describe('palettes', () => {
       for (const colour of Object.values(palette.swatch)) expect(colour).toMatch(/^#[0-9a-f]{6}$/);
   });
 
-  it('has Focus colours in both schemes', () => {
+  it('has Google colours in both schemes', () => {
     for (const scheme of ['dark', 'light'] as const)
       for (const colour of Object.values(LAYOUT_SWATCHES['focus'][scheme]))
         expect(colour).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it('knows a palette only in its own scheme', () => {
-    expect(isPalette('midnight', 'dark')).toBe(true);
-    expect(isPalette('midnight', 'light')).toBe(false);
+    expect(isPalette('contrast-dark', 'dark')).toBe(true);
+    expect(isPalette('contrast-dark', 'light')).toBe(false);
     expect(isPalette(LAYOUT_PALETTE, 'dark')).toBe(false);
     expect(isPalette(null, 'light')).toBe(false);
   });
@@ -73,9 +73,9 @@ describe('palettes', () => {
   it('reads one palette per scheme, and the layout colours otherwise', () => {
     const storage = {
       getItem: (key: string) =>
-        key === PALETTE_KEYS.dark ? 'ember' : key === PALETTE_KEYS.light ? 'midnight' : null,
+        key === PALETTE_KEYS.dark ? 'contrast-dark' : key === PALETTE_KEYS.light ? 'contrast-dark' : null,
     };
-    expect(readPalette(storage, 'dark')).toBe('ember');
+    expect(readPalette(storage, 'dark')).toBe('contrast-dark');
     // A dark palette saved as the light one is not applied to light.
     expect(readPalette(storage, 'light')).toBe(LAYOUT_PALETTE);
     expect(readPalette(undefined, 'dark')).toBe(LAYOUT_PALETTE);
@@ -92,8 +92,8 @@ describe('palettes', () => {
   });
 
   it('lets the address pick a palette over the saved one', () => {
-    const storage = { getItem: () => 'ember' };
-    expect(readPalette(storage, 'dark', '?demo&palette=arctic')).toBe('arctic');
-    expect(readPalette(storage, 'dark', '?palette=solar')).toBe('ember');
+    const storage = { getItem: () => LAYOUT_PALETTE };
+    expect(readPalette(storage, 'dark', '?demo&palette=contrast-dark')).toBe('contrast-dark');
+    expect(readPalette(storage, 'dark', '?palette=contrast-light')).toBe(LAYOUT_PALETTE);
   });
 });

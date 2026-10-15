@@ -818,22 +818,22 @@ pa-composer {
   );
   margin: 0 auto var(--space-5);
   padding: var(--space-2);
-  border: 1px solid var(--border-strong);
+  /* Google's entry field: a filled container, no outline, a shade darker
+     (lighter, in dark) while it holds the focus. */
+  border: 1px solid transparent;
   border-radius: var(--radius-panel);
-  background: var(--surface-primary);
-  box-shadow: var(--shadow-sm);
+  background: var(--mat-sys-surface-container);
   transition:
-    border-color var(--dur) var(--ease),
-    box-shadow var(--dur) var(--ease);
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
 
 .composer:focus-within {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--mat-sys-surface-container-high);
 }
 
 .composer.dropping {
-  border-color: var(--accent-secondary);
+  border-color: var(--mat-sys-primary);
 }
 
 .drop-hint {
@@ -922,38 +922,30 @@ pa-composer {
   margin-top: 2px;
 }
 
-.composer-send {
-  display: inline-grid;
-  place-items: center;
+/* Send: Material's filled icon button, primary; off until there is text. */
+.composer .composer-send {
+  --mat-icon-button-icon-color: var(--mat-sys-on-primary);
+  --mat-icon-button-state-layer-color: var(--mat-sys-on-primary);
+  --mat-icon-button-disabled-icon-color: color-mix(in srgb, var(--mat-sys-on-surface) 38%, transparent);
   flex: none;
-  width: var(--control-h);
-  height: var(--control-h);
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: var(--accent-solid);
-  color: var(--text-on-accent);
-  transition:
-    background-color var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
+  background: var(--mat-sys-primary);
+  transition: background-color var(--dur-fast) var(--ease);
 }
 
-.composer-send:hover:not(:disabled) {
-  background: var(--accent-solid-hover);
+.composer .composer-send:disabled {
+  background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
 }
 
-.composer-send:active:not(:disabled) {
-  transform: scale(0.94);
+/* Stop: the tonal icon button beside it. */
+.composer .composer-stop {
+  --mat-icon-button-icon-color: var(--mat-sys-on-secondary-container);
+  background: var(--mat-sys-secondary-container);
+  border: none;
 }
 
-.composer-send:disabled {
-  background: var(--surface-active);
-  color: var(--text-muted);
-}
-
-.composer-stop:hover:not(:disabled) {
-  background: var(--danger-soft);
-  color: var(--danger-text);
+.composer .composer-stop:hover:not(:disabled) {
+  --mat-icon-button-icon-color: var(--mat-sys-on-error-container);
+  background: var(--mat-sys-error-container);
 }
 
 /* Narrow windows: the keyboard hint goes before any control does. */
@@ -1719,4 +1711,340 @@ pa-trace-raw {
   display: block;
   width: 100%;
   height: auto;
+}
+
+/* ===================================================================
+ * The conversation in Google's manner (Material 3, as Gemini draws it):
+ * the answer as readable prose, your message as a filled bubble, the run's
+ * steps as quiet lines with the live one in blue, code and tables as
+ * Material surfaces.
+ * =================================================================== */
+
+/* Your message: a filled bubble, its top-right corner squared toward you;
+   the time and actions only when you look at it. */
+.message-user {
+  padding: var(--space-3) 18px;
+  border: 0;
+  border-radius: 24px 6px 24px 24px;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.message-user-group .message-time {
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.message-user-group:hover .message-time,
+.message-user-group:focus-within .message-time {
+  opacity: 1;
+}
+
+/* Material's assist chip: 8px corners, the outline variant. */
+.attachment-chip {
+  height: 28px;
+  padding: 0 10px 0 var(--space-2);
+  border-color: var(--mat-sys-outline-variant);
+  border-radius: var(--radius-inline);
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* The turn's head: the mark, the name, how long. */
+.turn-head strong {
+  font-weight: var(--fw-medium);
+}
+
+/* The answer: Google Sans at reading size. */
+.step.text,
+.step.text .markdown {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--mat-sys-on-surface);
+}
+
+.markdown strong {
+  font-weight: var(--fw-medium);
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+}
+
+.markdown h1 { font-size: 22px; }
+.markdown h2 { font-size: 19px; }
+.markdown h3 { font-size: 17px; }
+
+.markdown a {
+  color: var(--mat-sys-primary);
+  text-decoration: none;
+}
+
+.markdown a:hover {
+  text-decoration: underline;
+}
+
+.markdown blockquote {
+  border-left: 3px solid var(--mat-sys-outline-variant);
+}
+
+/* Code: inline as a small tonal token, blocks as a Material surface. */
+.markdown code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  font-size: 0.9em;
+}
+
+.markdown pre {
+  padding: var(--space-4) var(--space-5);
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--mat-sys-surface-container);
+}
+
+.markdown pre code {
+  background: none;
+}
+
+.code-copy {
+  top: var(--space-2);
+  right: var(--space-2);
+  background: var(--mat-sys-surface-container-high);
+}
+
+.md-glyph {
+  font-size: 16px;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+}
+
+/* Tables as Material's data table: outline-variant rules, a tonal head,
+   rounded as a card. */
+.markdown table {
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--radius-card);
+}
+
+.markdown th,
+.markdown td {
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.markdown tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown th {
+  background: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: var(--fw-medium);
+}
+
+/* The run's phases: quiet lines; the one at work in blue, its name lit by
+   a passing sheen, as Google's assistants show their thinking. */
+.phase-head,
+.actions-head {
+  gap: var(--space-2);
+  font-size: var(--fs-body-sm);
+}
+
+.phase-name {
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: var(--fw-medium);
+}
+
+.phase.running .phase-icon,
+.phase.running .phase-name {
+  color: var(--mat-sys-primary);
+}
+
+.phase.running .phase-name,
+.step.working .working-label {
+  background: linear-gradient(
+      90deg,
+      var(--mat-sys-primary) 0%,
+      var(--mat-sys-primary) 40%,
+      color-mix(in srgb, var(--mat-sys-primary) 35%, var(--mat-sys-surface)) 50%,
+      var(--mat-sys-primary) 60%,
+      var(--mat-sys-primary) 100%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: pa-sheen var(--dur-shimmer) linear infinite;
+}
+
+@keyframes pa-sheen {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase.running .phase-name,
+  .step.working .working-label {
+    animation: none;
+    color: var(--mat-sys-primary);
+    background: none;
+  }
+}
+
+.phase-summary,
+.phase-time {
+  color: var(--mat-sys-outline);
+}
+
+/* Working: Material's primary, the dots and the word. */
+.dots i {
+  background: var(--mat-sys-primary);
+}
+
+/* Each step of a tool call, a Material list row: state layer on hover. */
+.action-row:not(:disabled):hover {
+  background: var(--surface-hover);
+}
+
+/* A new conversation: Google's greeting -- large, regular weight -- with
+   the folder and the model as Material assist chips under it. */
+.welcome .t-display {
+  font-size: 32px;
+  font-weight: var(--fw-regular);
+  letter-spacing: 0;
+  color: var(--mat-sys-on-surface);
+}
+
+.welcome-text {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.welcome-context .path-token {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--radius-inline);
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+/* The speed of the reply being written, after "Working". */
+.working-speed {
+  color: var(--mat-sys-outline);
+}
+
+/* While PWR works: the message bar's edge lit in Google's four colours,
+   turning slowly, and a soft glow of them circling it -- the bar says the
+   model is at work without a word. The ring is a pseudo-element outside
+   the bar's box; the glow is its shadow, so it always sits behind the bar
+   (the bar is its own stacking context, for the view transitions). Still,
+   not turning, under reduced motion. */
+@property --composer-turn {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.composer.busy::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: -2px;
+  padding: 2px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--composer-turn),
+    #4285f4,
+    #ea4335,
+    #fbbc04,
+    #34a853,
+    #4285f4
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  opacity: 0.9;
+  pointer-events: none;
+  /* Lit as the turn starts, then turning. */
+  animation:
+    pa-fade-in 0.6s var(--ease-out) backwards,
+    pa-composer-turn 4s linear infinite;
+}
+
+.composer.busy {
+  --glow: 0.28;
+  animation: pa-composer-glow 4s linear infinite;
+}
+
+:root[data-theme='dark'] .composer.busy {
+  --glow: 0.38;
+}
+
+@keyframes pa-composer-turn {
+  to {
+    --composer-turn: 360deg;
+  }
+}
+
+/* Blue, red, yellow and green, each a blurred shadow, travelling round
+   the bar's four sides in the ring's direction. */
+@keyframes pa-composer-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 -10px 28px -6px rgb(66 133 244 / var(--glow)),
+      14px 0 28px -6px rgb(234 67 53 / var(--glow)),
+      0 10px 28px -6px rgb(251 188 4 / var(--glow)),
+      -14px 0 28px -6px rgb(52 168 83 / var(--glow));
+  }
+  25% {
+    box-shadow:
+      14px 0 28px -6px rgb(66 133 244 / var(--glow)),
+      0 10px 28px -6px rgb(234 67 53 / var(--glow)),
+      -14px 0 28px -6px rgb(251 188 4 / var(--glow)),
+      0 -10px 28px -6px rgb(52 168 83 / var(--glow));
+  }
+  50% {
+    box-shadow:
+      0 10px 28px -6px rgb(66 133 244 / var(--glow)),
+      -14px 0 28px -6px rgb(234 67 53 / var(--glow)),
+      0 -10px 28px -6px rgb(251 188 4 / var(--glow)),
+      14px 0 28px -6px rgb(52 168 83 / var(--glow));
+  }
+  75% {
+    box-shadow:
+      -14px 0 28px -6px rgb(66 133 244 / var(--glow)),
+      0 -10px 28px -6px rgb(234 67 53 / var(--glow)),
+      14px 0 28px -6px rgb(251 188 4 / var(--glow)),
+      0 10px 28px -6px rgb(52 168 83 / var(--glow));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer.busy::before {
+    animation: pa-fade-in 0.6s var(--ease-out) backwards;
+  }
+
+  .composer.busy {
+    animation: none;
+    box-shadow:
+      0 -10px 28px -6px rgb(66 133 244 / var(--glow)),
+      14px 0 28px -6px rgb(234 67 53 / var(--glow)),
+      0 10px 28px -6px rgb(251 188 4 / var(--glow)),
+      -14px 0 28px -6px rgb(52 168 83 / var(--glow));
+  }
 }

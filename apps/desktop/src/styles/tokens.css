@@ -17,16 +17,17 @@
   --space-8: 32px;
   --space-10: 40px;
 
-  /* Tiny marks (kbd, checkbox, swatch) · inline tokens (code, paths) ·
-     controls · cards and popovers · panels · modals · pills (badges,
-     status, chips only -- never ordinary buttons). */
+  /* Material 3's shape scale: extra-small marks (kbd, checkbox) · small
+     inline tokens (code, paths) · full-round controls (buttons and fields,
+     as Google draws them) · large cards · extra-large panels and dialogs. */
   --radius-xs: 4px;
-  --radius-inline: 6px;
-  --radius-control: 10px;
-  --radius-control-inner: 7px;
-  --radius-card: 14px;
-  --radius-panel: 16px;
-  --radius-modal: 18px;
+  --radius-inline: 8px;
+  --radius-control: 20px;
+  --radius-control-inner: 16px;
+  --radius-card: 16px;
+  --radius-panel: 28px;
+  --radius-modal: 28px;
+  --radius-brand: 32%;
   --radius-pill: 999px;
 
   --control-h-sm: 28px;
@@ -45,10 +46,9 @@
   --serif: ui-serif, 'New York', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
 
   /* -------------------------------------------------------- typography */
-  --font:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI',
-    system-ui, sans-serif;
-  --mono: 'SF Mono', ui-monospace, 'JetBrains Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  /* Google Sans Flex and Google Sans Code ship with the app (fonts.css). */
+  --font: 'Google Sans Flex', 'Google Sans', Roboto, -apple-system, system-ui, sans-serif;
+  --mono: 'Google Sans Code', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
   --fs-display: 28px;
   --fs-title: 18px;
@@ -89,148 +89,90 @@
   --z-tooltip: 70;
 }
 
-/* ----------------------------------------------------------- dark theme */
+/* --------------------------------------------------------------- colours
+ * Google's, through Material 3's system tokens (material.scss), which
+ * follow `color-scheme`: `data-theme` picks light or dark. Blue leads;
+ * green, yellow and red mean states (and colour the context's chart).
+ * Where Material has no role (warning, diffs, chart series), Google's own
+ * light and dark values. */
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
-
-  --bg-app: #070a0f;
-  --bg-sidebar: #0b0f17;
-  --surface-primary: #101621;
-  --surface-secondary: #151c29;
-  --surface-elevated: #1a2230;
-  --surface-inset: #080b11;
-  --surface-hover: rgba(148, 163, 184, 0.08);
-  --surface-active: rgba(148, 163, 184, 0.13);
-  --scrim: rgba(3, 5, 9, 0.62);
-  --input-bg: #0c111a;
-  --tooltip-bg: #273041;
-  --tooltip-text: #f3f6fb;
-
-  --border-subtle: rgba(148, 163, 184, 0.14);
-  --border-strong: rgba(148, 163, 184, 0.24);
-
-  --text-primary: #f3f6fb;
-  --text-secondary: #a6b0c3;
-  --text-muted: #7f8ca2;
-  --text-on-accent: #ffffff;
-  --text-on-danger: #ffffff;
-
-  --accent-primary: #8174ff;
-  --accent-text: #a49bff;
-  --accent-solid: #6e5ff0;
-  --accent-solid-hover: #7b6df5;
-  --accent-soft: rgba(129, 116, 255, 0.14);
-  --accent-border: rgba(129, 116, 255, 0.42);
-  --accent-secondary: #45d6d0;
-  --accent-secondary-soft: rgba(69, 214, 208, 0.12);
-  --accent-secondary-text: #45d6d0;
-  --brand-gradient: linear-gradient(135deg, #8174ff 0%, #7fa2f7 50%, #45d6d0 100%);
-  --focus-ring: rgba(145, 134, 255, 0.75);
-
-  --success: #3ddc97;
-  --success-text: #3ddc97;
-  --success-soft: rgba(61, 220, 151, 0.12);
-  --success-border: rgba(61, 220, 151, 0.34);
-  --warning: #f5b84b;
-  --warning-text: #f7c56b;
-  --warning-soft: rgba(245, 184, 75, 0.12);
-  --warning-border: rgba(245, 184, 75, 0.38);
-  --danger: #ff647c;
-  --danger-text: #ff8b9d;
-  --danger-soft: rgba(255, 100, 124, 0.12);
-  --danger-border: rgba(255, 100, 124, 0.38);
-  --danger-solid: #d13b53;
-  --danger-solid-hover: #dc4a61;
-
-  --diff-add-bg: rgba(61, 220, 151, 0.09);
-  --diff-add-text: #b5f2d5;
-  --diff-del-bg: rgba(255, 100, 124, 0.09);
-  --diff-del-text: #ffc6cf;
-
-  /* Muted categorical series for the context composition. */
-  --data-1: #8174ff;
-  --data-2: #45d6d0;
-  --data-3: #7fa2f7;
-  --data-4: #d9a557;
-  --data-5: #5cc59a;
-  --data-6: #8c96a9;
-  --data-7: #e07bb5;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
-  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-overlay-panel: 0 0 40px rgba(0, 0, 0, 0.45);
 }
 
-/* ---------------------------------------------------------- light theme */
 :root[data-theme='light'] {
   color-scheme: light;
+}
 
-  --bg-app: #f5f7fa;
-  --bg-sidebar: #eef1f5;
-  --surface-primary: #ffffff;
-  --surface-secondary: #f2f4f8;
-  --surface-elevated: #ffffff;
-  --surface-inset: #f4f6f9;
-  --surface-hover: rgba(30, 41, 59, 0.05);
-  --surface-active: rgba(30, 41, 59, 0.09);
-  --scrim: rgba(23, 32, 51, 0.32);
-  --input-bg: #ffffff;
-  --tooltip-bg: #1d2536;
-  --tooltip-text: #f3f6fb;
+:root {
+  --bg-app: var(--mat-sys-surface);
+  --bg-sidebar: var(--mat-sys-surface-container-low);
+  --surface-primary: light-dark(var(--mat-sys-surface-container-lowest), var(--mat-sys-surface-container-low));
+  --surface-secondary: var(--mat-sys-surface-container);
+  --surface-elevated: light-dark(var(--mat-sys-surface-container-lowest), var(--mat-sys-surface-container-high));
+  --surface-inset: var(--mat-sys-surface-container);
+  /* Material's state layers: 8% of the content colour on hover, 12% pressed. */
+  --surface-hover: color-mix(in srgb, var(--mat-sys-on-surface) 8%, transparent);
+  --surface-active: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+  --scrim: color-mix(in srgb, var(--mat-sys-scrim) 32%, transparent);
+  --input-bg: var(--surface-primary);
+  --tooltip-bg: var(--mat-sys-inverse-surface);
+  --tooltip-text: var(--mat-sys-inverse-on-surface);
 
-  --border-subtle: rgba(30, 41, 59, 0.1);
-  --border-strong: rgba(30, 41, 59, 0.18);
+  --border-subtle: var(--mat-sys-outline-variant);
+  --border-strong: var(--mat-sys-outline);
 
-  --text-primary: #172033;
-  --text-secondary: #505c71;
-  --text-muted: #5f6a7e;
-  --text-on-accent: #ffffff;
-  --text-on-danger: #ffffff;
+  --text-primary: var(--mat-sys-on-surface);
+  --text-secondary: var(--mat-sys-on-surface-variant);
+  --text-muted: var(--mat-sys-outline);
+  --text-on-accent: var(--mat-sys-on-primary);
+  --text-on-danger: var(--mat-sys-on-error);
 
-  --accent-primary: #6557f0;
-  --accent-text: #5647e6;
-  --accent-solid: #6252ee;
-  --accent-solid-hover: #5344e4;
-  --accent-soft: rgba(101, 87, 240, 0.1);
-  --accent-border: rgba(101, 87, 240, 0.38);
-  --accent-secondary: #16a8a3;
-  --accent-secondary-soft: rgba(22, 168, 163, 0.1);
-  --accent-secondary-text: #0a7773;
-  --brand-gradient: linear-gradient(135deg, #6f61f2 0%, #5f8ff0 50%, #1fb5ae 100%);
-  --focus-ring: rgba(98, 82, 238, 0.6);
+  --accent-primary: var(--mat-sys-primary);
+  --accent-text: var(--mat-sys-primary);
+  --accent-solid: var(--mat-sys-primary);
+  --accent-solid-hover: color-mix(in srgb, var(--mat-sys-primary) 90%, var(--mat-sys-on-primary));
+  --accent-soft: var(--mat-sys-secondary-container);
+  --accent-border: color-mix(in srgb, var(--mat-sys-primary) 45%, transparent);
+  --accent-secondary: var(--mat-sys-primary);
+  --accent-secondary-soft: var(--mat-sys-secondary-container);
+  --accent-secondary-text: var(--mat-sys-on-secondary-container);
+  /* No gradients in Google's chrome: the brand fill is the primary colour. */
+  --brand-gradient: linear-gradient(var(--mat-sys-primary), var(--mat-sys-primary));
+  --focus-ring: var(--mat-sys-primary);
 
-  --success: #17a36b;
-  --success-text: #0f7a50;
-  --success-soft: rgba(23, 163, 107, 0.1);
-  --success-border: rgba(23, 163, 107, 0.32);
-  --warning: #c98a12;
-  --warning-text: #95650a;
-  --warning-soft: rgba(201, 138, 18, 0.1);
-  --warning-border: rgba(201, 138, 18, 0.36);
-  --danger: #dc3d58;
-  --danger-text: #c42f49;
-  --danger-soft: rgba(220, 61, 88, 0.08);
-  --danger-border: rgba(220, 61, 88, 0.34);
-  --danger-solid: #d63652;
-  --danger-solid-hover: #c42f49;
+  --success: light-dark(#188038, #81c995);
+  --success-text: light-dark(#137333, #81c995);
+  --success-soft: light-dark(#e6f4ea, color-mix(in srgb, #81c995 14%, transparent));
+  --success-border: light-dark(#a8dab5, color-mix(in srgb, #81c995 40%, transparent));
+  --warning: light-dark(#f9ab00, #fdd663);
+  --warning-text: light-dark(#b06000, #fdd663);
+  --warning-soft: light-dark(#fef7e0, color-mix(in srgb, #fdd663 14%, transparent));
+  --warning-border: light-dark(#fdd663, color-mix(in srgb, #fdd663 40%, transparent));
+  --danger: var(--mat-sys-error);
+  --danger-text: var(--mat-sys-error);
+  --danger-soft: var(--mat-sys-error-container);
+  --danger-border: color-mix(in srgb, var(--mat-sys-error) 40%, transparent);
+  --danger-solid: var(--mat-sys-error);
+  --danger-solid-hover: color-mix(in srgb, var(--mat-sys-error) 90%, var(--mat-sys-on-error));
 
-  --diff-add-bg: rgba(23, 163, 107, 0.1);
-  --diff-add-text: #0d6b46;
-  --diff-del-bg: rgba(220, 61, 88, 0.09);
-  --diff-del-text: #9c2138;
+  --diff-add-bg: light-dark(#e6f4ea, color-mix(in srgb, #81c995 12%, transparent));
+  --diff-add-text: light-dark(#0d652d, #a8dab5);
+  --diff-del-bg: light-dark(#fce8e6, color-mix(in srgb, #f28b82 12%, transparent));
+  --diff-del-text: light-dark(#a50e0e, #f6aea9);
 
-  --data-1: #6557f0;
-  --data-2: #1fb5ae;
-  --data-3: #5f8ff0;
-  --data-4: #cf9437;
-  --data-5: #2fa877;
-  --data-6: #8a94a6;
-  --data-7: #c4538f;
+  /* Google's chart series: blue, green, yellow, red, purple, grey, cyan. */
+  --data-1: light-dark(#1a73e8, #8ab4f8);
+  --data-2: light-dark(#1e8e3e, #81c995);
+  --data-3: light-dark(#f9ab00, #fdd663);
+  --data-4: light-dark(#d93025, #f28b82);
+  --data-5: light-dark(#9334e6, #c58af9);
+  --data-6: light-dark(#80868b, #9aa0a6);
+  --data-7: light-dark(#12b5cb, #78d9ec);
 
-  --shadow-sm: 0 1px 2px rgba(23, 32, 51, 0.06);
-  --shadow-popover: 0 12px 32px rgba(23, 32, 51, 0.12), 0 2px 6px rgba(23, 32, 51, 0.06);
-  --shadow-modal: 0 24px 64px rgba(23, 32, 51, 0.18), 0 4px 12px rgba(23, 32, 51, 0.08);
-  --shadow-overlay-panel: 0 0 32px rgba(23, 32, 51, 0.14);
+  /* Material's elevation levels. */
+  --shadow-sm: var(--mat-sys-level1);
+  --shadow-popover: var(--mat-sys-level2);
+  --shadow-modal: var(--mat-sys-level3);
+  --shadow-overlay-panel: var(--mat-sys-level2);
 }

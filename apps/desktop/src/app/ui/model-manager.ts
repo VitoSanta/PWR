@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { bytes, percent, tokens } from '../core/format';
@@ -14,7 +15,7 @@ import { Tooltip } from './kit/tooltip';
  */
 @Component({
   selector: 'pa-model-manager',
-  imports: [Dialog, Icon, Tooltip],
+  imports: [MatButtonModule, Dialog, Icon, Tooltip],
   template: `
     @if (models.open()) {
       <pa-dialog size="lg" labelledBy="mm-title" describedBy="mm-description" (closed)="models.close()" animate.leave="is-leaving">
@@ -26,7 +27,7 @@ import { Tooltip } from './kit/tooltip';
               PWR runs Google's Gemma 4, one model per memory tier, each with its full {{ t(models.contextTokens()) }}-token context.
             </p>
           </div>
-          <button class="icon-btn" (click)="models.close()" aria-label="Close Models" paTooltip="Close">
+          <button matIconButton class="icon-btn" (click)="models.close()" aria-label="Close Models" paTooltip="Close">
             <pa-icon name="x" />
           </button>
         </header>
@@ -46,7 +47,7 @@ import { Tooltip } from './kit/tooltip';
               <span class="empty-state-icon"><pa-icon name="alert" /></span>
               <p class="empty-state-title">The models could not be read</p>
               <p class="empty-state-text">{{ models.error() }}</p>
-              <button class="btn" (click)="models.load()">Try again</button>
+              <button matButton="outlined" class="btn" (click)="models.load()">Try again</button>
             </div>
           } @else {
             @if (models.status() === 'loading' && !models.packs().length) {
@@ -88,18 +89,18 @@ import { Tooltip } from './kit/tooltip';
                 }
                 <div class="variant-action local-actions">
                   @if (active(pack)) {
-                    <button class="btn btn-sm" (click)="models.pause(pack)">Pause</button>
+                    <button matButton="outlined" class="btn btn-sm" (click)="models.pause(pack)">Pause</button>
                   } @else if (!pack.installed) {
-                    <button class="btn btn-sm btn-primary" (click)="models.download(pack)" [disabled]="!pack.artifact">
+                    <button matButton="filled" class="btn btn-sm btn-primary" (click)="models.download(pack)" [disabled]="!pack.artifact">
                       {{ pack.partial || download(pack)?.state?.state === 'cancelled' ? 'Resume' : 'Download' }}
                     </button>
                   } @else if (!pack.inUse) {
-                    <button class="btn btn-sm" (click)="models.use(pack)" [disabled]="agent.turnActive()">Use</button>
+                    <button matButton="outlined" class="btn btn-sm" (click)="models.use(pack)" [disabled]="agent.turnActive()">Use</button>
                   } @else {
                     <span class="action-slot" aria-hidden="true"></span>
                   }
                   <span class="action-slot" aria-hidden="true"></span>
-                  <button
+                  <button matButton
                     class="btn btn-sm btn-danger-quiet"
                     (click)="models.askDelete(pack)"
                     [disabled]="pack.inUse || active(pack) || (!pack.installed && !pack.partial)"
@@ -146,8 +147,8 @@ import { Tooltip } from './kit/tooltip';
           </div>
         }
         <div class="dialog-footer">
-          <button class="btn" (click)="models.cancelDelete()" [disabled]="models.deleting()" data-autofocus>Cancel</button>
-          <button class="btn btn-danger" (click)="models.confirmDelete()" [disabled]="models.deleting()" [attr.aria-busy]="models.deleting()">
+          <button matButton="outlined" class="btn" (click)="models.cancelDelete()" [disabled]="models.deleting()" data-autofocus>Cancel</button>
+          <button matButton="filled" class="btn btn-danger" (click)="models.confirmDelete()" [disabled]="models.deleting()" [attr.aria-busy]="models.deleting()">
             Delete
           </button>
         </div>

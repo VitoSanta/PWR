@@ -25,8 +25,15 @@
                 "input": "public"
               }
             ],
-            "allowedCommonJsDependencies": ["ngraph.forcelayout", "ngraph.graph", "ngraph.events", "ngraph.random", "ngraph.merge"],
+            "allowedCommonJsDependencies": [
+              "ngraph.forcelayout",
+              "ngraph.graph",
+              "ngraph.events",
+              "ngraph.random",
+              "ngraph.merge"
+            ],
             "styles": [
+              "src/styles/material.scss",
               "src/styles.css",
               "node_modules/@xterm/xterm/css/xterm.css"
             ]
@@ -48,7 +55,10 @@
               "outputHashing": "all",
               "optimization": {
                 "scripts": true,
-                "styles": { "minify": true, "inlineCritical": false },
+                "styles": {
+                  "minify": true,
+                  "inlineCritical": false
+                },
                 "fonts": true
               }
             },
@@ -75,7 +85,9 @@
         "test": {
           "builder": "@angular/build:unit-test",
           "options": {
-            "setupFiles": ["src/test-setup.ts"]
+            "setupFiles": [
+              "src/test-setup.ts"
+            ]
           }
         }
       }

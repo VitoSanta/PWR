@@ -21,6 +21,18 @@ import { focusables } from './dialog';
  *
  * Usage: `@if (open) { <pa-popover [anchor]="button" animate.leave="anim-pop-out" (closed)="open = false"> }`
  */
+/** Whether the last thing the person did was on the keyboard: focus given
+ * back to the anchor shows its ring then, and not after a click. */
+let lastByKeyboard = false;
+if (typeof document !== 'undefined') {
+  document.addEventListener('keydown', () => (lastByKeyboard = true), true);
+  document.addEventListener('pointerdown', () => (lastByKeyboard = false), true);
+}
+
+function giveBack(anchor: HTMLElement): void {
+  anchor.focus({ preventScroll: true, focusVisible: lastByKeyboard } as FocusOptions);
+}
+
 @Component({
   selector: 'pa-popover',
   template: `<ng-content />`,
@@ -43,7 +55,10 @@ import { focusables } from './dialog';
   },
 })
 export class Popover implements AfterViewInit, OnDestroy {
-  readonly anchor = input.required<HTMLElement>();
+  /** The control it opens from: an element, or a Material button on it. */
+  readonly anchor = input.required<HTMLElement, HTMLElement | { _elementRef: ElementRef<HTMLElement> }>({
+    transform: (anchor) => (anchor instanceof HTMLElement ? anchor : anchor._elementRef.nativeElement),
+  });
   readonly side = input<'bottom' | 'top' | 'right'>('bottom');
   readonly anchorAlign = input<'start' | 'end' | 'center'>('end');
   /** Kept inside this element's box, not only inside the window. */
@@ -88,7 +103,7 @@ export class Popover implements AfterViewInit, OnDestroy {
     if (group) joinGroup(this, group, false, false, true);
     const active = document.activeElement;
     if (!active || active === document.body || this.host.nativeElement.contains(active)) {
-      this.anchor().focus({ preventScroll: true });
+      giveBack(this.anchor());
     }
   }
 
@@ -176,7 +191,7 @@ export class Popover implements AfterViewInit, OnDestroy {
     // this first -- it closed the whole Model Manager from its filters.
     if (this.dialogs.open && !this.host.nativeElement.closest('pa-dialog')) return;
     event.preventDefault();
-    this.anchor().focus({ preventScroll: true });
+    giveBack(this.anchor());
     this.closed.emit();
   }
 }

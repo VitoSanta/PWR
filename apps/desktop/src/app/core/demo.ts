@@ -111,14 +111,29 @@ function demoAnswer(method: string, params: any): any {
         ],
       };
     }
-    case '_pwr/local_models':
+    case '_pwr/local_models': {
+      // The Gemma line as the core describes it (pwr_domain::gemma), on a
+      // 64 GB Mac: for drawing the model manager, not a measurement.
+      const pack = (model: string, label: string, tier: 'low' | 'middle' | 'high', tierMemoryGib: number, weightsBytes: number,
+                    artifact: string, assistant: string, installed: boolean, extra: any = {}) => ({
+        model, label, tier, tierMemoryGib, weightsBytes, artifact, installed, partial: false,
+        bytesOnDisk: installed ? weightsBytes : 0, inUse: false, windowTokens: 262144, fullContext: true,
+        neededBytes: weightsBytes + 8 * GIB, assistant: { model: assistant, installed: false }, ...extra,
+      });
+      const a12 = 'mlx-community/gemma-4-12B-it-assistant-bf16';
+      const a26 = 'mlx-community/gemma-4-26B-A4B-it-assistant-bf16';
+      const a31 = 'mlx-community/gemma-4-31B-it-assistant-bf16';
       return {
-        activeBackend: 'mlx',
-        models: [
-          { modelRef: 'mlx-community/gemma-4-26b-a4b-it-4bit', format: 'mlx', backend: 'mlx', path: '~/.pwr/models/mlx-community/gemma-4-26b-a4b-it-4bit', bytes: 14.3 * GIB, files: 13, partial: false, inUse: true, usable: true },
-          { modelRef: 'mlx-community/gemma-4-12B-it-4bit', format: 'mlx', backend: 'mlx', path: '~/.pwr/models/mlx-community/gemma-4-12B-it-4bit', bytes: 6.3 * GIB, files: 9, partial: false, inUse: false, usable: true },
+        memoryBytes: 64 * GIB, contextTokens: 262144, modelsRoot: '~/.pwr/models',
+        packs: [
+          pack('mlx-community/gemma-4-12B-it-4bit', 'Gemma 4 12B', 'low', 16, 6_741_039_511, 'hf-gemma-4-12b-it-4bit', a12, true),
+          pack('mlx-community/gemma-4-26b-a4b-it-4bit', 'Gemma 4 26B', 'middle', 24, 15_341_205_776, 'hf-gemma-4-26b-a4b-it-4bit', a26, true, { inUse: true }),
+          pack('mlx-community/gemma-4-26B-A4B-it-qat-4bit', 'Gemma 4 26B QAT', 'middle', 24, 15_608_838_574, 'hf-gemma-4-26b-a4b-it-qat-4bit', a26, false),
+          pack('mlx-community/gemma-4-26b-a4b-it-6bit', 'Gemma 4 26B 6-bit', 'middle', 24, 21_647_423_449, 'hf-gemma-4-26b-a4b-it-6bit', a26, false, { partial: true, bytesOnDisk: 9 * GIB }),
+          pack('mlx-community/gemma-4-31b-it-8bit', 'Gemma 4 31B', 'high', 64, 33_763_120_415, 'hf-gemma-4-31b-it-8bit', a31, true),
         ],
       };
+    }
     case '_pwr/model_delete':
       return { modelRef: params.modelRef, freedBytes: 2.3 * GIB, removed: [] };
     case '_pwr/download':

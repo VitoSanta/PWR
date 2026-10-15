@@ -36,6 +36,8 @@ export class UiStore {
   readonly sessionsOpen = signal(false);
   /** Goal mode and Auto-approve, open beside the control that asked for them. */
   readonly runControls = signal<HTMLElement | null>(null);
+  /** The run's figures, open beside the control that asked for them (the model's chip). */
+  readonly runMetrics = signal<HTMLElement | null>(null);
 }
 
 /**

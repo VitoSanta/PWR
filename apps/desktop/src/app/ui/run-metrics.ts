@@ -1,7 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { tokens } from '../core/format';
 import { ModelsStore } from '../core/models.store';
+import { UiStore } from '../core/ui';
 import { RunMetrics, duration, rate, runMetrics } from '../core/trace';
 import { Icon } from './kit/icon';
 import { Popover } from './kit/popover';
@@ -22,30 +24,33 @@ interface Figure {
  */
 @Component({
   selector: 'pa-run-metrics',
-  imports: [Icon, Popover, Tooltip],
+  imports: [MatButtonModule, Icon, Popover, Tooltip],
   template: `
-    <button
-      #trigger
-      class="topbar-chip run-metrics"
-      (click)="toggle()"
-      [attr.aria-expanded]="open()"
-      aria-haspopup="dialog"
-      [attr.aria-label]="speed() ? 'Output speed ' + speed() + ' tokens per second' : 'Runtime metrics'"
-      paTooltip="Runtime metrics"
-    >
-      <pa-icon name="gauge" [size]="14" />
-      @if (speed(); as speed) {
-        <span class="num"><strong>{{ speed }}</strong><span class="meter-detail"> tok/s</span></span>
-      } @else {
-        <span class="num meter-detail">— tok/s</span>
-      }
-    </button>
+    @if (!panelOnly()) {
+      <button
+        #trigger
+        class="topbar-chip run-metrics"
+        (click)="toggle()"
+        [attr.aria-expanded]="open()"
+        aria-haspopup="dialog"
+        [attr.aria-label]="speed() ? 'Output speed ' + speed() + ' tokens per second' : 'Runtime metrics'"
+        [paTooltip]="speed() ? speed() + ' tok/s · runtime metrics' : 'Runtime metrics'"
+      >
+        <pa-icon name="gauge" [size]="14" />
+        @if (speed(); as speed) {
+          <span class="num"><strong>{{ speed }}</strong><span class="meter-detail"> tok/s</span></span>
+        } @else {
+          <span class="num meter-detail">— tok/s</span>
+        }
+      </button>
 
-    @if (open()) {
-      <pa-popover [anchor]="trigger" [anchorAlign]="align()" [side]="side()" width="380px" ariaLabel="Runtime metrics" (closed)="open.set(false)" animate.leave="anim-pop-out">
+    }
+
+    @if (shown(); as anchor) {
+      <pa-popover [anchor]="anchor" [anchorAlign]="align()" [side]="side()" width="380px" ariaLabel="Runtime metrics" (closed)="close()" animate.leave="anim-pop-out">
         <div class="popover-head">
           <h2 class="popover-title">Runtime metrics</h2>
-          <button class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
+          <button matIconButton class="icon-btn icon-btn-sm" (click)="close()" aria-label="Close">
             <pa-icon name="x" [size]="16" />
           </button>
         </div>
@@ -80,13 +85,35 @@ export class RunMetricsChip {
   readonly align = input<'start' | 'end'>('end');
   protected readonly store = inject(AgentStore);
   private readonly models = inject(ModelsStore);
+  /** Only the panel, opened beside another control (`UiStore.runMetrics`). */
+  readonly panelOnly = input(false);
+  protected readonly ui = inject(UiStore);
   protected readonly open = signal(false);
   private readonly now = signal(Date.now());
+  private readonly trigger = viewChild<ElementRef<HTMLElement>>('trigger');
+  /** Where the panel hangs from, while it is open. */
+  protected readonly shown = computed(() =>
+    this.panelOnly() ? this.ui.runMetrics() : this.open() ? (this.trigger()?.nativeElement ?? null) : null,
+  );
 
   constructor() {
     setInterval(() => {
-      if (this.open() && this.store.turnActive()) this.now.set(Date.now());
+      if (this.shown() && this.store.turnActive()) this.now.set(Date.now());
     }, 1000);
+    // Opened from elsewhere: fresh figures, and the machine's when missing.
+    effect(() => {
+      if (this.panelOnly() && this.ui.runMetrics()) untracked(() => this.refresh());
+    });
+  }
+
+  protected close(): void {
+    if (this.panelOnly()) this.ui.runMetrics.set(null);
+    else this.open.set(false);
+  }
+
+  private refresh(): void {
+    this.now.set(Date.now());
+    if (!this.models.hardware()) void this.models.loadHardware();
   }
 
   protected readonly metrics = computed<RunMetrics>(() => runMetrics(this.store.timeline(), this.now(), this.store.turnActive()));
@@ -159,7 +186,6 @@ export class RunMetricsChip {
   protected toggle(): void {
     const opening = !this.open();
     this.open.set(opening);
-    this.now.set(Date.now());
-    if (opening && !this.models.hardware()) void this.models.loadHardware();
+    if (opening) this.refresh();
   }
 }

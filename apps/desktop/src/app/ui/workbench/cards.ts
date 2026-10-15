@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -37,7 +38,7 @@ async function copyText(toast: ToastService, text: string): Promise<void> {
 /** Review: what PWR changed in this conversation, file by file. */
 @Component({
   selector: 'pa-review-card',
-  imports: [Diff, Icon, Tooltip],
+  imports: [MatButtonModule, Diff, Icon, Tooltip],
   template: `
     @if (store.changes().length) {
       <div class="card-toolbar">
@@ -45,7 +46,7 @@ async function copyText(toast: ToastService, text: string): Promise<void> {
         <span class="num text-success">+{{ totals().added }}</span>
         <span class="num text-danger">−{{ totals().removed }}</span>
         <span class="spacer"></span>
-        <button class="btn btn-sm btn-ghost" (click)="revertAll()" [disabled]="store.turnActive()">
+        <button matButton class="btn btn-sm btn-ghost" (click)="revertAll()" [disabled]="store.turnActive()">
           <pa-icon name="undo" [size]="14" /> Revert all
         </button>
       </div>
@@ -59,7 +60,7 @@ async function copyText(toast: ToastService, text: string): Promise<void> {
                 <span class="add">+{{ stats(change).added }}</span>
                 <span class="del">−{{ stats(change).removed }}</span>
               </span>
-              <button
+              <button matIconButton
                 class="icon-btn icon-btn-sm"
                 (click)="$event.preventDefault(); $event.stopPropagation(); work.openFile(change.path)"
                 [attr.aria-label]="'Open ' + change.path"
@@ -67,7 +68,7 @@ async function copyText(toast: ToastService, text: string): Promise<void> {
               >
                 <pa-icon name="file" [size]="14" />
               </button>
-              <button
+              <button matIconButton
                 class="icon-btn icon-btn-sm"
                 (click)="$event.preventDefault(); $event.stopPropagation(); revert(change)"
                 [disabled]="store.turnActive()"
@@ -137,7 +138,7 @@ type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
 /** Plan & checks: the workspace's checks and the session's reports. */
 @Component({
   selector: 'pa-plan-card',
-  imports: [Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
     <div class="card-pad card-scroll">
       <div class="plan-actions">
@@ -161,7 +162,7 @@ type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
               <span class="spinner spinner-sm" aria-hidden="true"></span>
             }
             <span class="spacer"></span>
-            <button class="icon-btn icon-btn-sm" (click)="copy(output.text)" aria-label="Copy output" paTooltip="Copy">
+            <button matIconButton class="icon-btn icon-btn-sm" (click)="copy(output.text)" aria-label="Copy output" paTooltip="Copy">
               <pa-icon name="copy" [size]="14" />
             </button>
           </header>
@@ -193,7 +194,7 @@ export class PlanCard {
 /** Activity: what runs in the background, and the core's log. */
 @Component({
   selector: 'pa-activity-card',
-  imports: [Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
     <div class="card-pad card-scroll">
       <ul class="activity-list">
@@ -235,7 +236,7 @@ export class PlanCard {
         <header class="output-head">
           <span class="truncate mono" [attr.title]="store.corePath()">Core log</span>
           <span class="spacer"></span>
-          <button class="icon-btn icon-btn-sm" (click)="copy(store.logs().join('\\n'))" [disabled]="!store.logs().length" aria-label="Copy log" paTooltip="Copy log">
+          <button matIconButton class="icon-btn icon-btn-sm" (click)="copy(store.logs().join('\\n'))" [disabled]="!store.logs().length" aria-label="Copy log" paTooltip="Copy log">
             <pa-icon name="copy" [size]="14" />
           </button>
         </header>
@@ -275,20 +276,20 @@ interface FileEntry {
 /** Files: the workspace, a folder at a time, and one file read-only. */
 @Component({
   selector: 'pa-files-card',
-  imports: [Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
     <div class="card-toolbar files-path">
-      <button class="icon-btn icon-btn-sm" (click)="up()" [disabled]="!folder() && !file()" aria-label="Up" paTooltip="Up">
+      <button matIconButton class="icon-btn icon-btn-sm" (click)="up()" [disabled]="!folder() && !file()" aria-label="Up" paTooltip="Up">
         <pa-icon name="arrow-up" [size]="14" />
       </button>
       <span class="truncate mono">{{ file()?.path || folder() || name() }}</span>
       <span class="spacer"></span>
       @if (file(); as open) {
-        <button class="icon-btn icon-btn-sm" (click)="copyPath(open.path)" aria-label="Copy path" paTooltip="Copy path">
+        <button matIconButton class="icon-btn icon-btn-sm" (click)="copyPath(open.path)" aria-label="Copy path" paTooltip="Copy path">
           <pa-icon name="copy" [size]="14" />
         </button>
       }
-      <button class="icon-btn icon-btn-sm" (click)="reload()" aria-label="Refresh" paTooltip="Refresh">
+      <button matIconButton class="icon-btn icon-btn-sm" (click)="reload()" aria-label="Refresh" paTooltip="Refresh">
         <pa-icon name="refresh" [size]="14" />
       </button>
     </div>
@@ -453,7 +454,7 @@ export class FilesCard {
 /** Terminal: the person's shell in the workspace. */
 @Component({
   selector: 'pa-terminal-card',
-  imports: [Icon],
+  imports: [MatButtonModule, Icon],
   template: `
     @if (terminal.state() === 'unavailable') {
       <p class="card-empty">The terminal runs in the PWR app, not in a browser preview.</p>
@@ -465,7 +466,7 @@ export class FilesCard {
         <div class="card-toolbar">
           <span class="t-meta">The shell has ended.</span>
           <span class="spacer"></span>
-          <button class="btn btn-sm" (click)="terminal.restart()"><pa-icon name="refresh" [size]="14" /> New shell</button>
+          <button matButton="outlined" class="btn btn-sm" (click)="terminal.restart()"><pa-icon name="refresh" [size]="14" /> New shell</button>
         </div>
       }
       <div #host class="terminal-host" (click)="terminal.focus()"></div>
@@ -499,14 +500,14 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
 /** Web preview: the app the workspace serves on this machine. */
 @Component({
   selector: 'pa-browser-card',
-  imports: [Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
     <form class="card-toolbar browser-bar" (submit)="$event.preventDefault(); go(address.value)">
-      <button type="button" class="icon-btn icon-btn-sm" (click)="reload()" [disabled]="!url()" aria-label="Reload" paTooltip="Reload">
+      <button matIconButton type="button" class="icon-btn icon-btn-sm" (click)="reload()" [disabled]="!url()" aria-label="Reload" paTooltip="Reload">
         <pa-icon name="refresh" [size]="14" />
       </button>
       <input #address class="input input-sm browser-address" [value]="url()" placeholder="localhost:4200" aria-label="Address" spellcheck="false" />
-      <button type="button" class="icon-btn icon-btn-sm" (click)="external()" [disabled]="!url()" aria-label="Open in your browser" paTooltip="Open in your browser">
+      <button matIconButton type="button" class="icon-btn icon-btn-sm" (click)="external()" [disabled]="!url()" aria-label="Open in your browser" paTooltip="Open in your browser">
         <pa-icon name="external-link" [size]="14" />
       </button>
     </form>
@@ -521,7 +522,7 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
         @if (suggestions().length) {
           <ul class="browser-suggestions">
             @for (address of suggestions(); track address) {
-              <li><button class="btn btn-sm" (click)="go(address)"><pa-icon name="globe" [size]="14" /> {{ address }}</button></li>
+              <li><button matButton="outlined" class="btn btn-sm" (click)="go(address)"><pa-icon name="globe" [size]="14" /> {{ address }}</button></li>
             }
           </ul>
         }

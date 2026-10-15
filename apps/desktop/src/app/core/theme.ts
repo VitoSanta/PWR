@@ -48,7 +48,7 @@ export function readPalette(
   scheme: Theme,
   search = '',
 ): string {
-  // `?palette=midnight` wins, so a palette can be opened in a plain browser.
+  // `?palette=contrast-dark` wins, so a palette can be opened in a plain browser.
   const asked = new URLSearchParams(search).get('palette');
   if (isPalette(asked, scheme)) return asked;
   try {

@@ -565,3 +565,11 @@ button.run-card-body:hover {
 .settings-subhead {
   margin-top: var(--space-2);
 }
+
+/* A heading inside the tools' list: Material's list subheader. */
+.tool-strip-heading {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--mat-sys-primary);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+}

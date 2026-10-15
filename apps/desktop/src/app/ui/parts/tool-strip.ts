@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { SHORTCUTS, UiStore, shortcut } from '../../core/ui';
+import { TRACE_VISIBILITIES, TraceVisibility } from '../../core/trace';
 import { CardId, CardInfo, WorkbenchStore } from '../../core/workbench';
 import { Icon, IconName } from '../kit/icon';
 import { Tooltip } from '../kit/tooltip';
@@ -38,6 +39,23 @@ const SHORT: Partial<Record<CardId, string>> = { browser: 'Preview', plan: 'Chec
         </button>
       }
       <span class="tool-strip-sep" aria-hidden="true"></span>
+      @if (vertical()) {
+        <!-- How much of the run the conversation shows: a view setting,
+             here and in Settings, not in the message bar. -->
+        <span class="tool-strip-heading" role="presentation">Trace</span>
+        @for (option of traceOptions; track option.value) {
+          <button
+            class="tool-strip-item"
+            role="menuitemradio"
+            [attr.aria-checked]="store.traceVisibility() === option.value"
+            (click)="store.setTraceVisibility(option.value); done.emit()"
+          >
+            <pa-icon [name]="store.traceVisibility() === option.value ? 'check' : traceIcon(option.value)" [size]="16" />
+            <span class="tool-strip-label">{{ option.label }}</span>
+          </button>
+        }
+        <span class="tool-strip-sep" aria-hidden="true"></span>
+      }
       @if (!store.chatMode()) {
         <button
           class="tool-strip-item"
@@ -76,6 +94,11 @@ export class ToolStrip {
   /** A list, as it drops from the Tools button; a row otherwise. */
   readonly vertical = input(false);
   protected readonly keys = shortcut;
+  protected readonly traceOptions = TRACE_VISIBILITIES;
+
+  protected traceIcon(value: TraceVisibility): IconName {
+    return value === 'compact' ? 'eye' : value === 'detailed' ? 'list-plus' : 'scroll-text';
+  }
   protected readonly shortcuts = SHORTCUTS;
   /** Something was chosen: the strip closes. */
   readonly done = output<void>();
