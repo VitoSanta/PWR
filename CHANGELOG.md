@@ -3,6 +3,16 @@
 PWR is an open-source coding agent for local models, in continuous evolution.
 Statuses such as *experimental* mean what they say: usable, still changing.
 
+## v0.4.0-alpha — 2026-10-15
+
+Mac alpha for Apple silicon. PWR runs Google's Gemma 4 only: one pack per
+memory tier, the family's protocol rendered as Google describes it, and
+Gemma's assistants for speculative decoding as an experiment, off by default.
+The desktop app is redesigned on Material 3: no top bar, every control in the
+message bar, which folds into the PWR mark at rest; the tools open as a wheel
+from a right click. Summary, checks and limits are in the
+[release notes](docs/release/v0.4.0-alpha-release-notes.md).
+
 ## v0.3.0-alpha — 2026-10-07
 
 Mac alpha for Apple silicon. A model can act on the page it built and is
