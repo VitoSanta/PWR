@@ -436,9 +436,11 @@
 }
 
 /* The one handle of the tools, on the grid's left edge, clear of the cards'
-   rounded corners. */
+   rounded corners. The column sits above the strip the window is dragged
+   by, so the first card's own buttons take the click. */
 .shell-focus > pa-inspector.focus-workbench {
   position: relative;
+  z-index: 2;
 }
 
 .shell-focus > pa-inspector.focus-workbench > pa-resize-handle {
@@ -457,8 +459,7 @@
 
 /* Full screen: the tool takes the conversation's place as well, under the
    bar, which stays -- it is how the tools, the model and the way back are
-   reached. The card keeps the column's top margin, so its own buttons sit
-   below the strip the window is dragged by and can be clicked. */
+   reached. */
 .shell-focus.tool-full .focus-main {
   display: none;
 }
