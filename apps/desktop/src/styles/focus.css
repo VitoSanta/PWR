@@ -97,6 +97,50 @@
   view-transition-name: focus-composer;
 }
 
+/* The conversation and the bar glide to their new centre on Material's
+   emphasized curve, a little slower than the cards, so the eye follows
+   them as the tools open and as the chat takes the window back. */
+::view-transition-group(focus-conversation),
+::view-transition-group(focus-composer) {
+  animation-duration: 360ms;
+  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.focus-workbench .wb-card {
+  view-transition-class: wb-card;
+}
+
+/* A tool card arriving slides in from the right edge; one closing leaves
+   the same way, faster, accelerating out -- as Material's side sheets do. */
+::view-transition-new(*.wb-card):only-child {
+  animation: wb-card-enter 320ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
+}
+
+::view-transition-old(*.wb-card):only-child {
+  animation: wb-card-exit 200ms cubic-bezier(0.3, 0, 0.8, 0.15) both;
+}
+
+@keyframes wb-card-enter {
+  from {
+    opacity: 0;
+    transform: translateX(40px) scale(0.98);
+  }
+}
+
+@keyframes wb-card-exit {
+  to {
+    opacity: 0;
+    transform: translateX(40px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(*.wb-card):only-child,
+  ::view-transition-old(*.wb-card):only-child {
+    animation: none;
+  }
+}
+
 /* The scrolling conversation starts below the floating controls. */
 .shell-focus .conversation {
   padding-top: 16px;
