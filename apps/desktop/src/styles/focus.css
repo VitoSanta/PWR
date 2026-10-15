@@ -590,18 +590,26 @@
   width: 100%;
 }
 
-/* Give the message its own full-width row; controls never squeeze it. */
+/* A slim search-style bar; only a draft that wraps opens the writing surface. */
 .shell-focus .composer {
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'attach input actions';
+  align-items: center;
+  column-gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  padding: 6px 8px;
+  border-radius: var(--radius-pill);
+}
+
+.shell-focus .composer.is-expanded {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     'input input'
     'attach actions';
-  align-items: center;
-  gap: var(--space-1);
-  margin-bottom: var(--space-4);
+  row-gap: var(--space-1);
   padding: var(--space-3) var(--space-3) var(--space-2);
-  border-radius: 28px;
+  border-radius: 36px;
 }
 
 /* The tray above the bar: the column the bar has, its chips lined up with
@@ -632,6 +640,10 @@
 .shell-focus .composer-input {
   grid-area: input;
   min-width: 0;
+  padding: 7px var(--space-2);
+}
+
+.shell-focus .composer.is-expanded .composer-input {
   padding: var(--space-2) var(--space-2) var(--space-1);
 }
 
