@@ -84,9 +84,12 @@ pa-icon.icon {
   flex: none;
   align-items: center;
   justify-content: center;
+  line-height: 0;
+  vertical-align: middle;
 }
 
 pa-icon .mat-icon {
+  display: block;
   width: var(--icon-size, 18px);
   height: var(--icon-size, 18px);
   font-size: var(--icon-size, 18px);
