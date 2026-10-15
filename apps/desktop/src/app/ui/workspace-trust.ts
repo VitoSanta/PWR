@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { Dialog } from './kit/dialog';
@@ -5,7 +6,7 @@ import { Icon } from './kit/icon';
 
 @Component({
   selector: 'pa-workspace-trust',
-  imports: [Dialog, Icon],
+  imports: [MatButtonModule, Dialog, Icon],
   template: `
     @if (store.pendingWorkspaceTrust(); as folder) {
       <pa-dialog
@@ -34,8 +35,8 @@ import { Icon } from './kit/icon';
           }
         </div>
         <div class="dialog-footer">
-          <button class="btn" (click)="store.cancelWorkspaceTrust()" [disabled]="store.trustingWorkspace()" data-autofocus>Cancel</button>
-          <button
+          <button matButton="outlined" class="btn" (click)="store.cancelWorkspaceTrust()" [disabled]="store.trustingWorkspace()" data-autofocus>Cancel</button>
+          <button matButton="filled"
             class="btn btn-primary"
             (click)="store.confirmWorkspaceTrust()"
             [disabled]="store.trustingWorkspace()"

@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { shortDate } from '../core/format';
@@ -20,14 +21,14 @@ abstract class Navigation {
 
 @Component({
   selector: 'pa-sidebar',
-  imports: [BrandMark, Icon, Tooltip, ResizeHandle],
+  imports: [MatButtonModule, BrandMark, Icon, Tooltip, ResizeHandle],
   template: `
     <nav class="sidebar" aria-label="Navigation">
       <header class="sidebar-head titlebar-row" data-tauri-drag-region="deep">
         <pa-brand-mark class="brand-mark" />
         <span class="brand-name" data-tauri-drag-region="deep">PWR</span>
         <span class="spacer" data-tauri-drag-region="deep"></span>
-        <button
+        <button matIconButton
           class="icon-btn icon-btn-sm"
           (click)="layout.toggleLeft()"
           aria-label="Hide sidebar"
@@ -70,7 +71,7 @@ abstract class Navigation {
         @if (switching()) {
           <p class="sidebar-status" role="status"><span class="spinner spinner-sm" aria-hidden="true"></span>Opening workspace…</p>
         }
-        <button class="btn btn-block new-conversation" (click)="store.newConversation()" [disabled]="store.turnActive()">
+        <button matButton="outlined" class="btn btn-block new-conversation" (click)="store.newConversation()" [disabled]="store.turnActive()">
           <pa-icon name="square-pen" [size]="16" />
           New conversation
           <span class="kbd" aria-hidden="true">{{ shortcut(keys.newConversation) }}</span>
@@ -122,7 +123,7 @@ abstract class Navigation {
                 <span class="session-title truncate">{{ session.title || 'Untitled' }}</span>
                 <span class="session-meta">{{ date(session.updatedAt) }}</span>
               </button>
-              <button
+              <button matIconButton
                 class="icon-btn icon-btn-sm icon-btn-danger session-delete"
                 (click)="askDelete(session.sessionId, session.title)"
                 [disabled]="store.turnActive()"
@@ -144,7 +145,7 @@ abstract class Navigation {
           <span class="truncate">{{ coreLabel() }}</span>
         </span>
         <span class="spacer"></span>
-        <button
+        <button matIconButton
           class="icon-btn icon-btn-sm"
           (click)="ui.paletteOpen.set(true)"
           aria-label="Commands"
@@ -153,7 +154,7 @@ abstract class Navigation {
         >
           <pa-icon name="command" [size]="16" />
         </button>
-        <button
+        <button matIconButton
           class="icon-btn icon-btn-sm"
           (click)="ui.settingsOpen.set(true)"
           aria-label="Settings"
@@ -214,13 +215,13 @@ export class Sidebar extends Navigation {
 /** The collapsed navigation: icons only, with tooltips. */
 @Component({
   selector: 'pa-rail',
-  imports: [BrandMark, Icon, Tooltip],
+  imports: [MatButtonModule, BrandMark, Icon, Tooltip],
   template: `
     <nav class="rail" aria-label="Navigation" (keydown)="rove($event)">
       <div class="rail-head titlebar-row" data-tauri-drag-region="deep">
         <pa-brand-mark class="brand-mark" />
       </div>
-      <button
+      <button matIconButton
         class="icon-btn"
         (click)="layout.toggleLeft()"
         [attr.aria-expanded]="layout.left() === 'overlay'"
@@ -230,7 +231,7 @@ export class Sidebar extends Navigation {
       >
         <pa-icon name="panel-left" />
       </button>
-      <button
+      <button matIconButton
         class="icon-btn"
         (click)="store.newConversation()"
         [disabled]="store.turnActive()"
@@ -241,7 +242,7 @@ export class Sidebar extends Navigation {
         <pa-icon name="square-pen" />
       </button>
       <span class="spacer"></span>
-      <button
+      <button matIconButton
         class="icon-btn"
         (click)="ui.paletteOpen.set(true)"
         aria-label="Commands"
@@ -250,7 +251,7 @@ export class Sidebar extends Navigation {
       >
         <pa-icon name="command" />
       </button>
-      <button
+      <button matIconButton
         class="icon-btn"
         (click)="ui.settingsOpen.set(true)"
         aria-label="Settings"

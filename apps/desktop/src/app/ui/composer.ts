@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -25,7 +26,7 @@ const MAX_HEIGHT = 260;
 
 @Component({
   selector: 'pa-composer',
-  imports: [Icon, Tooltip, Popover],
+  imports: [MatButtonModule, Icon, Tooltip, Popover],
   template: `
     <form
       class="composer"
@@ -69,7 +70,7 @@ const MAX_HEIGHT = 260;
                     </button>
                   }
                   @if (store.queue().length > 1) {
-                    <button
+                    <button matIconButton
                       type="button"
                       class="icon-btn icon-btn-sm"
                       (click)="store.moveQueued(index, -1)"
@@ -79,7 +80,7 @@ const MAX_HEIGHT = 260;
                     >
                       <pa-icon name="chevron-up" [size]="14" />
                     </button>
-                    <button
+                    <button matIconButton
                       type="button"
                       class="icon-btn icon-btn-sm"
                       (click)="store.moveQueued(index, 1)"
@@ -91,7 +92,7 @@ const MAX_HEIGHT = 260;
                     </button>
                   }
                   @if (store.turnActive()) {
-                    <button
+                    <button matButton
                       type="button"
                       class="btn btn-sm btn-ghost"
                       (click)="store.steerNow(index)"
@@ -100,7 +101,7 @@ const MAX_HEIGHT = 260;
                       <pa-icon name="corner-down-right" [size]="14" /> Send now
                     </button>
                   }
-                  <button
+                  <button matIconButton
                     type="button"
                     class="icon-btn icon-btn-sm"
                     (click)="store.unqueue(index)"
@@ -140,7 +141,7 @@ const MAX_HEIGHT = 260;
                       }}{{ kind(path).tone === 'folder' ? ' · read-only reference' : '' }}</small
                     >
                   </span>
-                  <button
+                  <button matIconButton
                     type="button"
                     class="icon-btn icon-btn-sm"
                     (click)="store.detach(path)"
@@ -155,7 +156,7 @@ const MAX_HEIGHT = 260;
         </div>
       }
       <div class="composer-attach">
-        <button
+        <button matIconButton
           #attachButton
           type="button"
           class="icon-btn"
@@ -246,7 +247,7 @@ const MAX_HEIGHT = 260;
           ><span class="kbd">↵</span> send <span class="kbd">⇧↵</span> new line</span
         >
         @if (store.turnActive()) {
-          <button
+          <button matIconButton
             type="button"
             class="icon-btn icon-btn-outline composer-stop"
             (click)="store.cancel()"

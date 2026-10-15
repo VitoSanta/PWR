@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { tokens } from '../core/format';
@@ -22,7 +23,7 @@ interface Figure {
  */
 @Component({
   selector: 'pa-run-metrics',
-  imports: [Icon, Popover, Tooltip],
+  imports: [MatButtonModule, Icon, Popover, Tooltip],
   template: `
     <button
       #trigger
@@ -45,7 +46,7 @@ interface Figure {
       <pa-popover [anchor]="trigger" [anchorAlign]="align()" [side]="side()" width="380px" ariaLabel="Runtime metrics" (closed)="open.set(false)" animate.leave="anim-pop-out">
         <div class="popover-head">
           <h2 class="popover-title">Runtime metrics</h2>
-          <button class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
+          <button matIconButton class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
             <pa-icon name="x" [size]="16" />
           </button>
         </div>

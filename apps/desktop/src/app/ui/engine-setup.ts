@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { ToastService } from '../core/ui';
@@ -18,7 +19,7 @@ const STEPS = [
  */
 @Component({
   selector: 'pa-engine-setup',
-  imports: [BrandMark, Icon],
+  imports: [MatButtonModule, BrandMark, Icon],
   template: `
     <div class="setup">
       <div class="setup-titlebar" data-tauri-drag-region="deep"></div>
@@ -119,20 +120,20 @@ const STEPS = [
 
             <div class="setup-actions">
               @if (store.engineInstalled()) {
-                <button class="btn btn-primary btn-lg" (click)="store.finishEngineSetup()" data-autofocus>
+                <button matButton="filled" class="btn btn-primary btn-lg" (click)="store.finishEngineSetup()" data-autofocus>
                   Continue <pa-icon name="arrow-right" [size]="16" />
                 </button>
               } @else if (store.engineInstalling()) {
-                <button class="btn btn-lg" (click)="store.cancelEngineInstall()">Cancel</button>
+                <button matButton="outlined" class="btn btn-lg" (click)="store.cancelEngineInstall()">Cancel</button>
               } @else if (store.engineError()) {
-                <button class="btn btn-lg btn-ghost" (click)="copy()">
+                <button matButton class="btn btn-lg btn-ghost" (click)="copy()">
                   <pa-icon name="copy" [size]="16" /> Copy details
                 </button>
-                <button class="btn btn-primary btn-lg" (click)="store.installEngine()">
+                <button matButton="filled" class="btn btn-primary btn-lg" (click)="store.installEngine()">
                   <pa-icon name="refresh" [size]="16" /> Try again
                 </button>
               } @else {
-                <button class="btn btn-primary btn-lg" (click)="store.installEngine()">
+                <button matButton="filled" class="btn btn-primary btn-lg" (click)="store.installEngine()">
                   <pa-icon name="download" [size]="16" /> Install engine
                 </button>
               }

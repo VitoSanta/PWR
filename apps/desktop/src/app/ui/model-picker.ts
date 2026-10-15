@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { tokens } from '../core/format';
@@ -14,7 +15,7 @@ import { Tooltip } from './kit/tooltip';
  */
 @Component({
   selector: 'pa-model-picker',
-  imports: [Icon, Popover, Tooltip],
+  imports: [MatButtonModule, Icon, Popover, Tooltip],
   template: `
     <button
       #chip
@@ -43,7 +44,7 @@ import { Tooltip } from './kit/tooltip';
       >
         <div class="popover-head">
           <h2 class="popover-title">Model</h2>
-          <button class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
+          <button matIconButton class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
             <pa-icon name="x" [size]="16" />
           </button>
         </div>
@@ -87,11 +88,11 @@ import { Tooltip } from './kit/tooltip';
               <div class="field-row">
                 <span class="field-label" id="window-label">Working context</span>
                 <div class="stepper" role="group" aria-labelledby="window-label">
-                  <button class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(-1)" [disabled]="store.turnActive()" aria-label="Smaller window">
+                  <button matIconButton class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(-1)" [disabled]="store.turnActive()" aria-label="Smaller window">
                     <pa-icon name="minus" [size]="14" />
                   </button>
                   <strong class="num" aria-live="polite">{{ t(context.tokens) }}</strong>
-                  <button class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(1)" [disabled]="store.turnActive()" aria-label="Larger window">
+                  <button matIconButton class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(1)" [disabled]="store.turnActive()" aria-label="Larger window">
                     <pa-icon name="plus" [size]="14" />
                   </button>
                 </div>
@@ -132,7 +133,7 @@ import { Tooltip } from './kit/tooltip';
           </section>
         </div>
         <footer class="popover-foot">
-          <button class="btn btn-block" (click)="manage()">
+          <button matButton="outlined" class="btn btn-block" (click)="manage()">
             <pa-icon name="box" [size]="16" /> Manage models…
           </button>
         </footer>

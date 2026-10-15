@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { shortDate } from '../../core/format';
@@ -14,7 +15,7 @@ import { Tooltip } from '../kit/tooltip';
  */
 @Component({
   selector: 'pa-session-switcher',
-  imports: [Icon, Popover, Tooltip],
+  imports: [MatButtonModule, Icon, Popover, Tooltip],
   template: `
     <button
       #trigger
@@ -50,7 +51,7 @@ import { Tooltip } from '../kit/tooltip';
       >
         <div class="popover-head">
           <h2 class="popover-title">Conversations</h2>
-          <button class="icon-btn icon-btn-sm" (click)="ui.sessionsOpen.set(false)" aria-label="Close">
+          <button matIconButton class="icon-btn icon-btn-sm" (click)="ui.sessionsOpen.set(false)" aria-label="Close">
             <pa-icon name="x" [size]="16" />
           </button>
         </div>
@@ -91,7 +92,7 @@ import { Tooltip } from '../kit/tooltip';
               <pa-icon class="workspace-change" name="chevron-right" [size]="16" />
             </button>
           }
-          <button class="btn btn-block new-conversation" (click)="start()" [disabled]="store.turnActive()">
+          <button matButton="outlined" class="btn btn-block new-conversation" (click)="start()" [disabled]="store.turnActive()">
             <pa-icon name="square-pen" [size]="16" />
             New conversation
             <span class="kbd" aria-hidden="true">{{ shortcut(keys.newConversation) }}</span>
@@ -111,7 +112,7 @@ import { Tooltip } from '../kit/tooltip';
                   <span class="session-title truncate">{{ session.title || 'Untitled' }}</span>
                   <span class="session-meta">{{ date(session.updatedAt) }}</span>
                 </button>
-                <button
+                <button matIconButton
                   class="icon-btn icon-btn-sm icon-btn-danger session-delete"
                   (click)="nav.askDelete(session.sessionId, session.title)"
                   [disabled]="store.turnActive()"

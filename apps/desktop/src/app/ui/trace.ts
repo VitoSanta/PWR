@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { Entry } from '../core/model';
@@ -417,7 +418,7 @@ interface RawRow {
  */
 @Component({
   selector: 'pa-trace-raw',
-  imports: [Icon, Follow],
+  imports: [MatButtonModule, Icon, Follow],
   template: `
     <ol class="step raw-trace">
       @for (row of rows(); track row.key) {
@@ -428,7 +429,7 @@ interface RawRow {
             <span class="raw-title truncate mono" [attr.title]="row.title">{{ row.title }}</span>
             <span class="raw-status">{{ row.status }}</span>
             @if (row.payload.length) {
-              <button class="icon-btn icon-btn-sm" (click)="toggle(row.key)" [attr.aria-expanded]="!!open()[row.key]" aria-label="Payload">
+              <button matIconButton class="icon-btn icon-btn-sm" (click)="toggle(row.key)" [attr.aria-expanded]="!!open()[row.key]" aria-label="Payload">
                 <pa-icon name="scroll-text" [size]="14" />
               </button>
             }

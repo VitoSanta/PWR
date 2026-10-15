@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { Memory, MemoryScope, Profile } from '../core/model';
@@ -10,7 +11,7 @@ type ProfileField = 'name' | 'role' | 'language' | 'style' | 'about';
 /** Settings → Profile: who PWR is working with. */
 @Component({
   selector: 'pa-profile-settings',
-  imports: [Icon],
+  imports: [MatButtonModule, Icon],
   template: `
     <header class="settings-page-head">
       <h3 class="settings-page-title">Profile</h3>
@@ -48,7 +49,7 @@ type ProfileField = 'name' | 'role' | 'language' | 'style' | 'about';
     </div>
     <footer class="settings-page-foot">
       <span class="t-meta">{{ dirty() ? 'Unsaved changes' : saved() ? 'Saved' : '' }}</span>
-      <button class="btn btn-primary" (click)="save()" [disabled]="personal.saving() || !dirty()">Save</button>
+      <button matButton="filled" class="btn btn-primary" (click)="save()" [disabled]="personal.saving() || !dirty()">Save</button>
     </footer>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -90,7 +91,7 @@ export class ProfileSettings {
 /** Settings → Memory: the facts PWR keeps between conversations. */
 @Component({
   selector: 'pa-memory-settings',
-  imports: [Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
     <header class="settings-page-head">
       <h3 class="settings-page-title">Memory</h3>
@@ -142,10 +143,10 @@ export class ProfileSettings {
                   />
                 } @else {
                   <span class="memory-text">{{ memory.text }}</span>
-                  <button class="icon-btn icon-btn-sm" (click)="editing.set(memory.id)" aria-label="Edit" paTooltip="Edit">
+                  <button matIconButton class="icon-btn icon-btn-sm" (click)="editing.set(memory.id)" aria-label="Edit" paTooltip="Edit">
                     <pa-icon name="pencil" [size]="14" />
                   </button>
-                  <button class="icon-btn icon-btn-sm" (click)="personal.remove(group.scope, memory)" aria-label="Delete" paTooltip="Delete">
+                  <button matIconButton class="icon-btn icon-btn-sm" (click)="personal.remove(group.scope, memory)" aria-label="Delete" paTooltip="Delete">
                     <pa-icon name="trash" [size]="14" />
                   </button>
                 }
@@ -157,7 +158,7 @@ export class ProfileSettings {
         }
         <form class="memory-add" (submit)="$event.preventDefault(); add(group.scope, input)">
           <input #input class="input input-sm" maxlength="600" placeholder="Add a fact…" [attr.aria-label]="'Add to ' + group.label" />
-          <button class="btn btn-sm" type="submit" [disabled]="personal.saving()">Add</button>
+          <button matButton="outlined" class="btn btn-sm" type="submit" [disabled]="personal.saving()">Add</button>
         </form>
       </section>
     }
@@ -221,7 +222,7 @@ export class MemorySettings {
 /** Settings → Projects: the workspaces any conversation can recall by name. */
 @Component({
   selector: 'pa-projects-settings',
-  imports: [Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
     <header class="settings-page-head">
       <h3 class="settings-page-title">Projects</h3>
@@ -244,7 +245,7 @@ export class MemorySettings {
               }
               <span class="t-meta mono truncate">{{ project.path }}</span>
             </div>
-            <button class="btn btn-sm" (click)="personal.forget(project)" paTooltip="Its folder and wiki stay on disk">Forget</button>
+            <button matButton="outlined" class="btn btn-sm" (click)="personal.forget(project)" paTooltip="Its folder and wiki stay on disk">Forget</button>
           </li>
         }
       </ul>
@@ -268,7 +269,7 @@ export class ProjectsSettings {
  */
 @Component({
   selector: 'pa-memory-proposals',
-  imports: [Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
     @for (proposal of personal.proposals(); track proposal.key) {
       <div class="memory-proposal" role="status" animate.enter="anim-rise-in" animate.leave="anim-sink-out">
@@ -278,7 +279,7 @@ export class ProjectsSettings {
           <span>{{ proposal.text }}</span>
         </div>
         @if (!agent.chatMode()) {
-          <button
+          <button matButton="outlined"
             class="btn btn-sm"
             (click)="personal.accept(proposal, proposal.scope === 'global' ? 'workspace' : 'global')"
             [disabled]="personal.saving()"
@@ -287,10 +288,10 @@ export class ProjectsSettings {
             {{ proposal.scope === 'global' ? 'Project only' : 'Everywhere' }}
           </button>
         }
-        <button class="btn btn-sm btn-primary" (click)="personal.accept(proposal, agent.chatMode() ? 'global' : proposal.scope)" [disabled]="personal.saving()">
+        <button matButton="filled" class="btn btn-sm btn-primary" (click)="personal.accept(proposal, agent.chatMode() ? 'global' : proposal.scope)" [disabled]="personal.saving()">
           {{ proposal.scope === 'global' || agent.chatMode() ? 'Remember' : 'Remember here' }}
         </button>
-        <button class="icon-btn icon-btn-sm" (click)="personal.dismiss(proposal)" aria-label="Dismiss" paTooltip="Don't remember">
+        <button matIconButton class="icon-btn icon-btn-sm" (click)="personal.dismiss(proposal)" aria-label="Dismiss" paTooltip="Don't remember">
           <pa-icon name="x" [size]="14" />
         </button>
       </div>

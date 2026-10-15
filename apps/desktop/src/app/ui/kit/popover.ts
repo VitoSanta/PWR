@@ -43,7 +43,10 @@ import { focusables } from './dialog';
   },
 })
 export class Popover implements AfterViewInit, OnDestroy {
-  readonly anchor = input.required<HTMLElement>();
+  /** The control it opens from: an element, or a Material button on it. */
+  readonly anchor = input.required<HTMLElement, HTMLElement | { _elementRef: ElementRef<HTMLElement> }>({
+    transform: (anchor) => (anchor instanceof HTMLElement ? anchor : anchor._elementRef.nativeElement),
+  });
   readonly side = input<'bottom' | 'top' | 'right'>('bottom');
   readonly anchorAlign = input<'start' | 'end' | 'center'>('end');
   /** Kept inside this element's box, not only inside the window. */

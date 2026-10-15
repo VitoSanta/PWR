@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { ConfirmService, ToastService } from '../../core/ui';
 import { Dialog } from './dialog';
@@ -6,7 +7,7 @@ import { Icon } from './icon';
 /** The toasts, bottom right. Announced politely to screen readers. */
 @Component({
   selector: 'pa-toasts',
-  imports: [Icon],
+  imports: [MatButtonModule, Icon],
   template: `
     <div class="toasts" role="status" aria-live="polite">
       @for (toast of toasts.toasts(); track toast.id) {
@@ -22,7 +23,7 @@ import { Icon } from './icon';
             [size]="16"
           />
           <span class="toast-text">{{ toast.text }}</span>
-          <button
+          <button matIconButton
             class="icon-btn icon-btn-sm"
             (click)="toasts.dismiss(toast.id)"
             aria-label="Dismiss"
@@ -42,7 +43,7 @@ export class Toasts {
 /** Renders ConfirmService requests with the shared dialog. */
 @Component({
   selector: 'pa-confirm-host',
-  imports: [Dialog, Icon],
+  imports: [MatButtonModule, Dialog, Icon],
   template: `
     @if (confirm.request(); as request) {
       <pa-dialog
@@ -82,7 +83,7 @@ export class Toasts {
           </div>
         }
         <div class="dialog-footer">
-          <button class="btn" (click)="cancel()" [disabled]="busy()" data-autofocus>Cancel</button>
+          <button matButton="outlined" class="btn" (click)="cancel()" [disabled]="busy()" data-autofocus>Cancel</button>
           <button
             [class]="request.tone === 'primary' ? 'btn btn-primary' : 'btn btn-danger'"
             (click)="accept()"

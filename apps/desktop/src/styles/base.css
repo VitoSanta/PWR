@@ -78,6 +78,23 @@ svg {
   display: block;
 }
 
+/* Icons: Material Symbols at the size and weight pa-icon asks for. */
+pa-icon.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+pa-icon .mat-icon {
+  width: var(--icon-size, 18px);
+  height: var(--icon-size, 18px);
+  font-size: var(--icon-size, 18px);
+  line-height: 1;
+  overflow: visible;
+  font-variation-settings: 'FILL' var(--icon-fill, 0), 'wght' var(--icon-weight, 400), 'GRAD' 0, 'opsz' 20;
+}
+
 ::selection {
   background: var(--accent-soft);
   color: inherit;

@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { EngineStatus } from '../core/model';
@@ -13,7 +14,7 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
 /** Preferences, one page at a time: kept out of the main screen. */
 @Component({
   selector: 'pa-settings',
-  imports: [Dialog, Icon, ProfileSettings, MemorySettings, ProjectsSettings],
+  imports: [MatButtonModule, Dialog, Icon, ProfileSettings, MemorySettings, ProjectsSettings],
   template: `
     @if (ui.settingsOpen()) {
       <pa-dialog
@@ -37,7 +38,7 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
             }
           </nav>
           <div class="settings-content">
-            <button
+            <button matIconButton
               class="icon-btn settings-close"
               (click)="ui.settingsOpen.set(false)"
               aria-label="Close settings"

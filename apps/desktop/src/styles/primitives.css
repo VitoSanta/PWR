@@ -3,105 +3,40 @@
  * layout, not new colours, radii or button shapes.
  */
 
-/* ------------------------------------------------------------- buttons */
-.btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+/* ------------------------------------------------------------- buttons
+ * Angular Material draws them (matButton: filled, outlined, text;
+ * matIconButton). PWR's classes stay on the element as modifiers: size,
+ * danger, block width, busy. */
+.btn,
+.icon-btn {
   flex: none;
-  height: var(--control-h);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--surface-secondary);
-  color: var(--text-primary);
-  font-size: var(--fs-body-sm);
-  font-weight: var(--fw-medium);
-  line-height: 1;
+}
+
+.btn {
+  gap: 6px;
   white-space: nowrap;
-  text-decoration: none;
-  transition:
-    background-color var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
-}
-
-.btn:hover:not(:disabled) {
-  background: var(--surface-elevated);
-  border-color: var(--border-strong);
-}
-
-.btn:active:not(:disabled) {
-  transform: translateY(0.5px) scale(0.985);
-}
-
-.btn:disabled {
-  opacity: 0.45;
 }
 
 .btn > pa-icon {
   margin-inline: -2px;
 }
 
-.btn-primary {
-  background: var(--accent-solid);
-  border-color: transparent;
-  color: var(--text-on-accent);
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-solid-hover);
-  border-color: transparent;
-}
-
-.btn-ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text-secondary);
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: transparent;
-  color: var(--text-primary);
-}
-
-.btn-danger {
-  background: var(--danger-solid);
-  border-color: transparent;
-  color: var(--text-on-danger);
-}
-
-.btn-danger:hover:not(:disabled) {
-  background: var(--danger-solid-hover);
-  border-color: transparent;
-}
-
-/* Destructive but secondary: text-coloured, filled only on hover. */
-.btn-danger-quiet {
-  background: transparent;
-  border-color: transparent;
-  color: var(--danger-text);
-}
-
-.btn-danger-quiet:hover:not(:disabled) {
-  background: var(--danger-soft);
-  border-color: transparent;
-}
-
 .btn-sm {
-  height: var(--control-h-sm);
-  padding: 0 var(--space-2);
-  font-size: var(--fs-label);
-  gap: 4px;
+  --mat-button-filled-container-height: var(--control-h-sm);
+  --mat-button-outlined-container-height: var(--control-h-sm);
+  --mat-button-text-container-height: var(--control-h-sm);
+  --mat-button-filled-horizontal-padding: var(--space-3);
+  --mat-button-outlined-horizontal-padding: var(--space-3);
+  --mat-button-text-horizontal-padding: var(--space-2);
+  --mat-button-filled-label-text-size: var(--fs-label);
+  --mat-button-outlined-label-text-size: var(--fs-label);
+  --mat-button-text-label-text-size: var(--fs-label);
 }
 
 .btn-lg {
-  height: var(--control-h-lg);
-  padding: 0 var(--space-4);
+  --mat-button-filled-container-height: 40px;
+  --mat-button-outlined-container-height: 40px;
+  --mat-button-text-container-height: 40px;
 }
 
 .btn-block {
@@ -110,6 +45,18 @@
 
 .btn-start {
   justify-content: flex-start;
+}
+
+/* Destructive: Material's error colour, filled or as text. */
+.btn-danger {
+  --mat-button-filled-container-color: var(--mat-sys-error);
+  --mat-button-filled-label-text-color: var(--mat-sys-on-error);
+  --mat-button-filled-state-layer-color: var(--mat-sys-on-error);
+}
+
+.btn-danger-quiet {
+  --mat-button-text-label-text-color: var(--mat-sys-error);
+  --mat-button-text-state-layer-color: var(--mat-sys-error);
 }
 
 .btn[aria-busy='true'] {
@@ -136,53 +83,52 @@
 
 /* Icon-only: always paired with aria-label and a tooltip. */
 .icon-btn {
+  --mat-icon-button-state-layer-size: var(--control-h);
+  --mat-icon-button-icon-color: var(--text-secondary);
   display: inline-grid;
   place-items: center;
-  flex: none;
-  width: var(--control-h);
-  height: var(--control-h);
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text-secondary);
-  transition:
-    background-color var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
 }
 
-.icon-btn:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.icon-btn:active:not(:disabled) {
-  transform: scale(0.94);
-}
-
-.icon-btn:disabled {
-  opacity: 0.4;
-}
-
+/* Toggled on, or holding its menu open: Material's selected tone. */
 .icon-btn[aria-pressed='true'],
 .icon-btn[aria-expanded='true'] {
-  background: var(--surface-active);
-  color: var(--text-primary);
+  --mat-icon-button-icon-color: var(--mat-sys-on-secondary-container);
+  background: var(--mat-sys-secondary-container);
 }
 
 .icon-btn-sm {
+  --mat-icon-button-state-layer-size: var(--control-h-sm);
+}
+
+.icon-btn-outline {
+  border: 1px solid var(--border-subtle);
+}
+
+.icon-btn-danger:hover:not(:disabled) {
+  --mat-icon-button-icon-color: var(--mat-sys-error);
+  --mat-icon-button-state-layer-color: var(--mat-sys-error);
+}
+
+/* A plain icon button (no Material host), as markdown's code-copy button. */
+.icon-btn:not(.mat-mdc-icon-button) {
+  width: var(--control-h);
+  height: var(--control-h);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.icon-btn-sm:not(.mat-mdc-icon-button) {
   width: var(--control-h-sm);
   height: var(--control-h-sm);
 }
 
-.icon-btn-outline {
-  border-color: var(--border-subtle);
-}
-
-.icon-btn-danger:hover:not(:disabled) {
-  background: var(--danger-soft);
-  color: var(--danger-text);
+.icon-btn:not(.mat-mdc-icon-button):hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 /* -------------------------------------------------------------- inputs */

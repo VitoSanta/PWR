@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { AgentStore } from '../../core/agent.store';
 import { LayoutService } from '../../core/layout';
@@ -40,7 +41,7 @@ const NATIVE_MENU =
 @Component({
   selector: 'pa-shell-focus',
   host: { '(document:keydown.escape)': 'leaveFullScreen($event)' },
-  imports: [
+  imports: [MatButtonModule, 
     Composer,
     ContextMeter,
     Conversation,
@@ -92,7 +93,7 @@ const NATIVE_MENU =
         <pa-trace-visibility />
         <pa-model-picker />
         <span class="focus-bar-sep" aria-hidden="true"></span>
-        <button
+        <button matIconButton
           #toolsButton
           class="icon-btn focus-tools"
           [class.has-goal]="store.goalMode() && !store.chatMode()"
