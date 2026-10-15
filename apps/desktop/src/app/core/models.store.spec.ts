@@ -17,7 +17,13 @@ const pack: LinePack = {
   windowTokens: 262144,
   fullContext: true,
   neededBytes: 30_000_000_000,
-  assistant: { model: 'mlx-community/gemma-4-26B-A4B-it-assistant-bf16', installed: false },
+  assistant: {
+    model: 'mlx-community/gemma-4-26B-A4B-it-assistant-bf16',
+    artifact: 'hf-gemma-4-26b-a4b-it-assistant-bf16',
+    weightsBytes: 839_427_840,
+    installed: false,
+    partial: false,
+  },
 };
 
 /** The demo core answers after 350 ms; wait for it to have been asked. */
@@ -67,6 +73,16 @@ describe('ModelsStore', () => {
     await started;
     expect(models.downloads()[pack.model].state.state).toBe('completed');
     expect(isTerminal(models.downloads()[pack.model])).toBe(true);
+  });
+
+  it("downloads a pack's assistant by its own entry, tracked apart from the pack", async () => {
+    core(() => Promise.resolve({ modelRef: pack.assistant.model, ready: true }));
+    const helper = models.assistantOf(pack);
+    await models.download(helper);
+    const request = asked.find((call) => call.method === '_pwr/download')!;
+    expect(request.params.artifact).toBe('hf-gemma-4-26b-a4b-it-assistant-bf16');
+    expect(models.downloads()[pack.assistant.model].state.state).toBe('completed');
+    expect(models.downloads()[pack.model]).toBeUndefined();
   });
 
   it('keeps a failure the transport reported', async () => {

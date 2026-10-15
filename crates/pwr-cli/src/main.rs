@@ -622,6 +622,9 @@ struct ChatConfig {
     /// (`pwr_domain::gemma::effort`). The Reasoning Effort level that stood
     /// here before 2026-10-14 is ignored when an old file names it.
     thinking: bool,
+    /// Drafting with the pack's assistant (speculative decoding), off unless
+    /// the person turned it on: experimental, no pack has passed its gates.
+    assistant: bool,
     /// Actions one turn may take before it stops and asks; a goal has its own
     /// budget (`goal_budget`). 0 or absent is the default.
     actions_per_turn: usize,
@@ -854,6 +857,7 @@ impl Default for ChatConfig {
             require_probe: true,
             model: None,
             thinking: false,
+            assistant: false,
             actions_per_turn: pwr_orchestrator::converse::DEFAULT_ACTIONS_PER_TURN,
             acknowledged_provisional: Vec::new(),
             profile: None,
@@ -2703,12 +2707,18 @@ impl serve::TurnRunner for ConsoleTurns {
                 selected,
                 context_tokens,
                 thinking,
+                assistant,
             } => {
                 let preparation_requested = selected.is_some() || context_tokens.is_some();
                 if let Some(on) = thinking {
                     config.thinking = on;
                     save_chat_config(&root, &config).map_err(|error| error.context)?;
                 }
+                if let Some(on) = assistant {
+                    config.assistant = on;
+                    save_chat_config(&root, &config).map_err(|error| error.context)?;
+                }
+                pwr_mlx::set_assistant(config.assistant);
                 // What the backend has installed, or why it could not say: an
                 // unreachable backend is itself what the client needs to show.
                 let installed = match self
@@ -2820,6 +2830,13 @@ impl serve::TurnRunner for ConsoleTurns {
                     "prepared": chat_is_prepared(&config),
                     "contextTokens": config.context_tokens,
                     "thinking": config.thinking,
+                    "assistant": config.assistant,
+                    // Whether the model in use has its assistant on disk, so
+                    // the switch can say it has nothing to draft with yet.
+                    "assistantInstalled": config.model.as_deref().is_some_and(|model| {
+                        let mlx = pwr_mlx::MlxConfig::from_env();
+                        mlx.assistant_dir(&mlx.models_root.join(model)).is_some()
+                    }),
                     "thoughtCapTokens": pwr_domain::gemma::THOUGHT_CAP,
                     "contextSource": "core_backend",
                     "contextDecision": context_decision,
@@ -2921,19 +2938,23 @@ impl serve::TurnRunner for ConsoleTurns {
             .iter()
             .map(|pack| {
                 let here = found(pack.model_ref);
+                let assistant_here = found(pack.assistant);
                 let window = memory.map(|memory| pwr_domain::gemma::window(pack, memory, 16));
+                let artifact_for = |repo: &str| {
+                    registry
+                        .artifacts
+                        .iter()
+                        .find(|artifact| matches!(&artifact.source,
+                            pwr_domain::ArtifactSource::HuggingFace { repository, .. } if repository == repo))
+                        .map(|artifact| artifact.id.clone())
+                };
                 serde_json::json!({
                     "model": pack.model_ref,
                     "label": pack.label,
                     "tier": pack.tier,
                     "tierMemoryGib": pack.tier.memory_gib(),
                     "weightsBytes": pack.weights_bytes,
-                    "artifact": registry
-                        .artifacts
-                        .iter()
-                        .find(|artifact| matches!(&artifact.source,
-                            pwr_domain::ArtifactSource::HuggingFace { repository, .. } if repository == pack.model_ref))
-                        .map(|artifact| artifact.id.clone()),
+                    "artifact": artifact_for(pack.model_ref),
                     "installed": here.is_some_and(|model| !model.partial),
                     "partial": here.is_some_and(|model| model.partial),
                     "bytesOnDisk": here.map_or(0, |model| model.bytes),
@@ -2943,9 +2964,15 @@ impl serve::TurnRunner for ConsoleTurns {
                     "windowTokens": window,
                     "fullContext": window == Some(pwr_domain::gemma::CONTEXT_TOKENS),
                     "neededBytes": pwr_domain::gemma::memory_for(pack, pwr_domain::gemma::CONTEXT_TOKENS, 16),
+                    // Its assistant downloads the same way, from its own entry;
+                    // drafting with it is the person's switch (`assistant`
+                    // in `_pwr/models`).
                     "assistant": {
                         "model": pack.assistant,
-                        "installed": found(pack.assistant).is_some_and(|model| !model.partial),
+                        "artifact": artifact_for(pack.assistant),
+                        "weightsBytes": pack.assistant_bytes(),
+                        "installed": assistant_here.is_some_and(|model| !model.partial),
+                        "partial": assistant_here.is_some_and(|model| model.partial),
                     },
                 })
             })
@@ -4357,6 +4384,7 @@ async fn chat_turn(
     let mut task_profile = pwr_orchestrator::TaskProfile::resolve(None, None);
     task_profile.sampling.extend(pwr_domain::gemma::sampling());
     continuity.reasoning_effort = pwr_domain::gemma::effort(config.thinking);
+    pwr_mlx::set_assistant(config.assistant);
     // A goal set its own limit; a conversation takes the workspace's.
     if continuity.action_limit.is_none() && config.actions_per_turn > 0 {
         continuity.action_limit = Some(config.actions_per_turn);

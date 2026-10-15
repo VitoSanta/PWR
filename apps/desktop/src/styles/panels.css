@@ -911,7 +911,8 @@ pa-model-picker {
   grid-template-areas:
     'name size actions'
     'progress progress progress'
-    'path path path';
+    'path path path'
+    'assistant assistant assistant';
   flex: none;
   column-gap: var(--space-4);
   padding: var(--space-3);
@@ -961,6 +962,30 @@ pa-model-picker {
   grid-area: actions;
   min-width: 0;
   white-space: nowrap;
+}
+
+/* A pack's assistant: a quieter row under it, on the same columns, so its
+   buttons line up with the pack's. */
+.local-assistant {
+  grid-area: assistant;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-template-areas:
+    'name size actions'
+    'progress progress progress';
+  align-items: center;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--fs-body-sm);
+}
+
+.local-assistant .local-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-3);
 }
 
 /* Fixed columns, not a flex row: a row without Settings or Use keeps an empty
@@ -1981,4 +2006,17 @@ pa-memory-proposals:empty {
 
 .engine-row-value {
   color: var(--mat-sys-on-surface-variant);
+}
+
+/* A link inside a line of fine print: the text's own size, primary colour. */
+.link-btn {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mat-sys-primary);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }

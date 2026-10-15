@@ -66,3 +66,7 @@ class AssistantConstraints(unittest.TestCase):
         with patch.object(p, 'ASSISTANT', False):
             draft, reason=p.load_assistant(None, '/missing')
             self.assertIsNone(draft);self.assertIn('off',reason)
+        # The app's switch, sent with the load, opts in as the variable does.
+        with patch.object(p, 'ASSISTANT', False), patch.object(p, 'KV_BITS', 8):
+            draft, reason=p.load_assistant(None, '/missing', on=True)
+            self.assertIsNone(draft);self.assertIn('8 bits',reason)

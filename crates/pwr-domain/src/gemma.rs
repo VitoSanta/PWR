@@ -362,6 +362,22 @@ mod tests {
                 .map(|file| file["bytes"].as_u64().unwrap())
                 .sum();
             assert_eq!(weights, pack.weights_bytes, "{}", pack.model_ref);
+            // Each pack's assistant downloads from the registry too, and
+            // weighs what the memory estimate reserves for it.
+            let assistant = registry["artifacts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["source"]["repository"] == pack.assistant)
+                .unwrap_or_else(|| panic!("{} is not in the registry", pack.assistant));
+            let assistant_weights: u64 = assistant["source"]["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|file| file["path"].as_str().unwrap().ends_with(".safetensors"))
+                .map(|file| file["bytes"].as_u64().unwrap())
+                .sum();
+            assert_eq!(assistant_weights, pack.assistant_bytes(), "{}", pack.assistant);
         }
     }
 }

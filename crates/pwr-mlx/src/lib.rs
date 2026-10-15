@@ -23,7 +23,9 @@
 //!   `python3`);
 //! - `PWR_MLX_SIDECAR`: the sidecar script (default: the one in this crate);
 //! - `PWR_MLX_MODELS`: where a model named by a relative reference is looked
-//!   for (default `~/.pwr/models`, where the Model Manager downloads them).
+//!   for (default `~/.pwr/models`, where the Model Manager downloads them);
+//! - `PWR_MLX_ASSISTANT=on`: draft with the pack's assistant even where the
+//!   person has not turned it on in the app (`set_assistant`).
 
 pub mod embed;
 
@@ -343,6 +345,8 @@ struct Sidecar {
     loaded: Option<PathBuf>,
     /// The position scaling the loaded model was built with, when not its own.
     loaded_rope: Option<serde_json::Value>,
+    /// The assistant loaded beside it, if drafting was on.
+    loaded_assistant: Option<PathBuf>,
     next_id: u64,
     /// A request whose reply was not read to its end, because its stream was
     /// dropped. Its remaining lines are drained before the next request.
@@ -466,6 +470,24 @@ fn rope_for(dir: &Path) -> Option<serde_json::Value> {
         .as_u64()
         .unwrap_or(u64::from(extension.original));
     (u64::from(window) > holds).then(|| extension.rope_scaling())
+}
+
+/// Whether the person turned on the pack's assistant (speculative decoding).
+/// Per process, like the windows: the app sets it from the chat config.
+static ASSISTANT_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turns drafting with the pack's assistant on or off. Experimental and off
+/// by default: no pack has passed the exact-text and speed gates yet. Takes
+/// effect at the next load, which a change itself causes.
+pub fn set_assistant(on: bool) {
+    ASSISTANT_ON.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether a load drafts with the assistant: the person's choice, or the
+/// research override `PWR_MLX_ASSISTANT=on`.
+pub fn assistant_enabled() -> bool {
+    ASSISTANT_ON.load(std::sync::atomic::Ordering::Relaxed)
+        || std::env::var("PWR_MLX_ASSISTANT").as_deref() == Ok("on")
 }
 
 /// The one sidecar this process runs, whichever provider value is asking.
@@ -724,6 +746,7 @@ impl MlxProvider {
                 lines: BufReader::new(stdout).lines(),
                 loaded: None,
                 loaded_rope: None,
+                loaded_assistant: None,
                 next_id: 0,
                 pending: None,
             });
@@ -784,15 +807,22 @@ impl MlxProvider {
         self.ensure_started(slot)?;
         let sidecar = slot.as_mut().expect("just started");
         let rope = rope_for(dir);
-        if sidecar.loaded.as_deref() == Some(dir) && sidecar.loaded_rope == rope {
+        let assistant = assistant_enabled()
+            .then(|| self.config.assistant_dir(dir))
+            .flatten();
+        if sidecar.loaded.as_deref() == Some(dir)
+            && sidecar.loaded_rope == rope
+            && sidecar.loaded_assistant == assistant
+        {
             return Ok(());
         }
         let mut load = serde_json::json!({"op": "load", "path": dir});
         if let Some(rope) = &rope {
             load["rope_scaling"] = rope.clone();
         }
-        if let Some(assistant) = self.config.assistant_dir(dir) {
+        if let Some(assistant) = &assistant {
             load["assistant"] = serde_json::json!(assistant);
+            load["assistant_on"] = serde_json::json!(true);
         }
         let id = sidecar.request(load).await?;
         loop {
@@ -804,6 +834,7 @@ impl MlxProvider {
                 Some("loaded") => {
                     sidecar.loaded = Some(dir.to_path_buf());
                     sidecar.loaded_rope = rope;
+                    sidecar.loaded_assistant = assistant;
                     return Ok(());
                 }
                 _ => {
@@ -2505,6 +2536,17 @@ for line in sys.stdin:
         assert!(config.model_dir("pub/model").is_err());
         std::fs::write(model.join("config.json"), "{}").unwrap();
         assert_eq!(config.model_dir("pub/model").unwrap(), model);
+    }
+
+    #[test]
+    fn the_assistant_switch_turns_drafting_on_and_off() {
+        set_assistant(true);
+        assert!(assistant_enabled());
+        set_assistant(false);
+        assert_eq!(
+            assistant_enabled(),
+            std::env::var("PWR_MLX_ASSISTANT").as_deref() == Ok("on")
+        );
     }
 
     #[test]

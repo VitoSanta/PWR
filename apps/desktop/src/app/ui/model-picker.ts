@@ -139,6 +139,30 @@ import { Tooltip } from './kit/tooltip';
                 Off: Gemma answers and acts directly.
               }
             </p>
+            <div class="field-row">
+              <span
+                class="field-label"
+                id="assistant-label"
+                paTooltip="Google's small assistant model drafts a few tokens ahead and Gemma checks them. Experimental: not yet faster or identical on every pack."
+                >Assistant <span class="badge badge-outline">experimental</span></span
+              >
+              <mat-slide-toggle
+                aria-labelledby="assistant-label"
+                [checked]="store.assistant()"
+                [disabled]="store.turnActive()"
+                (change)="store.setAssistant($event.checked)"
+              />
+            </div>
+            <p class="fine">
+              @if (!store.assistant()) {
+                Off: Gemma writes every token itself.
+              } @else if (store.assistantInstalled()) {
+                On: the assistant drafts and Gemma checks. Not with an 8-bit cache.
+              } @else {
+                On, but this model's assistant is not downloaded yet:
+                <button class="link-btn" (click)="manage()">get it in Models</button>.
+              }
+            </p>
           </section>
         </div>
         <footer class="popover-foot">

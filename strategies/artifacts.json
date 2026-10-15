@@ -380,6 +380,149 @@
         "observed_at": "2026-10-14T00:00:00Z",
         "content_hash": "hf:mlx-community/gemma-4-31b-it-8bit@f5f3dc92ab4af76724c36c21eb6bedadb3a851be"
       }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-12b-it-assistant-bf16",
+      "family": "gemma4_assistant",
+      "variant": "12b-assistant-bf16",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-12B-it-assistant-bf16",
+        "revision": "f36a4c8077baaeca534c5eb38a287fc3b2178ad3",
+        "files": [
+          {
+            "path": "config.json",
+            "bytes": 2720,
+            "sha256": "47e6d1095fa7a853f526a6ddd1b430b354968e6ff619927ff936ebee6e10d6d7"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 233,
+            "sha256": "02b56bd11e1cd1e363e701a85a2fd7fbaa2992ec3358c1cd7cc44ead7208f505"
+          },
+          {
+            "path": "model.safetensors",
+            "bytes": 845719253,
+            "sha256": "124fdb8ebf2e60c3bde1ecd6ba53100a50805dcf000921488235a89e292edc9c"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 3442,
+            "sha256": "21e6e30e86cb68e671cdd5f19bc080972f0a4974caa7c97939a62cd8d5dc26df"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169884,
+            "sha256": "c001d9ada50af662c94f5ab17ec7e09f6438d1bec8246c47fee6510693d8de35"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 1468,
+            "sha256": "a4da47b53117014a7fda9a890516407931680a5542d1ad339d283fd3ca9326c5"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "bf16",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "Google's assistant (multi-token prediction drafter) for the pack, downloaded and verified at this revision; sizes and SHA-256 computed from it, 2026-10-14",
+        "observed_at": "2026-10-14T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-12B-it-assistant-bf16@f36a4c8077baaeca534c5eb38a287fc3b2178ad3"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-26b-a4b-it-assistant-bf16",
+      "family": "gemma4_assistant",
+      "variant": "26b-a4b-assistant-bf16",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-26B-A4B-it-assistant-bf16",
+        "revision": "cda74908f1dbe7d3dbd3030e66576a7d4094144f",
+        "files": [
+          {
+            "path": "config.json",
+            "bytes": 2315,
+            "sha256": "f393dd4bbdbb1de9bfade9de224493de4e728ba020f9078db8de93cc66a551b2"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 307,
+            "sha256": "8e58004dc0e2407b63410b190bb8470efbdcfeb71533f1770e09c20abe193a6f"
+          },
+          {
+            "path": "model.safetensors",
+            "bytes": 839427840,
+            "sha256": "006c8713b29b046e296c0f0b7c524aa9264ae07ae8b0c3888b9bc062242297ff"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169440,
+            "sha256": "75a6583c1a418e2bbd79c60d95d28e0f5bf549ad3f2990b5bdb5238c6c2bf70c"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 822,
+            "sha256": "089594a3924fcfd4cb1c596a7906fbf476193519e5198f780912eed02b177e42"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "bf16",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "Google's assistant (multi-token prediction drafter) for the pack, downloaded and verified at this revision; sizes and SHA-256 computed from it, 2026-10-14",
+        "observed_at": "2026-10-14T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-26B-A4B-it-assistant-bf16@cda74908f1dbe7d3dbd3030e66576a7d4094144f"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-31b-it-assistant-bf16",
+      "family": "gemma4_assistant",
+      "variant": "31b-assistant-bf16",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-31B-it-assistant-bf16",
+        "revision": "28e92270316e89288579ec59c17939541d9ca433",
+        "files": [
+          {
+            "path": "config.json",
+            "bytes": 2316,
+            "sha256": "d09487c1083a334a97545f204dd41ab1a40b0438bdead19558f0e1357e26d66a"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 307,
+            "sha256": "8e58004dc0e2407b63410b190bb8470efbdcfeb71533f1770e09c20abe193a6f"
+          },
+          {
+            "path": "model.safetensors",
+            "bytes": 939042560,
+            "sha256": "9f80df6099fa1fd7db71220ec9ee864d5ecff769878697dd5763e4285b15a1da"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169440,
+            "sha256": "75a6583c1a418e2bbd79c60d95d28e0f5bf549ad3f2990b5bdb5238c6c2bf70c"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 822,
+            "sha256": "089594a3924fcfd4cb1c596a7906fbf476193519e5198f780912eed02b177e42"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "bf16",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "Google's assistant (multi-token prediction drafter) for the pack, downloaded and verified at this revision; sizes and SHA-256 computed from it, 2026-10-14",
+        "observed_at": "2026-10-14T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-31B-it-assistant-bf16@28e92270316e89288579ec59c17939541d9ca433"
+      }
     }
   ]
 }

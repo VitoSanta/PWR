@@ -294,6 +294,8 @@ pub enum SettingsRequest {
         context_tokens: Option<u32>,
         /// Turn Gemma's thinking on or off.
         thinking: Option<bool>,
+        /// Draft with the pack's assistant (speculative decoding), on or off.
+        assistant: Option<bool>,
     },
     /// The window in force, the model, and the auto-compaction threshold
     /// (replaced first when given, in percent of the window).
@@ -872,6 +874,17 @@ impl<R: TurnRunner + 'static> Server<R> {
                                     id.clone(),
                                     -32602,
                                     "thinking must be true or false",
+                                ));
+                            }
+                        },
+                        assistant: match params.get("assistant") {
+                            None | Some(Value::Null) => None,
+                            Some(Value::Bool(on)) => Some(*on),
+                            Some(_) => {
+                                return self.send(error_response(
+                                    id.clone(),
+                                    -32602,
+                                    "assistant must be true or false",
                                 ));
                             }
                         },

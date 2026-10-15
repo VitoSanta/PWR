@@ -182,7 +182,26 @@ export interface LinePack {
   windowTokens: number | null;
   fullContext: boolean;
   neededBytes: number;
-  assistant: { model: string; installed: boolean };
+  /** Google's small drafter for this pack (speculative decoding). */
+  assistant: LineAssistant;
+}
+
+export interface LineAssistant {
+  model: string;
+  /** The registry entry it downloads from. */
+  artifact: string | null;
+  weightsBytes: number;
+  installed: boolean;
+  partial: boolean;
+}
+
+/** What the Model Manager downloads or deletes: a pack or its assistant. */
+export interface ModelTarget {
+  model: string;
+  label: string;
+  artifact: string | null;
+  weightsBytes: number;
+  bytesOnDisk: number;
 }
 
 export interface EngineStatus {

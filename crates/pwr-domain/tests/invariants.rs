@@ -963,8 +963,9 @@ fn artifact_registry_filters_by_host_without_selecting_a_model_for_it() {
     );
 }
 
-/// The packaged registry is the Gemma 4 line: every pack pinned to a
-/// revision, every file with its size and SHA-256, so a download is checked.
+/// The packaged registry is the Gemma 4 line and the packs' assistants:
+/// every entry pinned to a revision, every file with its size and SHA-256,
+/// so a download is checked.
 #[test]
 fn packaged_artifact_registry_is_the_gemma_line_with_checked_files() {
     let registry: ArtifactRegistry =
@@ -976,7 +977,14 @@ fn packaged_artifact_registry_is_the_gemma_line_with_checked_files() {
     let mac_artifacts = registry
         .eligible_for(ArtifactPlatform::MacosAppleSilicon, None)
         .unwrap();
-    assert_eq!(mac_artifacts.len(), 5);
+    assert_eq!(mac_artifacts.len(), 8);
+    assert_eq!(
+        mac_artifacts
+            .iter()
+            .filter(|artifact| artifact.family == "gemma4_assistant")
+            .count(),
+        3
+    );
     assert!(
         mac_artifacts
             .iter()

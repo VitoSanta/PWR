@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { AgentStore } from './agent.store';
-import { DownloadView, HardwareInfo, LinePack } from './model';
+import { DownloadView, HardwareInfo, LinePack, ModelTarget } from './model';
 
 /**
  * The Model Manager's state: the Gemma 4 line as this Mac sees it. Which
@@ -21,7 +21,7 @@ export class ModelsStore {
   readonly modelsRoot = signal('');
   /** Downloads by model reference. */
   readonly downloads = signal<Record<string, DownloadView>>({});
-  readonly pendingDelete = signal<LinePack | null>(null);
+  readonly pendingDelete = signal<ModelTarget | null>(null);
   readonly deleting = signal(false);
   readonly deleteError = signal('');
   /** This machine and its engine, for the run metrics. */
@@ -64,8 +64,23 @@ export class ModelsStore {
     }
   }
 
-  /** Downloads a pack from the registry: pinned revision, every file checked. */
-  async download(pack: LinePack): Promise<void> {
+  /** A pack's assistant as something to download or delete. */
+  assistantOf(pack: LinePack): ModelTarget {
+    const assistant = pack.assistant;
+    return {
+      model: assistant.model,
+      label: `${pack.label} assistant`,
+      artifact: assistant.artifact,
+      weightsBytes: assistant.weightsBytes,
+      bytesOnDisk: assistant.installed ? assistant.weightsBytes : 0,
+    };
+  }
+
+  /**
+   * Downloads a pack, or a pack's assistant, from the registry: pinned
+   * revision, every file checked.
+   */
+  async download(pack: ModelTarget): Promise<void> {
     if (!pack.artifact) return;
     const current = this.downloads()[pack.model];
     if (current && !isTerminal(current)) return;
@@ -100,7 +115,7 @@ export class ModelsStore {
   }
 
   /** Pausing cancels the request and keeps the verified partial files to resume from. */
-  pause(pack: LinePack): void {
+  pause(pack: ModelTarget): void {
     const view = this.downloads()[pack.model];
     if (view && !isTerminal(view)) this.agent.notify('_pwr/download_cancel', { downloadId: view.downloadId });
   }
@@ -112,7 +127,7 @@ export class ModelsStore {
   }
 
   /** Asks before deleting: the files go, and cannot be brought back. */
-  askDelete(pack: LinePack): void {
+  askDelete(pack: ModelTarget): void {
     this.deleteError.set('');
     this.pendingDelete.set(pack);
   }
