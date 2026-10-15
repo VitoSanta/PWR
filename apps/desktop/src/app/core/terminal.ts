@@ -1,41 +1,98 @@
-import { Injectable, OnDestroy, effect, inject, signal } from '@angular/core';
+import { Injectable, OnDestroy, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ThemeService } from './theme';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import { AgentStore, TerminalSnapshot } from './agent.store';
 import { bridge, inTauri } from './bridge';
 
-/**
- * The person's shell in the workspace, kept alive while its card is collapsed
- * or moved: the xterm instance lives here, and the card only lends it a place
- * on the page. Closing the card ends the shell.
- */
+/** Multiple independent shells; moving or collapsing the card preserves them. */
 @Injectable({ providedIn: 'root' })
 export class TerminalService implements OnDestroy {
   private readonly agent = inject(AgentStore);
+  readonly sessions = signal<TerminalSession[]>([]);
+  readonly activeId = signal<number | null>(null);
+  readonly active = computed(() => this.sessions().find(s => s.key === this.activeId()));
+  readonly state = computed(() => this.active()?.state() ?? 'idle');
+  readonly error = computed(() => this.active()?.error() ?? '');
+  private host?: HTMLElement;
+  private sequence = 0;
+
+  constructor() {
+    this.agent.terminalReader = lines => this.read(lines);
+    const theme = inject(ThemeService);
+    effect(() => {
+      theme.theme(); theme.palette();
+      requestAnimationFrame(() => this.sessions().forEach(session => session.updateTheme()));
+    });
+    effect(() => {
+      const workspace = this.agent.workspace();
+      if (this.sessions().some(s => s.cwd !== workspace)) untracked(() => this.close());
+    });
+  }
+
+  async attach(host: HTMLElement): Promise<void> {
+    this.host = host;
+    if (!this.active()) await this.newSession();
+    else await this.active()!.attach(host);
+  }
+  detach(): void { this.active()?.detach(); this.host = undefined; }
+  resize(): void { this.active()?.resize(); }
+  focus(): void { this.active()?.focus(); }
+  async newSession(): Promise<void> {
+    this.active()?.detach();
+    const session = new TerminalSession(++this.sequence, this.agent.workspace());
+    this.sessions.update(s => [...s, session]);
+    this.activeId.set(session.key);
+    if (this.host) {
+      await session.attach(this.host);
+      if (session === this.active()) session.focus();
+    }
+  }
+  async select(key: number): Promise<void> {
+    const session = this.sessions().find(s => s.key === key);
+    if (!session || session === this.active()) return;
+    this.active()?.detach();
+    this.activeId.set(key);
+    if (this.host) {
+      await session.attach(this.host);
+      if (session === this.active()) session.focus();
+    }
+  }
+  async closeSession(key: number): Promise<void> {
+    const index = this.sessions().findIndex(s => s.key === key);
+    if (index < 0) return;
+    const wasActive = this.activeId() === key;
+    this.sessions()[index].close();
+    this.sessions.update(s => s.filter(item => item.key !== key));
+    if (wasActive) {
+      const next = this.sessions()[Math.min(index, this.sessions().length - 1)];
+      this.activeId.set(next?.key ?? null);
+      if (next && this.host) await next.attach(this.host);
+    }
+  }
+  close(): void {
+    this.sessions().forEach(s => s.close());
+    this.sessions.set([]); this.activeId.set(null);
+  }
+  async restart(): Promise<void> { await this.active()?.restart(); }
+  read(lines: number): TerminalSnapshot[] {
+    return this.sessions().filter(s => s.cwd === this.agent.workspace()).flatMap(s => s.read(lines));
+  }
+  ngOnDestroy(): void { this.agent.terminalReader = null; this.close(); }
+}
+
+/** A PTY and its xterm buffer belong to one tab, including while inactive. */
+export class TerminalSession {
   private term?: Terminal;
   private fit?: FitAddon;
   private id: number | null = null;
-  private workspace = '';
   private startup = 0;
   private unlisten: Array<() => void> = [];
-  /** The element xterm draws into, moved between hosts. */
   private readonly element = document.createElement('div');
   readonly state = signal<'idle' | 'starting' | 'running' | 'exited' | 'unavailable'>('idle');
   readonly error = signal('');
-
-  constructor() {
-    this.agent.terminalReader = (lines) => this.read(lines);
-    // The terminal's colours follow the app's theme, read once it is applied.
-    const theme = inject(ThemeService);
-    effect(() => {
-      theme.theme();
-      theme.palette();
-      requestAnimationFrame(() => {
-        if (this.term) this.term.options.theme = palette();
-      });
-    });
-  }
+  constructor(readonly key: number, readonly cwd: string) {}
+  updateTheme(): void { if (this.term) this.term.options.theme = palette(); }
 
   /** Shows the terminal inside `host`, starting the shell the first time. */
   async attach(host: HTMLElement): Promise<void> {
@@ -45,9 +102,7 @@ export class TerminalService implements OnDestroy {
       this.state.set('unavailable');
       return;
     }
-    const workspace = this.agent.workspace();
-    if (this.term && this.workspace !== workspace) this.close();
-    if (!this.term) await this.start(workspace);
+    if (!this.term) await this.start(this.cwd);
     this.resize();
   }
 
@@ -80,6 +135,7 @@ export class TerminalService implements OnDestroy {
     this.term = undefined;
     this.fit = undefined;
     this.id = null;
+    this.element.remove();
     this.element.replaceChildren();
     this.state.set('idle');
   }
@@ -93,7 +149,7 @@ export class TerminalService implements OnDestroy {
 
   /** Current workspace terminal buffer as text, preserving wrapped rows. */
   read(lines: number): TerminalSnapshot[] {
-    if (!this.term || this.workspace !== this.agent.workspace()) return [];
+    if (!this.term) return [];
     const count = Math.floor(Math.max(1, Math.min(1000, Number(lines) || 200)));
     const buffer = this.term.buffer.active;
     const rows: string[] = [];
@@ -104,19 +160,13 @@ export class TerminalService implements OnDestroy {
       else rows.push(text);
     }
     while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
-    return [{ title: 'Terminal', running: this.state() === 'running', text: rows.join('\n') }];
-  }
-
-  ngOnDestroy(): void {
-    this.agent.terminalReader = null;
-    this.close();
+    return [{ title: `Terminal ${this.key}`, running: this.state() === 'running', text: rows.join('\n') }];
   }
 
   private async start(workspace: string): Promise<void> {
     const startup = ++this.startup;
     this.state.set('starting');
     this.error.set('');
-    this.workspace = workspace;
     const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
     if (startup !== this.startup) return;
     const term = new Terminal({
@@ -162,7 +212,6 @@ export class TerminalService implements OnDestroy {
       }
       this.unlisten.push(...listeners);
       this.state.set('running');
-      term.focus();
     } catch (error) {
       if (startup !== this.startup) return;
       this.state.set('exited');
@@ -181,13 +230,23 @@ function token(name: string, fallback: string): string {
  * dark one. xterm's own defaults stand in where a token is missing.
  */
 function palette() {
-  const ansi = (name: string) => token(name, '') || undefined;
-  return {
-    background: token('--surface-primary', '#101621'),
-    foreground: token('--text-primary', '#e6ebf5'),
-    cursor: token('--accent-solid', '#6e5ff0'),
-    cursorAccent: token('--surface-primary', '#101621'),
-    selectionBackground: token('--accent-border', 'rgba(110, 95, 240, 0.4)'),
+  // Resolve light-dark()/color-mix() in the document's colour scheme before
+  // passing colours to xterm's canvas, whose own scheme can differ.
+  const probe = document.createElement('span');
+  probe.style.display = 'none';
+  document.documentElement.appendChild(probe);
+  const colour = (name: string, fallback: string) => {
+    probe.style.color = '';
+    probe.style.color = `var(${name}, ${fallback})`;
+    return getComputedStyle(probe).color || fallback;
+  };
+  const ansi = (name: string) => colour(name, '#808080');
+  const colours = {
+    background: colour('--surface-primary', '#101621'),
+    foreground: colour('--text-primary', '#e6ebf5'),
+    cursor: colour('--accent-solid', '#6e5ff0'),
+    cursorAccent: colour('--surface-primary', '#101621'),
+    selectionBackground: colour('--accent-border', 'rgba(110, 95, 240, 0.4)'),
     black: ansi('--text-muted'),
     red: ansi('--danger-text'),
     green: ansi('--success-text'),
@@ -205,4 +264,6 @@ function palette() {
     brightCyan: ansi('--accent-secondary'),
     brightWhite: ansi('--text-primary'),
   };
+  probe.remove();
+  return colours;
 }

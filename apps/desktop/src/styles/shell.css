@@ -1253,3 +1253,13 @@ pa-inspector {
     border-color var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
+
+/* Independent shell tabs stay compact and scroll rather than compress. */
+.terminal-tabs { display:flex; align-items:center; gap:4px; padding:4px 8px; border-bottom:1px solid var(--border-subtle); }
+.terminal-tab-list { display:flex; flex:1; min-width:0; overflow-x:auto; }
+.terminal-tab { display:flex; align-items:center; flex-shrink:0; }
+.terminal-tab [role=tab] { border:0; background:transparent; color:var(--text-secondary); padding:6px 8px; border-radius:8px; font:inherit; font-size:12px; cursor:pointer; }
+.terminal-tab [aria-selected=true] { background:var(--accent-soft); color:var(--accent-text); }
+
+.native-preview { position:relative; display:flex; flex-direction:column; overflow:hidden; margin:0 8px 12px; width:auto; }
+.native-preview-surface { flex:1; min-height:0; }

@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "pwr-desktop"
-version = "0.4.0-alpha"
+version = "0.4.1-alpha"
 dependencies = [
  "log",
  "objc2",

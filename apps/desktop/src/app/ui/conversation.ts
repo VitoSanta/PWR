@@ -23,7 +23,7 @@ import { TraceCompact, TraceRaw, TraceSteps } from './trace';
 /** One row of the conversation: the person's message, or the whole reply to it. */
 type Item =
   | { type: 'user'; key: string; entry: Entry }
-  | { type: 'turn'; key: string; entries: Entry[]; steps: Step[]; live: boolean; startedAt: number; endedAt: number }
+  | { type: 'turn'; key: string; entries: Entry[]; steps: Step[]; live: boolean; startedAt: number; endedAt: number; fromRequest: boolean }
   | { type: 'notice'; key: string; entry: Entry };
 
 @Component({
@@ -173,7 +173,7 @@ type Item =
                       }
                     </div>
                   } @else {
-                    <time class="turn-finished num" [attr.datetime]="iso(item.endedAt)">Finished {{ clock(item.endedAt) }} · took {{ duration(item) }}</time>
+                    <time class="turn-finished num" [attr.datetime]="iso(item.endedAt)">Finished {{ clock(item.endedAt) }} @if (duration(item); as elapsed) { · {{ item.fromRequest ? 'since request' : 'took' }} {{ elapsed }} }</time>
                   }
                 </div>
               </article>
@@ -224,35 +224,7 @@ export class Conversation {
    * turn -- reasoning, text, actions, retries in order, on one rail. The turn
    * keeps its entries, so the chosen view can present the same run at different detail levels.
    */
-  protected readonly items = computed<Item[]>(() => {
-    const items: Item[] = [];
-    const entries = this.store.timeline();
-    for (const entry of entries) {
-      if (entry.kind === 'user') {
-        items.push({ type: 'user', key: entry.key, entry });
-        continue;
-      }
-      if (entry.kind === 'notice' && entry.title !== 'Checkpoint') {
-        items.push({ type: 'notice', key: entry.key, entry });
-        continue;
-      }
-      let turn = items[items.length - 1];
-      if (turn?.type !== 'turn') {
-        turn = { type: 'turn', key: `turn-${entry.key}`, entries: [], steps: [], live: false, startedAt: entry.at, endedAt: entry.at };
-        items.push(turn);
-      }
-      turn.endedAt = Math.max(turn.endedAt, entry.at);
-      turn.entries.push(entry);
-    }
-    const lastTurn = [...items].reverse().find((item) => item.type === 'turn');
-    if (lastTurn && lastTurn.type === 'turn') {
-      // Working only when it is the newest thing in the conversation: a turn
-      // followed by the person's next message is finished, whatever runs now.
-      lastTurn.live = this.store.turnActive() && items[items.length - 1] === lastTurn;
-    }
-    for (const item of items) if (item.type === 'turn') item.steps = groupSteps(item.entries);
-    return items;
-  });
+  protected readonly items = computed<Item[]>(() => conversationItems(this.store.timeline(), this.store.turnActive()));
 
   /** The speed of the reply being written, beside "Working". */
   protected readonly speed = computed(() => {
@@ -387,8 +359,9 @@ export class Conversation {
     return items[items.length - 1]?.type === 'user';
   }
 
-  protected duration(item: { startedAt: number; endedAt: number; live: boolean }): string {
+  protected duration(item: { startedAt: number; endedAt: number; live: boolean }): string | null {
     const end = item.live ? this.now() : item.endedAt;
+    if (end <= item.startedAt) return null;
     const seconds = Math.max(0, Math.round((end - item.startedAt) / 1000));
     return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
   }
@@ -431,4 +404,47 @@ export function fileKind(path: string): { icon: IconName; label: string; tone: s
   if (['md', 'txt', 'rst'].includes(extension)) return { icon: 'file-text', label: extension.toUpperCase(), tone: 'text' };
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension)) return { icon: 'image', label: 'Image', tone: 'image' };
   return { icon: 'file-code', label: extension.toUpperCase(), tone: 'code' };
+}
+
+
+/** Replayed tool/reply entries may share the completion timestamp. The request
+ * still records when the turn began; never measure only the replayed replies. */
+export function conversationItems(entries: Entry[], active: boolean): Item[] {
+    const items: Item[] = [];
+    for (const entry of entries) {
+      if (entry.kind === 'user') {
+        items.push({ type: 'user', key: entry.key, entry });
+        continue;
+      }
+      if (entry.kind === 'notice' && entry.title !== 'Checkpoint') {
+        items.push({ type: 'notice', key: entry.key, entry });
+        continue;
+      }
+      let turn = items[items.length - 1];
+      if (turn?.type !== 'turn') {
+        turn = { type: 'turn', key: `turn-${entry.key}`, entries: [], steps: [], live: false, startedAt: entry.at, endedAt: entry.at, fromRequest: false };
+        items.push(turn);
+      }
+      turn.endedAt = Math.max(turn.endedAt, entry.at);
+      turn.entries.push(entry);
+    }
+    const lastTurn = [...items].reverse().find((item) => item.type === 'turn');
+    if (lastTurn && lastTurn.type === 'turn') {
+      // Working only when it is the newest thing in the conversation: a turn
+      // followed by the person's next message is finished, whatever runs now.
+      lastTurn.live = active && items[items.length - 1] === lastTurn;
+    }
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      if (item.type !== 'turn') continue;
+      item.steps = groupSteps(item.entries);
+      if (!item.live && item.startedAt === item.endedAt) {
+        const request = items.slice(0,index).reverse().find(row => row.type === 'user');
+        if (request?.type === 'user' && request.entry.at < item.endedAt) {
+          item.startedAt = request.entry.at;
+          item.fromRequest = true;
+        }
+      }
+    }
+    return items;
 }

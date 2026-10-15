@@ -3,6 +3,13 @@
 PWR is an open-source coding agent for local models, in continuous evolution.
 Statuses such as *experimental* mean what they say: usable, still changing.
 
+## v0.4.1-alpha — 2026-10-16
+
+Maintenance update: isolated native local web preview, independent terminal
+sessions and readable light-theme terminal colours. Historical durations now
+show elapsed time since request when exact generation timing is unavailable.
+See the [release notes](docs/release/v0.4.1-alpha-release-notes.md).
+
 ## v0.4.0-alpha — 2026-10-15
 
 Mac alpha for Apple silicon. PWR runs Google's Gemma 4 only: one pack per

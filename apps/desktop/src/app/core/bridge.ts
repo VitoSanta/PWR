@@ -53,6 +53,8 @@ export const bridge = {
     const picked = await open({ multiple: true, directory: false, title: 'Attach images', filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }] });
     return picked === null ? [] : Array.isArray(picked) ? picked : [picked];
   },
+  previewSync: (options: {address: string; x: number; y: number; width: number; height: number; visible: boolean}) => invoke<void>('preview_sync', { request: options }),
+  previewClose: () => invoke<void>('preview_close'),
   termOpen: (cwd: string, cols: number, rows: number) => invoke<number>('term_open', { cwd, cols, rows }),
   termWrite: (id: number, data: string) => invoke<void>('term_write', { id, data }),
   termResize: (id: number, cols: number, rows: number) => invoke<void>('term_resize', { id, cols, rows }),

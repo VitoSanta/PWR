@@ -16,7 +16,8 @@ import {
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivityStore } from '../../core/activity';
 import { AgentStore } from '../../core/agent.store';
-import { bridge } from '../../core/bridge';
+import { bridge, inTauri } from '../../core/bridge';
+import { NativePreview } from './native-preview';
 import { bytes, percent } from '../../core/format';
 import { DownloadView, FileDiff } from '../../core/model';
 import { TerminalService } from '../../core/terminal';
@@ -454,8 +455,26 @@ export class FilesCard {
 /** Terminal: the person's shell in the workspace. */
 @Component({
   selector: 'pa-terminal-card',
-  imports: [MatButtonModule, Icon],
+  imports: [MatButtonModule, Icon, Tooltip],
   template: `
+    <div class="terminal-tabs" aria-label="Terminal sessions">
+      <div class="terminal-tab-list" role="tablist" aria-label="Shells">
+        @for (session of terminal.sessions(); track session.key) {
+          <div class="terminal-tab">
+            <button role="tab" [attr.aria-selected]="terminal.activeId() === session.key"
+              [attr.tabindex]="terminal.activeId() === session.key ? 0 : -1"
+              (keydown)="tabKey($event, session.key)" (click)="terminal.select(session.key)">
+              Terminal {{ session.key }}
+              @if (session.state() === 'exited') { <span class="t-meta"> · ended</span> }
+            </button>
+            <button class="icon-btn icon-btn-sm" [attr.aria-label]="'Close Terminal ' + session.key"
+              (click)="terminal.closeSession(session.key)"><pa-icon name="x" [size]="12" /></button>
+          </div>
+        }
+      </div>
+      <button matIconButton class="icon-btn icon-btn-sm" aria-label="New terminal" paTooltip="New terminal"
+        (click)="terminal.newSession()"><pa-icon name="plus" [size]="15" /></button>
+    </div>
     @if (terminal.state() === 'unavailable') {
       <p class="card-empty">The terminal runs in the PWR app, not in a browser preview.</p>
     } @else {
@@ -479,6 +498,22 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
   private readonly host = viewChild<ElementRef<HTMLElement>>('host');
   private observer?: ResizeObserver;
 
+  protected tabKey(event: KeyboardEvent, key: number): void {
+    const sessions = this.terminal.sessions();
+    const index = sessions.findIndex(s => s.key === key);
+    let next = index;
+    if (event.key === 'ArrowRight') next = (index + 1) % sessions.length;
+    else if (event.key === 'ArrowLeft') next = (index + sessions.length - 1) % sessions.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = sessions.length - 1;
+    else return;
+    event.preventDefault();
+    const list = (event.currentTarget as HTMLElement).closest('[role=tablist]');
+    void this.terminal.select(sessions[next].key).then(() => {
+      list?.querySelectorAll<HTMLElement>('[role=tab]')[next]?.focus();
+    });
+  }
+
   ngAfterViewInit(): void {
     const host = this.host()?.nativeElement;
     if (!host) {
@@ -500,7 +535,7 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
 /** Web preview: the app the workspace serves on this machine. */
 @Component({
   selector: 'pa-browser-card',
-  imports: [MatButtonModule, Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip, NativePreview],
   template: `
     <form class="card-toolbar browser-bar" (submit)="$event.preventDefault(); go(address.value)">
       <button matIconButton type="button" class="icon-btn icon-btn-sm" (click)="reload()" [disabled]="!url()" aria-label="Reload" paTooltip="Reload">
@@ -515,7 +550,12 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
       <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ error() }}</p>
     }
     @if (frame(); as src) {
-      <iframe class="browser-frame" [src]="src" title="Preview" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"></iframe>
+      @if (native) {
+        <pa-native-preview [address]="frameAddress()" />
+      } @else {
+        <iframe class="browser-frame" [src]="src" title="Preview" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"></iframe>
+        <p class="t-meta card-banner">Some servers block browser embedding. Open this address in your browser, or use the PWR desktop app.</p>
+      }
     } @else {
       <div class="card-pad">
         <p class="card-empty">Preview a page this machine serves: a development server, or one PWR started.</p>
@@ -532,6 +572,8 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BrowserCard {
+  protected readonly native = inTauri();
+  protected readonly frameAddress = signal('');
   private readonly agent = inject(AgentStore);
   private readonly sanitizer = inject(DomSanitizer);
   protected readonly url = signal('');
@@ -597,6 +639,7 @@ export class BrowserCard {
 
   private show(address: string): void {
     // Only an address `normalize` accepted reaches here: this machine, http.
+    this.frameAddress.set(address);
     this.frame.set(this.sanitizer.bypassSecurityTrustResourceUrl(address));
   }
 }
