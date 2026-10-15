@@ -33,15 +33,36 @@
   border-radius: var(--radius-brand);
 }
 
-/* Model Manager follows the same card and panel shapes as the main view. */
-.machine {
+/* Model Manager: this machine and the line as Material cards on the
+   dialog -- the lowest surface container -- the packs one list with
+   dividers, not cards of their own. */
+.machine,
+.mm-line {
   margin: 0 var(--space-6);
-  border: 1px solid var(--border-subtle);
+  border: 0;
   border-radius: var(--radius-card);
+  background: light-dark(var(--mat-sys-surface-container-lowest), var(--mat-sys-surface-container));
 }
 
-.local-model {
-  border-radius: var(--radius-card);
+.mm-line {
+  flex: none;
+  margin-block: var(--space-3) var(--space-4);
+  overflow: hidden;
+}
+
+.mm-line .local-model {
+  border-radius: 0;
+  background: transparent;
+  padding: var(--space-3) var(--space-4);
+}
+
+.mm-line .local-model + .local-model {
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+/* The list keeps its height; the note on downloads stays at the foot. */
+.mm-foot {
+  margin-top: auto;
 }
 
 .shell-focus .glass {

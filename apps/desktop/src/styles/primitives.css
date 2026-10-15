@@ -450,7 +450,8 @@
   height: 20px;
   padding: 0 var(--space-2);
   border: 1px solid transparent;
-  border-radius: var(--radius-pill);
+  /* A Material label: small rounded rectangle, not a pill. */
+  border-radius: 6px;
   background: var(--surface-active);
   color: var(--text-secondary);
   font-size: var(--fs-caption);
@@ -753,11 +754,13 @@ button.badge:hover {
 }
 
 /* ------------------------------------------- menus, popovers, listboxes */
+/* Material's menu and popover surface: no outline, the surface container
+   at elevation 2. */
 .surface-floating {
-  border: 1px solid var(--border-subtle);
+  border: 0;
   border-radius: var(--radius-card);
-  background: var(--surface-elevated);
-  box-shadow: var(--shadow-popover);
+  background: var(--mat-sys-surface-container);
+  box-shadow: var(--mat-sys-level2);
 }
 
 .menu {
@@ -882,10 +885,11 @@ button.badge:hover {
   width: min(440px, 100%);
   max-height: 100%;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
+  /* Material's dialog: the high surface container, 28px, elevation 3. */
+  border: 0;
   border-radius: var(--radius-modal);
-  background: var(--surface-elevated);
-  box-shadow: var(--shadow-modal);
+  background: var(--mat-sys-surface-container-high);
+  box-shadow: var(--mat-sys-level3);
   animation: pa-dialog-in var(--dur-slow) var(--ease-out) backwards;
 }
 
@@ -917,10 +921,11 @@ button.badge:hover {
   min-width: 0;
 }
 
+/* Material's dialog headline: headline-small, regular weight. */
 .dialog-title {
-  font-size: var(--fs-heading);
-  font-weight: var(--fw-semibold);
-  line-height: 1.4;
+  font-size: 22px;
+  font-weight: var(--fw-regular);
+  line-height: 1.35;
 }
 
 .dialog-description {
@@ -1018,18 +1023,19 @@ button.badge:hover {
   pointer-events: none;
 }
 
+/* Material's snackbar: the inverse surface, 4px corners, elevation 3. */
 .toast {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   max-width: 380px;
-  min-height: 40px;
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-  background: var(--surface-elevated);
-  box-shadow: var(--shadow-popover);
-  color: var(--text-primary);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--mat-sys-inverse-surface);
+  box-shadow: var(--mat-sys-level3);
+  color: var(--mat-sys-inverse-on-surface);
   font-size: var(--fs-body-sm);
   pointer-events: auto;
   animation: pa-rise-in var(--dur-slow) var(--ease-out) backwards;
@@ -1040,15 +1046,19 @@ button.badge:hover {
 }
 
 .toast > pa-icon {
-  color: var(--text-muted);
+  color: var(--mat-sys-inverse-primary);
 }
 
 .toast.tone-success > pa-icon {
-  color: var(--success);
+  color: light-dark(#81c995, #137333);
 }
 
 .toast.tone-danger > pa-icon {
-  color: var(--danger);
+  color: light-dark(#f2b8b5, #b3261e);
+}
+
+.toast .icon-btn {
+  --mat-icon-button-icon-color: var(--mat-sys-inverse-on-surface);
 }
 
 .toast-text {
