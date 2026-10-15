@@ -81,6 +81,39 @@ pub struct ProgressTracker {
     pub historical_windows: usize,
 }
 
+/// Scope changes ask a genuinely different question, even when both searches
+/// are empty. Keep the typed fields: a query or glob may itself contain ':'.
+pub(crate) fn search_scope(action: &crate::ActionProposal) -> Option<String> {
+    match action {
+        crate::ActionProposal::Search {
+            regex,
+            path_glob,
+            in_dependencies,
+            ..
+        } => Some(json!([regex, path_glob, in_dependencies]).to_string()),
+        _ => None,
+    }
+}
+
+/// New spelling alone is not new evidence after a completed, explicitly empty
+/// search in the same scope. Unknown, truncated or informative results retain
+/// their original identity; the audit always retains the proposed action.
+pub(crate) fn investigation_key(fingerprint: &str, scope: Option<&str>, result: &Value) -> String {
+    let empty = result["matches_returned"].as_u64() == Some(0)
+        && result["truncated"].as_bool() == Some(false)
+        && result["files"].as_array().is_some_and(Vec::is_empty)
+        && result
+            .get("files_named")
+            .is_none_or(|named| named.is_null() || named.as_array().is_some_and(Vec::is_empty))
+        && result.get("note").is_none_or(Value::is_null)
+        && result.get("denied").is_none()
+        && result.get("error").is_none();
+    match scope.filter(|_| empty) {
+        Some(scope) => format!("empty_search:{scope}"),
+        None => fingerprint.to_owned(),
+    }
+}
+
 impl ProgressTracker {
     /// The operator spoke: the windows already counted were a verdict on the
     /// request they answered, not on the next one. What has been tried and
@@ -96,6 +129,15 @@ impl ProgressTracker {
         fingerprint: String,
         effect: super::EffectSignature,
     ) -> Option<Vec<String>> {
+        self.observe_keyed(fingerprint.clone(), fingerprint, effect)
+    }
+
+    pub(crate) fn observe_keyed(
+        &mut self,
+        fingerprint: String,
+        information_key: String,
+        effect: super::EffectSignature,
+    ) -> Option<Vec<String>> {
         if self
             .effects
             .insert((effect.workspace.clone(), effect.checks.clone()))
@@ -103,7 +145,7 @@ impl ProgressTracker {
             self.windows = 0;
             self.window.clear();
         }
-        let novel = self.fingerprints.insert(fingerprint.clone());
+        let novel = self.fingerprints.insert(information_key);
         self.window.push((fingerprint, effect, novel));
         if self.window.len() > super::NO_PROGRESS_WINDOW {
             self.window.remove(0);
@@ -121,6 +163,97 @@ impl ProgressTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn replay(case: &Value, outcome_aware: bool) -> (Option<usize>, usize) {
+        let mut progress = ProgressTracker::default();
+        let mut changed = std::collections::BTreeMap::new();
+        let mut stopped = None;
+        for (index, row) in case["actions"].as_array().unwrap().iter().enumerate() {
+            // The conversation observes Ok(value), not proposals rejected
+            // before execution or errors returned without a tool result.
+            if row["observed"] == false {
+                continue;
+            }
+            let action: crate::ActionProposal =
+                serde_json::from_value(row["action"].clone()).unwrap();
+            let fingerprint = crate::repetition::action_fingerprint(&action);
+            crate::stall::record_effect(&mut changed, &row["outcome"]);
+            let effect = crate::EffectSignature::of(&changed, "checks unchanged");
+            if outcome_aware {
+                let scope = search_scope(&action);
+                let key = investigation_key(&fingerprint, scope.as_deref(), &row["outcome"]);
+                progress.observe_keyed(fingerprint, key, effect);
+            } else {
+                progress.observe(fingerprint, effect);
+            }
+            if progress.windows >= crate::stall::NO_PROGRESS_LIMIT {
+                stopped = Some(index + 1);
+                break;
+            }
+        }
+        (stopped, progress.historical_windows)
+    }
+
+    #[test]
+    fn recorded_gemma_search_loop_stops_without_stopping_the_five_successes() {
+        let cases: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/gemma-progress-replay.json"))
+                .unwrap();
+        for case in cases.as_array().unwrap() {
+            let (old_stop, old_windows) = replay(case, false);
+            assert!(
+                old_stop.is_none(),
+                "old replay differs from recorded completion"
+            );
+            assert_eq!(
+                old_windows,
+                case["recorded_windows"].as_u64().unwrap() as usize,
+                "replay must reproduce the recorded guard: {}",
+                case["name"]
+            );
+            let (stop, windows) = replay(case, true);
+            eprintln!("{}: stop={stop:?}, windows={windows}", case["name"]);
+            if case["successful"] == true {
+                assert!(stop.is_none(), "successful run stopped: {}", case["name"]);
+            } else {
+                assert_eq!(old_windows, 1, "replay must reproduce the recorded guard");
+                assert!(stop.is_some_and(|step| step <= 48), "{stop:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn only_explicitly_empty_uninformative_searches_share_an_information_key() {
+        let empty = json!({"matches_returned":0,"truncated":false,"files":[]});
+        assert_eq!(
+            investigation_key("search:a", Some("scope"), &empty),
+            investigation_key("search:b", Some("scope"), &empty)
+        );
+        assert_ne!(
+            investigation_key("search:a", Some("scope-a"), &empty),
+            investigation_key("search:b", Some("scope-b"), &empty)
+        );
+        assert_eq!(
+            investigation_key("read_file:a", None, &empty),
+            "read_file:a"
+        );
+        for informative in [
+            json!({}),
+            json!({"matches_returned":0,"files":[]}),
+            json!({"matches_returned":0,"truncated":true,"files":[]}),
+            json!({"matches_returned":0,"truncated":false,"files":[],"files_named":["source.rs"]}),
+            json!({"matches_returned":0,"truncated":false,"files":[],"note":"set regex: true"}),
+            json!({"matches_returned":0,"truncated":false,"files":[],"denied":"not allowed"}),
+            json!({"matches_returned":0,"truncated":false,"files":[{"path":"source.rs"}]}),
+            json!({"matches_returned":1,"truncated":false,"files":[]}),
+        ] {
+            assert_eq!(
+                investigation_key("original", Some("scope"), &informative),
+                "original",
+                "{informative}"
+            );
+        }
+    }
     #[test]
     fn repeated_failures_with_different_timings_are_not_progress() {
         let first = json!({"command":"build", "exit_code":1, "stderr":"bad template", "duration_ms":1, "artifact_hash":"old"});

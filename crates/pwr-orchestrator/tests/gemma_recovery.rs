@@ -330,3 +330,20 @@ async fn gemma_calls_only_in_thinking_have_their_own_stop_reason() {
     assert_eq!(report.actions, 0);
     assert_eq!(requests.len(), 3);
 }
+
+#[tokio::test]
+async fn empty_search_spellings_share_the_conversation_progress_guard() {
+    let replies = (0..40)
+        .map(|i| {
+            calls(vec![call(
+                "search",
+                serde_json::json!({"query":format!("absent_symbol_{i}")}),
+            )])
+        })
+        .collect();
+    let (report, _, requests, _, _, _) = run(replies, Default::default()).await;
+    assert_eq!(report.stopped, Some(converse::StopReason::NoProgress));
+    assert!(!report.completed);
+    assert!(report.actions <= 24, "{} actions", report.actions);
+    assert!(requests.len() <= 24);
+}

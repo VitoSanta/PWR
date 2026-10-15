@@ -4256,7 +4256,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         // one the run has already been shown.
         let reading = is_read_only(&action);
         let requested_reads = 1 + extra_reads.len();
-        let mut performed_fingerprints = vec![fingerprint.clone()];
+        let search_scope = run_state::search_scope(&action);
         let read_byte_budget = (request.context_tokens as usize / 8 * CHARS_PER_TOKEN).max(1024);
         let per_read_budget = ((read_byte_budget.saturating_sub(512))
             / requested_reads.min(MAX_READS_PER_TURN))
@@ -4310,6 +4310,10 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             session::note_unreplayed(&mut outcome);
         }
         let mut outcome = action_outcome(outcome);
+        let mut performed_observations = vec![(
+            fingerprint.clone(),
+            run_state::investigation_key(&fingerprint, search_scope.as_deref(), &outcome),
+        )];
         // The rest of a read-only turn, performed here rather than over the
         // next several turns. Each one is executed by the same call, audited by
         // the same event and charged to the same budget as the first: what is
@@ -4339,6 +4343,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 continue;
             }
             let label = action_fingerprint(&extra);
+            let search_scope = run_state::search_scope(&extra);
             let extra_outcome = execute_action_recorded(
                 store,
                 run_id,
@@ -4350,13 +4355,15 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             )
             .await;
             let extra_outcome = action_outcome(extra_outcome);
+            let information_key =
+                run_state::investigation_key(&label, search_scope.as_deref(), &extra_outcome);
             let limit = per_read_budget
                 .min(read_byte_budget.saturating_sub(512 + batch_bytes))
                 .max(256);
             let extra_outcome = bounded_result(extra_outcome, limit);
             let entry = serde_json::json!({"action": label, "result": extra_outcome});
             batch_bytes += json_bytes(&entry);
-            performed_fingerprints.push(label);
+            performed_observations.push((label, information_key));
             also_read.push(entry);
         }
         // A one-time grant expires with the action it was given for.
@@ -4468,8 +4475,10 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         // six files it has never read is investigation; calling that
         // non-progress would interrupt exactly what a hard task needs.
         let effect = EffectSignature::of(&changed_files, &check_state);
-        for performed_fingerprint in performed_fingerprints {
-            if let Some(stalled_actions) = progress.observe(performed_fingerprint, effect.clone()) {
+        for (performed_fingerprint, information_key) in performed_observations {
+            if let Some(stalled_actions) =
+                progress.observe_keyed(performed_fingerprint, information_key, effect.clone())
+            {
                 store
                     .append_event(
                         Some(run_id),

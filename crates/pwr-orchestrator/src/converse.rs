@@ -3526,6 +3526,7 @@ async fn take_turn_inner<P: ModelProvider>(
                 _ => None,
             };
             let fingerprint = crate::repetition::action_fingerprint(&action);
+            let search_scope = crate::run_state::search_scope(&action);
             on_step(TurnStep::ToolCall(ToolCallStep {
                 id: call_id,
                 capability: capability.clone(),
@@ -4173,7 +4174,15 @@ async fn take_turn_inner<P: ModelProvider>(
                             );
                             stall
                                 .progress
-                                .observe(fingerprint.clone(), effect)
+                                .observe_keyed(
+                                    fingerprint.clone(),
+                                    crate::run_state::investigation_key(
+                                        &fingerprint,
+                                        search_scope.as_deref(),
+                                        &value,
+                                    ),
+                                    effect,
+                                )
                                 .map(|stalled| (stalled, stall.progress.windows))
                         });
                     let mut halt = false;

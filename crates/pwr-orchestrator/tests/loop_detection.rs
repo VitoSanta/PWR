@@ -335,6 +335,29 @@ mod no_progress {
         );
     }
 
+    #[test]
+    fn changing_only_an_empty_query_cannot_avoid_the_existing_stall_limit() {
+        let script = (0..40)
+            .map(|i| format!(r#"{{"capability":"search","query":"absent_symbol_{i}"}}"#))
+            .collect();
+        assert_eq!(
+            run_script(&[("code.rs", "fn present() {}")], script, 40),
+            3,
+            "new query spellings hid a run of empty results"
+        );
+    }
+
+    #[test]
+    fn different_queries_with_results_remain_legitimate_investigation() {
+        let body = (0..30)
+            .map(|i| format!("symbol_{i};\n"))
+            .collect::<String>();
+        let script = (0..30)
+            .map(|i| format!(r#"{{"capability":"search","query":"symbol_{i};"}}"#))
+            .collect();
+        assert_eq!(run_script(&[("code.rs", &body)], script, 30), 0);
+    }
+
     /// An edit and its revert leave the workspace where it started, having
     /// spent two actions and changed the signature twice on the way.
     #[test]
