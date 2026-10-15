@@ -85,28 +85,34 @@ const NATIVE_MENU =
           <!-- Everything lives in the message bar: the tools and the
                conversation at its left, the run's state and the model at
                its right. -->
+          <!-- Icons only, by what they are for. At the left, what you add
+               or open: attach (the composer's own), the tools, the
+               conversations. At the right, the run's state -- what the
+               trace shows, the context, the speed -- then the model, and
+               send. Each names itself and its figures in its tooltip. -->
           <div paComposerStart class="composer-tools">
-            <button matButton
+            <button matIconButton
               #toolsButton
               type="button"
-              class="btn btn-sm composer-tools-button"
+              class="icon-btn composer-tools-button"
               [class.has-goal]="store.goalMode() && !store.chatMode()"
               [class.has-auto]="store.permissionMode() === 'auto' && !store.chatMode()"
               (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
               [attr.aria-expanded]="strip() === 'bar'"
               aria-haspopup="menu"
+              aria-label="Tools"
               paTooltip="Tools · or right-click an empty spot"
             >
-              <pa-icon name="grid" [size]="16" /> Tools
+              <pa-icon name="grid" />
             </button>
-            <pa-session-switcher />
+            <pa-session-switcher [compact]="true" />
           </div>
           <div paComposerEnd class="composer-status">
             <pa-diagnostic-export />
+            <pa-trace-visibility />
             <pa-context-meter />
             <pa-run-metrics />
-            <pa-trace-visibility />
-            <pa-model-picker />
+            <pa-model-picker [compact]="true" />
           </div>
         </pa-composer>
       </main>

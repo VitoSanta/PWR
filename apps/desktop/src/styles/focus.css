@@ -108,13 +108,78 @@
   border-radius: var(--radius-pill);
 }
 
-/* In the bar, short: the conversation's name on one line, the context as
-   its ring and percentage, the trace's detail as its icon; each opens to
-   the rest. */
-.composer-tools .switcher-where,
-.composer-status .meter .meter-detail,
-.composer-status .trace-visibility .meter-detail {
+/* In the bar every control is an icon, a 32px circle as Material's icon
+   buttons are; names and figures are in their tooltips, the rest in what
+   they open. */
+.composer-status .topbar-chip,
+.composer-tools .switcher-trigger.is-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.composer-status .topbar-chip:hover,
+.composer-tools .switcher-trigger.is-icon:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.composer-status .topbar-chip[aria-expanded='true'],
+.composer-tools .switcher-trigger.is-icon[aria-expanded='true'] {
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.composer-status .topbar-chip .num,
+.composer-status .topbar-chip .meter-detail,
+.composer .composer-flag-label {
   display: none;
+}
+
+.composer-status .meter-ring {
+  width: 18px;
+  height: 18px;
+}
+
+/* One icon size across the bar, whatever size each control asks for. */
+.composer-status .topbar-chip pa-icon,
+.composer-tools pa-icon {
+  --icon-size: 18px !important;
+  width: 18px !important;
+  height: 18px !important;
+}
+
+/* The model's state, a small badge on its icon. */
+.composer-status .topbar-chip > .dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  box-shadow: 0 0 0 2px var(--mat-sys-surface-container);
+}
+
+/* The two flags a run can carry stay in sight, as tinted icons. */
+.composer .composer-warning,
+.composer .run-note {
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
+  border-radius: 50%;
+}
+
+.composer .composer-warning {
+  background: var(--warning-soft);
 }
 
 /* Tools: lit dots while Goal mode (primary) or Auto-approve (warning) is

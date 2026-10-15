@@ -25,12 +25,17 @@ import { Tooltip } from './kit/tooltip';
       [attr.aria-expanded]="open()"
       aria-haspopup="dialog"
       [class.is-missing]="!store.model()"
+      [class.is-icon]="compact()"
       [attr.aria-label]="'Model: ' + store.modelName()"
-      paTooltip="Model, reasoning and working context"
+      [paTooltip]="compact() ? store.modelName() + ' · model, thinking and context' : 'Model, reasoning and working context'"
     >
       <span class="dot" [class]="'dot ' + (store.model() && !store.backendNote() ? 'dot-success' : 'dot-warning')" aria-hidden="true"></span>
-      <span class="truncate topbar-chip-label">{{ store.modelName() }}</span>
-      <pa-icon name="chevron-down" [size]="14" />
+      @if (compact()) {
+        <pa-icon name="cpu" [size]="18" />
+      } @else {
+        <span class="truncate topbar-chip-label">{{ store.modelName() }}</span>
+        <pa-icon name="chevron-down" [size]="14" />
+      }
     </button>
 
     @if (open()) {
@@ -142,6 +147,8 @@ export class ModelPicker {
   /** Where its panel opens: below the chip in a top bar, above it in a status bar. */
   readonly side = input<'bottom' | 'top'>('bottom');
   readonly align = input<'start' | 'end'>('end');
+  /** Its icon alone, the name in the tooltip: the message bar's form. */
+  readonly compact = input(false);
   protected readonly store = inject(AgentStore);
   private readonly models = inject(ModelsStore);
   protected readonly open = signal(false);

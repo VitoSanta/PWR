@@ -32,7 +32,7 @@ interface Figure {
       [attr.aria-expanded]="open()"
       aria-haspopup="dialog"
       [attr.aria-label]="speed() ? 'Output speed ' + speed() + ' tokens per second' : 'Runtime metrics'"
-      paTooltip="Runtime metrics"
+      [paTooltip]="speed() ? speed() + ' tok/s · runtime metrics' : 'Runtime metrics'"
     >
       <pa-icon name="gauge" [size]="14" />
       @if (speed(); as speed) {

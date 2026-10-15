@@ -23,7 +23,7 @@ import { Tooltip } from './kit/tooltip';
       [attr.aria-expanded]="open()"
       aria-haspopup="dialog"
       [attr.aria-label]="usage() ? 'Context ' + used() + '% used' : 'Context window'"
-      paTooltip="Context window"
+      [paTooltip]="usage() ? 'Context ' + used() + '% · ' + t(usage()!.used) + ' / ' + t(usage()!.window) : 'Context window ' + t(window())"
     >
       <svg class="meter-ring" viewBox="0 0 36 36" aria-hidden="true">
         <circle class="track" cx="18" cy="18" r="14" />

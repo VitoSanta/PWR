@@ -215,7 +215,7 @@ const MAX_HEIGHT = 260;
                 : 'This platform has no sandbox adapter: commands the model runs are not confined to the workspace.'"
               tabindex="0"
             >
-              <pa-icon name="alert" [size]="14" /> {{ store.permissionMode() === 'full' ? 'Full access' : 'Not sandboxed' }}
+              <pa-icon name="alert" [size]="14" /><span class="composer-flag-label"> {{ store.permissionMode() === 'full' ? 'Full access' : 'Not sandboxed' }}</span>
             </span>
           }
         } @else {
@@ -236,12 +236,12 @@ const MAX_HEIGHT = 260;
             (click)="ui.runControls.set(ui.runControls() ? null : runNote)"
             [attr.aria-expanded]="!!ui.runControls()"
             aria-haspopup="dialog"
-            paTooltip="Goal mode and approvals"
+            [paTooltip]="(store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal mode' : 'Auto-approve') + ' is on · goal and approvals'"
             animate.enter="anim-pop-in"
             animate.leave="anim-pop-out"
           >
             <pa-icon name="zap" [size]="12" />
-            {{ store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal' : 'Auto-approve' }}
+            <span class="composer-flag-label">{{ store.goalMode() && store.permissionMode() === 'auto' ? 'Goal · Auto-approve' : store.goalMode() ? 'Goal' : 'Auto-approve' }}</span>
           </button>
         }
         <span class="spacer"></span>
