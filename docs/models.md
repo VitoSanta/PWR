@@ -1,6 +1,6 @@
 # Models
 
-**Rewritten 2026-10-14 for the Gemma 4 line (`0a3c5a64`).** PWR runs Google's
+**Rewritten 2026-10-14 for the Gemma 4 line (`bb49b40e`).** PWR runs Google's
 Gemma 4 and nothing else: one pack per memory tier, each with its trained
 262,144-token context. What is fixed about the packs is written once, in
 `crates/pwr-domain/src/gemma.rs`; nothing about a model is discovered,
