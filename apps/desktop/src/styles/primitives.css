@@ -965,29 +965,15 @@ button.badge:hover {
   font: var(--fw-medium) var(--fs-body-sm) / 1.5 var(--font);
 }
 
-/* -------------------------------------------------------------- tooltip */
-.tooltip {
-  position: fixed;
-  z-index: var(--z-tooltip);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  max-width: 320px;
-  padding: 5px var(--space-2);
-  border-radius: var(--radius-inline);
-  background: var(--tooltip-bg);
-  color: var(--tooltip-text);
-  font-size: var(--fs-label);
-  line-height: 1.4;
-  pointer-events: none;
-  box-shadow: var(--shadow-sm);
-  animation: pa-fade-in var(--dur-fast) var(--ease) backwards;
+/* -------------------------------------------------------------- tooltip
+ * Material's plain tooltip (paTooltip hosts MatTooltip); the shortcut is
+ * part of its text. */
+.mat-mdc-tooltip {
+  --mat-tooltip-supporting-text-size: var(--fs-label);
 }
 
-.tooltip .kbd {
-  border-color: color-mix(in srgb, var(--tooltip-text) 14%, transparent);
-  background: color-mix(in srgb, var(--tooltip-text) 8%, transparent);
-  color: color-mix(in srgb, var(--tooltip-text) 75%, transparent);
+.mat-mdc-tooltip .mdc-tooltip__surface {
+  max-width: 320px;
 }
 
 /* --------------------------------------------------------------- toasts */
