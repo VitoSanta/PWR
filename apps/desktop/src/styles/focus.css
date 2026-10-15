@@ -219,9 +219,8 @@
   margin: 0;
 }
 
-/* Navigation in the top left corner; in the app's own window on a Mac,
-   beside the traffic lights and centred on them (x 18, y 23 in
-   tauri.conf.json). */
+/* Keep navigation against the left edge. In a native Mac window it
+   sits below the traffic lights; full screen uses the top-left corner. */
 .focus-nav {
   position: absolute;
   top: 12px;
@@ -233,8 +232,25 @@
 }
 
 .shell-focus.is-native.is-mac:not(.is-fullscreen) .focus-nav {
-  top: 14px;
-  left: 80px;
+  top: 32px;
+}
+
+/* Keep the full hit areas inside the native full-screen overlay's row:
+   when macOS reveals it, no part of our icons pokes out beneath it. */
+.shell-focus.is-native.is-mac.is-fullscreen .focus-nav {
+  top: 0;
+  height: 32px;
+}
+
+.shell-focus.is-native.is-mac.is-fullscreen .focus-nav .icon-btn {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+
+/* The windowed navigation row starts directly below the native buttons. */
+.shell-focus.is-native.is-mac:not(.is-fullscreen) .focus-main {
+  padding-top: calc(32px + var(--control-h));
 }
 
 .focus-nav .switcher-trigger.is-icon {

@@ -83,8 +83,9 @@ export class NavigationService {
 }
 
 /**
- * The window: whether it is full screen, which gives back the traffic
- * lights' space on macOS. Followed from the first frame.
+ * The window's full-screen state, followed from the first frame.
+ * The shell uses it to put navigation below the native title bar in
+ * windowed mode and in the top-left corner in full screen.
  */
 @Injectable({ providedIn: 'root' })
 export class WindowState {
