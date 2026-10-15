@@ -1969,6 +1969,28 @@ for line in sys.stdin:
     }
 
     #[test]
+    fn native_gemma_history_matches_the_offline_render_fixtures() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/gemma-native-history.json"))
+                .unwrap();
+        for case in cases.as_array().unwrap() {
+            let mut messages: Vec<ChatMessage> =
+                serde_json::from_value(case["input"].clone()).unwrap();
+            // Reasoning is runtime-only, intentionally not deserialized from
+            // stored ChatMessage. Recreate the live turn state explicitly.
+            for (message, input) in messages.iter_mut().zip(case["input"].as_array().unwrap()) {
+                message.reasoning = input["reasoning"].as_str().map(str::to_owned);
+            }
+            assert_eq!(
+                serde_json::to_value(template_messages(&messages)).unwrap(),
+                case["wire"],
+                "{}",
+                case["id"]
+            );
+        }
+    }
+
+    #[test]
     fn a_tool_message_beyond_the_calls_of_its_turn_is_a_user_note() {
         let call = ToolCall {
             name: "read_file".into(),

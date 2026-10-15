@@ -1278,9 +1278,10 @@ def gemma_history_template(template: str) -> str:
 
 def tool_result_mapping(text: str):
     """A PWR tool result as the mapping it is: the JSON it begins with -- the
-    `result` object itself when that is all it holds -- with the file text
-    that follows it (`<content>` ... `</content>`) in place of its "<content>
-    below" note, and no empty fields. None when the text is not one."""
+    `result` object itself when that is all it holds -- with verbatim file
+    text and command streams restored to the fields their placeholders name.
+    Unknown or incomplete suffixes stay text, not invented field values.
+    None when the text is not one."""
     try:
         head, end = json.JSONDecoder().raw_decode(text)
     except ValueError:
@@ -1290,17 +1291,26 @@ def tool_result_mapping(text: str):
     mapping = head["result"] if list(head) == ["result"] and isinstance(head["result"], dict) else head
     mapping = {k: v for k, v in mapping.items() if v is not None}
     rest = text[end:].strip()
-    if rest.startswith("<content>"):
-        body = rest[len("<content>"):]
-        if body.endswith("</content>"):
-            body = body[:-len("</content>")]
-        # One line break after the opening tag and one before the closing one
-        # are the wrapping; blank lines of the file itself stay.
-        body = body.removeprefix("\n").removesuffix("\n")
-        placeholder = next((k for k, v in mapping.items() if v == "<content> below"), None)
-        mapping[placeholder or "content"] = body
-    elif rest:
-        mapping["text"] = rest
+    fields = mapping.get("result") if isinstance(mapping.get("result"), dict) else mapping
+    remaining, restored = rest, {}
+    while remaining:
+        tag = next((key for key in ("content", "stdout", "stderr")
+                    if fields.get(key) == f"<{key}> below"
+                    and key not in restored and remaining.startswith(f"<{key}>\n")), None)
+        if tag is None:
+            break
+        opening, closing = f"<{tag}>\n", f"\n</{tag}>"
+        at = remaining.find(closing, len(opening))
+        if at < 0:
+            # A malformed envelope is kept whole, even if an earlier section
+            # looked complete. Do not turn partial text into observed output.
+            remaining, restored = rest, {}
+            break
+        restored[tag] = remaining[len(opening):at]
+        remaining = remaining[at + len(closing):].strip()
+    fields.update(restored)
+    if remaining:
+        mapping["text"] = remaining
     return mapping
 
 

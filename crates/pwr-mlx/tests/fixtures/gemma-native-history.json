@@ -1,0 +1,1115 @@
+[
+  {
+    "id": "single_result",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/a.py"
+            },
+            "id": "c1"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1"
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1",
+        "name": "read_file"
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/a.py",
+              "content": "a = 1"
+            }
+          }
+        ]
+      }
+    ],
+    "expect_token_parity": true
+  },
+  {
+    "id": "batch_reversed_ids",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/a.py"
+            },
+            "id": "c1"
+          },
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/b.py"
+            },
+            "id": "c2"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/b.py\", \"content\": \"b = 2\"}}",
+        "tool_call_id": "c2"
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1"
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          },
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/b.py"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/b.py\", \"content\": \"b = 2\"}}",
+        "tool_call_id": "c2",
+        "name": "read_file"
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1",
+        "name": "read_file"
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          },
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/b.py"
+              }
+            }
+          }
+        ],
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/b.py",
+              "content": "b = 2"
+            }
+          },
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/a.py",
+              "content": "a = 1"
+            }
+          }
+        ]
+      }
+    ],
+    "expect_token_parity": true
+  },
+  {
+    "id": "two_tool_rounds_reasoning",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/a.py"
+            },
+            "id": "c1"
+          }
+        ],
+        "reasoning": "I need the first file."
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/b.py"
+            },
+            "id": "c2"
+          }
+        ],
+        "reasoning": "Now I need the second file."
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/b.py\", \"content\": \"b = 2\"}}",
+        "tool_call_id": "c2"
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "reasoning_content": "I need the first file."
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1",
+        "name": "read_file"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/b.py"
+              }
+            }
+          }
+        ],
+        "reasoning_content": "Now I need the second file."
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/b.py\", \"content\": \"b = 2\"}}",
+        "tool_call_id": "c2",
+        "name": "read_file"
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "reasoning_content": "I need the first file.",
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/a.py",
+              "content": "a = 1"
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/b.py"
+              }
+            }
+          }
+        ],
+        "reasoning_content": "Now I need the second file.",
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/b.py",
+              "content": "b = 2"
+            }
+          }
+        ]
+      }
+    ],
+    "expect_token_parity": true
+  },
+  {
+    "id": "new_user_strips_old_reasoning",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/a.py"
+            },
+            "id": "c1"
+          }
+        ],
+        "reasoning": "I need the first file."
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/b.py"
+            },
+            "id": "c2"
+          }
+        ],
+        "reasoning": "Now I need the second file."
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/b.py\", \"content\": \"b = 2\"}}",
+        "tool_call_id": "c2"
+      },
+      {
+        "role": "user",
+        "content": "Now inspect another behavior."
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "reasoning_content": "I need the first file."
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1",
+        "name": "read_file"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/b.py"
+              }
+            }
+          }
+        ],
+        "reasoning_content": "Now I need the second file."
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/b.py\", \"content\": \"b = 2\"}}",
+        "tool_call_id": "c2",
+        "name": "read_file"
+      },
+      {
+        "role": "user",
+        "content": "Now inspect another behavior."
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "reasoning_content": "I need the first file.",
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/a.py",
+              "content": "a = 1"
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/b.py"
+              }
+            }
+          }
+        ],
+        "reasoning_content": "Now I need the second file.",
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/b.py",
+              "content": "b = 2"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "Now inspect another behavior."
+      }
+    ],
+    "expect_token_parity": true
+  },
+  {
+    "id": "harness_note_after_result",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/a.py"
+            },
+            "id": "c1"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1"
+      },
+      {
+        "role": "tool",
+        "content": "Progress check: inspect the actual failure."
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1",
+        "name": "read_file"
+      },
+      {
+        "role": "user",
+        "content": "[PWR] Progress check: inspect the actual failure."
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/a.py",
+              "content": "a = 1"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "[PWR] Progress check: inspect the actual failure."
+      }
+    ],
+    "expect_token_parity": true
+  },
+  {
+    "id": "missing_ids_by_position",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/a.py"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}"
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "pwrc00001",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "pwrc00001",
+        "name": "read_file"
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "pwrc00001",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/a.py",
+              "content": "a = 1"
+            }
+          }
+        ]
+      }
+    ],
+    "expect_token_parity": true
+  },
+  {
+    "id": "file_content_multiline",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/a.py"
+            },
+            "id": "c1"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"<content> below\", \"first_line\": 1, \"note\": null}}\n\n<content>\n\nname = \"città\"\nvalue = {\"a\": [1, 2]}\n\n</content>",
+        "tool_call_id": "c1"
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"<content> below\", \"first_line\": 1, \"note\": null}}\n\n<content>\n\nname = \"città\"\nvalue = {\"a\": [1, 2]}\n\n</content>",
+        "tool_call_id": "c1",
+        "name": "read_file"
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/a.py",
+              "content": "\nname = \"città\"\nvalue = {\"a\": [1, 2]}\n",
+              "first_line": 1
+            }
+          }
+        ]
+      }
+    ],
+    "expect_token_parity": true
+  },
+  {
+    "id": "command_stream_fields",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "run_command",
+            "arguments": {
+              "executable": "python3",
+              "args": [
+                "check.py"
+              ]
+            },
+            "id": "c3"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"exit_code\": 0, \"stdout\": \"<stdout> below\", \"stderr\": \"<stderr> below\", \"stdout_truncated\": false, \"stderr_truncated\": false}}\n\n<stdout>\nSame dict? False\nFAILURE: Bug not reproduced\n\n</stdout>\n\n<stderr>\ndiagnostic: ready\n\n</stderr>",
+        "tool_call_id": "c3"
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c3",
+            "type": "function",
+            "function": {
+              "name": "run_command",
+              "arguments": {
+                "executable": "python3",
+                "args": [
+                  "check.py"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"exit_code\": 0, \"stdout\": \"<stdout> below\", \"stderr\": \"<stderr> below\", \"stdout_truncated\": false, \"stderr_truncated\": false}}\n\n<stdout>\nSame dict? False\nFAILURE: Bug not reproduced\n\n</stdout>\n\n<stderr>\ndiagnostic: ready\n\n</stderr>",
+        "tool_call_id": "c3",
+        "name": "run_command"
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "c3",
+            "type": "function",
+            "function": {
+              "name": "run_command",
+              "arguments": {
+                "executable": "python3",
+                "args": [
+                  "check.py"
+                ]
+              }
+            }
+          }
+        ],
+        "tool_responses": [
+          {
+            "name": "run_command",
+            "response": {
+              "exit_code": 0,
+              "stdout": "Same dict? False\nFAILURE: Bug not reproduced\n",
+              "stderr": "diagnostic: ready\n",
+              "stdout_truncated": false,
+              "stderr_truncated": false
+            }
+          }
+        ]
+      }
+    ],
+    "expect_token_parity": true
+  },
+  {
+    "id": "intentional_text_before_call",
+    "input": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "Reading the parser.",
+        "tool_calls": [
+          {
+            "name": "read_file",
+            "arguments": {
+              "path": "src/a.py"
+            },
+            "id": "c1"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1"
+      }
+    ],
+    "wire": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "Reading the parser.",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "{\"result\": {\"path\": \"src/a.py\", \"content\": \"a = 1\"}}",
+        "tool_call_id": "c1",
+        "name": "read_file"
+      }
+    ],
+    "canonical": [
+      {
+        "role": "system",
+        "content": "Work only from the recorded tool evidence."
+      },
+      {
+        "role": "user",
+        "content": "Inspect src/a.py."
+      },
+      {
+        "role": "assistant",
+        "content": "Reading the parser.",
+        "tool_calls": [
+          {
+            "id": "c1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": {
+                "path": "src/a.py"
+              }
+            }
+          }
+        ],
+        "tool_responses": [
+          {
+            "name": "read_file",
+            "response": {
+              "path": "src/a.py",
+              "content": "a = 1"
+            }
+          }
+        ]
+      }
+    ],
+    "expect_token_parity": false
+  }
+]

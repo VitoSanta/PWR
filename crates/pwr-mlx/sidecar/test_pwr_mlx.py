@@ -1093,6 +1093,41 @@ class GemmaHistory(unittest.TestCase):
 
 
 class ToolResultMapping(unittest.TestCase):
+    def test_command_streams_are_restored_to_their_own_fields(self):
+        import pwr_mlx
+        for fields in ({"stdout": "\n città \\\"x\\\"\n", "stderr": "warning\n"},
+                       {"stdout": "embedded <stderr>\nx\n</stderr>\n", "stderr": "real error"},
+                       {"stdout": "out"}, {"stderr": "err"}, {"stdout": ""}):
+            with self.subTest(fields=fields):
+                meta = {"exit_code": 1, "stdout_truncated": True,
+                        **{key: f"<{key}> below" for key in fields}}
+                text = json.dumps({"result": meta}) + "".join(
+                    f"\n\n<{key}>\n{value}\n</{key}>" for key, value in fields.items())
+                self.assertEqual(pwr_mlx.tool_result_mapping(text), {**meta, **fields})
+
+    def test_status_keeps_streams_inside_the_result(self):
+        import pwr_mlx
+        text = '{"result":{"stdout":"<stdout> below"},"status":{"actions":4}}\n\n<stdout>\nhello\n</stdout>'
+        self.assertEqual(pwr_mlx.tool_result_mapping(text),
+                         {"result": {"stdout": "hello"}, "status": {"actions": 4}})
+
+    def test_unfinished_or_unexpected_blocks_do_not_replace_observed_fields(self):
+        import pwr_mlx
+        for suffix in ("<stdout>\npartial", "<other>\nx\n</other>"):
+            self.assertEqual(pwr_mlx.tool_result_mapping(
+                '{"result":{"stdout":"<stdout> below"}}\n\n' + suffix),
+                {"stdout": "<stdout> below", "text": suffix})
+        literal = {"stdout": "literal </stdout> in JSON"}
+        self.assertEqual(pwr_mlx.tool_result_mapping(json.dumps({"result": literal})), literal)
+        # A complete first stream does not justify accepting a partial second.
+        partial = '<stdout>\ncomplete\n</stdout>\n\n<stderr>\npartial'
+        metadata = {"stdout": "<stdout> below", "stderr": "<stderr> below"}
+        self.assertEqual(pwr_mlx.tool_result_mapping(json.dumps({"result": metadata}) + '\n\n' + partial),
+                         {**metadata, "text": partial})
+        extra = '<stdout>\nunexpected\n</stdout>'
+        self.assertEqual(pwr_mlx.tool_result_mapping(json.dumps({"result": literal}) + '\n\n' + extra),
+                         {**literal, "text": extra})
+
     def test_json_with_file_text(self):
         import pwr_mlx
         mapping = pwr_mlx.tool_result_mapping('{"result":{"content":"<content> below","n":2}}\n\n<content>\n\nx\n</content>')
