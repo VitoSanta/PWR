@@ -412,16 +412,18 @@ pub fn still_failing_notice(file: &str, changes: usize, lines: &[String]) -> Str
     } else {
         format!(
             "These are the lines this failure names, exactly as the file has them now:\n{}\n\
-             Compare them character by character with what you meant to write.",
+             Inspect them with the full failure output before deciding what needs to change.",
             lines.join("\n")
         )
     };
     format!(
         "`{file}` has been changed {changes} times in a row and a run has failed after each \
-         change: the changes are not reaching what fails. {quoted} Do not rewrite the file \
-         again. Change only the failing line with replace_text; if a line keeps coming out \
-         different from what you intend, write it another way -- a different construct, \
-         shorter lines, other names."
+         change. A non-zero exit alone does not identify the cause. {quoted} Distinguish a \
+         setup or script error from an expected failing reproducer that demonstrates the \
+         requested defect. If it demonstrates the defect, repair the implementation it \
+         exercises; the quoted assertion may already be correct. Do not weaken assertions \
+         or expected results just to obtain a passing run. Avoid rewriting the whole file \
+         again; make a targeted edit with replace_text only after identifying the cause."
     )
 }
 
@@ -632,9 +634,33 @@ mod echo_tests {
             notice.contains("src/a.py:2: x = y ifz else None"),
             "{notice}"
         );
-        assert!(notice.contains("Do not rewrite the file again"), "{notice}");
+        assert!(
+            notice.contains("Avoid rewriting the whole file again"),
+            "{notice}"
+        );
         assert!(still_failing_notice("a", 3, &[]).contains("read_file"));
     }
+    #[test]
+    fn a_failing_reproducer_does_not_instruct_changing_its_assertion() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("check.py"),
+            "assert original == 'Error 1'\n",
+        )
+        .unwrap();
+        let lines = named_lines(root.path(), "File \"check.py\", line 1\nAssertionError");
+        let notice = still_failing_notice("check.py", 6, &lines);
+        assert!(notice.contains("check.py:1: assert original == 'Error 1'"));
+        assert!(!notice.contains("Change only the failing line"), "{notice}");
+        assert!(
+            !notice.contains("the changes are not reaching what fails"),
+            "{notice}"
+        );
+        assert!(notice.contains("expected failing reproducer"), "{notice}");
+        assert!(notice.contains("Do not weaken"), "{notice}");
+        assert!(notice.contains("implementation"), "{notice}");
+    }
+
     #[test]
     fn a_command_that_only_looks_is_told_from_one_that_runs_the_work() {
         let command = |executable: &str, args: &[&str]| serde_json::json!({"executable": executable, "args": args});
