@@ -109,3 +109,6 @@ credentials.*
 
 # .NET restore output an editor makes inside a task's reference solution
 evidence/stack-matrix/tasks/*/reference/**/obj/
+
+# Local agent handoff notes: kept on disk, never published.
+CLAUDE.md
