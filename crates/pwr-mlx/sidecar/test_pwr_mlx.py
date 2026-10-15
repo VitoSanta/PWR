@@ -360,14 +360,16 @@ class ScoreBudget(unittest.TestCase):
         was = pwr_mlx.SCORES_MB
         self.addCleanup(lambda: setattr(pwr_mlx, "SCORES_MB", was))
         pwr_mlx.SCORES_MB = None
-        # Unasked, 1 GiB: room for the full context on every tier.
-        self.assertEqual(pwr_mlx.score_budget(), 1024**3)
-        pwr_mlx.SCORES_MB = "512"
-        self.assertEqual(pwr_mlx.score_budget(), 512 * 1024**2)
-        # Never more than a quarter of the largest Metal buffer.
-        pwr_mlx.SCORES_MB = str(10**9)
+        # Never more than a quarter of the largest Metal buffer, which is
+        # smaller on a machine with less memory (a hosted runner).
         limit = pwr_mlx.mx.device_info().get("max_buffer_length") or 8 * 1024**3
-        self.assertEqual(pwr_mlx.score_budget(), int(limit) // 4)
+        quarter = int(limit) // 4
+        # Unasked, 1 GiB: room for the full context on every tier.
+        self.assertEqual(pwr_mlx.score_budget(), min(quarter, 1024**3))
+        pwr_mlx.SCORES_MB = "512"
+        self.assertEqual(pwr_mlx.score_budget(), min(quarter, 512 * 1024**2))
+        pwr_mlx.SCORES_MB = str(10**9)
+        self.assertEqual(pwr_mlx.score_budget(), quarter)
 
     def test_a_small_budget_shortens_the_step_as_the_context_grows(self):
         import pwr_mlx
@@ -1281,8 +1283,17 @@ class EdgeNativeTemplate(unittest.TestCase):
         import pwr_mlx
         from mlx_lm.utils import load_tokenizer
         base = pathlib.Path.home() / ".pwr/models/mlx-community"
+        # The packs as downloaded on this machine; a machine without them (a
+        # hosted runner) has nothing to check here.
+        present = lambda name: (base / name / "config.json").is_file()
+        names = ("gemma-4-e2b-it-4bit", "gemma-4-e4b-it-4bit", "gemma-4-E4B-it-qat-4bit",
+                 "gemma-4-12B-it-4bit", "gemma-4-26b-a4b-it-4bit", "gemma-4-31b-it-8bit")
+        if not any(present(name) for name in names):
+            self.skipTest("no Gemma 4 pack downloaded on this machine")
         for name in ("gemma-4-e2b-it-4bit", "gemma-4-e4b-it-4bit", "gemma-4-E4B-it-qat-4bit"):
             with self.subTest(pack=name):
+                if not present(name):
+                    self.skipTest(f"{name} is not downloaded")
                 path = base / name
                 engine = pwr_mlx.Engine()
                 engine.tokenizer = load_tokenizer(path)
@@ -1296,5 +1307,7 @@ class EdgeNativeTemplate(unittest.TestCase):
                 continuation = engine.tokenizer.decode(engine.render(history, None, False, True)[0])
                 self.assertNotIn(pwr_mlx.EMPTY_THOUGHT, continuation)
         for name in ("gemma-4-12B-it-4bit", "gemma-4-26b-a4b-it-4bit", "gemma-4-31b-it-8bit"):
+            if not present(name):
+                continue
             config = json.loads((base / name / "config.json").read_text())
             self.assertEqual(pwr_mlx.model_template(base / name, config), pwr_mlx.GEMMA_TEMPLATE)
