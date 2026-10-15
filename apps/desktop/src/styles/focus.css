@@ -734,8 +734,8 @@
     var(--mat-sys-surface-container-high);
   box-shadow: var(--mat-sys-level3);
   --wheel-lit: transparent;
-  /* The hole for the hub. */
-  mask: radial-gradient(circle, transparent calc(var(--inner) + 2px), #000 calc(var(--inner) + 3px));
+  /* The hole for the hub, a little inside its edge so nothing shows round it. */
+  mask: radial-gradient(circle, transparent calc(var(--inner) - 4px), #000 calc(var(--inner) - 3px));
   transition: --from 120ms var(--ease);
 }
 
