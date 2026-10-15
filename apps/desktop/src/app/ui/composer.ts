@@ -335,6 +335,11 @@ export class Composer implements OnInit, OnDestroy {
   protected readonly open = computed(() => this.expanded());
   private wasOpen: boolean | null = null;
   private lastHeight = 0;
+  /** The height animation under way, and the height it last showed. */
+  private resizing?: Animation;
+  private get shown(): number {
+    return this.form().nativeElement.getBoundingClientRect().height;
+  }
   private unlisten?: UnlistenFn;
 
   constructor() {
@@ -344,15 +349,24 @@ export class Composer implements OnInit, OnDestroy {
     afterRenderEffect(() => {
       const open = this.open();
       const form = this.form().nativeElement;
+      // The text's box first, in the layout it now has: measured in the
+      // other one it kept that one's height (two lines where one fits).
+      untracked(() => this.fit(this.box().nativeElement));
       const now = form.offsetHeight;
       if (this.wasOpen !== null && open !== this.wasOpen && this.lastHeight && this.lastHeight !== now
           && typeof form.animate === 'function' && !reducedMotion()) {
+        // Turned back before it finished: from where it stands now.
+        const from = this.resizing?.playState === 'running' ? this.shown : this.lastHeight;
+        this.resizing?.cancel();
         form.style.overflow = 'hidden';
-        const grow = form.animate([{ height: `${this.lastHeight}px` }, { height: `${now}px` }], {
+        const grow = form.animate([{ height: `${from}px` }, { height: `${now}px` }], {
           duration: 260,
           easing: 'cubic-bezier(0.2, 0, 0, 1)',
         });
-        grow.onfinish = grow.oncancel = () => (form.style.overflow = '');
+        this.resizing = grow;
+        grow.onfinish = grow.oncancel = () => {
+          if (this.resizing === grow) form.style.overflow = '';
+        };
         for (const part of Array.from(form.querySelectorAll<HTMLElement>('.composer-attach, .composer-bar'))) {
           part.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, delay: 80, easing: 'ease-out', fill: 'backwards' });
         }
@@ -439,18 +453,58 @@ export class Composer implements OnInit, OnDestroy {
    * its padding, and showed a scrollbar before anything was typed.
    */
   private grow(box: HTMLTextAreaElement): void {
+    this.decide(box);
+    this.fit(box);
+  }
+
+  /** The text's room on the slim line, measured while the bar is slim. */
+  private narrow = 0;
+  private ruler: CanvasRenderingContext2D | null | undefined;
+
+  /**
+   * One slim line, or the writing surface. The slim line keeps the text
+   * that fits on it; past that the bar opens, and it closes again once the
+   * text would fit on the slim line with room to spare -- by the text's
+   * width, not the box's height, since the open bar gives the text more
+   * room and one line there says nothing about the slim one. A line break
+   * always opens it.
+   */
+  private decide(box: HTMLTextAreaElement): void {
+    const text = box.value;
+    if (!text) return this.expanded.set(false);
+    if (text.includes('\n')) return this.expanded.set(true);
+    if (!this.expanded()) {
+      this.narrow = this.room(box);
+      // A word that does not fit wraps before the width is used up.
+      const wrapped = box.scrollHeight > MIN_HEIGHT + 8;
+      if (wrapped || this.width(box) > this.narrow) this.expanded.set(true);
+    } else if (this.narrow && this.width(box) < this.narrow - 24) {
+      this.expanded.set(false);
+    }
+  }
+
+  /** The box's height to its text, between one line and 30% of the window. */
+  private fit(box: HTMLTextAreaElement): void {
     box.style.height = 'auto';
     // In a short window the box stops growing sooner, so the conversation
     // above it always keeps room.
     const max = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(window.innerHeight * 0.3)));
     const wanted = Math.max(box.scrollHeight, MIN_HEIGHT);
-    // Taller once the text wraps, and one line again only when it is empty:
-    // the tall layout gives the text the whole width, where it fits on one
-    // line again, so deciding by height alone flipped the two at every key.
-    if (!box.value) this.expanded.set(false);
-    else if (wanted > MIN_HEIGHT + 8) this.expanded.set(true);
     box.style.height = `${Math.min(wanted, max)}px`;
     box.style.overflowY = wanted > max ? 'auto' : 'hidden';
+  }
+
+  private room(box: HTMLTextAreaElement): number {
+    const style = getComputedStyle(box);
+    return box.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  }
+
+  private width(box: HTMLTextAreaElement): number {
+    if (this.ruler === undefined) this.ruler = document.createElement('canvas').getContext?.('2d') ?? null;
+    if (!this.ruler) return 0;
+    const style = getComputedStyle(box);
+    this.ruler.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    return this.ruler.measureText(box.value).width;
   }
 
   /** Whether an attachment is an image, which only a vision model could use. */
