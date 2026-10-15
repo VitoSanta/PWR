@@ -1,10 +1,12 @@
 /*
- * PWR desktop styles, in layers: tokens (every colour, radius, size and
+ * PWR desktop styles, in layers (after Material's theme, material.scss):
+ * fonts · tokens (every colour, radius, size and
  * duration) · base (reset, type, focus) · primitives (buttons, inputs,
  * menus, dialogs…) · shell · conversation · panels · parts · Focus.
  * Components add layout with these; they do not define new colours or
  * shapes.
  */
+@import './styles/fonts.css';
 @import './styles/tokens.css';
 @import './styles/base.css';
 @import './styles/primitives.css';
@@ -13,4 +15,3 @@
 @import './styles/panels.css';
 @import './styles/parts.css';
 @import './styles/focus.css';
-@import './styles/palettes.css';

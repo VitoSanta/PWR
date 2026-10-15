@@ -214,13 +214,13 @@ export class Settings {
     { id: 'light', label: 'When light', icon: 'sun' },
   ];
 
-  /** Focus colours first, then every palette of the scheme. */
+  /** Google's colours first, then high contrast for the scheme. */
   protected palettesFor(scheme: Theme): { id: string; label: string; description: string }[] {
     return [
       {
         id: LAYOUT_PALETTE,
-        label: 'Focus colours',
-        description: "Focus's own colours",
+        label: 'Google',
+        description: "Google's colours, Material 3",
       },
       ...PALETTES.filter((palette) => palette.scheme === scheme),
     ];
@@ -230,7 +230,7 @@ export class Settings {
     return scheme === 'dark' ? this.theme.darkPalette() : this.theme.lightPalette();
   }
 
-  /** What a scheme looks like in one of its palettes, or in Focus's own colours. */
+  /** What a scheme looks like in one of its palettes, or in Google's colours. */
   private swatchFor(scheme: Theme, id: string): Swatch {
     const palette = PALETTES.find((item) => item.id === id && item.scheme === scheme);
     return palette?.swatch ?? LAYOUT_SWATCHES['focus'][scheme];
