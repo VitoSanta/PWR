@@ -270,18 +270,18 @@ export class AgentStore {
       source: null,
       python: null,
       location: '/Users/you/Library/Application Support/ai.pwr.desktop/engine',
-      packages: ['mlx==0.32.0', 'mlx-lm==0.31.3', 'mlx-embeddings==0.1.0', 'mlx-vlm==0.6.17'],
-      pythonVersion: '3.11',
+      packages: ['mlx==0.32.3', 'mlx-lm==0.32.0', 'mlx-embeddings==0.1.0', 'mlx-vlm==0.7.8'],
+      pythonVersion: '3.14.8',
     });
     this.engineSetup.set(true);
     this.demoEngine = async () => {
       this.demoCancelled = false;
       const steps = ['Preparing Python', 'Installing the MLX engine', 'Downloading the search encoder', 'Checking the installation'];
       const lines = [
-        ['Using CPython 3.11.15', 'Creating virtual environment at: venv'],
-        ['Resolved 64 packages in 1.4s', 'Prepared 64 packages in 9.8s', 'Installed 64 packages in 180ms', ' + mlx==0.32.0', ' + mlx-lm==0.31.3'],
+        ['Using CPython 3.14.8', 'Creating virtual environment at: venv'],
+        ['Resolved 64 packages in 1.4s', 'Prepared 64 packages in 9.8s', 'Installed 64 packages in 180ms', ' + mlx==0.32.3', ' + mlx-lm==0.32.0'],
         ['Fetching 11 files', '/Users/you/.cache/huggingface/hub/models--intfloat--multilingual-e5-small'],
-        ['mlx 0.32.0 on Device(gpu, 0)'],
+        ['mlx 0.32.3 on Device(gpu, 0)'],
       ];
       for (let step = 1; step <= steps.length; step++) {
         this.engineStep({ step, total: steps.length, label: steps[step - 1], line: null });

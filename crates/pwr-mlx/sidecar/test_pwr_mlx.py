@@ -1298,4 +1298,3 @@ class EdgeNativeTemplate(unittest.TestCase):
         for name in ("gemma-4-12B-it-4bit", "gemma-4-26b-a4b-it-4bit", "gemma-4-31b-it-8bit"):
             config = json.loads((base / name / "config.json").read_text())
             self.assertEqual(pwr_mlx.model_template(base / name, config), pwr_mlx.GEMMA_TEMPLATE)
-
