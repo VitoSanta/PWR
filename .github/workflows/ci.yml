@@ -41,9 +41,11 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          # The engine the app installs (apps/desktop/src-tauri/src/engine.rs,
+          # scripts/setup-mlx.sh): same Python, same pins.
+          python-version: '3.14.8'
       - name: Install pinned engine libraries
-        run: python -m pip install 'mlx==0.32.3' 'mlx-lm==0.31.3'
+        run: python -m pip install 'mlx==0.32.3' 'mlx-lm==0.32.0' 'mlx-embeddings==0.1.0' 'mlx-vlm==0.7.8'
       - name: Sidecar unit tests
         run: python -m unittest crates/pwr-mlx/sidecar/test_pwr_mlx.py
       - name: Stack-matrix runner tests
