@@ -192,6 +192,8 @@ const MAX_HEIGHT = 260;
             </button>
           </pa-popover>
         }
+        <!-- The shell's tools and where you are, beside attach. -->
+        <ng-content select="[paComposerStart]" />
       </div>
       <textarea
         #box
@@ -246,6 +248,8 @@ const MAX_HEIGHT = 260;
         <span class="composer-hint" aria-hidden="true"
           ><span class="kbd">↵</span> send <span class="kbd">⇧↵</span> new line</span
         >
+        <!-- The shell's run status and model, before stop and send. -->
+        <ng-content select="[paComposerEnd]" />
         @if (store.turnActive()) {
           <button matIconButton
             type="button"

@@ -62,7 +62,8 @@
    window, or beside the tools while they are open. */
 .focus-main {
   flex: 1;
-  padding-top: 60px;
+  /* Clear of the window's own title bar strip. */
+  padding-top: 36px;
 }
 
 /* Opening or closing a tool moves the conversation to its new centre as
@@ -80,101 +81,66 @@
   padding-top: 16px;
 }
 
-.focus-bar {
-  position: absolute;
-  z-index: 2;
+/* The message bar's two ends: the tools and the conversation at the left,
+   the run's state and the model at the right. */
+.composer-tools,
+.composer-status {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-1);
-  border-radius: var(--radius-pill);
+  min-width: 0;
 }
 
-/* One bar at the top right: the conversation, the engine, the tools. It
-   never reaches the window's buttons at the left. */
-.focus-bar {
-  top: 10px;
-  right: 12px;
-  max-width: calc(100% - 96px);
-}
-
-.focus-bar pa-session-switcher {
+.composer-tools pa-session-switcher {
   flex: 0 1 auto;
+  min-width: 0;
 }
 
-.focus-bar .switcher-trigger {
-  max-width: 260px;
-  height: var(--control-h);
+.composer-tools .switcher-trigger {
+  max-width: 220px;
+  height: var(--control-h-sm);
   border-radius: var(--radius-pill);
 }
 
-.focus-bar-sep {
-  flex: none;
-  width: 1px;
-  height: 18px;
-  background: var(--glass-border);
-}
-
-.focus-bar .topbar-chip {
+.composer-status .topbar-chip {
   height: var(--control-h-sm);
   border-color: transparent;
   border-radius: var(--radius-pill);
 }
 
-/* Tools: lit dots while Goal mode (accent) or Auto-approve (warning) is on,
-   so neither goes unnoticed with the row closed. */
-.focus-tools {
-  position: relative;
-  border-radius: 50%;
+/* In the bar, short: the conversation's name on one line, the context as
+   its ring and percentage, the trace's detail as its icon; each opens to
+   the rest. */
+.composer-tools .switcher-where,
+.composer-status .meter .meter-detail,
+.composer-status .trace-visibility .meter-detail {
+  display: none;
 }
 
-.focus-tools.has-goal::before,
-.focus-tools.has-auto::after {
+/* Tools: lit dots while Goal mode (primary) or Auto-approve (warning) is
+   on, so neither goes unnoticed with the list closed. */
+.composer-tools-button {
+  position: relative;
+}
+
+.composer-tools-button.has-goal::before,
+.composer-tools-button.has-auto::after {
   content: '';
   position: absolute;
-  top: 3px;
-  width: 5px;
-  height: 5px;
+  top: 2px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
 }
 
-.focus-tools.has-goal::before {
-  left: 3px;
+.composer-tools-button.has-goal::before {
+  left: 4px;
   background: var(--accent-primary);
 }
 
-.focus-tools.has-auto::after {
-  right: 3px;
+.composer-tools-button.has-auto::after {
+  right: 4px;
   background: var(--warning);
-}
-
-/* The bar's panels -- conversations, context, speed, model, tools, run --
-   all open the same way: from under the bar, flush with its right edge, on
-   the bar's glass, so they read as the bar opening rather than as cards
-   dropped on the cards. While one is open the tools behind it step back. */
-.shell-focus pa-popover.is-grouped {
-  border: 1px solid var(--glass-border);
-  border-top: 0;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-  background: var(--glass-strong);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-}
-
-/* The bar with a panel hanging from it: one surface, and the lower corner
-   the panel continues squared off. */
-.focus-bar.has-panel {
-  background: var(--glass-strong);
-}
-
-.focus-bar.joins-left {
-  border-bottom-left-radius: 0;
-}
-
-.focus-bar.joins-right {
-  border-bottom-right-radius: 0;
 }
 
 .shell-focus > pa-inspector.focus-workbench {
@@ -474,24 +440,21 @@
   width: 100%;
 }
 
-/* One-line message entry becomes a taller writing surface as text wraps. */
+/* The message bar, as Google's assistants draw theirs: the text above, a
+   row of controls below -- attach, tools and conversation at the left, the
+   run's state, the model, stop and send at the right. */
 .shell-focus .composer {
   display: grid;
-  grid-template-columns: var(--control-h) minmax(0, 1fr) auto;
-  grid-template-areas: 'attach input actions';
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'context context'
+    'input input'
+    'attach actions';
   align-items: center;
   column-gap: var(--space-2);
-  margin-bottom: var(--space-4);
-  padding: 6px;
-  border-radius: var(--radius-pill);
-}
-
-.shell-focus .composer.is-expanded {
-  grid-template-areas:
-    'context context context'
-    'input input input'
-    'attach . actions';
   row-gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-2) 6px;
   border-radius: var(--radius-panel);
 }
 
@@ -504,12 +467,14 @@
   grid-area: attach;
   display: flex;
   align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
 }
 
 .shell-focus .composer-input {
   grid-area: input;
   min-width: 0;
-  padding: 7px var(--space-1);
+  padding: var(--space-2) var(--space-2) var(--space-1);
 }
 
 .shell-focus .composer-bar {
@@ -527,17 +492,19 @@
   border-radius: 50%;
 }
 
-/* Narrow windows: the bar gives up the speed, then the context, before
-   the conversation's name. */
+/* Narrow windows: the message bar gives up the speed and the trace's
+   detail, then the conversation's name and the context. */
 @media (max-width: 900px) {
-  .focus-bar pa-diagnostic-export,
-  .focus-bar pa-run-metrics {
+  .composer-status pa-diagnostic-export,
+  .composer-status pa-run-metrics,
+  .composer-status pa-trace-visibility {
     display: none;
   }
 }
 
 @media (max-width: 640px) {
-  .focus-bar pa-context-meter {
+  .composer-tools pa-session-switcher,
+  .composer-status pa-context-meter {
     display: none;
   }
 }

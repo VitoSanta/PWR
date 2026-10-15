@@ -28,14 +28,14 @@ import { TraceVisibilityControl } from '../trace';
  */
 const NATIVE_MENU =
   'input, textarea, select, [contenteditable="true"], a, img, video, iframe, pre, code, .markdown, ' +
-  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, pa-inspector, .focus-bar';
+  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, pa-inspector, .composer';
 
 /**
- * Focus: no chrome. The conversation fills the window; everything else
- * floats over it on glass, in one bar at the top right -- where you are, the
- * engine, and the tools -- leaving the window's corners clear. The tools open
- * as a row from that bar, or where a right click (a two-finger click) lands
- * on an empty part of the window. A selected tool gets its own column while
+ * Focus: no chrome. The conversation fills the window; everything else is
+ * in the message bar -- the tools and where you are at its left, the run's
+ * state and the model at its right -- as Google's assistants keep theirs.
+ * The tools open as a list from that bar, or where a right click (a
+ * two-finger click) lands on an empty part of the window. A selected tool gets its own column while
  * the conversation remains visible where space allows.
  */
 @Component({
@@ -81,32 +81,35 @@ const NATIVE_MENU =
         }
         <pa-conversation />
         <pa-memory-proposals />
-        <pa-composer />
+        <pa-composer>
+          <!-- Everything lives in the message bar: the tools and the
+               conversation at its left, the run's state and the model at
+               its right. -->
+          <div paComposerStart class="composer-tools">
+            <button matButton
+              #toolsButton
+              type="button"
+              class="btn btn-sm composer-tools-button"
+              [class.has-goal]="store.goalMode() && !store.chatMode()"
+              [class.has-auto]="store.permissionMode() === 'auto' && !store.chatMode()"
+              (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
+              [attr.aria-expanded]="strip() === 'bar'"
+              aria-haspopup="menu"
+              paTooltip="Tools · or right-click an empty spot"
+            >
+              <pa-icon name="grid" [size]="16" /> Tools
+            </button>
+            <pa-session-switcher />
+          </div>
+          <div paComposerEnd class="composer-status">
+            <pa-diagnostic-export />
+            <pa-context-meter />
+            <pa-run-metrics />
+            <pa-trace-visibility />
+            <pa-model-picker />
+          </div>
+        </pa-composer>
       </main>
-
-      <div class="focus-bar glass" data-popover-group>
-        <pa-session-switcher />
-        <span class="focus-bar-sep" aria-hidden="true"></span>
-        <pa-diagnostic-export />
-        <pa-context-meter />
-        <pa-run-metrics />
-        <pa-trace-visibility />
-        <pa-model-picker />
-        <span class="focus-bar-sep" aria-hidden="true"></span>
-        <button matIconButton
-          #toolsButton
-          class="icon-btn focus-tools"
-          [class.has-goal]="store.goalMode() && !store.chatMode()"
-          [class.has-auto]="store.permissionMode() === 'auto' && !store.chatMode()"
-          (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
-          [attr.aria-expanded]="strip() === 'bar'"
-          aria-haspopup="menu"
-          aria-label="Tools"
-          paTooltip="Tools · or right-click an empty spot"
-        >
-          <pa-icon name="grid" />
-        </button>
-      </div>
 
       <!-- Where a right click landed: the tools open from there. -->
       <span #pointerAnchor class="focus-pointer" [style.left.px]="pointer().x" [style.top.px]="pointer().y" aria-hidden="true"></span>
@@ -117,7 +120,7 @@ const NATIVE_MENU =
           <pa-popover
             class="tool-strip-popover"
             [anchor]="from === 'bar' ? toolsButton : pointerAnchor"
-            [anchorAlign]="from === 'bar' ? 'end' : 'center'"
+            [anchorAlign]="from === 'bar' ? 'start' : 'center'"
             [within]="from === 'bar' ? null : main"
             panelRole="menu"
             ariaLabel="Tools"
