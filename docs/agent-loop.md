@@ -37,7 +37,7 @@ Each step of the loop:
    than reusing the old whole-history count. With no room after the safety
    margin, the turn stops before generation. The plan also bounds the answer
    allowance (16,384 tokens unless sampling names one) and reasoning for the
-   chosen Reasoning Effort (see [models.md](models.md#reasoning-effort)).
+   chosen Reasoning Effort (see [models.md](models.md#thinking)).
 4. **Generation** through the provider, streamed to the app: reasoning and
    answer on separate channels.
 5. **Parsing.** Tool calls in the family's convention are normalised to

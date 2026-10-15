@@ -197,7 +197,7 @@ This extends the verification/recovery feedback described in
 [Goal mode](../agent-loop.md#goal-mode) and
 [verification](../verification.md), but proposes a distinct selection phase
 before verification. The current same-model review round is not evidence for
-multi-candidate semantic ranking. [Model calibration](../models.md#quick-calibration)
+multi-candidate semantic ranking. [Model calibration](../models.md#the-line)
 checks compatibility, not selection quality or agentic uplift.
 
 The archived [research hypotheses H6 and H7](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/local-agent-research.md)

@@ -35,7 +35,7 @@ They show the harness's invariants: path policy, the sandbox profile,
 tool-call parsing, edit conflicts, cancellation, compaction, completion
 holds, action budgets, corpus accounting, protocol and session behaviour.
 
-They do not show: that every model family's calls are read (that is a calibration, run per model on the machine: [models.md](models.md#quick-calibration)); that a 9B uses the tools reliably; that a specification
+They do not show: that every model family's calls are read (that is a calibration, run per model on the machine: [models.md](models.md#the-line)); that a 9B uses the tools reliably; that a specification
 survives many compactions; competence on new repositories; the quality of a
 generated UI; that any adaptive policy helps. Those are measured, not tested
 ([evaluation.md](evaluation.md)).

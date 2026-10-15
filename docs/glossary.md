@@ -13,7 +13,7 @@ is [archived](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/glossa
 | **Sidecar** | The Python process (`pwr_mlx.py`) that loads a model and generates, driven by the core over JSON lines |
 | **Adapter** | The code in `pwr-compat` that reads a family's tool-call and reasoning conventions; it has a revision (`qwen-v3`) that a calibration records |
 | **Profile** | Declared facts and sampling for an exact artifact (`strategies/models.json`) |
-| **Status** | Verified, Locally calibrated, Provisional, Limited, Incompatible ([models.md](models.md#status-of-a-model)) |
+| **Status** | Verified, Locally calibrated, Provisional, Limited, Incompatible ([models.md](models.md#the-model-manager)) |
 | **Quick Calibration** | A nine-request compatibility smoke test (suite `quick-calibration-6`); not a capability measure |
 | **Sampling floor** | 0.6 / top_p 0.95 / top_k 20, used when nothing declares how a model samples; never greedy by default |
 | **Prefill** | The engine reading the prompt before it can write the first word; minutes on a long conversation with a cold cache |

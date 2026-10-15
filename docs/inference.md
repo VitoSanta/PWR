@@ -144,7 +144,7 @@ What it owns:
 - **Reasoning.** Tracks thinking delimiters, enforces a budget by closing the
   block once, passes `thinking_budget` or `reasoning_effort` to templates that
   read them, and ends `reasoning_unfinished` when a model reopens its thinking
-  or stops without answering. Details in [models.md](models.md#reasoning-effort).
+  or stops without answering. Details in [models.md](models.md#thinking).
 - **Sampling.** `make_sampler` (temperature, top_p, top_k, min_p) and
   `make_logits_processors` (presence and repetition penalty, with the
   `presence_context_size` the caller may widen; the library's own window is 20
@@ -248,7 +248,7 @@ that is effective for a task, or the one that stays interactive; maximising the
 first does not maximise the others (review §12). **A conversation compacts at
 75 % of the granted window** (196,608 of 262,144 tokens), unless the workspace
 set a threshold or a ceiling ([context.md](context.md#compaction)). The fit rating in the
-Model Manager uses the same arithmetic ([models.md](models.md#fit)). The GPU's
+Model Manager uses the same arithmetic ([models.md](models.md#the-line)). The GPU's
 own limit (`max_recommended_working_set_size`) is not read: on a 64 GB Mac the
 reserve rule is the tighter of the two (48 GB against 55.7 GB).
 
