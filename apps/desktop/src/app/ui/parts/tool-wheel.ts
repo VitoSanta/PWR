@@ -9,8 +9,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { AgentStore } from '../../core/agent.store';
-import { UiStore, shortcut } from '../../core/ui';
+import { shortcut } from '../../core/ui';
 import { CardId, WorkbenchStore } from '../../core/workbench';
 import { Icon, IconName } from '../kit/icon';
 
@@ -22,7 +21,7 @@ const RING = 112;
 const INNER = 62;
 
 interface Spoke {
-  key: string;
+  key: CardId;
   label: string;
   description: string;
   icon: IconName;
@@ -32,7 +31,7 @@ interface Spoke {
 }
 
 /**
- * The tools as a wheel, where a right click (a two-finger click) landed:
+ * The tools -- the cards -- as a wheel, where a right click (a two-finger click) landed:
  * every tool on one ring, the one under the pointer's direction lit, its
  * name and what it does in the hub. Point and click; the arrow keys turn
  * it, Enter picks, Escape or a click outside closes it.
@@ -94,15 +93,11 @@ interface Spoke {
 })
 export class ToolWheel {
   private readonly work = inject(WorkbenchStore);
-  private readonly store = inject(AgentStore);
-  private readonly ui = inject(UiStore);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** Where the right click landed, in the window. */
   readonly at = input.required<{ x: number; y: number }>();
   readonly close = output<void>();
-  /** The run's controls were asked for. */
-  readonly run = output<void>();
 
   protected readonly active = signal<number | null>(null);
 
@@ -116,39 +111,7 @@ export class ToolWheel {
       lit: this.work.panelVisible() && this.work.isOpen(card.id),
       choose: () => this.work.toggle(card.id),
     }));
-    const extra: Spoke[] = [];
-    if (!this.store.chatMode()) {
-      extra.push({
-        key: 'run',
-        label: 'Run',
-        description: 'Goal mode and approvals',
-        icon: 'zap',
-        keys: null,
-        lit: this.store.goalMode() || this.store.permissionMode() === 'auto',
-        choose: () => this.run.emit(),
-      });
-    }
-    extra.push(
-      {
-        key: 'commands',
-        label: 'Commands',
-        description: 'Everything PWR can do, by name',
-        icon: 'command',
-        keys: null,
-        lit: false,
-        choose: () => this.ui.paletteOpen.set(true),
-      },
-      {
-        key: 'settings',
-        label: 'Settings',
-        description: 'Models, appearance and permissions',
-        icon: 'settings',
-        keys: null,
-        lit: false,
-        choose: () => this.ui.settingsOpen.set(true),
-      },
-    );
-    return [...cards, ...extra];
+    return cards;
   });
 
   protected readonly sector = computed(() => 360 / this.spokes().length);
@@ -227,7 +190,7 @@ export class ToolWheel {
 
   private pick(i: number): void {
     const spoke = this.spokes()[i];
-    if (spoke.key !== 'run') this.close.emit();
+    this.close.emit();
     spoke.choose();
   }
 }

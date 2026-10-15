@@ -108,10 +108,10 @@ const NATIVE_MENU =
               (click)="strip() === 'bar' ? strip.set(null) : openStrip()"
               [attr.aria-expanded]="strip() === 'bar'"
               aria-haspopup="menu"
-              aria-label="Tools"
-              paTooltip="Tools · or right-click an empty spot"
+              aria-label="Options"
+              paTooltip="Options · right-click an empty spot for the tools"
             >
-              <pa-icon name="grid" />
+              <pa-icon name="settings" />
             </button>
           </div>
           <div paComposerEnd class="composer-engine">
@@ -121,8 +121,6 @@ const NATIVE_MENU =
         </pa-composer>
       </main>
 
-      <!-- Where a right click landed: the tools open from there. -->
-      <span #pointerAnchor class="focus-pointer" [style.left.px]="pointer().x" [style.top.px]="pointer().y" aria-hidden="true"></span>
 
       @if (strip() === 'bar') {
         @for (opening of [stripOpenings()]; track opening) {
@@ -131,17 +129,17 @@ const NATIVE_MENU =
             [anchor]="toolsButton"
             anchorAlign="start"
             panelRole="menu"
-            ariaLabel="Tools"
+            ariaLabel="Options"
             (keydown)="stripKeys($event)"
             (closed)="strip.set(null)"
             animate.leave="anim-pop-out"
           >
-            <pa-tool-strip [vertical]="true" (done)="strip.set(null)" (run)="openRun('bar')" />
+            <pa-tool-strip (done)="strip.set(null)" (run)="openRun()" />
           </pa-popover>
         }
       } @else if (strip() === 'pointer') {
         <!-- A right click: the tools as a wheel around where it landed. -->
-        <pa-tool-wheel [at]="pointer()" (close)="strip.set(null)" (run)="openRun('pointer')" animate.leave="is-leaving" />
+        <pa-tool-wheel [at]="pointer()" (close)="strip.set(null)" animate.leave="is-leaving" />
       }
 
       <!-- The run's figures, opened from the model's panel. -->
@@ -170,7 +168,6 @@ export class FocusShell {
   protected readonly pointer = signal({ x: 0, y: 0 });
   protected readonly stripOpenings = signal(0);
   private readonly toolsRef = viewChild.required<ElementRef<HTMLElement>>('toolsButton');
-  private readonly pointerRef = viewChild.required<ElementRef<HTMLElement>>('pointerAnchor');
 
   constructor() {
     // Focus uses standalone cards and starts with the conversation.
@@ -222,8 +219,8 @@ export class FocusShell {
   }
 
   /** The run's controls, opened from where the strip was. */
-  protected openRun(from: 'bar' | 'pointer'): void {
+  protected openRun(): void {
     this.strip.set(null);
-    this.ui.runControls.set((from === 'bar' ? this.toolsRef() : this.pointerRef()).nativeElement);
+    this.ui.runControls.set(this.toolsRef().nativeElement);
   }
 }

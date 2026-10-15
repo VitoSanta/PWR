@@ -274,14 +274,6 @@
   pointer-events: none;
 }
 
-/* Where a right click landed: the anchor the tools open from. */
-.focus-pointer {
-  position: fixed;
-  width: 1px;
-  height: 1px;
-  pointer-events: none;
-}
-
 .focus-run-options {
   display: grid;
   gap: var(--space-1);
