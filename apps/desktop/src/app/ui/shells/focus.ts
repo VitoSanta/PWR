@@ -17,6 +17,7 @@ import { DiagnosticExport } from '../parts/diagnostic-export';
 import { RunControls } from '../parts/run-controls';
 import { SessionSwitcher } from '../parts/session-switcher';
 import { ToolStrip } from '../parts/tool-strip';
+import { ToolWheel } from '../parts/tool-wheel';
 import { MemoryProposals } from '../personal';
 import { RunMetricsChip } from '../run-metrics';
 
@@ -33,8 +34,8 @@ const NATIVE_MENU =
  * Focus: no chrome. The conversation fills the window; everything else is
  * in the message bar -- the tools and where you are at its left, the run's
  * state and the model at its right -- as Google's assistants keep theirs.
- * The tools open as a list from that bar, or where a right click (a
- * two-finger click) lands on an empty part of the window. A selected tool gets its own column while
+ * The tools open as a list from that bar, or as a wheel where a right
+ * click (a two-finger click) lands on an empty part of the window. A selected tool gets its own column while
  * the conversation remains visible where space allows.
  */
 @Component({
@@ -54,6 +55,7 @@ const NATIVE_MENU =
     RunMetricsChip,
     SessionSwitcher,
     ToolStrip,
+    ToolWheel,
     Tooltip,
   ],
   template: `
@@ -63,6 +65,7 @@ const NATIVE_MENU =
       [class.tool-page]="open() && layout.right() !== 'docked'"
       [class.tool-full]="open() && !!work.focused()"
       [class.is-mac]="win.isMac"
+      [class.is-native]="win.native"
       [class.is-fullscreen]="win.fullscreen()"
       [class.is-resizing]="layout.resizing()"
       [style.--right-w.px]="layout.rightWidth()"
@@ -120,23 +123,24 @@ const NATIVE_MENU =
       <!-- Where a right click landed: the tools open from there. -->
       <span #pointerAnchor class="focus-pointer" [style.left.px]="pointer().x" [style.top.px]="pointer().y" aria-hidden="true"></span>
 
-      @if (strip(); as from) {
-        <!-- A new row for each opening, so it is placed where it was asked for. -->
+      @if (strip() === 'bar') {
         @for (opening of [stripOpenings()]; track opening) {
           <pa-popover
             class="tool-strip-popover"
-            [anchor]="from === 'bar' ? toolsButton : pointerAnchor"
-            [anchorAlign]="from === 'bar' ? 'start' : 'center'"
-            [within]="from === 'bar' ? null : main"
+            [anchor]="toolsButton"
+            anchorAlign="start"
             panelRole="menu"
             ariaLabel="Tools"
             (keydown)="stripKeys($event)"
             (closed)="strip.set(null)"
             animate.leave="anim-pop-out"
           >
-            <pa-tool-strip [vertical]="from === 'bar'" (done)="strip.set(null)" (run)="openRun(from)" />
+            <pa-tool-strip [vertical]="true" (done)="strip.set(null)" (run)="openRun('bar')" />
           </pa-popover>
         }
+      } @else if (strip() === 'pointer') {
+        <!-- A right click: the tools as a wheel around where it landed. -->
+        <pa-tool-wheel [at]="pointer()" (close)="strip.set(null)" (run)="openRun('pointer')" animate.leave="is-leaving" />
       }
 
       <!-- The run's figures, opened from the model's panel. -->
@@ -208,8 +212,7 @@ export class FocusShell {
    * down the list, along the row.
    */
   protected stripKeys(event: KeyboardEvent): void {
-    const orientation = this.strip() === 'bar' ? 'vertical' : 'horizontal';
-    roveFocus(event, event.currentTarget as HTMLElement, '[role^=menuitem]', orientation);
+    roveFocus(event, event.currentTarget as HTMLElement, '[role^=menuitem]', 'vertical');
   }
 
   protected openStrip(): void {

@@ -181,10 +181,12 @@
   margin: 0;
 }
 
-/* Navigation at the top left, beside the window's buttons. */
+/* Navigation in the top left corner; in the app's own window on a Mac,
+   beside the traffic lights and centred on them (x 18, y 23 in
+   tauri.conf.json). */
 .focus-nav {
   position: absolute;
-  top: 10px;
+  top: 12px;
   left: 12px;
   z-index: 2;
   display: flex;
@@ -192,7 +194,8 @@
   gap: var(--space-1);
 }
 
-.shell-focus.is-mac:not(.is-fullscreen) .focus-nav {
+.shell-focus.is-native.is-mac:not(.is-fullscreen) .focus-nav {
+  top: 14px;
   left: 80px;
 }
 
@@ -337,7 +340,7 @@
 .shell-focus > pa-inspector.focus-workbench {
   flex: 0 0 var(--right-w, 340px);
   width: var(--right-w, 340px);
-  margin: 60px 12px 12px 0;
+  margin: 12px 12px 12px 0;
   border: 0;
   background: transparent;
 }
@@ -590,7 +593,13 @@
     calc(100% - 2 * var(--column-inset))
   );
   margin: 0 auto var(--space-2);
-  padding: 0 var(--space-3);
+  padding: 0;
+}
+
+/* The chips start where the bar does. */
+.composer-tray .attachments,
+.composer-tray .queue {
+  padding-inline: 0;
 }
 
 .shell-focus .composer-attach {
@@ -636,5 +645,158 @@
 @media (max-width: 640px) {
   .composer-engine pa-context-meter {
     display: none;
+  }
+}
+
+/* =================================================================
+ * The tool wheel: a right click's tools on one ring, Material surfaces;
+ * the sector the pointer points into is lit, the hub names it.
+ * ================================================================= */
+.tool-wheel-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  cursor: default;
+}
+
+.tool-wheel {
+  --outer: 156px;
+  --inner: 62px;
+  position: absolute;
+  width: calc(2 * var(--outer));
+  height: calc(2 * var(--outer));
+  margin: calc(-1 * var(--outer)) 0 0 calc(-1 * var(--outer));
+  outline: none;
+  animation: wheel-in 220ms var(--ease-out) both;
+}
+
+.tool-wheel-layer.is-leaving .tool-wheel {
+  animation: wheel-out 140ms var(--ease) both;
+}
+
+.tool-wheel-disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(
+      from var(--from),
+      var(--wheel-lit) 0 var(--sector),
+      transparent var(--sector)
+    ),
+    var(--mat-sys-surface-container-high);
+  box-shadow: var(--mat-sys-level3);
+  --wheel-lit: transparent;
+  /* The hole for the hub. */
+  mask: radial-gradient(circle, transparent calc(var(--inner) + 2px), #000 calc(var(--inner) + 3px));
+  transition: --from 120ms var(--ease);
+}
+
+.tool-wheel.has-active .tool-wheel-disc {
+  --wheel-lit: var(--mat-sys-secondary-container);
+}
+
+@property --from {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+
+.tool-wheel-item {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin: -24px 0 0 -24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+  transform: translate(var(--x), var(--y));
+  animation: wheel-spoke 260ms var(--ease-out) both;
+  animation-delay: calc(var(--i) * 14ms);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    transform 160ms var(--ease-out);
+  pointer-events: none;
+}
+
+.tool-wheel-item.is-lit {
+  color: var(--mat-sys-primary);
+}
+
+.tool-wheel-item.is-lit::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--mat-sys-primary);
+}
+
+.tool-wheel-item.is-active {
+  color: var(--mat-sys-on-secondary-container);
+  transform: translate(calc(var(--x) * 1.06), calc(var(--y) * 1.06)) scale(1.14);
+}
+
+.tool-wheel-hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 2px;
+  width: calc(2 * var(--inner));
+  height: calc(2 * var(--inner));
+  margin: calc(-1 * var(--inner)) 0 0 calc(-1 * var(--inner));
+  padding: var(--space-2);
+  border-radius: 50%;
+  background: var(--mat-sys-surface-container-highest);
+  box-shadow: var(--mat-sys-level3);
+  text-align: center;
+  pointer-events: none;
+}
+
+.tool-wheel-hub strong {
+  color: var(--mat-sys-on-surface);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+}
+
+.tool-wheel-hub small {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.tool-wheel-hub .kbd {
+  margin-top: 2px;
+  font-size: 10px;
+}
+
+@keyframes wheel-in {
+  from { opacity: 0; transform: scale(0.82) rotate(-12deg); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes wheel-out {
+  to { opacity: 0; transform: scale(0.9); }
+}
+
+@keyframes wheel-spoke {
+  from { opacity: 0; transform: translate(calc(var(--x) * 0.4), calc(var(--y) * 0.4)) scale(0.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-wheel,
+  .tool-wheel-item {
+    animation: none;
   }
 }
