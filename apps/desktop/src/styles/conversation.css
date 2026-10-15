@@ -1915,3 +1915,25 @@ pa-trace-raw {
 .action-row:not(:disabled):hover {
   background: var(--surface-hover);
 }
+
+/* A new conversation: Google's greeting -- large, regular weight -- with
+   the folder and the model as Material assist chips under it. */
+.welcome .t-display {
+  font-size: 32px;
+  font-weight: var(--fw-regular);
+  letter-spacing: 0;
+  color: var(--mat-sys-on-surface);
+}
+
+.welcome-text {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.welcome-context .path-token {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--radius-inline);
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+}

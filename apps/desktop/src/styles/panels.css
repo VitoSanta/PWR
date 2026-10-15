@@ -330,8 +330,7 @@ pa-model-picker {
   color: var(--text-muted);
   font-size: var(--fs-caption);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .figures dd {
@@ -518,8 +517,7 @@ pa-model-picker {
   color: var(--text-muted);
   font-size: var(--fs-caption);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .machine-stat dd {
@@ -1342,7 +1340,12 @@ pa-model-picker {
 }
 
 .palette-item.is-active {
-  background: var(--surface-active);
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+}
+
+.palette-item.is-active > pa-icon {
+  color: var(--mat-sys-on-secondary-container);
 }
 
 .palette-keys {

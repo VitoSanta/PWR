@@ -181,8 +181,7 @@ pa-icon .mat-icon {
 .t-overline {
   font-size: var(--fs-caption);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--text-muted);
 }
 

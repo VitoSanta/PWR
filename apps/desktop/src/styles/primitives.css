@@ -638,11 +638,11 @@ button.badge:hover {
   gap: var(--space-2);
   min-height: 20px;
   margin: 0 0 var(--space-1);
-  font-size: var(--fs-caption);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  /* Material's list subheader: sentence case, in the primary colour. */
+  color: var(--mat-sys-primary);
 }
 
 .fine {
@@ -821,8 +821,7 @@ button.badge:hover {
   padding: var(--space-2) var(--space-2) var(--space-1);
   font-size: var(--fs-caption);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--text-muted);
 }
 
