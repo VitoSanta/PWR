@@ -831,3 +831,91 @@
     animation: none;
   }
 }
+
+/* The dock reserves its full footprint, so nearby messages never move.
+   Its quiet proximity zone extends beyond the visible search capsule. */
+.shell-focus .composer-dock {
+  position: relative;
+  width: min(
+    calc(var(--content-max) - 2 * var(--column-inset)),
+    calc(100% - 2 * var(--column-inset))
+  );
+  margin: 0 auto var(--space-4);
+  padding-top: 24px;
+}
+
+.shell-focus .composer-dock .composer {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.composer-beacon { display: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  .shell-focus .composer-dock .composer {
+    min-height: 56px;
+    overflow: hidden;
+    transition: width 460ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-radius 460ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color var(--dur) var(--ease);
+  }
+
+  .shell-focus .composer-dock .composer:has([aria-expanded='true']) {
+    overflow: visible;
+  }
+
+  .shell-focus .composer-dock .composer > :not(.drop-hint) {
+    transition: opacity 160ms ease, visibility 0s;
+  }
+
+  .shell-focus .composer-beacon {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    z-index: 1;
+    bottom: 0;
+    left: 50%;
+    width: 56px;
+    height: 56px;
+    padding: 12px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+    transform: translateX(-50%);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 140ms ease, visibility 0s 140ms;
+  }
+
+  .shell-focus .composer-beacon pa-brand-mark { width: 32px; height: 32px; }
+
+  .shell-focus .composer-dock:not(:hover):not(:focus-within):not(.is-pinned):not(:has([aria-expanded='true'])) .composer {
+    width: 56px;
+    height: 56px;
+    min-height: 56px;
+    border-radius: 28px;
+    overflow: hidden;
+    transition-delay: 500ms;
+  }
+
+  .shell-focus .composer-dock:not(:hover):not(:focus-within):not(.is-pinned):not(:has([aria-expanded='true'])) .composer > :not(.drop-hint) {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 140ms ease 400ms, visibility 0s 540ms;
+  }
+
+  .shell-focus .composer-dock:not(:hover):not(:focus-within):not(.is-pinned):not(:has([aria-expanded='true'])) .composer-beacon {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 180ms ease 680ms, visibility 0s 680ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-focus .composer-dock .composer,
+  .shell-focus .composer-dock .composer > :not(.drop-hint),
+  .shell-focus .composer-dock .composer-beacon {
+    transition: none !important;
+  }
+}

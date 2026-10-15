@@ -25,6 +25,7 @@ const reducedMotion = () =>
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 import { fileKind } from './conversation';
 import { Icon } from './kit/icon';
+import { BrandMark } from './kit/brand-mark';
 import { Popover } from './kit/popover';
 import { Tooltip } from './kit/tooltip';
 
@@ -33,7 +34,7 @@ const MAX_HEIGHT = 260;
 
 @Component({
   selector: 'pa-composer',
-  imports: [MatButtonModule, Icon, Tooltip, Popover],
+  imports: [MatButtonModule, Icon, BrandMark, Tooltip, Popover],
   template: `
     <!-- What goes with the next message -- queued messages, attachments --
          sits just above the bar, outside it: attaching an image leaves the
@@ -152,6 +153,14 @@ const MAX_HEIGHT = 260;
         }
       </div>
     }
+    <div class="composer-dock" [class.is-pinned]="draft().length > 0 || store.turnActive() || store.attachments().length > 0 || store.queue().length > 0 || dropping() || !!ui.runControls()">
+    <button
+      type="button"
+      class="composer-beacon"
+      aria-label="Write a message to PWR"
+      (focus)="reveal()"
+      (click)="reveal()"
+    ><pa-brand-mark /></button>
     <form
       #form
       class="composer"
@@ -270,6 +279,7 @@ const MAX_HEIGHT = 260;
         }
       </div>
     </form>
+    </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -288,6 +298,10 @@ export class Composer implements OnInit, OnDestroy {
 
   protected menuKeys(event: KeyboardEvent): void {
     roveFocus(event, event.currentTarget as HTMLElement, '[role=menuitem]');
+  }
+
+  protected reveal(): void {
+    this.box().nativeElement.focus();
   }
 
   protected placeholder(): string {
@@ -350,11 +364,22 @@ export class Composer implements OnInit, OnDestroy {
     // The height to grow from: what the bar measures as it changes otherwise
     // (the text growing line by line).
     if (typeof ResizeObserver === 'function') {
+      let boxWidth = -1;
       const watch = new ResizeObserver(() => {
         const form = this.form().nativeElement;
+        const box = this.box().nativeElement;
+        // Refold the text during the dock's width animation, including
+        // when the window or a side panel changes the available room.
+        if (box.clientWidth !== boxWidth) {
+          boxWidth = box.clientWidth;
+          this.fit(box);
+        }
         if (!form.getAnimations?.().length) this.lastHeight = form.offsetHeight;
       });
-      afterNextRender(() => watch.observe(this.form().nativeElement));
+      afterNextRender(() => {
+        watch.observe(this.form().nativeElement);
+        watch.observe(this.box().nativeElement);
+      });
       inject(DestroyRef).onDestroy(() => watch.disconnect());
     }
     // A message being edited arrives here to be changed and sent again.
