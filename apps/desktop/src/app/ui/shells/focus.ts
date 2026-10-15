@@ -23,12 +23,13 @@ import { RunMetricsChip } from '../run-metrics';
 
 /**
  * What a right click leaves alone: text and whatever has its own menu --
- * copy, paste, look up, a link, an image -- and the tools and the bar, so
- * the row only ever opens over the conversation's empty space.
+ * copy, paste, look up, a link, an image -- the bar, and what a tool card
+ * shows; the wheel opens over empty space, in the conversation or around
+ * the tools, and on the cards' headers.
  */
 const NATIVE_MENU =
   'input, textarea, select, [contenteditable="true"], a, img, video, iframe, pre, code, .markdown, ' +
-  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, pa-inspector, .composer';
+  '.selectable, .message-user, .terminal-surface, .graph3d-canvas, .diff, pa-popover, .wb-card-body, .composer';
 
 /**
  * Focus: no chrome. The conversation fills the window; everything else is
