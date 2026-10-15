@@ -646,8 +646,8 @@ pub const GOAL_REVIEW: &str = "The checks pass. Before finishing, hold the work 
     counting a substitute as done. If every rule is met, finish and say so.";
 
 /// What a reviewer that has not seen the conversation reads: the person's
-/// requests, the README, and the source this session changed -- tests left
-/// out, each file and the whole bounded. `None` when there is no source.
+/// requests, the README, and the source and tests this session changed, each
+/// file and the whole bounded. `None` when there is no readable code.
 ///
 /// Why a second reader. Stack matrix c2 (2026-09-27): three of the first ten
 /// tasks failed on a rule the README states plainly -- copies above N deleted,
@@ -664,8 +664,11 @@ pub fn review_prompt(
     const SPEC_CHARS: usize = 16_000;
     let mut code = String::new();
     let mut left_out = 0usize;
+    let mut unreadable = 0usize;
+    let mut shown_files = 0usize;
     for path in changed.keys().filter(|path| reviewable(path)) {
         let Ok(text) = std::fs::read_to_string(root.join(path)) else {
+            unreadable += 1;
             continue;
         };
         let shown: String = text.chars().take(FILE_CHARS).collect();
@@ -673,6 +676,7 @@ pub fn review_prompt(
             left_out += 1;
             continue;
         }
+        shown_files += 1;
         code.push_str(&format!("--- {path} ---\n{shown}\n"));
         if shown.len() < text.len() {
             code.push_str("(the rest of this file is not shown)\n");
@@ -684,38 +688,44 @@ pub fn review_prompt(
     if left_out > 0 {
         code.push_str(&format!("({left_out} more changed file(s) not shown)\n"));
     }
+    if unreadable > 0 {
+        code.push_str(&format!("({unreadable} unreadable changed file(s))\n"));
+    }
+    let excluded = changed.keys().filter(|path| !reviewable(path)).count();
+    code.push_str(&format!(
+        "Evidence selection: {shown_files} file(s) shown, {left_out} omitted by size, \
+         {unreadable} unreadable, {excluded} excluded by path policy.\n"
+    ));
     let spec = std::fs::read_to_string(root.join("README.md"))
         .map(|text| text.chars().take(SPEC_CHARS).collect::<String>())
         .unwrap_or_else(|_| "(there is no README.md)".into());
     Some(format!(
         "The request:\n{requests}\n\nThe specification (README.md):\n{spec}\n\n\
-         The code as it is now:\n{code}\n\
+         The changed code and tests as they are now (a bounded selection, not a full workspace inventory):\n{code}\n\
+         Files excluded, unreadable, or not shown are not evidence that a file or feature is absent. \
+         Test source is not evidence that tests ran or passed, nor that every requirement is covered.\n\
          Go through the specification and the request rule by rule -- every option, error case, \
          input form and edge case they state -- and write one line per rule:\n\
          - <the rule> -- MET: <file and function that does it>\n\
          or\n\
          - <the rule> -- NOT MET: <what the code does instead>\n\
+         or\n\
+         - <the rule> -- UNKNOWN: <what evidence is missing from this selection>\n\
+         Use UNKNOWN, not NOT MET or MET, when the supplied material cannot establish a rule.\n\
          Judge each rule against the code as it is written, reading the lines that would do it, \
          not against what the code seems meant to do. Write only the list."
     ))
 }
 
-/// Source a reviewer should read: not tests, not anything under a hidden
-/// directory (PWR's state, toolchains, scratch).
+/// Project source and tests a reviewer may read; hidden directories,
+/// dependency trees and lock files remain outside the evidence packet.
 pub fn reviewable(path: &str) -> bool {
     let segments: Vec<&str> = path.split('/').collect();
     let (name, directories) = segments.split_last().unwrap_or((&"", &[]));
     let name = name.to_ascii_lowercase();
-    !directories.iter().any(|segment| {
-        segment.starts_with('.')
-            || matches!(
-                *segment,
-                "test" | "tests" | "spec" | "__tests__" | "node_modules"
-            )
-    }) && !name.contains("_test.")
-        && !name.contains(".test.")
-        && !name.contains(".spec.")
-        && !name.starts_with("test_")
+    !directories
+        .iter()
+        .any(|segment| segment.starts_with('.') || *segment == "node_modules")
         && !name.ends_with(".lock")
         && name != "package-lock.json"
 }
@@ -745,33 +755,51 @@ pub fn person_requests(messages: &[ChatMessage]) -> String {
     joined.chars().skip(skip).collect()
 }
 
-/// The review round's message, with the rules the reviewer marked NOT MET.
+/// The review round's message, separating unmet rules from missing evidence.
 ///
 /// A checklist, not a question: asked instead to list what the code does not
 /// do "or answer NO DISCREPANCIES", the same model answered that in three
 /// seconds for all seven c2 workspaces probed, five of which had failed on a
 /// rule their README states. Made to mark every rule, it found them.
 pub fn review_guidance(findings: Option<&str>) -> String {
-    let unmet: Vec<&str> = findings
+    let bounded: String = findings
         .unwrap_or_default()
         .lines()
         .map(str::trim)
-        .filter(|line| line.contains("NOT MET"))
+        .filter(|line| line.contains("NOT MET") || line.contains("UNKNOWN"))
         .take(12)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .chars()
+        .take(4_000)
         .collect();
-    match unmet.as_slice() {
-        [] => GOAL_REVIEW.to_owned(),
-        lines => {
+    let mut guidance = GOAL_REVIEW.to_owned();
+    for (marker, description, instruction) in [
+        (
+            "NOT MET",
+            "marked these rules not met",
+            "fix what is really missing or wrong, and try it; leave what is not",
+        ),
+        (
+            "UNKNOWN",
+            "could not verify these rules from the supplied evidence",
+            "inspect the missing evidence and verify the rule; do not treat missing review evidence as an implementation defect or as a pass",
+        ),
+    ] {
+        let lines: Vec<&str> = bounded
+            .lines()
+            .filter(|line| line.contains(marker))
+            .collect();
+        if !lines.is_empty() {
             let found: String = lines.join("\n").chars().take(4_000).collect();
-            format!(
-                "{GOAL_REVIEW}\n\nA reviewer who has not seen this conversation read the \
-                 specification against the code as it is now and marked these rules not met:\n\n\
-                 {found}\n\n\
-                 It can be wrong. For each point, read the rule and the code: fix what is really \
-                 missing or wrong, and try it; leave what is not."
-            )
+            guidance.push_str(&format!(
+                "\n\nA reviewer who has not seen this conversation read the specification \
+                 against the supplied code and {description}:\n\n{found}\n\n\
+                 It can be wrong. For each point, read the rule and the code: {instruction}."
+            ));
         }
     }
+    guidance
 }
 
 /// A message goal mode writes between its own turns, marked as the
@@ -2232,23 +2260,26 @@ mod tests {
     /// The first passing verification asks once for a review against the
     /// request; a review that changes nothing ends the goal on it.
     #[test]
-    fn the_reviewer_reads_source_not_tests_or_pwr_state() {
+    fn the_reviewer_reads_source_and_tests_but_not_pwr_state() {
         for path in [
             "lib/stock.ex",
             "bin/rotate",
             "Dockerfile",
             ".dockerignore",
             "src/app/app.ts",
-        ] {
-            assert!(reviewable(path), "{path}");
-        }
-        for path in [
+            "tests/ServiceTests.cs",
             "test/cron_extra_test.dart",
             "tests/test_rotate.py",
             "src/app/todo-list.spec.ts",
             "src/app/store.test.ts",
             "test_hidden.py",
+        ] {
+            assert!(reviewable(path), "{path}");
+        }
+        for path in [
             ".pwr-scratch/check.sh",
+            "tests/.hidden/secret.cs",
+            "node_modules/tests/secret.js",
             ".toolchains/elixir/bin/mix",
             "package-lock.json",
             "Cargo.lock",
@@ -2277,9 +2308,73 @@ mod tests {
         assert!(prompt.contains("Implement Stock"));
         assert!(prompt.contains("`opts[:name]` registers the process"));
         assert!(prompt.contains("--- lib/stock.ex ---\ndef start_link(opts)"));
-        assert!(!prompt.contains("extra_test"));
+        assert!(prompt.contains("--- test/extra_test.exs ---\nassert true"));
         let only_tests = BTreeMap::from([("test/extra_test.exs".to_owned(), "h2".to_owned())]);
-        assert!(review_prompt(root.path(), "Implement Stock", &only_tests).is_none());
+        assert!(review_prompt(root.path(), "Implement Stock", &only_tests).is_some());
+    }
+
+    #[test]
+    fn reviewer_receives_dotnet_tests_and_reports_unavailable_evidence() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("tests/IssueDock.Tests")).unwrap();
+        std::fs::create_dir_all(root.path().join("src")).unwrap();
+        std::fs::write(root.path().join("src/Program.cs"), "app.Run();").unwrap();
+        std::fs::write(
+            root.path().join("tests/IssueDock.Tests/ServiceTests.cs"),
+            "[Fact] public void CreatesProject() { Assert.True(true); }",
+        )
+        .unwrap();
+        let changed = BTreeMap::from([
+            ("src/Program.cs".to_owned(), "h1".to_owned()),
+            (
+                "tests/IssueDock.Tests/ServiceTests.cs".to_owned(),
+                "h2".to_owned(),
+            ),
+            (
+                "tests/IssueDock.Tests/Removed.cs".to_owned(),
+                "h3".to_owned(),
+            ),
+        ]);
+        let prompt =
+            review_prompt(root.path(), "Use xUnit and test main operations", &changed).unwrap();
+        assert!(prompt.contains("--- tests/IssueDock.Tests/ServiceTests.cs ---"));
+        assert!(prompt.contains("CreatesProject"));
+        assert!(prompt.contains("1 unreadable changed file(s)"));
+        assert!(prompt.contains("UNKNOWN"));
+        assert!(prompt.contains("not evidence that a file or feature is absent"));
+        let only_tests = BTreeMap::from([(
+            "tests/IssueDock.Tests/ServiceTests.cs".to_owned(),
+            "h2".to_owned(),
+        )]);
+        assert!(review_prompt(root.path(), "Write tests", &only_tests).is_some());
+    }
+
+    #[test]
+    fn reviewer_marks_files_omitted_by_the_existing_size_limit() {
+        let root = tempfile::tempdir().unwrap();
+        let mut changed = BTreeMap::new();
+        for i in 0..4 {
+            let name = format!("source{i}.cs");
+            std::fs::write(root.path().join(&name), "x".repeat(20_000)).unwrap();
+            changed.insert(name, "hash".to_owned());
+        }
+        let prompt = review_prompt(root.path(), "Implement", &changed).unwrap();
+        assert!(prompt.contains("more changed file(s) not shown"));
+        assert!(prompt.contains("UNKNOWN"));
+        assert!(!prompt.contains("--- source3.cs ---"));
+    }
+
+    #[test]
+    fn reviewer_unknown_is_returned_as_unverified_not_unmet() {
+        let guidance = review_guidance(Some("- xUnit -- UNKNOWN: test files not shown"));
+        assert!(guidance.contains("xUnit -- UNKNOWN"));
+        assert!(guidance.contains("could not verify"));
+        assert!(!guidance.contains("marked these rules not met"));
+        let mixed = review_guidance(Some(
+            "- API -- NOT MET: route missing\n- tests -- UNKNOWN: not shown",
+        ));
+        assert!(mixed.contains("API -- NOT MET"));
+        assert!(mixed.contains("tests -- UNKNOWN"));
     }
 
     #[test]
