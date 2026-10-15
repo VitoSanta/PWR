@@ -141,7 +141,8 @@ KV_BITS = 8 if os.environ.get("PWR_MLX_KV_BITS") == "8" else None
 # Google's assistant for the pack (multi-token prediction): it drafts a few
 # tokens and the model verifies them. Experimental: the 2026-10-14 short
 # comparisons did not meet exact-text/speed gates. Explicit opt-in only until
-# a pack passes those gates; loading a drafter alone is not evidence of them.
+# a pack passes those gates -- this variable, or the person's switch in the
+# app sent with the load; loading a drafter alone is not evidence of them.
 # `PWR_MLX_DRAFT_BLOCK` fixes the block, otherwise the assistant's own.
 ASSISTANT = os.environ.get("PWR_MLX_ASSISTANT", "off") == "on"
 DRAFT_BLOCK = int(os.environ.get("PWR_MLX_DRAFT_BLOCK") or 0) or None
@@ -1350,9 +1351,11 @@ class PrefillCancelled(Exception):
     """An interrupted prefill has no reusable cache state."""
 
 
-def load_assistant(vlm, path):
-    """The pack's assistant ready to draft for `vlm`, or None and why not."""
-    if not ASSISTANT:
+def load_assistant(vlm, path, on=False):
+    """The pack's assistant ready to draft for `vlm`, or None and why not.
+
+    `on` is the person's switch in the app, sent with the load."""
+    if not (ASSISTANT or on):
         return None, "off (PWR_MLX_ASSISTANT)"
     if KV_BITS:
         # It reads the global layers' keys and values as they are kept.
@@ -1503,7 +1506,8 @@ class Engine:
         weights = sum(p.stat().st_size for p in path.glob("*.safetensors"))
         assistant_error = None
         if request.get("assistant"):
-            self.drafter, assistant_error = load_assistant(vlm, request["assistant"])
+            self.drafter, assistant_error = load_assistant(
+                vlm, request["assistant"], bool(request.get("assistant_on")))
         return {
             "event": "loaded",
             "model_type": model_type,

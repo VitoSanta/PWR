@@ -2,7 +2,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { bytes, percent, tokens } from '../core/format';
-import { DownloadView, LinePack } from '../core/model';
+import { DownloadView, LinePack, ModelTarget } from '../core/model';
 import { ModelsStore, isTerminal } from '../core/models.store';
 import { Dialog } from './kit/dialog';
 import { Icon } from './kit/icon';
@@ -109,6 +109,54 @@ import { Tooltip } from './kit/tooltip';
                     <pa-icon name="trash" [size]="14" /> {{ pack.partial ? 'Discard' : 'Delete' }}
                   </button>
                 </div>
+                <!-- Its assistant: Google's small drafter, downloaded on its own
+                     and used only while the switch in the model's panel is on. -->
+                @let helper = models.assistantOf(pack);
+                <div class="local-assistant" role="group" [attr.aria-label]="helper.label">
+                  <div class="local-main">
+                    <pa-icon name="sparkles" [size]="14" />
+                    <span class="truncate" [attr.title]="helper.model">Assistant</span>
+                    <span class="badge badge-outline" paTooltip="Drafts a few tokens ahead for Gemma to check. Turn it on in the model's panel; not yet faster on every pack.">experimental</span>
+                    @if (download(helper); as dl) {
+                      <span [class]="'badge ' + (dl.state.state === 'failed' ? 'badge-danger' : dl.state.state === 'cancelled' ? 'badge-warning' : 'badge-info')">{{ status(dl) }}</span>
+                    } @else if (pack.assistant.installed) {
+                      <span class="badge badge-success">downloaded</span>
+                    } @else if (pack.assistant.partial) {
+                      <span class="badge badge-warning">unfinished download</span>
+                    }
+                  </div>
+                  <span class="t-meta num local-size">{{ b(helper.weightsBytes) }}</span>
+                  @if (download(helper); as dl) {
+                    @if (!isDone(dl) || dl.state.state !== 'completed') {
+                      <div class="download-progress local-download-progress" [attr.title]="dl.file ?? ''">
+                        <div class="progress" role="progressbar" [attr.aria-valuenow]="progress(dl)" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="'Downloading ' + helper.label">
+                          <span [style.width.%]="progress(dl)"></span>
+                        </div>
+                        <small class="t-caption num">{{ phase(dl) }}</small>
+                      </div>
+                    }
+                  }
+                  <div class="variant-action local-actions">
+                    @if (active(helper)) {
+                      <button matButton="outlined" class="btn btn-sm" (click)="models.pause(helper)">Pause</button>
+                    } @else if (!pack.assistant.installed) {
+                      <button matButton="outlined" class="btn btn-sm" (click)="models.download(helper)" [disabled]="!helper.artifact">
+                        {{ pack.assistant.partial || download(helper)?.state?.state === 'cancelled' ? 'Resume' : 'Download' }}
+                      </button>
+                    } @else {
+                      <span class="action-slot" aria-hidden="true"></span>
+                    }
+                    <span class="action-slot" aria-hidden="true"></span>
+                    <button matButton
+                      class="btn btn-sm btn-danger-quiet"
+                      (click)="models.askDelete(helper)"
+                      [disabled]="active(helper) || (!pack.assistant.installed && !pack.assistant.partial)"
+                      paTooltip="Delete from this Mac"
+                    >
+                      <pa-icon name="trash" [size]="14" /> {{ pack.assistant.partial ? 'Discard' : 'Delete' }}
+                    </button>
+                  </div>
+                </div>
               </div>
             }
           }
@@ -164,11 +212,11 @@ export class ModelManager {
   protected readonly t = tokens;
   protected readonly isDone = isTerminal;
 
-  protected download(pack: LinePack): DownloadView | undefined {
+  protected download(pack: LinePack | ModelTarget): DownloadView | undefined {
     return this.models.downloads()[pack.model];
   }
 
-  protected active(pack: LinePack): boolean {
+  protected active(pack: LinePack | ModelTarget): boolean {
     const dl = this.download(pack);
     return !!dl && !isTerminal(dl);
   }

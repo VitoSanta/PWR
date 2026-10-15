@@ -25,11 +25,15 @@ history is in [experiment-log.md](experiment-log.md) and the benchmark's
 
 Each pack has a small "assistant" model Google publishes for speculative
 decoding; it is kept for that and is never offered as a model to run.
-The experimental engine integration finds the matching assistant only after
-its weights are fully downloaded. It is **off by default**: the 2026-10-14
-short comparisons failed the exact-text and/or 1.4× speed gates. Explicit
-`PWR_MLX_ASSISTANT=on` enables research runs; penalties and 8-bit KV use normal
-decoding. No pack has passed the full assistant gate yet.
+The Model Manager downloads it under its pack, from its own registry entry
+(pinned revision, sizes and SHA-256 like the packs). The engine uses it only
+after its weights are fully downloaded and only while drafting is on. It is
+**off by default**: the 2026-10-14 short comparisons failed the exact-text
+and/or 1.4× speed gates. The person turns it on with the **Assistant** switch
+in the model's panel (saved per workspace as `assistant` in the chat config,
+sent to the engine with the load); `PWR_MLX_ASSISTANT=on` still enables it for
+research runs. Penalties and 8-bit KV use normal decoding. No pack has passed
+the full assistant gate yet.
 
 **Context and memory.** The window is the full 262,144 tokens unless the
 person asks for less or this Mac's memory holds less for the pack

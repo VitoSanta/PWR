@@ -50,6 +50,8 @@ export function playDemo(store: AgentStore): void {
 }
 
 const GIB = 1024 ** 3;
+/** The assistant switch, kept across the demo's calls. */
+let demoAssistant = false;
 
 function fit(level: string, label: string, weights: number, window: number | null, explanation: string) {
   return {
@@ -112,17 +114,23 @@ function demoAnswer(method: string, params: any): any {
       };
     }
     case '_pwr/local_models': {
+      const a12 = 'mlx-community/gemma-4-12B-it-assistant-bf16';
+      const a26 = 'mlx-community/gemma-4-26B-A4B-it-assistant-bf16';
+      const a31 = 'mlx-community/gemma-4-31B-it-assistant-bf16';
+      const ASSISTANT_BYTES: Record<string, number> = { [a12]: 845_719_253, [a26]: 839_427_840, [a31]: 939_042_560 };
       // The Gemma line as the core describes it (pwr_domain::gemma), on a
       // 64 GB Mac: for drawing the model manager, not a measurement.
       const pack = (model: string, label: string, tier: 'low' | 'middle' | 'high', tierMemoryGib: number, weightsBytes: number,
                     artifact: string, assistant: string, installed: boolean, extra: any = {}) => ({
         model, label, tier, tierMemoryGib, weightsBytes, artifact, installed, partial: false,
         bytesOnDisk: installed ? weightsBytes : 0, inUse: false, windowTokens: 262144, fullContext: true,
-        neededBytes: weightsBytes + 8 * GIB, assistant: { model: assistant, installed: false }, ...extra,
+        neededBytes: weightsBytes + 8 * GIB,
+        assistant: {
+          model: assistant, artifact: `hf-${assistant.split('/')[1].toLowerCase()}`,
+          weightsBytes: ASSISTANT_BYTES[assistant], installed: assistant === a26, partial: false,
+        },
+        ...extra,
       });
-      const a12 = 'mlx-community/gemma-4-12B-it-assistant-bf16';
-      const a26 = 'mlx-community/gemma-4-26B-A4B-it-assistant-bf16';
-      const a31 = 'mlx-community/gemma-4-31B-it-assistant-bf16';
       return {
         memoryBytes: 64 * GIB, contextTokens: 262144, modelsRoot: '~/.pwr/models',
         packs: [
@@ -147,6 +155,8 @@ function demoAnswer(method: string, params: any): any {
         model: 'mlx-community/gemma-4-26b-a4b-it-4bit',
         contextTokens: 262144,
         thinking: params.thinking ?? false,
+        assistant: (demoAssistant = params.assistant ?? demoAssistant),
+        assistantInstalled: true,
         thoughtCapTokens: 4096,
         vision: ['mlx-community/gemma-4-26b-a4b-it-4bit', 'mlx-community/gemma-4-31b-it-8bit'],
       };

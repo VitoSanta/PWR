@@ -77,6 +77,10 @@ export class AgentStore {
   readonly model = signal<string | null>(null);
   /** Gemma's thinking: off unless the person turns it on. */
   readonly thinking = signal(false);
+  /** Drafting with the pack's assistant: experimental, off unless turned on. */
+  readonly assistant = signal(false);
+  /** The model in use has its assistant on disk. */
+  readonly assistantInstalled = signal(false);
   /** The most a thought may run before the engine closes it. */
   readonly thoughtCap = signal(4096);
   readonly backendNote = signal('');
@@ -405,6 +409,8 @@ export class AgentStore {
     this.visionModels.set(reply.vision ?? []);
     this.model.set(reply.model ?? null);
     this.thinking.set(reply.thinking === true);
+    this.assistant.set(reply.assistant === true);
+    this.assistantInstalled.set(reply.assistantInstalled === true);
     this.thoughtCap.set(reply.thoughtCapTokens ?? 4096);
     this.backendNote.set(reply.backendUnavailable ?? '');
     const decision = reply.contextDecision ?? {};
@@ -446,6 +452,11 @@ export class AgentStore {
 
   setThinking(on: boolean): Promise<void> {
     return this.refreshModels({ thinking: on });
+  }
+
+  /** Saved in the workspace; the engine reloads the model with or without it. */
+  setAssistant(on: boolean): Promise<void> {
+    return this.refreshModels({ assistant: on });
   }
 
   stepContext(direction: 1 | -1): Promise<void> {
