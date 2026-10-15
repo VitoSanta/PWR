@@ -87,6 +87,8 @@ pub struct Pack {
     pub model_ref: &'static str,
     pub label: &'static str,
     pub tier: Tier,
+    /// Native maximum context for this checkpoint.
+    pub context_tokens: u32,
     /// The weights' bytes on disk (`strategies/artifacts.json`).
     pub weights_bytes: u64,
     pub attention: Attention,
@@ -104,6 +106,8 @@ impl Pack {
             "mlx-community/gemma-4-12B-it-assistant-bf16" => 845_719_253,
             "mlx-community/gemma-4-26B-A4B-it-assistant-bf16" => 839_427_840,
             "mlx-community/gemma-4-31B-it-assistant-bf16" => 939_042_560,
+            "mlx-community/gemma-4-E2B-it-assistant-bf16" => 157_565_344,
+            "mlx-community/gemma-4-E4B-it-assistant-bf16" => 159_138_208,
             _ => 0,
         }
     }
@@ -143,11 +147,67 @@ const GEMMA_31B: Attention = Attention {
 };
 
 /// The line, lightest first.
-pub const PACKS: [Pack; 5] = [
+// E packs allocate caches only before their shared-KV suffix, as MLX make_cache does.
+pub const PACKS: [Pack; 8] = [
+    Pack {
+        model_ref: "mlx-community/gemma-4-e2b-it-4bit",
+        label: "Gemma 4 E2B",
+        tier: Tier::Low,
+        context_tokens: 131_072,
+        weights_bytes: 3_550_670_554,
+        attention: Attention {
+            global_layers: 3,
+            global_kv_heads: 1,
+            global_head_dim: 512,
+            sliding_layers: 12,
+            sliding_kv_heads: 1,
+            sliding_head_dim: 256,
+            window: 512,
+            attention_heads: 8,
+        },
+        assistant: "mlx-community/gemma-4-E2B-it-assistant-bf16",
+    },
+    Pack {
+        model_ref: "mlx-community/gemma-4-e4b-it-4bit",
+        label: "Gemma 4 E4B",
+        tier: Tier::Low,
+        context_tokens: 131_072,
+        weights_bytes: 5_146_800_534,
+        attention: Attention {
+            global_layers: 4,
+            global_kv_heads: 2,
+            global_head_dim: 512,
+            sliding_layers: 20,
+            sliding_kv_heads: 2,
+            sliding_head_dim: 256,
+            window: 512,
+            attention_heads: 8,
+        },
+        assistant: "mlx-community/gemma-4-E4B-it-assistant-bf16",
+    },
+    Pack {
+        model_ref: "mlx-community/gemma-4-E4B-it-qat-4bit",
+        label: "Gemma 4 E4B QAT",
+        tier: Tier::Low,
+        context_tokens: 131_072,
+        weights_bytes: 6_798_307_742,
+        attention: Attention {
+            global_layers: 4,
+            global_kv_heads: 2,
+            global_head_dim: 512,
+            sliding_layers: 20,
+            sliding_kv_heads: 2,
+            sliding_head_dim: 256,
+            window: 512,
+            attention_heads: 8,
+        },
+        assistant: "mlx-community/gemma-4-E4B-it-assistant-bf16",
+    },
     Pack {
         model_ref: "mlx-community/gemma-4-12B-it-4bit",
         label: "Gemma 4 12B",
-        tier: Tier::Low,
+        tier: Tier::Middle,
+        context_tokens: CONTEXT_TOKENS,
         weights_bytes: 6_741_039_511,
         attention: GEMMA_12B,
         assistant: "mlx-community/gemma-4-12B-it-assistant-bf16",
@@ -156,6 +216,7 @@ pub const PACKS: [Pack; 5] = [
         model_ref: "mlx-community/gemma-4-26b-a4b-it-4bit",
         label: "Gemma 4 26B",
         tier: Tier::Middle,
+        context_tokens: CONTEXT_TOKENS,
         weights_bytes: 15_341_205_776,
         attention: GEMMA_26B,
         assistant: "mlx-community/gemma-4-26B-A4B-it-assistant-bf16",
@@ -164,6 +225,7 @@ pub const PACKS: [Pack; 5] = [
         model_ref: "mlx-community/gemma-4-26B-A4B-it-qat-4bit",
         label: "Gemma 4 26B QAT",
         tier: Tier::Middle,
+        context_tokens: CONTEXT_TOKENS,
         weights_bytes: 15_608_838_574,
         attention: GEMMA_26B,
         assistant: "mlx-community/gemma-4-26B-A4B-it-assistant-bf16",
@@ -172,6 +234,7 @@ pub const PACKS: [Pack; 5] = [
         model_ref: "mlx-community/gemma-4-26b-a4b-it-6bit",
         label: "Gemma 4 26B 6-bit",
         tier: Tier::Middle,
+        context_tokens: CONTEXT_TOKENS,
         weights_bytes: 21_647_423_449,
         attention: GEMMA_26B,
         assistant: "mlx-community/gemma-4-26B-A4B-it-assistant-bf16",
@@ -180,6 +243,7 @@ pub const PACKS: [Pack; 5] = [
         model_ref: "mlx-community/gemma-4-31b-it-8bit",
         label: "Gemma 4 31B",
         tier: Tier::High,
+        context_tokens: CONTEXT_TOKENS,
         weights_bytes: 33_763_120_415,
         attention: GEMMA_31B,
         assistant: "mlx-community/gemma-4-31B-it-assistant-bf16",
@@ -222,14 +286,14 @@ pub fn memory_for(pack: &Pack, tokens: u32, kv_bits: u32) -> u64 {
 }
 
 /// The context a pack can hold in `memory` bytes of unified memory, at most
-/// [`CONTEXT_TOKENS`], in whole thousands of tokens.
+/// its native maximum, in whole thousands of tokens.
 pub fn window(pack: &Pack, memory: u64, kv_bits: u32) -> u32 {
     let fixed = memory_for(pack, 0, kv_bits);
     let per_token = pack.attention.cache_bytes_per_token() * u64::from(kv_bits.clamp(8, 16)) / 16;
     let tokens = memory.saturating_sub(fixed) / per_token.max(1);
     (u32::try_from(tokens)
         .unwrap_or(u32::MAX)
-        .min(CONTEXT_TOKENS)
+        .min(pack.context_tokens)
         / 1024)
         * 1024
 }
@@ -308,6 +372,28 @@ pub fn sampling() -> std::collections::BTreeMap<String, serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edge_packs_keep_their_native_context_and_assistants() {
+        for name in [
+            "mlx-community/gemma-4-e2b-it-4bit",
+            "mlx-community/gemma-4-e4b-it-4bit",
+            "mlx-community/gemma-4-E4B-it-qat-4bit",
+        ] {
+            let edge = pack(name).expect("edge pack registered");
+            assert_eq!(edge.context_tokens, 131_072);
+            assert_eq!(window(edge, 64 * GIB, 16), 131_072);
+            assert!(is_assistant(edge.assistant));
+            assert!(pack(edge.assistant).is_none());
+            assert!(edge.assistant_bytes() > 0);
+        }
+        for p in PACKS.iter().filter(|p| {
+            !p.model_ref.to_lowercase().contains("e2b")
+                && !p.model_ref.to_lowercase().contains("e4b")
+        }) {
+            assert_eq!(p.context_tokens, 262_144);
+        }
+    }
 
     #[test]
     fn the_cache_a_token_costs_is_the_global_layers() {

@@ -24,7 +24,7 @@ import { Tooltip } from './kit/tooltip';
           <div class="dialog-header-text">
             <h2 class="dialog-title" id="mm-title">Models</h2>
             <p class="dialog-description" id="mm-description">
-              PWR runs Google's Gemma 4, one model per memory tier, each with its full {{ t(models.contextTokens()) }}-token context.
+              PWR runs Google's Gemma 4 family. Native context depends on the model; available context also depends on this Mac's memory.
             </p>
           </div>
           <button matIconButton class="icon-btn" (click)="models.close()" aria-label="Close Models" paTooltip="Close">
@@ -62,7 +62,7 @@ import { Tooltip } from './kit/tooltip';
                     <span class="badge badge-success">in use</span>
                   }
                   @if (pack.fullContext) {
-                    <span class="badge badge-success" paTooltip="This Mac holds the whole context for it">{{ t(models.contextTokens()) }} context</span>
+                    <span class="badge badge-success" paTooltip="This Mac holds the whole context for it">{{ t(pack.windowTokens!) }} context</span>
                   } @else if (pack.windowTokens !== null) {
                     <span
                       class="badge badge-warning"

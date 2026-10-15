@@ -475,7 +475,7 @@ async fn compute_context(
     } else {
         16
     };
-    let full = pwr_domain::gemma::CONTEXT_TOKENS;
+    let full = pack.context_tokens;
     let wanted = config.context_setting.unwrap_or(full).min(full);
     let memory = probe_hardware().await.total_memory_bytes;
     let held = memory.map(|memory| pwr_domain::gemma::window(pack, memory, kv_bits));
@@ -2941,8 +2941,9 @@ impl serve::TurnRunner for ConsoleTurns {
                     // The context this machine holds for it; the full
                     // context is the line's requirement.
                     "windowTokens": window,
-                    "fullContext": window == Some(pwr_domain::gemma::CONTEXT_TOKENS),
-                    "neededBytes": pwr_domain::gemma::memory_for(pack, pwr_domain::gemma::CONTEXT_TOKENS, 16),
+                    "maxContextTokens": pack.context_tokens,
+                    "fullContext": window == Some(pack.context_tokens),
+                    "neededBytes": pwr_domain::gemma::memory_for(pack, pack.context_tokens, 16),
                     "assistant": {
                         "model": pack.assistant,
                         "installed": found(pack.assistant).is_some_and(|model| !model.partial),

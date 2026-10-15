@@ -380,6 +380,286 @@
         "observed_at": "2026-10-14T00:00:00Z",
         "content_hash": "hf:mlx-community/gemma-4-31b-it-8bit@f5f3dc92ab4af76724c36c21eb6bedadb3a851be"
       }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-e2b-it-4bit",
+      "family": "gemma4",
+      "variant": "e2b-it-4bit",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-e2b-it-4bit",
+        "revision": "238767527555cb75a05732a84dff5d6ba0dd6809",
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "bytes": 17336,
+            "sha256": "2f1b4d75d067bae3fe44e676721c7f077d243bc007156cb9c2f8b5836613d082"
+          },
+          {
+            "path": "config.json",
+            "bytes": 6395,
+            "sha256": "6397cb6eca41b911d1dcab74e17941351057bd759284052a2331918ff6f9246c"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 208,
+            "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+          },
+          {
+            "path": "model.safetensors",
+            "bytes": 3550670554,
+            "sha256": "038e39a37a7667373d2c3991375446b10c96ae1d717a68674870343db376b76e"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 218323,
+            "sha256": "edb157dbf495e23f37377af4a628a9ad13c4ee7937f93ccb36ec9e9a19940f16"
+          },
+          {
+            "path": "processor_config.json",
+            "bytes": 1316,
+            "sha256": "de3e580aebdc98272d4c4547daffe6525fcbae18a83a0e0bcf0d7444d4ee6f37"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 2740,
+            "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "Local download revision metadata and SHA-256 verified before E-pack integration, 2026-10-15",
+        "observed_at": "2026-10-15T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-e2b-it-4bit@238767527555cb75a05732a84dff5d6ba0dd6809"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-e4b-it-4bit",
+      "family": "gemma4",
+      "variant": "e4b-it-4bit",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-e4b-it-4bit",
+        "revision": "475b9088d29754a3379866cf5aeb6b41acd313c2",
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "bytes": 17336,
+            "sha256": "2f1b4d75d067bae3fe44e676721c7f077d243bc007156cb9c2f8b5836613d082"
+          },
+          {
+            "path": "config.json",
+            "bytes": 6628,
+            "sha256": "780ccb3a514a5f1ced161d383f948fc22eca9b84b752ca19494f625bd9bad7a6"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 208,
+            "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+          },
+          {
+            "path": "model.safetensors",
+            "bytes": 5146800534,
+            "sha256": "932b8271fc3fe65adcc78b96c10c6268bbfb13e8f67d1358727c0d6ee97e1eff"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 240961,
+            "sha256": "f8accac59ee7efe87e0c298c854610b262c3cadd477407503147c71209ff0093"
+          },
+          {
+            "path": "processor_config.json",
+            "bytes": 1316,
+            "sha256": "de3e580aebdc98272d4c4547daffe6525fcbae18a83a0e0bcf0d7444d4ee6f37"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 2740,
+            "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "Local download revision metadata and SHA-256 verified before E-pack integration, 2026-10-15",
+        "observed_at": "2026-10-15T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-e4b-it-4bit@475b9088d29754a3379866cf5aeb6b41acd313c2"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-e4b-it-qat-4bit",
+      "family": "gemma4",
+      "variant": "E4B-it-qat-4bit",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-E4B-it-qat-4bit",
+        "revision": "0f35c6f6d386f7f74e628bd7c6526ce531212300",
+        "files": [
+          {
+            "path": "chat_template.jinja",
+            "bytes": 16804,
+            "sha256": "33204f1acb5bd0002713e16a593847f24ceeafe711ed88bda2a352dc996a3373"
+          },
+          {
+            "path": "config.json",
+            "bytes": 36485,
+            "sha256": "7af8ec026a79318244e56c7df64c62a36cfa7ce361001112db9d919b5e18e9e2"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 203,
+            "sha256": "b69207f9be617e982d13cc273cce6fd88c98dda99a4bdc5e2d52ffe0a0d9f0a9"
+          },
+          {
+            "path": "model-00001-of-00002.safetensors",
+            "bytes": 4249502053,
+            "sha256": "6c8525b3cecdc9847fc5606ea4ad9445c1496072d99812283eea843a06d5f58b"
+          },
+          {
+            "path": "model-00002-of-00002.safetensors",
+            "bytes": 2548805689,
+            "sha256": "5c5715153fbb71079014d91e551229e0da09494d98ff9dcec0977ac8b4d58d8c"
+          },
+          {
+            "path": "model.safetensors.index.json",
+            "bytes": 282511,
+            "sha256": "128114effccfb1b772c80517b3cbcbc2a7813e28eb8c71dc56e114450c9e6429"
+          },
+          {
+            "path": "processor_config.json",
+            "bytes": 902,
+            "sha256": "1bd0d00776284f369c1eff5fb631e865dfcdca861e0b7d60dbef27fcf37436a8"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169626,
+            "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 2740,
+            "sha256": "080d9e1aff284e2f6043889cd05367966f7c7b80e025fbc0b06745e218158656"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "4bit",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "Local download revision metadata and SHA-256 verified before E-pack integration, 2026-10-15",
+        "observed_at": "2026-10-15T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-E4B-it-qat-4bit@0f35c6f6d386f7f74e628bd7c6526ce531212300"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-e2b-it-assistant-bf16",
+      "family": "gemma4",
+      "variant": "E2B-it-assistant-bf16",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-E2B-it-assistant-bf16",
+        "revision": "a7770799b560135ebdbfae8b7f468947415003bc",
+        "files": [
+          {
+            "path": "config.json",
+            "bytes": 2315,
+            "sha256": "7f42f559a6a69ffaeaf6b61a1ece3a562a2ed5ad00b8d30f16917ba5ab1bcbe9"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 307,
+            "sha256": "8e58004dc0e2407b63410b190bb8470efbdcfeb71533f1770e09c20abe193a6f"
+          },
+          {
+            "path": "model.safetensors",
+            "bytes": 157565344,
+            "sha256": "93682eb1c97639d18f007704dc880bd74cbe530adaf7b1bb561213863fdad2a6"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169440,
+            "sha256": "75a6583c1a418e2bbd79c60d95d28e0f5bf549ad3f2990b5bdb5238c6c2bf70c"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 822,
+            "sha256": "089594a3924fcfd4cb1c596a7906fbf476193519e5198f780912eed02b177e42"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "bf16",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "Local download revision metadata and SHA-256 verified before E-pack integration, 2026-10-15",
+        "observed_at": "2026-10-15T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-E2B-it-assistant-bf16@a7770799b560135ebdbfae8b7f468947415003bc"
+      }
+    },
+    {
+      "schema_version": 1,
+      "id": "hf-gemma-4-e4b-it-assistant-bf16",
+      "family": "gemma4",
+      "variant": "E4B-it-assistant-bf16",
+      "source": {
+        "kind": "hugging_face",
+        "repository": "mlx-community/gemma-4-E4B-it-assistant-bf16",
+        "revision": "844e008e06ef5562bdb89428d851d0634d119dcd",
+        "files": [
+          {
+            "path": "config.json",
+            "bytes": 2315,
+            "sha256": "13cdf5418e5a89cf951717a953cd11cef4e5c2743c4767e9e5dd72802954f822"
+          },
+          {
+            "path": "generation_config.json",
+            "bytes": 307,
+            "sha256": "8e58004dc0e2407b63410b190bb8470efbdcfeb71533f1770e09c20abe193a6f"
+          },
+          {
+            "path": "model.safetensors",
+            "bytes": 159138208,
+            "sha256": "12875062fc25c51e8fa9b62abd2de7ad48b7d63f8559d5d604fbd5a3d6bcff16"
+          },
+          {
+            "path": "tokenizer.json",
+            "bytes": 32169440,
+            "sha256": "75a6583c1a418e2bbd79c60d95d28e0f5bf549ad3f2990b5bdb5238c6c2bf70c"
+          },
+          {
+            "path": "tokenizer_config.json",
+            "bytes": 822,
+            "sha256": "089594a3924fcfd4cb1c596a7906fbf476193519e5198f780912eed02b177e42"
+          }
+        ]
+      },
+      "format": "mlx",
+      "quantization": "bf16",
+      "platform": "macos_apple_silicon",
+      "provenance": {
+        "source": "Local download revision metadata and SHA-256 verified before E-pack integration, 2026-10-15",
+        "observed_at": "2026-10-15T00:00:00Z",
+        "content_hash": "hf:mlx-community/gemma-4-E4B-it-assistant-bf16@844e008e06ef5562bdb89428d851d0634d119dcd"
+      }
     }
   ]
 }
