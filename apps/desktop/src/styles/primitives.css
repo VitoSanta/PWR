@@ -131,15 +131,18 @@
   color: var(--text-primary);
 }
 
-/* -------------------------------------------------------------- inputs */
+/* -------------------------------------------------------------- inputs
+ * Material 3's outlined text field: 4px corners, the outline colour, a
+ * 2px primary outline while focused. Search fields (an input with a
+ * leading icon) are Google's filled, full-round search bar instead. */
 .input {
   display: block;
   width: 100%;
   height: var(--control-h);
   padding: 0 var(--space-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--input-bg);
+  border: 1px solid var(--mat-sys-outline);
+  border-radius: var(--radius-xs);
+  background: transparent;
   color: var(--text-primary);
   font-size: var(--fs-body-sm);
   transition:
@@ -152,14 +155,14 @@
 }
 
 .input:hover:not(:disabled) {
-  border-color: var(--border-strong);
+  border-color: var(--mat-sys-on-surface);
 }
 
 .input:focus,
 .input:focus-visible {
   outline: none;
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--mat-sys-primary);
+  box-shadow: inset 0 0 0 1px var(--mat-sys-primary);
 }
 
 .input::-webkit-search-cancel-button {
@@ -194,6 +197,21 @@
 
 .input-group > .input {
   padding-left: 34px;
+  border-color: transparent;
+  border-radius: var(--radius-pill);
+  background: var(--mat-sys-surface-container-high);
+}
+
+.input-group > .input:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--mat-sys-surface-container-highest);
+}
+
+.input-group > .input:focus,
+.input-group > .input:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+  background: var(--mat-sys-surface-container-highest);
 }
 
 /* A native checkbox, restyled but still the native control. */

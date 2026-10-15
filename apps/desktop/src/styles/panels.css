@@ -1661,14 +1661,15 @@ pa-trace-visibility {
   line-height: var(--control-h);
 }
 
+/* Material 3's navigation item: a full-round pill, secondary container when chosen. */
 .settings-nav-item {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: var(--control-h);
-  padding: 0 var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-3);
   border: 0;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-secondary);
   font-size: var(--fs-body-sm);
@@ -1682,8 +1683,8 @@ pa-trace-visibility {
 }
 
 .settings-nav-item[aria-current='page'] {
-  background: var(--surface-active);
-  color: var(--text-primary);
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
   font-weight: var(--fw-medium);
 }
 
