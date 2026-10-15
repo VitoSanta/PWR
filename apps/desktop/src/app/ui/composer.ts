@@ -249,14 +249,14 @@ const MAX_HEIGHT = 260;
         @if (store.turnActive()) {
           <button matIconButton
             type="button"
-            class="icon-btn icon-btn-outline composer-stop"
+            class="icon-btn composer-stop"
             (click)="store.cancel()"
             aria-label="Stop"
             paTooltip="Stop this turn"
           >
             <pa-icon name="stop" [size]="16" />
           </button>
-          <button
+          <button matIconButton
             type="submit"
             class="composer-send"
             [disabled]="!draft().trim()"
@@ -266,7 +266,7 @@ const MAX_HEIGHT = 260;
             <pa-icon name="list-plus" [size]="16" />
           </button>
         } @else {
-          <button
+          <button matIconButton
             type="submit"
             class="composer-send"
             [disabled]="!draft().trim() || !store.model()"

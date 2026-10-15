@@ -101,7 +101,7 @@
   --mat-icon-button-state-layer-size: var(--control-h-sm);
 }
 
-.icon-btn-outline {
+.icon-btn.icon-btn-outline {
   border: 1px solid var(--border-subtle);
 }
 
