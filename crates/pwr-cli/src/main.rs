@@ -1090,6 +1090,19 @@ fn load_chat_config(root: &Path) -> Result<ChatConfig, SafeError> {
             path.display()
         ),
     })?;
+    // A saved selection predating the Gemma-only line is not a runnable
+    // choice. Leave the file and weights intact; show no active model until
+    // the person explicitly selects a supported pack.
+    if config
+        .model
+        .as_deref()
+        .is_some_and(|model| pwr_domain::gemma::pack(model).is_none())
+    {
+        config.model = None;
+        config.profile = None;
+        config.prepared_for_model = None;
+        config.prepared_without_calibration = false;
+    }
     // Written before the permission modes: it asks about the new defaults
     // unless someone had chosen a list of their own.
     if config.permission_mode.is_none() {
@@ -8238,6 +8251,46 @@ mod tests {
         // And the safe side of every choice it did not make.
         assert!(config.require_probe);
         assert!(config.model.is_none());
+    }
+
+    #[test]
+    fn saved_model_outside_gemma_line_is_not_restored() {
+        let root = tempfile::tempdir().unwrap();
+        let old = ChatConfig {
+            model: Some("qwen3.8:27b-mlx".into()),
+            prepared_for_model: Some("qwen3.8:27b-mlx".into()),
+            prepared_without_calibration: true,
+            ..ChatConfig::default()
+        };
+        save_chat_config(root.path(), &old).unwrap_or_else(|e| panic!("{}", e.context));
+        let config = load_chat_config(root.path()).unwrap_or_else(|e| panic!("{}", e.context));
+        assert!(config.model.is_none());
+        assert!(config.prepared_for_model.is_none());
+        assert!(!chat_is_prepared(&config));
+        // Loading must neither overwrite the old settings nor delete weights.
+        let bytes = fs::read(chat_config_path(root.path())).unwrap();
+        let saved: ChatConfig = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(saved.model, old.model);
+    }
+
+    #[test]
+    fn saved_gemma_model_remains_selected() {
+        let root = tempfile::tempdir().unwrap();
+        let model = pwr_domain::gemma::PACKS[0].model_ref.to_owned();
+        save_chat_config(
+            root.path(),
+            &ChatConfig {
+                model: Some(model.clone()),
+                ..ChatConfig::default()
+            },
+        )
+        .unwrap_or_else(|e| panic!("{}", e.context));
+        assert_eq!(
+            load_chat_config(root.path())
+                .unwrap_or_else(|e| panic!("{}", e.context))
+                .model,
+            Some(model)
+        );
     }
 
     /// Selecting a model opens a supervised manual path; a prior inspection
