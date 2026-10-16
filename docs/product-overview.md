@@ -1,7 +1,13 @@
 # Product overview
 
-**Release v0.4.0-alpha, 2026-10-15.** This page describes the behaviour of
-that release. The previous release was v0.3.0-alpha (2026-10-07).
+**Release v0.4.1-alpha, 2026-10-16.** This page describes the behaviour of
+that release. The previous release was v0.4.0-alpha (2026-10-15).
+
+The 0.4.1 maintenance update adds independent terminal tabs, resolves terminal
+colours in the active theme, and uses an isolated local-only native webview
+for desktop preview. Historical durations reconstructed from the request are
+labelled “since request”, including queue time. Reopened historical conversations
+do not currently restore Review diffs.
 
 ## Purpose and intended use
 
@@ -123,7 +129,7 @@ generation. This is not a cap on weights, KV cache or total RAM.
   reinstallation.
 
 See the [changelog](../CHANGELOG.md) and the
-[v0.4.0-alpha release notes](release/v0.4.0-alpha-release-notes.md).
+[v0.4.1-alpha release notes](release/v0.4.1-alpha-release-notes.md).
 
 ## Experimental Goal support
 

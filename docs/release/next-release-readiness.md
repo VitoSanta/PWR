@@ -1,5 +1,14 @@
 # Next macOS alpha release — preparation checklist
 
+Latest public release: **v0.4.1-alpha, 2026-10-16**, source `92cfda2b`.
+[Release verification](v0.4.1-alpha-verification.md): 111 frontend tests,
+4 desktop Rust tests, 1,557 workspace tests passed (6 ignored);
+[hosted checks and package build](https://github.com/VitoSanta/PWR/actions/runs/38825003454)
+passed. Native terminal/preview upgrade checks were run. Fresh-machine install
+and historical Review restoration remain outside that verification.
+
+The following notes are historical and are not current release gates.
+
 **v0.4.0-alpha was released on 2026-10-15** (tag on `b4f9e630`); what was
 checked for it is recorded in its
 [release notes](v0.4.0-alpha-release-notes.md). The checklist below is the
