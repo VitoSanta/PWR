@@ -5,6 +5,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  Injectable,
   OnDestroy,
   computed,
   effect,
@@ -532,6 +533,12 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
   }
 }
 
+/** Session-only navigation survives card disposal without leaking across workspaces. */
+@Injectable({ providedIn: 'root' })
+export class PreviewNavigation {
+  readonly addresses = new Map<string, { url: string; followed: string }>();
+}
+
 /** Web preview: the app the workspace serves on this machine. */
 @Component({
   selector: 'pa-browser-card',
@@ -572,6 +579,8 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BrowserCard {
+  private readonly navigation = inject(PreviewNavigation);
+  private workspace: string | undefined;
   protected readonly native = inTauri();
   protected readonly frameAddress = signal('');
   private readonly agent = inject(AgentStore);
@@ -603,9 +612,20 @@ export class BrowserCard {
     // opened here without being copied over -- unless the person has put an
     // address of their own in the bar.
     effect(() => {
+      const workspace = this.agent.workspace();
       const address = normalize(this.suggestions()[0] ?? '');
-      if (!address || address === this.followed) return;
       untracked(() => {
+        if (workspace !== this.workspace) {
+          this.workspace = workspace;
+          const saved = this.navigation.addresses.get(workspace);
+          this.followed = saved?.followed ?? '';
+          this.url.set(saved?.url ?? '');
+          this.error.set('');
+          this.frame.set(null);
+          this.frameAddress.set('');
+          if (saved?.url) this.show(saved.url);
+        }
+        if (!address || address === this.followed) return;
         if (this.url() && this.url() !== this.followed) return;
         this.followed = address;
         this.error.set('');
@@ -639,6 +659,7 @@ export class BrowserCard {
 
   private show(address: string): void {
     // Only an address `normalize` accepted reaches here: this machine, http.
+    this.navigation.addresses.set(this.agent.workspace(), { url: this.url(), followed: this.followed });
     this.frameAddress.set(address);
     this.frame.set(this.sanitizer.bypassSecurityTrustResourceUrl(address));
   }
