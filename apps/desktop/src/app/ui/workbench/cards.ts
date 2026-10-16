@@ -468,7 +468,8 @@ export class FilesCard {
               Terminal {{ session.key }}
               @if (session.state() === 'exited') { <span class="t-meta"> · ended</span> }
             </button>
-            <button class="icon-btn icon-btn-sm" [attr.aria-label]="'Close Terminal ' + session.key"
+            <button class="terminal-tab-close" [attr.aria-label]="'Close Terminal ' + session.key"
+              [paTooltip]="'Close Terminal ' + session.key"
               (click)="terminal.closeSession(session.key)"><pa-icon name="x" [size]="12" /></button>
           </div>
         }
