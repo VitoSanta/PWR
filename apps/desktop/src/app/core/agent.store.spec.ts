@@ -14,6 +14,25 @@ describe('AgentStore context', () => {
     expect(request).toHaveBeenCalledWith('_pwr/models', expect.objectContaining({ model: 'mlx-community/gemma-4-26b-a4b-it-4bit' }));
   });
 
+  it('clears the previous run outcome when opening another workspace', async () => {
+    vi.spyOn(bridge, 'start').mockResolvedValue({ core: '/tmp/pwr', workspace: '/tmp/next', generation: 1 });
+    vi.spyOn(store as any, 'request').mockImplementation(async (...args: unknown[]) => {
+      const method = args[0] as string;
+      if (method === 'initialize') return { _meta: { pwr: { chatHome: '/tmp/chat' } } };
+      if (method === '_pwr/models') return { installed: [], model: null };
+      if (method === 'session/list') return { sessions: [] };
+      if (method === '_pwr/approvals') return { mode: 'ask', sandboxed: true, asking: [] };
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    store.runOutcome.set({ terminal: 'completed', text: 'Finished after 0 actions.', detail: null, action: null, tone: 'done', confinement: 'Sandboxed' });
+    store.outcome.set('Finished after 0 actions.');
+
+    await store.openWorkspace('/tmp/next');
+
+    expect(store.runOutcome()).toBeNull();
+    expect(store.outcome()).toBe('');
+  });
+
   it('turns thinking on and off through the core and shows what it said', async () => {
     const request = vi.spyOn(store as any, 'request').mockResolvedValue({ thinking: true, thoughtCapTokens: 4096 });
     await store.setThinking(true);

@@ -167,7 +167,7 @@ export class FocusShell {
   protected readonly strip = signal<'bar' | 'pointer' | null>(null);
   protected readonly pointer = signal({ x: 0, y: 0 });
   protected readonly stripOpenings = signal(0);
-  private readonly toolsRef = viewChild.required<ElementRef<HTMLElement>>('toolsButton');
+  private readonly toolsRef = viewChild.required<ElementRef<HTMLElement>, ElementRef<HTMLElement>>('toolsButton', { read: ElementRef });
 
   constructor() {
     // Focus uses standalone cards and starts with the conversation.

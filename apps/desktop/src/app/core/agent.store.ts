@@ -304,6 +304,8 @@ export class AgentStore {
     this.sessionId.set(null);
     this.timeline.set([]);
     this.changes.set([]);
+    this.outcome.set('');
+    this.runOutcome.set(null);
     try {
       // Requests to the core being replaced will never be answered.
       for (const waiting of this.pending.values()) waiting.reject(new Error('the workspace changed'));
