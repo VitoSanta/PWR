@@ -5,7 +5,8 @@ import { ModelsStore, isTerminal } from './models.store';
 /** Summaries being written for a workspace's wiki. */
 export interface Summarising {
   cwd: string;
-  state: 'started' | 'writing' | 'finished';
+  state: 'started' | 'writing' | 'finished' | 'failed';
+  error?: string;
   module?: string;
   written: number;
 }
@@ -25,7 +26,7 @@ export class ActivityStore {
   );
   /** How many things are running now, for the card's badge. */
   readonly running = computed(
-    () => (this.summarising() && this.summarising()!.state !== 'finished' ? 1 : 0) + this.downloads().length,
+    () => (this.summarising() && !['finished', 'failed'].includes(this.summarising()!.state) ? 1 : 0) + this.downloads().length,
   );
 
   constructor() {
@@ -34,13 +35,16 @@ export class ActivityStore {
         cwd: String(params.cwd ?? ''),
         state: params.state ?? 'started',
         module: params.module,
+        error: params.error,
         written: Number(params.written ?? 0),
       });
     });
   }
 
   /** Writes the workspace's missing or stale summaries now. */
-  summariseNow(): Promise<unknown> {
-    return this.agent.call('_pwr/wiki_summarise', { cwd: this.agent.workspace() });
+  async summariseNow(): Promise<unknown> {
+    const reply = await this.agent.call('_pwr/wiki_summarise', { cwd: this.agent.workspace() });
+    if (!reply.started) throw new Error('Summaries could not start while the core is busy. Try again when the current work finishes.');
+    return reply;
   }
 }

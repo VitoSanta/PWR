@@ -20,8 +20,8 @@ export interface CardInfo {
 export const CARDS: CardInfo[] = [
   { id: 'review', label: 'Review', icon: 'git-compare', description: 'What PWR changed, file by file', keys: 'Ctrl+Shift+G', workspace: true },
   { id: 'terminal', label: 'Terminal', icon: 'terminal', description: 'Your shell, in this workspace', keys: 'Ctrl+`', workspace: true },
-  { id: 'browser', label: 'Web preview', icon: 'globe', description: 'The app this machine serves, on localhost', keys: 'Mod+Shift+T' },
-  { id: 'files', label: 'Files', icon: 'folder', description: 'Browse and read the workspace', keys: 'Mod+P', workspace: true },
+  { id: 'browser', label: 'Browser', icon: 'globe', description: 'Browse websites and share tab control with PWR', keys: 'Mod+Shift+T' },
+  { id: 'files', label: 'Editor', icon: 'folder', description: 'Create, edit and review project files', keys: 'Mod+P', workspace: true },
   { id: 'knowledge', label: 'Knowledge', icon: 'target', description: 'The project as a graph, with what was done' },
   { id: 'plan', label: 'Plan & checks', icon: 'shield-check', description: 'Verify, report, diagnose', workspace: true },
   { id: 'activity', label: 'Activity', icon: 'activity', description: 'Background work and the core log' },
@@ -167,7 +167,8 @@ export class WorkbenchStore {
   /** Opens a card, or brings it back if collapsed, and shows the column. */
   show(id: CardId): void {
     if (!this.usable(id)) return;
-    this.animate(() => this.showNow(id));
+    const arriving = !this.open().some((card) => card.id === id);
+    this.animate(() => this.showNow(id), arriving ? { enter: id } : undefined);
   }
 
   private showNow(id: CardId): void {
@@ -184,13 +185,14 @@ export class WorkbenchStore {
   /** A shortcut's toggle: shows a card, or closes it when it is showing. */
   toggle(id: CardId): void {
     if (!this.usable(id)) return;
+    if (this.maximized() && this.maximized() !== id) { this.show(id); return; }
     const card = this.open().find((item) => item.id === id);
     if (card && !card.collapsed && this.panelVisible()) this.close(id);
     else this.show(id);
   }
 
   close(id: CardId): void {
-    this.animate(() => this.closeNow(id));
+    this.animate(() => this.closeNow(id), { exit: id });
   }
 
   private closeNow(id: CardId): void {
@@ -247,8 +249,12 @@ export class WorkbenchStore {
    * others jumping when one opens, closes or moves. Where the platform has
    * no view transitions, or the person asked for less motion, it is
    * instant.
+   *
+   * `motion` names the card that arrives or leaves: the page marks it, and the
+   * styles slide that card in or out. It does not rely on the browser telling
+   * a card with no pair from one that merely moved.
    */
-  private animate(change: () => void): void {
+  private animate(change: () => void, motion?: { enter?: CardId; exit?: CardId }): void {
     const start = (document as Document & { startViewTransition?: (update: () => void) => unknown })
       .startViewTransition;
     const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -256,6 +262,13 @@ export class WorkbenchStore {
       change();
       return;
     }
+    const root = document.documentElement;
+    if (motion?.enter) root.dataset['wbEnter'] = motion.enter;
+    if (motion?.exit) root.dataset['wbExit'] = motion.exit;
+    const clear = () => {
+      delete root.dataset['wbEnter'];
+      delete root.dataset['wbExit'];
+    };
     const transition = start.call(document, () => {
       change();
       // The new layout has to be on the page before the transition's
@@ -265,7 +278,8 @@ export class WorkbenchStore {
     // A transition the browser gives up on -- the window hidden, another one
     // started over it -- has still made its change; only the motion is lost.
     transition?.ready?.catch(() => undefined);
-    transition?.finished?.catch(() => undefined);
+    if (transition?.finished) transition.finished.then(clear, clear);
+    else clear();
   }
 
   private persist(): void {

@@ -6,6 +6,18 @@ ADR series (ADR-001 to ADR-012) and the decisions scattered through the old
 roadmap and backlog are in the [archive](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/README.md); where one of them
 still holds it is restated here.
 
+## D-2026-10-16-1 — The Browser stays on the system web view
+
+**Decision, the owner's choice of 2026-10-16.** The Browser tool shows pages in
+a native child web view of the PWR window (WebKit through Tauri), not a
+separate renderer. A CEF off-screen path was built and measured: it was
+choppy, needed a worker process, a keychain prompt for cookies and a second
+app bundle, and could not be made fluid. It was removed.
+
+**Kept:** address validation, tab ownership, model/user control, bounded
+snapshots and page isolation (remote pages get no PWR IPC). The page presents
+itself as Safari so sites serve their current interface.
+
 ---
 
 ## D-2026-10-02-1 — The stack-matrix runner is the product-path evaluator

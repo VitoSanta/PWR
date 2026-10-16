@@ -219,7 +219,7 @@ export class Settings {
     { label: 'Show or hide tools', keys: SHORTCUTS.toggleInspector },
     { label: 'Review', keys: SHORTCUTS.review },
     { label: 'Terminal', keys: SHORTCUTS.terminal },
-    { label: 'Web preview', keys: SHORTCUTS.browser },
+    { label: 'Browser', keys: SHORTCUTS.browser },
     { label: 'Files', keys: SHORTCUTS.files },
     { label: 'Settings', keys: SHORTCUTS.settings },
     { label: 'Send message', keys: 'Enter' },

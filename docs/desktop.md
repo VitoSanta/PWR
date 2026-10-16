@@ -49,13 +49,13 @@ itself — a revert asks the core.
   [tools-and-sandbox.md](tools-and-sandbox.md#permission-modes).
 - **Permission questions**: allow once, for the session, or reject, with the
   exact command.
-- **Workbench cards**: Review, Terminal, Web preview, Files, Knowledge,
+- **Workbench cards**: Review, Terminal, Browser, Files, Knowledge,
   Plan & checks, and Activity. Cards can be resized, moved and maximised.
   **Analyze terminal** and **Analyze page** append a diagnostic request to the
   composer without replacing its draft. Send the request to ask the model to
   use `read_terminal` (with permission), `check_page` (rendered text and console)
   or `look_at` (also a screenshot, for vision models). The browser check loads
-  the URL separately from the embedded preview; it does not share its login
+  the URL separately from the Browser card; it does not share its login
   state. Both page tools accept up to 12 click/type/press steps, including
   option selection and scrolling. The completed action shows a screenshot
   in chat, also when a text-only model receives only text. Steps use DOM

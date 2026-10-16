@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
-import { previewVisible } from './native-preview';
+import { webViewVisible } from './web-view';
 
-describe('Native preview occlusion', () => {
+describe('Web view occlusion', () => {
   it('hides the child webview behind a menu, outside the viewport, and after detach', () => {
     const surface = document.createElement('div'); document.body.append(surface);
     const rect = new DOMRect(10, 10, 200, 100);
@@ -9,13 +9,13 @@ describe('Native preview occlusion', () => {
     const original = document.elementFromPoint;
     Object.defineProperty(document, 'elementFromPoint', {configurable: true, value: hit});
     try {
-      expect(previewVisible(surface, rect)).toBe(true);
+      expect(webViewVisible(surface, rect)).toBe(true);
       hit.mockReturnValue(document.body);
-      expect(previewVisible(surface, rect)).toBe(false);
+      expect(webViewVisible(surface, rect)).toBe(false);
       hit.mockReturnValue(surface);
-      expect(previewVisible(surface, new DOMRect(innerWidth - 10, 10, 200, 100))).toBe(false);
+      expect(webViewVisible(surface, new DOMRect(innerWidth - 10, 10, 200, 100))).toBe(false);
       surface.remove();
-      expect(previewVisible(surface, rect)).toBe(false);
+      expect(webViewVisible(surface, rect)).toBe(false);
     } finally {
       Object.defineProperty(document, 'elementFromPoint', {configurable: true, value: original});
       surface.remove();

@@ -31,6 +31,8 @@ describe('AgentStore context', () => {
 
     expect(store.runOutcome()).toBeNull();
     expect(store.outcome()).toBe('');
+    expect(store.logs().join('\n')).toContain('Core initialized; protocol ready.');
+    expect(store.logLines().at(-1)?.line).toBe('Core initialized; protocol ready.');
   });
 
   it('turns thinking on and off through the core and shows what it said', async () => {

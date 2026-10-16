@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-16",
+  "installed_app": "/Applications/PWR.app",
+  "scope": "Shared workspace implementation after tool audit; no model inference or comparison",
+  "checks": {
+    "frontend": {
+      "passed": 134,
+      "files": 22
+    },
+    "core_suites": {
+      "passed": 1079,
+      "failed": 0,
+      "ignored": 4
+    },
+    "native": {
+      "passed": 6
+    },
+    "browser_dom_bridge": {
+      "passed": 2
+    },
+    "protocol_same_session": {
+      "passed": 1
+    },
+    "targeted_core_regressions": "passed",
+    "release_bundle": "passed",
+    "codesign_verify": "passed",
+    "git_diff_check": "passed"
+  },
+  "native_checks": [
+    "Final installed Editor lists workspace without another Desktop permission request",
+    "Monaco renders index.html with Save/Reload/Diff/Ask PWR controls",
+    "Created file and folder, saved text verified on disk, renamed file, removed and restored test folder in previous feature build",
+    "Final installed build removes expanded test folder without stale directory error; Undo removal remains available",
+    "Visible Terminal starts Python HTTP server; Browser renders its local page",
+    "Inspect page reads one button and Counter: 0; bridge Click changes live DOM and snapshot to Counter: 1",
+    "Temporary server interrupted through Terminal Stop; listening port closed",
+    "Core Log displays core path and successful protocol initialization",
+    "CEF prototype opens and renders example.com in separate native Chromium window"
+  ],
+  "limitations": [
+    "No live model generation performed; bridge checked with scripted protocol and unit tests",
+    "CEF prototype is separate; docking and model adapter are not implemented",
+    "No language servers, browser downloads or native dialog automation",
+    "Unsaved editor buffers survive card/workspace switches, not application restart",
+    "No claim that all possible tool bugs have been eliminated"
+  ],
+  "cleanup": "Only generated editor test folder moved to recoverable project trash; browser test tab closed and HTTP server stopped",
+  "backup": "/tmp/pwr-shared-workspace-20261016/PWR-before.app",
+  "installed_core_sha256": "85cf3911ee2e67fd7ccbbddeb3e3e624b4ccb440e13855d083128c49e9553da1"
+}

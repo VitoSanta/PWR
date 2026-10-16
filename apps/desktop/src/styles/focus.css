@@ -104,33 +104,100 @@
   view-transition-class: wb-card;
 }
 
-/* A tool card arriving slides in from the right edge; one closing leaves
-   the same way, faster, accelerating out -- as Material's side sheets do. */
-::view-transition-new(*.wb-card):only-child {
-  animation: wb-card-enter 320ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
-}
-
-::view-transition-old(*.wb-card):only-child {
-  animation: wb-card-exit 200ms cubic-bezier(0.3, 0, 0.8, 0.15) both;
-}
-
+/* A tool card arrives by sliding in from the right edge, on the conversation's
+   own curve and for as long as its glide, so card and chat move as one. */
 @keyframes wb-card-enter {
   from {
     opacity: 0;
-    transform: translateX(40px) scale(0.98);
+    transform: translateX(48px) scale(0.98);
+  }
+
+  40% {
+    opacity: 1;
   }
 }
 
 @keyframes wb-card-exit {
   to {
     opacity: 0;
-    transform: translateX(40px) scale(0.98);
+    transform: translateX(56px) scale(0.94);
   }
 }
 
+/* On close the card goes first -- it slides out, shrinks and fades -- and the
+   conversation starts to glide to its new centre only as the card thins out,
+   so the two never cross. The delay is on the whole pair of pictures, or the
+   old one would fade to the new early. */
+html[data-wb-exit]::view-transition-group(focus-conversation),
+html[data-wb-exit]::view-transition-old(focus-conversation),
+html[data-wb-exit]::view-transition-new(focus-conversation),
+html[data-wb-exit]::view-transition-group(focus-composer),
+html[data-wb-exit]::view-transition-old(focus-composer),
+html[data-wb-exit]::view-transition-new(focus-composer) {
+  animation-delay: 160ms;
+}
+
+/* Stacking in a transition is explicit, not left to the order of the page:
+   the conversation, then the bar, then the cards, and the wheel over all. */
+::view-transition-group(focus-conversation) {
+  z-index: 1;
+}
+
+::view-transition-group(focus-composer) {
+  z-index: 2;
+}
+
+::view-transition-group(wb-review),
+::view-transition-group(wb-knowledge),
+::view-transition-group(wb-files),
+::view-transition-group(wb-terminal),
+::view-transition-group(wb-browser),
+::view-transition-group(wb-activity),
+::view-transition-group(wb-plan) {
+  z-index: 3;
+}
+
+::view-transition-group(tool-wheel) {
+  z-index: 4;
+}
+
+/* The card that arrives or leaves is named on the page (WorkbenchStore), so
+   its motion does not depend on the browser's reading of an unpaired card.
+   A leaving card is hidden in the new picture, where it may still be for a
+   frame, and slides out of the old one. */
+html[data-wb-enter='review']::view-transition-new(wb-review),
+html[data-wb-enter='knowledge']::view-transition-new(wb-knowledge),
+html[data-wb-enter='files']::view-transition-new(wb-files),
+html[data-wb-enter='terminal']::view-transition-new(wb-terminal),
+html[data-wb-enter='browser']::view-transition-new(wb-browser),
+html[data-wb-enter='activity']::view-transition-new(wb-activity),
+html[data-wb-enter='plan']::view-transition-new(wb-plan) {
+  animation: wb-card-enter 360ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+html[data-wb-exit='review']::view-transition-old(wb-review),
+html[data-wb-exit='knowledge']::view-transition-old(wb-knowledge),
+html[data-wb-exit='files']::view-transition-old(wb-files),
+html[data-wb-exit='terminal']::view-transition-old(wb-terminal),
+html[data-wb-exit='browser']::view-transition-old(wb-browser),
+html[data-wb-exit='activity']::view-transition-old(wb-activity),
+html[data-wb-exit='plan']::view-transition-old(wb-plan) {
+  animation: wb-card-exit 240ms cubic-bezier(0.3, 0, 0.8, 0.15) both;
+}
+
+html[data-wb-exit='review']::view-transition-new(wb-review),
+html[data-wb-exit='knowledge']::view-transition-new(wb-knowledge),
+html[data-wb-exit='files']::view-transition-new(wb-files),
+html[data-wb-exit='terminal']::view-transition-new(wb-terminal),
+html[data-wb-exit='browser']::view-transition-new(wb-browser),
+html[data-wb-exit='activity']::view-transition-new(wb-activity),
+html[data-wb-exit='plan']::view-transition-new(wb-plan) {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-new(*.wb-card):only-child,
-  ::view-transition-old(*.wb-card):only-child {
+  ::view-transition-new(*),
+  ::view-transition-old(*) {
     animation: none;
   }
 }
@@ -719,6 +786,25 @@
 
 .tool-wheel-layer.is-leaving .tool-wheel {
   animation: wheel-out 140ms var(--ease) both;
+}
+
+/* Opening a tool runs a view transition, whose named groups (the cards, the
+   conversation) are painted over the page: the wheel, left in the page, went
+   under them and came back after. Named too, it stays over them, live and still. */
+.tool-wheel {
+  view-transition-name: tool-wheel;
+}
+
+::view-transition-group(tool-wheel) {
+  animation: none;
+}
+
+::view-transition-old(tool-wheel) {
+  display: none;
+}
+
+::view-transition-new(tool-wheel) {
+  animation: none;
 }
 
 .tool-wheel-disc {

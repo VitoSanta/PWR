@@ -51,7 +51,7 @@ screenshot depends on the pack declaring a vision encoder.
 - **Desktop:** Angular and Tauri on Material 3, light and dark. The
   conversation fills the window; every control sits in the message bar,
   which folds into the PWR mark at rest. Tools (review, terminal tabs, files,
-  web preview, knowledge, checks, activity) open from a right-click wheel and
+  web browser, knowledge, checks, activity) open from a right-click wheel and
   sit beside the conversation as resizable cards.
 - **Rust core:** `pwr serve --stdio`, using ACP/JSON-RPC with `_pwr/*`
   extensions. The interface asks the core to perform changes, including Revert.

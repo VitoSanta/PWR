@@ -1,5 +1,4 @@
 import { TestBed } from '@angular/core/testing';
-import { normalize } from '../ui/workbench/cards';
 import { AgentStore } from './agent.store';
 import { LayoutService, MAIN_MIN, RIGHT } from './layout';
 import { WorkbenchStore } from './workbench';
@@ -117,21 +116,5 @@ describe('WorkbenchStore', () => {
     work.show('activity');
     work.show('knowledge');
     expect(work.visible().map((card) => card.id)).toEqual(['review', 'activity', 'knowledge']);
-  });
-});
-
-describe('the Web preview card', () => {
-  it('previews only pages on this machine', () => {
-    expect(normalize('localhost:4200')).toBe('http://localhost:4200/');
-    expect(normalize('http://127.0.0.1:8000/docs')).toBe('http://127.0.0.1:8000/docs');
-    expect(normalize('https://example.com')).toBeNull();
-    expect(normalize('file:///etc/passwd')).toBeNull();
-    expect(normalize('javascript:alert(1)')).toBeNull();
-    expect(normalize('')).toBeNull();
-    // Only what the frame's policy admits.
-    expect(normalize('http://[::1]:3000')).toBeNull();
-    // The app's own origin is never framed: same-origin scripts would reach it.
-    expect(normalize('localhost:4200', 'http://localhost:4200')).toBeNull();
-    expect(normalize('localhost:4201', 'http://localhost:4200')).toBe('http://localhost:4201/');
   });
 });

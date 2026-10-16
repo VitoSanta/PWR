@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-16",
+  "scope": "Tool and workbench debugging; no inference or model comparison",
+  "fixes": [
+    "Knowledge waits for core initialization and discards obsolete replies",
+    "Knowledge refresh rebuilds current files and repairs corrupt graph cache; chat reads remain read-only",
+    "Graph renderer lazy initialization serialized and disposed callbacks ignored",
+    "Graph theme colours resolved to sRGB before ThreeJS/tinycolor",
+    "Core log records lifecycle and protocol/transport errors",
+    "Files ignores obsolete requests across navigation/workspace changes",
+    "Terminal subscribes before PTY creation and replays bounded initial output/exit events",
+    "Web preview validates local port, credentials and app-origin aliases",
+    "Summary engine/storage errors are surfaced as failed activity; rejected start requests are visible"
+  ],
+  "checks": {
+    "initial_core_tool_orchestrator_suites": "passed",
+    "frontend": {
+      "files": 21,
+      "passed": 126
+    },
+    "protocol": {
+      "passed": 79
+    },
+    "desktop_bridge": {
+      "passed": 4
+    },
+    "release_app_build": "passed",
+    "codesign_verify": "passed",
+    "installed_core_sha256": "79292b1025f805d5573249193d430c7bee7754efea5ba36cbf3c95aae4b6b1d5"
+  },
+  "native_checks": [
+    "Core log lifecycle text visible",
+    "Knowledge overview rebuilt for current workspace (11 files, 63 edges)",
+    "Files lists workspace and reads index.html",
+    "Terminal shell prompt visible",
+    "Temporary http.server launched in visible terminal; preview rendered game and GIOCA changed HUD; server stopped",
+    "Final installed build: coloured 3D nodes, labels and edges visually confirmed after Desktop permission consent"
+  ],
+  "pending": [],
+  "limitations": [
+    "No live model generations performed",
+    "Chrome/WebMCP/shared interactive browser not implemented in this bug-fix pass",
+    "No blanket claim that every possible tool bug is eliminated"
+  ],
+  "backup": "/tmp/pwr-tools-audit-20261016/PWR-before.app"
+}

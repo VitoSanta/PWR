@@ -450,8 +450,8 @@ a.mat-mdc-icon-button {
 }
 
 .tab[aria-selected='true'] {
-  background: var(--surface-active);
-  color: var(--text-primary);
+  background: var(--accent-soft);
+  color: var(--accent-secondary-text);
 }
 
 /* --------------------------------------------------------------- badges */

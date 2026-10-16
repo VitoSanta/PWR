@@ -18,7 +18,6 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivityStore } from '../../core/activity';
 import { AgentStore } from '../../core/agent.store';
 import { bridge, inTauri } from '../../core/bridge';
-import { NativePreview } from './native-preview';
 import { bytes, percent } from '../../core/format';
 import { DownloadView, FileDiff } from '../../core/model';
 import { TerminalService } from '../../core/terminal';
@@ -26,6 +25,7 @@ import { ConfirmService, ToastService } from '../../core/ui';
 import { WorkbenchStore } from '../../core/workbench';
 import { Diff, diffStats } from '../diff';
 import { Icon, IconName } from '../kit/icon';
+import { Action, EmptyState, ToolBar, ToolTab } from '../kit/tool';
 import { Tooltip } from '../kit/tooltip';
 
 async function copyText(toast: ToastService, text: string): Promise<void> {
@@ -40,19 +40,19 @@ async function copyText(toast: ToastService, text: string): Promise<void> {
 /** Review: what PWR changed in this conversation, file by file. */
 @Component({
   selector: 'pa-review-card',
-  imports: [MatButtonModule, Diff, Icon, Tooltip],
+  imports: [MatButtonModule, Diff, Icon, Action, ToolBar, EmptyState],
   template: `
     @if (store.changes().length) {
-      <div class="card-toolbar">
+      <pa-tool-bar>
         <span class="num">{{ store.changes().length }} file{{ store.changes().length === 1 ? '' : 's' }}</span>
         <span class="num text-success">+{{ totals().added }}</span>
         <span class="num text-danger">−{{ totals().removed }}</span>
         <span class="spacer"></span>
-        <button matButton class="btn btn-sm btn-ghost" (click)="revertAll()" [disabled]="store.turnActive()">
-          <pa-icon name="undo" [size]="14" /> Revert all
+        <button matButton class="btn btn-sm btn-danger-quiet" (click)="revertAll()" [disabled]="store.turnActive()">
+          <pa-icon name="undo" [size]="16" /> Revert all
         </button>
-      </div>
-      <div class="card-scroll card-pad">
+      </pa-tool-bar>
+      <div class="card-scroll card-pad review-list">
         @for (change of store.changes(); track change.path; let first = $first) {
           <details class="change" [open]="first">
             <summary>
@@ -62,30 +62,24 @@ async function copyText(toast: ToastService, text: string): Promise<void> {
                 <span class="add">+{{ stats(change).added }}</span>
                 <span class="del">−{{ stats(change).removed }}</span>
               </span>
-              <button matIconButton
-                class="icon-btn icon-btn-sm"
+              <pa-action
+                icon="file"
                 (click)="$event.preventDefault(); $event.stopPropagation(); work.openFile(change.path)"
-                [attr.aria-label]="'Open ' + change.path"
-                paTooltip="Open in Files"
-              >
-                <pa-icon name="file" [size]="14" />
-              </button>
-              <button matIconButton
-                class="icon-btn icon-btn-sm"
+                [label]="'Open ' + change.path + ' in Editor'"
+              />
+              <pa-action
+                icon="undo"
                 (click)="$event.preventDefault(); $event.stopPropagation(); revert(change)"
                 [disabled]="store.turnActive()"
-                [attr.aria-label]="'Revert ' + change.path"
-                paTooltip="Revert this file"
-              >
-                <pa-icon name="undo" [size]="14" />
-              </button>
+                [label]="'Revert ' + change.path"
+              />
             </summary>
             <pa-diff [diff]="change" />
           </details>
         }
       </div>
     } @else {
-      <p class="card-empty">Files PWR edits in this conversation appear here, with their diffs.</p>
+      <pa-empty-state icon="git-compare" title="No changes yet">Files PWR edits in this conversation appear here, with their diffs.</pa-empty-state>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -140,20 +134,20 @@ type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
 /** Plan & checks: the workspace's checks and the session's reports. */
 @Component({
   selector: 'pa-plan-card',
-  imports: [MatButtonModule, Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Tooltip, Action, EmptyState],
   template: `
     <div class="card-pad card-scroll">
       <div class="plan-actions">
         @for (command of commands; track command.id) {
-          <button
-            [class]="command.id === 'verify' ? 'btn btn-sm btn-primary' : 'btn btn-sm'"
-            (click)="store.runCommand(command.id)"
-            [disabled]="!!store.commandRunning()"
-            [attr.aria-busy]="store.commandRunning() === command.id"
-            [paTooltip]="command.help"
-          >
-            <pa-icon [name]="command.icon" [size]="14" /> {{ command.label }}
-          </button>
+          @if (command.id === 'verify') {
+            <button matButton="filled" class="btn btn-primary" (click)="store.runCommand(command.id)" [disabled]="!!store.commandRunning()" [attr.aria-busy]="store.commandRunning() === command.id" [paTooltip]="command.help">
+              <pa-icon [name]="command.icon" [size]="16" /> {{ command.label }}
+            </button>
+          } @else {
+            <button matButton="tonal" class="btn" (click)="store.runCommand(command.id)" [disabled]="!!store.commandRunning()" [attr.aria-busy]="store.commandRunning() === command.id" [paTooltip]="command.help">
+              <pa-icon [name]="command.icon" [size]="16" /> {{ command.label }}
+            </button>
+          }
         }
       </div>
       @if (store.commandOutput(); as output) {
@@ -164,14 +158,12 @@ type Command = 'verify' | 'changes' | 'report' | 'diagnose' | 'doctor';
               <span class="spinner spinner-sm" aria-hidden="true"></span>
             }
             <span class="spacer"></span>
-            <button matIconButton class="icon-btn icon-btn-sm" (click)="copy(output.text)" aria-label="Copy output" paTooltip="Copy">
-              <pa-icon name="copy" [size]="14" />
-            </button>
+            <pa-action icon="copy" label="Copy output" (click)="copy(output.text)" />
           </header>
           <pre class="output">{{ output.text }}</pre>
         </section>
       } @else {
-        <p class="card-empty">Run the workspace's checks, list the changes, or read the session's report.</p>
+        <pa-empty-state icon="shield-check" title="Nothing run yet">Run the workspace's checks, list the changes, or read the session's report.</pa-empty-state>
       }
     </div>
   `,
@@ -196,13 +188,15 @@ export class PlanCard {
 /** Activity: what runs in the background, and the core's log. */
 @Component({
   selector: 'pa-activity-card',
-  imports: [MatButtonModule, Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Action],
   template: `
     <div class="card-pad card-scroll">
       <ul class="activity-list">
         @if (activity.summarising(); as job) {
           <li class="activity-item">
-            @if (job.state === 'finished') {
+            @if (job.state === 'failed') {
+              <pa-icon name="alert" [size]="16" />
+            } @else if (job.state === 'finished') {
               <pa-icon name="check-circle" [size]="16" />
             } @else {
               <span class="spinner spinner-sm" aria-hidden="true"></span>
@@ -211,6 +205,7 @@ export class PlanCard {
               <span>Wiki summaries</span>
               <span class="t-meta">
                 @switch (job.state) {
+                  @case ('failed') { {{ job.error || 'Summary generation failed' }} }
                   @case ('finished') { {{ job.written }} written }
                   @case ('writing') { Writing {{ label(job.module) }} · {{ job.written }} done }
                   @default { Starting }
@@ -238,9 +233,7 @@ export class PlanCard {
         <header class="output-head">
           <span class="truncate mono" [attr.title]="store.corePath()">Core log</span>
           <span class="spacer"></span>
-          <button matIconButton class="icon-btn icon-btn-sm" (click)="copy(store.logs().join('\\n'))" [disabled]="!store.logs().length" aria-label="Copy log" paTooltip="Copy log">
-            <pa-icon name="copy" [size]="14" />
-          </button>
+          <pa-action icon="copy" label="Copy log" [disabled]="!store.logs().length" (click)="copy(store.logs().join('\\n'))" />
         </header>
         <pre class="output">{{ store.logs().join('\\n') || 'The core has written nothing to its log.' }}</pre>
       </section>
@@ -268,227 +261,51 @@ export class ActivityCard {
   }
 }
 
-interface FileEntry {
-  name: string;
-  path: string;
-  dir: boolean;
-  bytes: number;
-}
-
-/** Files: the workspace, a folder at a time, and one file read-only. */
-@Component({
-  selector: 'pa-files-card',
-  imports: [MatButtonModule, Icon, Tooltip],
-  template: `
-    <div class="card-toolbar files-path">
-      <button matIconButton class="icon-btn icon-btn-sm" (click)="up()" [disabled]="!folder() && !file()" aria-label="Up" paTooltip="Up">
-        <pa-icon name="arrow-up" [size]="14" />
-      </button>
-      <span class="truncate mono">{{ file()?.path || folder() || name() }}</span>
-      <span class="spacer"></span>
-      @if (file(); as open) {
-        <button matIconButton class="icon-btn icon-btn-sm" (click)="copyPath(open.path)" aria-label="Copy path" paTooltip="Copy path">
-          <pa-icon name="copy" [size]="14" />
-        </button>
-      }
-      <button matIconButton class="icon-btn icon-btn-sm" (click)="reload()" aria-label="Refresh" paTooltip="Refresh">
-        <pa-icon name="refresh" [size]="14" />
-      </button>
-    </div>
-    @if (error()) {
-      <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ error() }}</p>
-    }
-    @if (file(); as open) {
-      @if (open.binary) {
-        <p class="card-empty">A binary file ({{ size(open.bytes) }}); nothing to show as text.</p>
-      } @else {
-        <div class="file-view card-scroll" role="document" [attr.aria-label]="open.path" animate.enter="anim-fade-in">
-          @for (line of lines(); track $index) {
-            <div class="file-line"><span class="file-number" aria-hidden="true">{{ $index + 1 }}</span><span class="file-text">{{ line }}</span></div>
-          }
-        </div>
-        @if (open.truncated) {
-          <p class="fine card-pad">Shown up to 1 MB of {{ size(open.bytes) }}.</p>
-        }
-      }
-    } @else {
-      <ul class="file-list card-scroll" animate.enter="anim-fade-in">
-        @for (entry of entries(); track entry.path) {
-          <li>
-            <button class="file-entry" (click)="enter(entry)">
-              <pa-icon [name]="entry.dir ? 'folder' : 'file'" [size]="14" />
-              <span class="truncate">{{ entry.name }}</span>
-              @if (!entry.dir) {
-                <span class="t-meta num">{{ size(entry.bytes) }}</span>
-              }
-            </button>
-          </li>
-        } @empty {
-          <li class="card-empty">{{ loading() ? 'Reading…' : 'This folder is empty.' }}</li>
-        }
-      </ul>
-    }
-  `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-})
-export class FilesCard {
-  private readonly agent = inject(AgentStore);
-  private readonly work = inject(WorkbenchStore);
-  private readonly toast = inject(ToastService);
-  protected readonly folder = signal('');
-  protected readonly entries = signal<FileEntry[]>([]);
-  protected readonly file = signal<{ path: string; text?: string; bytes: number; binary: boolean; truncated?: boolean } | null>(null);
-  protected readonly loading = signal(false);
-  protected readonly error = signal('');
-  protected readonly lines = computed(() => (this.file()?.text ?? '').split('\n'));
-  protected readonly name = computed(() => this.agent.workspace().split('/').pop() || 'Workspace');
-  protected readonly size = bytes;
-
-  constructor() {
-    // Another card asked for a file: open it, with its folder behind it.
-    effect(() => {
-      const requested = this.work.fileRequest();
-      if (!requested) return;
-      untracked(() => {
-        this.work.fileRequest.set(null);
-        this.folder.set(requested.split('/').slice(0, -1).join('/'));
-        void this.open(requested);
-      });
-    });
-    // A different workspace: back to its root.
-    effect(() => {
-      this.agent.workspace();
-      untracked(() => {
-        this.file.set(null);
-        this.folder.set('');
-        void this.list();
-      });
-    });
-    // What PWR changes shows here without the reload button: after every
-    // edit it makes, when its turn ends, and every few seconds while a turn
-    // runs, since a command can create files no edit announces.
-    effect(() => {
-      this.agent.changes();
-      this.agent.turnActive();
-      untracked(() => void this.refresh());
-    });
-    const timer = setInterval(() => {
-      if (this.agent.turnActive()) void this.refresh();
-    }, 4000);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
-  }
-
-  /** The listing, or the open file, read again without the loading state:
-   *  nothing flickers, and a failure leaves what was shown. */
-  private async refresh(): Promise<void> {
-    const cwd = this.agent.workspace();
-    if (!cwd) return;
-    try {
-      const open = this.file();
-      if (open) {
-        const again = await this.agent.call('_pwr/file', { cwd, path: open.path });
-        if (this.file()?.path === open.path && again?.text !== open.text) this.file.set(again);
-        return;
-      }
-      const folder = this.folder();
-      const reply = await this.agent.call('_pwr/files', { cwd, path: folder });
-      const entries: FileEntry[] = reply.entries ?? [];
-      if (this.folder() === folder && JSON.stringify(entries) !== JSON.stringify(this.entries())) this.entries.set(entries);
-    } catch {
-      // Left as it was: the reload button says what went wrong.
-    }
-  }
-
-  protected enter(entry: FileEntry): void {
-    if (entry.dir) {
-      this.folder.set(entry.path);
-      void this.list();
-    } else {
-      void this.open(entry.path);
-    }
-  }
-
-  protected up(): void {
-    if (this.file()) {
-      this.file.set(null);
-      void this.list();
-      return;
-    }
-    this.folder.set(this.folder().split('/').slice(0, -1).join('/'));
-    void this.list();
-  }
-
-  protected reload(): void {
-    const open = this.file();
-    if (open) void this.open(open.path);
-    else void this.list();
-  }
-
-  protected copyPath(path: string): Promise<void> {
-    return copyText(this.toast, path);
-  }
-
-  private async list(): Promise<void> {
-    if (!this.agent.workspace()) return;
-    this.loading.set(true);
-    this.error.set('');
-    try {
-      const reply = await this.agent.call('_pwr/files', { cwd: this.agent.workspace(), path: this.folder() });
-      this.entries.set(reply.entries ?? []);
-    } catch (error) {
-      this.error.set(message(error));
-      this.entries.set([]);
-    } finally {
-      this.loading.set(false);
-    }
-  }
-
-  private async open(path: string): Promise<void> {
-    this.error.set('');
-    try {
-      this.file.set(await this.agent.call('_pwr/file', { cwd: this.agent.workspace(), path }));
-    } catch (error) {
-      this.error.set(message(error));
-    }
-  }
-}
+export { FilesCard } from './editor';
 
 /** Terminal: the person's shell in the workspace. */
 @Component({
   selector: 'pa-terminal-card',
-  imports: [MatButtonModule, Icon, Tooltip],
+  imports: [MatButtonModule, Icon, Action, ToolBar, ToolTab, EmptyState],
   template: `
-    <div class="terminal-tabs" aria-label="Terminal sessions">
-      <div class="terminal-tab-list" role="tablist" aria-label="Shells">
-        @for (session of terminal.sessions(); track session.key) {
-          <div class="terminal-tab">
-            <button role="tab" [attr.aria-selected]="terminal.activeId() === session.key"
-              [attr.tabindex]="terminal.activeId() === session.key ? 0 : -1"
-              (keydown)="tabKey($event, session.key)" (click)="terminal.select(session.key)">
-              Terminal {{ session.key }}
-              @if (session.state() === 'exited') { <span class="t-meta"> · ended</span> }
-            </button>
-            <button class="terminal-tab-close" [attr.aria-label]="'Close Terminal ' + session.key"
-              [paTooltip]="'Close Terminal ' + session.key"
-              (click)="terminal.closeSession(session.key)"><pa-icon name="x" [size]="12" /></button>
-          </div>
-        }
-      </div>
-      <button matIconButton class="icon-btn icon-btn-sm" aria-label="New terminal" paTooltip="New terminal"
-        (click)="terminal.newSession()"><pa-icon name="plus" [size]="15" /></button>
+    <div class="tool-tabs" role="tablist" aria-label="Shells">
+      @for (session of terminal.sessions(); track session.key) {
+        <pa-tool-tab
+          animate.leave="tool-out"
+          icon="terminal"
+          [label]="(session.modelOwned ? 'PWR process' : 'Terminal') + ' ' + session.key"
+          [note]="session.state() === 'exited' ? 'ended' : ''"
+          [active]="terminal.activeId() === session.key"
+          (keydown)="tabKey($event, session.key)"
+          (selected)="terminal.select(session.key)"
+          (closed)="terminal.closeSession(session.key)"
+        />
+      }
+      <pa-action icon="plus" label="New terminal" (click)="terminal.newSession()" />
     </div>
+    @if (terminal.active(); as active) {
+      <pa-tool-bar>
+        <span class="tool-status" [class.is-model]="active.controller() === 'model'">{{ active.modelOwned ? (active.launch.sandboxed ? 'Sandboxed process' : 'Process with full access') : 'Your shell' }} · {{ active.controller() === 'model' ? 'PWR controls input' : 'You control input' }}</span>
+        <span class="spacer"></span>
+        @if (active.modelOwned) {
+          @if (active.controller() === 'model') { <button matButton class="btn btn-sm" (click)="active.takeControl()">Take control</button> }
+          @else { <button matButton="tonal" class="btn btn-sm" (click)="active.giveControl()"><pa-icon name="sparkles" [size]="16" />Give control to PWR</button> }
+        }
+        <pa-action icon="stop" tone="danger" label="Stop the running command" [disabled]="active.state() !== 'running'" (click)="active.interrupt()" />
+      </pa-tool-bar>
+    }
     @if (terminal.state() === 'unavailable') {
-      <p class="card-empty">The terminal runs in the PWR app, not in a browser preview.</p>
+      <pa-empty-state icon="terminal" title="Desktop app only">The terminal runs in the PWR app, not in a browser preview.</pa-empty-state>
     } @else {
       @if (terminal.error()) {
-        <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ terminal.error() }}</p>
+        <p class="banner banner-danger tool-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ terminal.error() }}</p>
       }
       @if (terminal.state() === 'exited') {
-        <div class="card-toolbar">
-          <span class="t-meta">The shell has ended.</span>
+        <pa-tool-bar>
+          <span class="tool-status">The shell has ended.</span>
           <span class="spacer"></span>
-          <button matButton="outlined" class="btn btn-sm" (click)="terminal.restart()"><pa-icon name="refresh" [size]="14" /> New shell</button>
-        </div>
+          <button matButton="tonal" class="btn btn-sm" (click)="terminal.restart()"><pa-icon name="refresh" [size]="16" /> New shell</button>
+        </pa-tool-bar>
       }
       <div #host class="terminal-host" (click)="terminal.focus()"></div>
     }
@@ -534,157 +351,8 @@ export class TerminalCard implements AfterViewInit, OnDestroy {
   }
 }
 
-/** Session-only navigation survives card disposal without leaking across workspaces. */
-@Injectable({ providedIn: 'root' })
-export class PreviewNavigation {
-  readonly addresses = new Map<string, { url: string; followed: string }>();
-}
+export { BrowserCard } from './browser';
 
-/** Web preview: the app the workspace serves on this machine. */
-@Component({
-  selector: 'pa-browser-card',
-  imports: [MatButtonModule, Icon, Tooltip, NativePreview],
-  template: `
-    <form class="card-toolbar browser-bar" (submit)="$event.preventDefault(); go(address.value)">
-      <button matIconButton type="button" class="icon-btn icon-btn-sm" (click)="reload()" [disabled]="!url()" aria-label="Reload" paTooltip="Reload">
-        <pa-icon name="refresh" [size]="14" />
-      </button>
-      <input #address class="input input-sm browser-address" [value]="url()" placeholder="localhost:4200" aria-label="Address" spellcheck="false" />
-      <button matIconButton type="button" class="icon-btn icon-btn-sm" (click)="external()" [disabled]="!url()" aria-label="Open in your browser" paTooltip="Open in your browser">
-        <pa-icon name="external-link" [size]="14" />
-      </button>
-    </form>
-    @if (error()) {
-      <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ error() }}</p>
-    }
-    @if (frame(); as src) {
-      @if (native) {
-        <pa-native-preview [address]="frameAddress()" />
-      } @else {
-        <iframe class="browser-frame" [src]="src" title="Preview" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"></iframe>
-        <p class="t-meta card-banner">Some servers block browser embedding. Open this address in your browser, or use the PWR desktop app.</p>
-      }
-    } @else {
-      <div class="card-pad">
-        <p class="card-empty">Preview a page this machine serves: a development server, or one PWR started.</p>
-        @if (suggestions().length) {
-          <ul class="browser-suggestions">
-            @for (address of suggestions(); track address) {
-              <li><button matButton="outlined" class="btn btn-sm" (click)="go(address)"><pa-icon name="globe" [size]="14" /> {{ address }}</button></li>
-            }
-          </ul>
-        }
-      </div>
-    }
-  `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-})
-export class BrowserCard {
-  private readonly navigation = inject(PreviewNavigation);
-  private workspace: string | undefined;
-  protected readonly native = inTauri();
-  protected readonly frameAddress = signal('');
-  private readonly agent = inject(AgentStore);
-  private readonly sanitizer = inject(DomSanitizer);
-  protected readonly url = signal('');
-  protected readonly frame = signal<SafeResourceUrl | null>(null);
-  protected readonly error = signal('');
-  private nonce = 0;
-
-  /** Addresses on this machine the conversation mentioned, newest first. */
-  protected readonly suggestions = computed(() => {
-    const found: string[] = [];
-    const pattern = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):\d{2,5}[^\s'"`)<>]*/g;
-    for (const entry of [...this.agent.timeline()].reverse()) {
-      for (const match of entry.text.match(pattern) ?? []) {
-        const address = match.replace(/[.,;:]+$/, '');
-        if (!found.includes(address)) found.push(address);
-      }
-      if (found.length >= 5) break;
-    }
-    return found;
-  });
-
-  /** The address the card opened by itself, so a person's own is left alone. */
-  private followed = '';
-
-  constructor() {
-    // A server PWR started, or an address the conversation just named, is
-    // opened here without being copied over -- unless the person has put an
-    // address of their own in the bar.
-    effect(() => {
-      const workspace = this.agent.workspace();
-      const address = normalize(this.suggestions()[0] ?? '');
-      untracked(() => {
-        if (workspace !== this.workspace) {
-          this.workspace = workspace;
-          const saved = this.navigation.addresses.get(workspace);
-          this.followed = saved?.followed ?? '';
-          this.url.set(saved?.url ?? '');
-          this.error.set('');
-          this.frame.set(null);
-          this.frameAddress.set('');
-          if (saved?.url) this.show(saved.url);
-        }
-        if (!address || address === this.followed) return;
-        if (this.url() && this.url() !== this.followed) return;
-        this.followed = address;
-        this.error.set('');
-        this.url.set(address);
-        this.show(address);
-      });
-    });
-  }
-
-  protected go(raw: string): void {
-    const address = normalize(raw);
-    if (!address) {
-      this.error.set('Only pages on this machine: localhost or 127.0.0.1, with a port.');
-      return;
-    }
-    this.error.set('');
-    this.url.set(address);
-    this.show(address);
-  }
-
-  protected reload(): void {
-    if (!this.url()) return;
-    this.nonce += 1;
-    const separator = this.url().includes('?') ? '&' : '?';
-    this.show(`${this.url()}${separator}__pwr=${this.nonce}`);
-  }
-
-  protected external(): void {
-    if (this.url()) void bridge.openExternal(this.url());
-  }
-
-  private show(address: string): void {
-    // Only an address `normalize` accepted reaches here: this machine, http.
-    this.navigation.addresses.set(this.agent.workspace(), { url: this.url(), followed: this.followed });
-    this.frameAddress.set(address);
-    this.frame.set(this.sanitizer.bypassSecurityTrustResourceUrl(address));
-  }
-}
-
-/** A local address, or null: the preview shows only this machine's pages. */
-export function normalize(raw: string, own: string = globalThis.location?.origin ?? ''): string | null {
-  let text = raw.trim();
-  if (!text) return null;
-  if (!/^https?:\/\//i.test(text)) text = `http://${text}`;
-  try {
-    const url = new URL(text);
-    // What the frame's policy (CSP) admits, and no more: it has no form for
-    // an IPv6 address, so `[::1]` would open to a blank frame. `localhost`
-    // reaches the same server.
-    const local = ['localhost', '127.0.0.1'].includes(url.hostname);
-    // Never PWR itself (the development server): the frame may run scripts
-    // as its own origin, which would then be the app's, with its bridge.
-    if (url.origin === own) return null;
-    return local && (url.protocol === 'http:' || url.protocol === 'https:') ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
 
 function message(error: unknown): string {
   return String(error).replace(/^Error: /, '');

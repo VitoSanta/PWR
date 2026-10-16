@@ -137,9 +137,6 @@ const NATIVE_MENU =
             <pa-tool-strip (done)="strip.set(null)" (run)="openRun()" />
           </pa-popover>
         }
-      } @else if (strip() === 'pointer') {
-        <!-- A right click: the tools as a wheel around where it landed. -->
-        <pa-tool-wheel [at]="pointer()" (close)="strip.set(null)" animate.leave="is-leaving" />
       }
 
       <!-- The run's figures, opened from the model's panel. -->
@@ -150,7 +147,13 @@ const NATIVE_MENU =
       }
 
       @if (open()) {
-        <pa-inspector class="focus-workbench" animate.leave="is-leaving" />
+        <pa-inspector class="focus-workbench" />
+      }
+
+      <!-- A right click: the tools as a wheel around where it landed. After the
+           tools, so that in a view transition it is painted over them. -->
+      @if (strip() === 'pointer') {
+        <pa-tool-wheel [at]="pointer()" (close)="strip.set(null)" animate.leave="is-leaving" />
       }
     </div>
   `,

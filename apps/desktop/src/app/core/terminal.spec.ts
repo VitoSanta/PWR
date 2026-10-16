@@ -3,12 +3,13 @@ import { signal } from '@angular/core';
 import { vi } from 'vitest';
 import { AgentStore } from './agent.store';
 import { ThemeService } from './theme';
+import { WorkbenchStore } from './workbench';
 import { bridge } from './bridge';
 import { TerminalService, TerminalSession } from './terminal';
 
 vi.mock('@xterm/xterm', () => ({ Terminal: class {
   cols = 80; rows = 24; options = {}; buffer = { active: { length: 0 } };
-  loadAddon() {} open() {} onData() {} dispose() {} focus() {} write() {}
+  loadAddon() {} open() {} onData() {} dispose() {} focus() {} write = vi.fn();
 } }));
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
 
@@ -29,13 +30,36 @@ describe('Terminal output for the core', () => {
     expect(session.state()).toBe('idle');
   });
 
+  it('preserves output and an immediate exit emitted before term_open replies', async () => {
+    session.close();
+    let output!: (event: { id: number; data: string }) => void;
+    let exited!: (id: number) => void;
+    const stopOutput = vi.fn(), stopExit = vi.fn();
+    vi.spyOn(bridge, 'onTermOutput').mockImplementation(async handler => { output = handler; return stopOutput; });
+    vi.spyOn(bridge, 'onTermExit').mockImplementation(async handler => { exited = handler; return stopExit; });
+    vi.spyOn(bridge, 'termOpen').mockImplementation(async () => {
+      output({ id: 72, data: 'another shell' });
+      output({ id: 71, data: 'prompt> ' });
+      exited(71);
+      return 71;
+    });
+    await (session as any).start('/project-a');
+    const write = (session as any).term.write;
+    expect(write).toHaveBeenCalledWith('prompt> ');
+    expect(write).not.toHaveBeenCalledWith('another shell');
+    expect(session.state()).toBe('exited');
+    session.close();
+    expect(stopOutput).toHaveBeenCalledOnce();
+    expect(stopExit).toHaveBeenCalledOnce();
+  });
+
   let terminal: TerminalService;
   let session: TerminalSession;
   let workspace: ReturnType<typeof signal<string>>;
   beforeEach(() => {
     workspace = signal('/project-a');
     TestBed.configureTestingModule({ providers: [
-      { provide: AgentStore, useValue: { workspace, terminalReader: null } },
+      { provide: AgentStore, useValue: { workspace, terminalReader: null, sessionId: () => null, workspaceHandlers: new Map(), workspaceStops: new Set(), workspaceEpoch: () => 0 } },
       { provide: ThemeService, useValue: { theme: () => 'light', palette: () => 'layout' } },
     ] });
     terminal = TestBed.inject(TerminalService);
@@ -75,7 +99,7 @@ describe('Terminal output for the core', () => {
 describe('Independent terminal sessions', () => {
   it('keeps inactive buffers, selects another shell, and closes only the chosen tab', async () => {
     TestBed.configureTestingModule({providers: [
-      {provide: AgentStore, useValue: {workspace: signal('/work'), terminalReader: null}},
+      {provide: AgentStore, useValue: {workspace: signal('/work'), terminalReader: null, sessionId: () => null, workspaceHandlers: new Map(), workspaceStops: new Set(), workspaceEpoch: () => 0}},
       {provide: ThemeService, useValue: {theme: () => 'light', palette: () => 'layout'}},
     ]});
     const terminal = TestBed.inject(TerminalService);
@@ -91,6 +115,38 @@ describe('Independent terminal sessions', () => {
     expect(closeFirst).toHaveBeenCalledOnce();
     expect(closeSecond).not.toHaveBeenCalled();
     expect(terminal.active()).toBe(second);
+    terminal.close();
+  });
+});
+
+describe('Shared terminal ownership', () => {
+  it('rejects private shells and pauses model input after human takeover', async () => {
+    const agent = { workspace: signal('/work'), sessionId: signal('conversation-a'), workspaceEpoch: signal(0),
+      terminalReader: null, workspaceHandlers: new Map(), workspaceStops: new Set<() => void>() };
+    TestBed.configureTestingModule({providers: [
+      {provide: AgentStore, useValue: agent},
+      {provide: WorkbenchStore, useValue: {show: vi.fn()}},
+      {provide: ThemeService, useValue: {theme: () => 'light', palette: () => 'layout'}},
+    ]});
+    const terminal = TestBed.inject(TerminalService);
+    await terminal.newSession();
+    const interact = agent.workspaceHandlers.get('terminal');
+    await expect(interact('input', {id: terminal.active()!.key, data: 'private'})).rejects.toThrow(/started by this conversation/);
+    vi.spyOn(TerminalSession.prototype, 'attach').mockImplementation(async function (this: TerminalSession) { this.state.set('running'); });
+    const started = await interact('start', {executable: 'python3', args: [], cwd: '/work', sandboxed: true});
+    const shared = terminal.active()!;
+    expect(shared.modelOwned).toBe(true);
+    expect(shared.conversationId).toBe('conversation-a');
+    const send = vi.spyOn(shared, 'send').mockResolvedValue();
+    const interrupt = vi.spyOn(shared, 'interrupt').mockResolvedValue();
+    await interact('input', {id: started.id, data: 'hello'});
+    expect(send).toHaveBeenCalledWith('hello');
+    agent.workspaceStops.forEach(stop => stop());
+    expect(interrupt).toHaveBeenCalledOnce();
+    await expect(interact('input', {id: started.id, data: 'blocked'})).rejects.toThrow(/taken control/);
+    shared.giveControl();
+    agent.sessionId.set('conversation-b');
+    await expect(interact('read', {id: started.id})).rejects.toThrow(/started by this conversation/);
     terminal.close();
   });
 });

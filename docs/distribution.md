@@ -17,6 +17,10 @@ the pinned packages, about 1.2 GB, in
 in the app (`apps/desktop/src-tauri/src/engine.rs`). No system Python or Xcode
 tools are needed.
 
+The Browser is the system's own web engine (WebKit), embedded in the PWR window
+as a native web view: no extra bundle, process or app. Cookies and site data are
+kept by WebKit in the app's data store, protected by macOS.
+
 ## Building
 
 From a checkout (Rust 1.88+, Node.js with npm, `python3`, `uv`):
@@ -41,7 +45,10 @@ silicon with the tools it needs, checks the version is the same in
 `package.json`, `package-lock.json`, `tauri.conf.json` and both `Cargo.toml`s,
 cleans the Rust outputs, `npm ci`, builds the DMG with Tauri, verifies it
 (`hdiutil verify`, mounts it, checks the bundle's version and executable) and
-writes `dist/release/`. It publishes nothing.
+writes `dist/release/`. It publishes nothing. Tauri uses the versioned PWR
+background at `apps/desktop/src-tauri/icons/dmg-background.png` and places the
+app and Applications shortcut side by side. To revise the background, edit
+`scripts/generate-dmg-background.swift` and run it from the repository root.
 
 The workflow `.github/workflows/release-macos.yml`, on a `v*` tag, first reuses
 the whole CI workflow (`checks`), and only then runs that script, taking the

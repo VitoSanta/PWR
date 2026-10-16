@@ -39,6 +39,40 @@ pub const DELETED_EVENT: &str = "conversation.deleted";
 /// The person took the conversation back to one of their messages; the
 /// snapshot recorded after it is the conversation from then on.
 pub const REWOUND_EVENT: &str = "conversation.rewound";
+/// A file an action changed, as it was before and as it was left: what a
+/// client's review of the conversation is drawn from when it is reopened.
+pub const FILE_DIFF_EVENT: &str = "conversation.file_diff";
+/// The most a diff's two texts may total and still be kept: the log holds the
+/// conversation's decisions, not every large file it touched.
+const MAX_STORED_DIFF_BYTES: usize = 1_000_000;
+
+/// What `FILE_DIFF_EVENT` records.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredDiff {
+    pub path: String,
+    /// `None` for a file the action created.
+    pub old_text: Option<String>,
+    pub new_text: String,
+}
+
+/// Records a file change, unless it is too large to keep.
+pub fn record_file_diff(
+    store: &Store,
+    conversation_id: pwr_domain::Id,
+    diff: &StoredDiff,
+) -> Result<(), String> {
+    if diff.old_text.as_ref().map_or(0, String::len) + diff.new_text.len() > MAX_STORED_DIFF_BYTES {
+        return Ok(());
+    }
+    store
+        .append(
+            Some(conversation_id),
+            FILE_DIFF_EVENT,
+            serde_json::to_value(diff).map_err(|e| e.to_string())?,
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
 
 /// Where a conversation stood at an action boundary.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,6 +256,9 @@ pub struct Restored {
     pub after_snapshot: Vec<String>,
     /// The highest objective revision steering reached.
     pub revision: u32,
+    /// The file changes the conversation recorded up to its last snapshot, in
+    /// the order they happened.
+    pub diffs: Vec<StoredDiff>,
 }
 
 /// Highest durable identity, including effects interrupted before a receipt.
@@ -259,8 +296,14 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
     let mut pending_model = None;
     let mut turn_times = Vec::<Option<(i64, i64)>>::new();
     let mut pending_start = None;
+    let mut diffs = Vec::<StoredDiff>::new();
     for event in &events[..=last_snapshot] {
         match event.event_type.as_str() {
+            FILE_DIFF_EVENT => {
+                if let Ok(diff) = serde_json::from_value::<StoredDiff>(event.payload.clone()) {
+                    diffs.push(diff);
+                }
+            }
             REWOUND_EVENT => {
                 prompts.clear();
                 turn_models.clear();
@@ -378,6 +421,7 @@ pub fn restore(store: &Store, conversation_id: pwr_domain::Id) -> Result<Option<
             .collect(),
         after_snapshot,
         revision,
+        diffs,
     }))
 }
 
@@ -578,10 +622,30 @@ mod title_tests {
 
 #[cfg(test)]
 mod model_history_tests {
-    use super::{record_snapshot, restore};
+    use super::{StoredDiff, record_file_diff, record_snapshot, restore};
     use pwr_domain::{ChatMessage, new_id};
     use pwr_store::Store;
     use serde_json::json;
+
+    #[test]
+    fn a_restored_conversation_gives_back_the_files_it_changed() {
+        let store = Store::open(":memory:").unwrap();
+        let id = new_id();
+        let diff = |old: Option<&str>, new: &str| StoredDiff {
+            path: "a.txt".into(),
+            old_text: old.map(str::to_owned),
+            new_text: new.into(),
+        };
+        record_file_diff(&store, id, &diff(None, "one")).unwrap();
+        record_file_diff(&store, id, &diff(Some("one"), "two")).unwrap();
+        // Too large to keep: the log holds decisions, not every big file.
+        record_file_diff(&store, id, &diff(None, &"x".repeat(1_100_000))).unwrap();
+        record_snapshot(&store, id, &[ChatMessage::text("user", "go")]).unwrap();
+        // After the snapshot: part of a turn the restored messages do not show.
+        record_file_diff(&store, id, &diff(Some("two"), "three")).unwrap();
+        let restored = restore(&store, id).unwrap().unwrap();
+        assert_eq!(restored.diffs, [diff(None, "one"), diff(Some("one"), "two")]);
+    }
 
     #[test]
     fn a_restored_turn_keeps_the_model_that_generated_it() {
@@ -642,6 +706,8 @@ pub struct Resumed {
     /// What differs from what the conversation recorded. `None` when nothing
     /// does.
     pub note: Option<String>,
+    /// The files the conversation changed, as they were before and after.
+    pub diffs: Vec<StoredDiff>,
 }
 
 /// Restores `conversation_id` and reconciles it against the workspace at
@@ -684,6 +750,7 @@ pub fn resume(
         turn_times: restored.turn_times,
         checkpoint: restored.checkpoint.unwrap_or_default(),
         note,
+        diffs: restored.diffs,
     }))
 }
 

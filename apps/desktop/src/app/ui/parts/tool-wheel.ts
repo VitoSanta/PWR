@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   afterNextRender,
   computed,
@@ -14,11 +15,14 @@ import { CardId, WorkbenchStore } from '../../core/workbench';
 import { Icon, IconName } from '../kit/icon';
 
 /** Shorter names where the card's own would crowd the wheel. */
-const SHORT: Partial<Record<CardId, string>> = { browser: 'Preview', plan: 'Checks' };
+const SHORT: Partial<Record<CardId, string>> = { browser: 'Web', plan: 'Checks' };
 
 const OUTER = 156;
 const RING = 112;
 const INNER = 62;
+/** How far past the disc's edge the pointer may go before the wheel starts to fold away, and how long it waits. */
+const LEAVE = OUTER + 24;
+const LEAVE_DELAY = 300;
 
 interface Spoke {
   key: CardId;
@@ -34,7 +38,9 @@ interface Spoke {
  * The tools -- the cards -- as a wheel, where a right click (a two-finger click) landed:
  * every tool on one ring, the one under the pointer's direction lit, its
  * name and what it does in the hub. Point and click; the arrow keys turn
- * it, Enter picks, Escape or a click outside closes it.
+ * it, Enter picks. Choosing a tool leaves the wheel open, to open or close
+ * others; it folds away when the pointer has been away from it a moment, on
+ * a click outside, or on Escape.
  */
 @Component({
   selector: 'pa-tool-wheel',
@@ -100,6 +106,7 @@ export class ToolWheel {
   readonly close = output<void>();
 
   protected readonly active = signal<number | null>(null);
+  private leaving?: ReturnType<typeof setTimeout>;
 
   protected readonly spokes = computed<Spoke[]>(() => {
     const cards: Spoke[] = this.work.available().map((card) => ({
@@ -137,6 +144,7 @@ export class ToolWheel {
 
   constructor() {
     afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>('.tool-wheel')?.focus());
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.leaving));
   }
 
   protected pos(i: number): { x: number; y: number } {
@@ -150,11 +158,17 @@ export class ToolWheel {
     const dx = event.clientX - x;
     const dy = event.clientY - y;
     const distance = Math.hypot(dx, dy);
-    if (distance < INNER * 0.6) {
+    // Away from the wheel for a moment, it folds; back over it, it stays.
+    if (distance > LEAVE) {
+      this.leaving ??= setTimeout(() => this.close.emit(), LEAVE_DELAY);
+    } else if (this.leaving) {
+      clearTimeout(this.leaving);
+      this.leaving = undefined;
+    }
+    if (distance < INNER * 0.6 || distance > OUTER) {
       this.active.set(null);
       return;
     }
-    if (distance > OUTER + 80) return;
     const angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90 + this.sector() / 2;
     this.active.set(Math.floor((((angle % 360) + 360) % 360) / this.sector()));
   }
@@ -162,11 +176,12 @@ export class ToolWheel {
   protected clickAt(event: MouseEvent): void {
     const { x, y } = this.center();
     const distance = Math.hypot(event.clientX - x, event.clientY - y);
-    if (distance > OUTER + 80 || this.active() === null) {
+    // Outside the disc, to the pixel, closes; on a spoke picks it; on the hub, nothing.
+    if (distance > OUTER) {
       this.close.emit();
       return;
     }
-    this.pick(this.active()!);
+    if (this.active() !== null) this.pick(this.active()!);
   }
 
   protected keys(event: KeyboardEvent): void {
@@ -189,8 +204,7 @@ export class ToolWheel {
   }
 
   private pick(i: number): void {
-    const spoke = this.spokes()[i];
-    this.close.emit();
-    spoke.choose();
+    // The wheel stays: its spokes light or dim as the tool opens or closes.
+    this.spokes()[i].choose();
   }
 }

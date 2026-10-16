@@ -1,13 +1,6 @@
-//! The person's own terminal, in the workspace: a login shell on a pseudo-
-//! terminal, shown in the Terminal card through xterm.js.
-//!
-//! This is the person's shell with the person's rights, like any terminal
-//! app -- not the model's `run_command`, which goes through the core's policy
-//! and sandbox. The model cannot type in it: these commands are called only
-//! by the interface, and nothing the core sends is written to it. What it
-//! printed can be read back to the model (`read_terminal`), from xterm's
-//! buffer in the interface, only once the person allows it in the permission
-//! dialog.
+//! Visible PTYs: private login shells and separate model processes.
+//! Model launches receive the core's policy-derived sandbox and a clean
+//! environment; the frontend enforces conversation ownership and input control.
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -85,14 +78,22 @@ fn complete_utf8(bytes: &[u8]) -> usize {
     }
 }
 
-#[tauri::command]
-pub fn term_open(
-    app: AppHandle,
-    terminals: State<'_, Terminals>,
-    cwd: String,
-    cols: u16,
-    rows: u16,
+#[derive(Clone, serde::Deserialize)]
+pub struct Launch {
+    pub executable: String,
+    #[serde(default)] pub args: Vec<String>,
+    pub profile: Option<String>,
+    pub sandboxed: bool,
+    pub path: Option<String>,
+}
+
+pub fn open_terminal(
+    app: AppHandle, terminals: &Terminals, cwd: String, cols: u16, rows: u16, launch: Option<Launch>,
 ) -> Result<u32, String> {
+    if let Some(launch) = &launch {
+        if launch.executable.trim().is_empty() || launch.executable.contains('\0') || launch.args.iter().any(|arg| arg.contains('\0')) { return Err("Invalid process arguments.".into()); }
+        if launch.sandboxed && (!cfg!(target_os="macos") || launch.profile.is_none()) { return Err("A sandbox was required but no profile was provided.".into()); }
+    }
     if !Path::new(&cwd).is_dir() {
         return Err(format!("{cwd} is not a folder"));
     }
@@ -104,10 +105,28 @@ pub fn term_open(
             pixel_height: 0,
         })
         .map_err(|error| format!("could not open a terminal: {error}"))?;
-    let mut command = CommandBuilder::new(shell());
-    if !cfg!(windows) {
-        command.arg("-l");
-    }
+    let mut command = if let Some(launch) = &launch {
+        let mut command = if launch.sandboxed {
+            let mut command = CommandBuilder::new("/usr/bin/sandbox-exec");
+            command.args(["-p", launch.profile.as_deref().ok_or("Missing sandbox profile")?]);
+            command.arg(&launch.executable);
+            command
+        } else { CommandBuilder::new(&launch.executable) };
+        command.args(&launch.args);
+        command.env_clear();
+        command.env("LANG", "en_US.UTF-8");
+        let scratch = Path::new(&cwd).join(".pwr-scratch");
+        std::fs::create_dir_all(scratch.join("home")).map_err(|why| why.to_string())?;
+        std::fs::create_dir_all(scratch.join("tmp")).map_err(|why| why.to_string())?;
+        command.env("HOME", scratch.join("home"));
+        command.env("TMPDIR", scratch.join("tmp"));
+        command.env("PATH", launch.path.clone().unwrap_or_else(crate::login_path));
+        command
+    } else {
+        let mut command = CommandBuilder::new(shell());
+        if !cfg!(windows) { command.arg("-l"); }
+        command
+    };
     command.cwd(&cwd);
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
@@ -232,4 +251,10 @@ mod tests {
         // Not UTF-8 at all is shown as it is, not held forever.
         assert_eq!(complete_utf8(&[0xff, b'a']), 2);
     }
+}
+
+#[tauri::command]
+pub fn term_open(app: AppHandle, caller: tauri::Webview, terminals: State<'_, Terminals>, cwd: String, cols: u16, rows: u16, launch: Option<Launch>) -> Result<u32, String> {
+    if caller.label() != "main" { return Err("Only PWR controls its terminals.".into()); }
+    open_terminal(app, &terminals, cwd, cols, rows, launch)
 }

@@ -105,6 +105,9 @@ export class AgentStore {
   readonly commandRunning = signal<string | null>(null);
   readonly permission = signal<PermissionRequest | null>(null);
   /** Recent terminal output, exposed only after core permission approval. */
+  readonly workspaceEpoch = signal(0);
+  readonly workspaceStops = new Set<() => void>();
+  readonly workspaceHandlers = new Map<string, (operation: string, args: any) => Promise<unknown>>();
   terminalReader: ((lines: number) => TerminalSnapshot[]) | null = null;
   /**
    * Tokens the conversation occupies and the window: the engine's count after
@@ -130,6 +133,8 @@ export class AgentStore {
   // model must keep acting on (a "how do I start the game?" made it run the
   // server twice until the timeout, 2026-09-22).
   readonly goalMode = signal(false);
+  /** The Browser's chosen search engine, which the model is told. */
+  readonly searchEngine = signal<{ name: string; search: string } | null>(null);
   /** Ask before what leaves the workspace, or run with every permission. */
   readonly permissionMode = signal<'ask' | 'auto' | 'full'>('ask');
   /** What the core actually asks about in the current mode. */
@@ -173,12 +178,12 @@ export class AgentStore {
     }
     await bridge.onMessage((message) => this.receive(message));
     await bridge.onLog((line) => {
-      this.logs.update((lines) => [...lines.slice(-400), line]);
-      this.logLines.update((lines) => [...lines.slice(-400), { at: Date.now(), line }]);
+      this.appendLog(line);
     });
     await bridge.onExit((generation) => {
       // A core this app already replaced; the running one is unaffected.
       if (generation !== this.generation) return;
+      this.appendLog('Core stopped.');
       this.coreState.set('stopped');
       this.turnActive.set(false);
       for (const waiting of this.pending.values()) waiting.reject(new Error('the core stopped'));
@@ -301,6 +306,7 @@ export class AgentStore {
     this.switchingWorkspace.set(true);
     this.coreState.set('starting');
     this.coreError.set('');
+    this.appendLog(`Starting core in ${path}`);
     this.sessionId.set(null);
     this.timeline.set([]);
     this.changes.set([]);
@@ -317,18 +323,21 @@ export class AgentStore {
       this.generation = started.generation;
       this.workspace.set(started.workspace);
       this.corePath.set(started.core);
+      this.appendLog(`Core process: ${started.core}`);
       const hello = await this.request('initialize', {
         protocolVersion: 1,
-        clientCapabilities: inTauri() ? { _meta: { pwr: { readTerminal: true } } } : {},
+        clientCapabilities: inTauri() ? { _meta: { pwr: { readTerminal: true, workspaceControl: true } } } : {},
         clientInfo: { name: 'pwr-desktop', version: '0.1.0' },
       });
       this.chatHome.set(hello?._meta?.pwr?.chatHome ?? '');
       this.coreState.set('ready');
+      this.appendLog('Core initialized; protocol ready.');
       await Promise.all([this.refreshModels(), this.refreshSessions(), this.refreshPermissions()]);
       return true;
     } catch (error) {
       this.coreState.set('error');
       this.coreError.set(String(error));
+      this.appendLog(`Core startup failed: ${String(error)}`);
       return false;
     } finally {
       this.switchingWorkspace.set(false);
@@ -649,6 +658,8 @@ export class AgentStore {
         prompt: blocks,
         // Chat mode has nothing to keep working on.
         goalMode: this.goalMode() && !this.chatMode(),
+        // The engine the engineer chose in the Browser, so a web search opens with it.
+        ...(this.searchEngine() ? { searchEngine: this.searchEngine() } : {}),
       });
       this.finish(reply);
     } catch (error) {
@@ -779,6 +790,8 @@ export class AgentStore {
   }
 
   cancel(): void {
+    this.workspaceEpoch.update(value => value + 1);
+    for (const stop of this.workspaceStops) stop();
     const sessionId = this.sessionId();
     if (sessionId && this.turnActive()) {
       void bridge.send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } });
@@ -842,6 +855,11 @@ export class AgentStore {
     this.demoAnswer = answer;
   }
 
+  private appendLog(line: string): void {
+    this.logs.update(lines => [...lines.slice(-399), line]);
+    this.logLines.update(lines => [...lines.slice(-399), { at: Date.now(), line }]);
+  }
+
   private request(method: string, params: unknown): Promise<any> {
     if (this.demoAnswer) {
       const answer = this.demoAnswer;
@@ -857,9 +875,13 @@ export class AgentStore {
     }
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { resolve, reject: error => {
+        this.appendLog(`${method}: ${String(error)}`);
+        reject(error);
+      } });
       bridge.send({ jsonrpc: '2.0', id, method, params }).catch((error) => {
         this.pending.delete(id);
+        this.appendLog(`${method}: transport failed: ${String(error)}`);
         reject(error);
       });
     });
@@ -932,6 +954,21 @@ export class AgentStore {
   }
 
   private serverRequest(message: any): void {
+    if (message.method === '_pwr/workspace/interact') {
+      const params = message.params ?? {}, cwd = this.workspace();
+      const answer = async () => {
+        if (!params.sessionId || params.sessionId !== this.sessionId() || !this.turnActive()) throw new Error('The requesting conversation is not active.');
+        const handler = this.workspaceHandlers.get(params.target);
+        if (!handler) throw new Error('This workspace control is unavailable.');
+        const result = await handler(params.operation, params.arguments ?? {});
+        if (cwd !== this.workspace() || params.sessionId !== this.sessionId()) throw new Error('The workspace changed.');
+        return result;
+      };
+      void answer().then(result => bridge.send({ jsonrpc: '2.0', id: message.id, result }),
+        error => bridge.send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: String(error) } }));
+      return;
+    }
+
     // Asked only after the person allowed it in the permission dialog.
     if (message.method === '_pwr/terminal/read') {
       const lines = Math.max(1, Math.min(1000, Number(message.params?.lines) || 200));

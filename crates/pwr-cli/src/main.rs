@@ -1,3 +1,4 @@
+mod editor;
 use clap::{Args, Parser, Subcommand};
 use crossterm::{
     event::{
@@ -843,6 +844,7 @@ fn approval_label(approval: pwr_tools::Approval) -> &'static str {
         Approval::OutsideSandbox => "run a command outside the sandbox, with your full rights",
         Approval::OutsideWorkspace => "reach a folder outside the workspace",
         Approval::TerminalRead => "read the recent output of your terminal tabs",
+        Approval::WorkspaceControl => "control the shared editor, terminal or browser",
     }
 }
 
@@ -4586,6 +4588,9 @@ async fn chat_turn(
     } else {
         catalog
     };
+    let catalog = if !chat_only && !minimal && approvals.controls_workspace() {
+        converse::with_workspace_engine(catalog, continuity.search_engine.as_ref())
+    } else { catalog };
     let catalog = if continuity.plan.is_some() {
         converse::with_plan(catalog)
     } else {

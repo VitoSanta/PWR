@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 mod engine;
 mod terminal;
-mod preview;
+mod browser;
 #[cfg(target_os = "macos")]
 mod titlebar;
 
@@ -506,22 +506,31 @@ mod diagnostic_tests {
     }
 }
 
+fn main_only(
+    handler: impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        if invoke.message.webview().label() != "main" {
+            invoke.resolver.reject("Remote browser pages cannot invoke PWR host commands.");
+            true
+        } else { handler(invoke) }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
         .on_page_load(|webview, payload| {
-            // A full frontend reload must not leave its native page floating
-            // over the next conversation (component disposal cannot run then).
+            // A frontend reload must not leave a browser page alive
+            // after component disposal is skipped.
             if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Started {
-                if let Some(preview) = webview.app_handle().get_webview("workspace-preview") {
-                    let _ = preview.close();
-                }
+                if let Some(browser)=webview.app_handle().try_state::<browser::Browser>() { browser.close_all(webview.app_handle()); }
             }
         })
         .manage(Core::default())
         .manage(engine::Setup::default())
         .manage(terminal::Terminals::default())
-        .manage(preview::Preview::default())
+        .manage(browser::Browser::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Full screen gets a glass title bar over the app, not a white strip.
@@ -544,28 +553,31 @@ pub fn run() {
             Ok(())
         });
     #[cfg(debug_assertions)]
-    let builder = builder.invoke_handler(tauri::generate_handler![
+    let builder = builder.invoke_handler(main_only(tauri::generate_handler![
         default_workspace, chat_home_path, workspace_is_trusted, trust_workspace,
         core_start, core_send, core_stop, open_external,
         engine::engine_status, engine::engine_install, engine::engine_cancel,
         terminal::term_open, terminal::term_write, terminal::term_resize, terminal::term_close,
-        preview::preview_sync, preview::preview_close,
+       
+        browser::browser_open, browser::browser_sync, browser::browser_action, browser::browser_close,
         debug_export_chat,
-    ]);
+    ]));
     #[cfg(not(debug_assertions))]
-    let builder = builder.invoke_handler(tauri::generate_handler![
+    let builder = builder.invoke_handler(main_only(tauri::generate_handler![
         default_workspace, chat_home_path, workspace_is_trusted, trust_workspace,
         core_start, core_send, core_stop, open_external,
         engine::engine_status, engine::engine_install, engine::engine_cancel,
         terminal::term_open, terminal::term_write, terminal::term_resize, terminal::term_close,
-        preview::preview_sync, preview::preview_close,
-    ]);
+       
+        browser::browser_open, browser::browser_sync, browser::browser_action, browser::browser_close,
+    ]));
     builder
         .build(tauri::generate_context!())
         .expect("error while building the PWR app")
         .run(|app, event| {
             // The core must not outlive the window: it holds a model.
             if let RunEvent::Exit = event {
+                app.state::<browser::Browser>().close_all(app);
                 // Nor may the person's shells.
                 app.state::<terminal::Terminals>().close_all();
                 if let Ok(mut guard) = app.state::<Core>().0.lock() {

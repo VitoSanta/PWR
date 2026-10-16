@@ -23,6 +23,7 @@ import { CORE_TOO_OLD, PersonalStore } from '../../core/personal.store';
 import { roveFocus } from '../../core/ui';
 import { WorkbenchStore } from '../../core/workbench';
 import { Icon } from '../kit/icon';
+import { Action } from '../kit/tool';
 import { Select, SelectOption } from '../kit/select';
 import { Tooltip } from '../kit/tooltip';
 import { Markdown } from '../markdown';
@@ -91,7 +92,8 @@ const HOW: Record<Certainty, string> = {
  */
 @Component({
   selector: 'pa-graph3d',
-  template: `<div #canvas class="graph3d-canvas"></div>`,
+  template: `<div #canvas class="graph3d-canvas"></div>
+    @if (renderError()) { <p class="graph-empty" role="alert">{{ renderError() }} Use Modules or Overview to read the knowledge base.</p> }`,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Graph3d implements AfterViewInit, OnDestroy {
@@ -103,12 +105,17 @@ export class Graph3d implements AfterViewInit, OnDestroy {
   private readonly ready = signal(false);
 
   private readonly canvas = viewChild.required<ElementRef<HTMLElement>>('canvas');
+  protected readonly renderError = signal('');
+  private disposed = false;
+  private drawVersion = 0;
+  private initializing?: Promise<void>;
   private graph: any;
   private sprite: any;
   private observer?: ResizeObserver;
   private degree = new Map<string, number>();
   /** A new graph was drawn: frame it once its layout settles. */
   private fitPending = false;
+  private touched = false;
   private neighbours = new Map<string, Set<string>>();
 
   constructor() {
@@ -121,7 +128,13 @@ export class Graph3d implements AfterViewInit, OnDestroy {
       theme.theme();
       theme.palette();
       if (!this.ready()) return;
-      untracked(() => requestAnimationFrame(() => void this.draw(nodes, edges)));
+      const version = ++this.drawVersion;
+      untracked(() => requestAnimationFrame(() => {
+        if (this.disposed || version !== this.drawVersion) return;
+        void this.draw(nodes, edges, version).catch(() => {
+          if (!this.disposed) this.renderError.set('The 3D graph could not be drawn.');
+        });
+      }));
     });
     effect(() => {
       const selected = this.selected();
@@ -134,18 +147,21 @@ export class Graph3d implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.disposed = true;
     this.observer?.disconnect();
     this.graph?.pauseAnimation?.();
     this.graph?._destructor?.();
   }
 
-  private async draw(nodes: GraphNode[], edges: GraphEdge[]): Promise<void> {
+  private async draw(nodes: GraphNode[], edges: GraphEdge[], version: number): Promise<void> {
+    if (this.disposed) return;
     const element = this.canvas().nativeElement;
-    if (!this.graph) {
+    if (!this.graph && !this.initializing) this.initializing = (async () => {
       const [{ default: ForceGraph3D }, { default: SpriteText }] = await Promise.all([
         import('3d-force-graph'),
         import('three-spritetext'),
       ]);
+      if (this.disposed) return;
       this.sprite = SpriteText;
       this.graph = new (ForceGraph3D as any)(element, { controlType: 'orbit' })
         .showNavInfo(false)
@@ -168,12 +184,18 @@ export class Graph3d implements AfterViewInit, OnDestroy {
         .onNodeHover((node: any) => (element.style.cursor = node ? 'pointer' : ''));
       this.observer = new ResizeObserver(() => {
         this.graph.width(element.clientWidth).height(element.clientHeight);
+        // The card settles its size while it opens: frame the graph again until a person takes the camera.
+        if (!this.touched && !this.selected()) this.graph.zoomToFit(200, 24);
       });
       this.observer.observe(element);
+      this.graph.controls?.()?.addEventListener('start', () => (this.touched = true));
       this.graph.width(element.clientWidth).height(element.clientHeight);
-    }
+    })().finally(() => { this.initializing = undefined; });
+    await this.initializing;
+    if (this.disposed || version !== this.drawVersion) return;
+    this.renderError.set('');
     const style = getComputedStyle(document.documentElement);
-    const token = (name: string) => style.getPropertyValue(name).trim() || '#888';
+    const token = graphColours();
     const background = token('--surface-primary');
     const muted = token('--text-muted');
     const ids = new Set(nodes.map((node) => node.id));
@@ -224,6 +246,7 @@ export class Graph3d implements AfterViewInit, OnDestroy {
       })
       .graphData(data);
     this.fitPending = true;
+    this.touched = false;
     this.focus(this.selected());
   }
 
@@ -251,7 +274,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
 /** Knowledge: the project as a graph, its modules, the work done, its overview. */
 @Component({
   selector: 'pa-knowledge-card',
-  imports: [MatCheckboxModule, MatButtonModule, Graph3d, Icon, Tooltip, Markdown, Select],
+  imports: [MatCheckboxModule, MatButtonModule, Graph3d, Icon, Tooltip, Markdown, Select, Action],
   template: `
     @if (agent.chatMode() && projectOptions().length) {
       <div class="card-toolbar">
@@ -280,9 +303,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
         }
       </div>
       <span class="spacer"></span>
-      <button matIconButton class="icon-btn icon-btn-sm" (click)="load()" [disabled]="loading()" aria-label="Refresh" paTooltip="Refresh">
-        <pa-icon name="refresh" [size]="14" />
-      </button>
+      <pa-action icon="refresh" label="Refresh" [disabled]="loading()" (click)="load()" />
     </div>
     @if (error()) {
       <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ error() }}</p>
@@ -424,6 +445,7 @@ export class KnowledgeCard {
   private readonly personal = inject(PersonalStore);
   /** Whose wiki `wiki` holds, or is being loaded for. */
   private shown: string | null = null;
+  private loadVersion = 0;
   /** In chat mode, the project chosen to look at; `null` is the most recent. */
   private readonly chosen = signal<string | null>(null);
 
@@ -494,11 +516,12 @@ export class KnowledgeCard {
 
   protected readonly writing = computed(() => {
     const job = this.activity.summarising();
-    return !!job && job.state !== 'finished' && job.cwd === this.agent.workspace();
+    return !!job && !['finished', 'failed'].includes(job.state) && job.cwd === this.agent.workspace();
   });
 
   protected readonly summaryStatus = computed(() => {
     const job = this.activity.summarising();
+    if (job?.state === 'failed' && job.cwd === this.source()) return job.error || 'Summary generation failed.';
     if (this.writing() && job) return `Writing ${(job.module ?? '').replace(/^dir:/, '') || 'summaries'}…`;
     const modules = this.wiki()?.modules ?? [];
     const written = modules.filter((module) => module.summary).length;
@@ -516,14 +539,18 @@ export class KnowledgeCard {
     effect(() => {
       const source = this.source();
       const turn = this.agent.turnActive();
+      const ready = this.agent.coreState() === 'ready';
       untracked(() => {
         // Another project's graph is not left showing while this one loads.
         if (source !== this.shown) {
+          this.loadVersion++;
+          this.loading.set(false);
+          this.error.set('');
           this.shown = source;
           this.wiki.set(null);
           this.selected.set(null);
         }
-        if (!turn) void this.load();
+        if (ready && !turn) void this.load();
       });
     });
   }
@@ -573,9 +600,11 @@ export class KnowledgeCard {
   }
 
   async load(): Promise<void> {
+    const version = ++this.loadVersion;
     const cwd = this.source();
     if (!cwd) {
       this.wiki.set(null);
+      this.loading.set(false);
       return;
     }
     const readOnly = this.agent.chatMode();
@@ -583,15 +612,15 @@ export class KnowledgeCard {
     try {
       const wiki = await this.agent.call('_pwr/wiki', { cwd, includeSymbols: this.symbols(), readOnly });
       // A reply for a project since left behind is not shown.
-      if (cwd !== this.source()) return;
+      if (version !== this.loadVersion || cwd !== this.source()) return;
       this.wiki.set(wiki);
       this.error.set('');
     } catch (error) {
-      if (cwd !== this.source()) return;
+      if (version !== this.loadVersion || cwd !== this.source()) return;
       this.wiki.set(null);
       this.error.set(describe(error));
     } finally {
-      this.loading.set(false);
+      if (version === this.loadVersion) this.loading.set(false);
     }
   }
 }
@@ -608,4 +637,37 @@ function alpha(color: string, opacity: number): string {
 function describe(error: unknown): string {
   const text = String(error).replace(/^Error: /, '');
   return /method not found/i.test(text) ? CORE_TOO_OLD : text;
+}
+
+/** Resolve modern CSS colours before sending them to ThreeJS/tinycolor.
+ * Custom property values still contain light-dark()/color-mix(), which those
+ * libraries interpret as black. Canvas converts the browser's colour to sRGB.
+ */
+export function graphColours(): (name: string) => string {
+  const probe = document.createElement('span');
+  probe.style.display = 'none';
+  const cache = new Map<string, string>();
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  return name => {
+    const saved = cache.get(name);
+    if (saved) return saved;
+    probe.style.color = `var(${name}, #888)`;
+    document.documentElement.appendChild(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    let colour = resolved;
+    if (!/^(rgb|#)/i.test(resolved)) {
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = resolved;
+        context.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+        colour = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+      } else colour = '#888888';
+    }
+    cache.set(name, colour);
+    return colour;
+  };
 }

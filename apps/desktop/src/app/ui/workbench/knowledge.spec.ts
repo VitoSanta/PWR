@@ -13,6 +13,7 @@ describe('the Knowledge card', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({});
     agent = TestBed.inject(AgentStore);
+    agent.coreState.set('ready');
     calls = [];
     vi.spyOn(agent, 'call').mockImplementation(async (method: string, params: any) => {
       calls.push({ method, params });
@@ -47,7 +48,39 @@ describe('the Knowledge card', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Write summaries');
   });
 
-  it('in a workspace, reads that workspace', async () => {
+  it('waits for initialization and retries when the core becomes ready', async () => {
+    agent.workspace.set('/projects/app');
+    agent.coreState.set('starting');
+    const fixture = TestBed.createComponent(KnowledgeCard);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(wikiCalls()).toEqual([]);
+    agent.coreState.set('ready');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(wikiCalls()).toHaveLength(1);
+  });
+
+  it('keeps the latest request when symbol toggles finish out of order', async () => {
+    agent.workspace.set('/projects/app');
+    const fixture = TestBed.createComponent(KnowledgeCard);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const pending: ((value: any) => void)[] = [];
+    vi.mocked(agent.call).mockImplementation(() => new Promise(resolve => pending.push(resolve)));
+    const card = fixture.componentInstance as any;
+    const first = card.load();
+    card.symbols.set(true);
+    const latest = card.load();
+    pending[1]({ ...WIKI, overview: 'Latest' });
+    await latest;
+    pending[0]({ ...WIKI, overview: 'Old' });
+    await first;
+    expect(card.wiki().overview).toBe('Latest');
+    expect(card.loading()).toBe(false);
+  });
+
+  it('in a workspace, reads that workspace' , async () => {
     agent.workspace.set('/projects/app');
     const fixture = TestBed.createComponent(KnowledgeCard);
     fixture.detectChanges();

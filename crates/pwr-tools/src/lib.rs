@@ -123,6 +123,12 @@ pub enum ActionProposal {
     /// The recent output of the person's own terminal tabs in the app,
     /// read-only: what their dev server, build or tests printed. Answered by
     /// the client, after the person allows it (`TerminalRead`).
+    WorkspaceInteract {
+        target: String,
+        operation: String,
+        #[serde(default)]
+        arguments: serde_json::Value,
+    },
     ReadTerminal {
         #[serde(default)]
         lines: Option<usize>,
@@ -346,6 +352,7 @@ pub enum ActionProposal {
 impl ActionProposal {
     pub fn validate(&self) -> Result<(), ToolError> {
         match self {
+            Self::WorkspaceInteract { target, operation, arguments } if !["editor","terminal","browser"].contains(&target.as_str()) || operation.len()>40 || operation.is_empty() || (!arguments.is_null() && !arguments.is_object()) || arguments.to_string().len()>65536 => Err(ToolError::Denied("Invalid or oversized workspace interaction.".into())),
             Self::Decline { rationale } if rationale.trim().is_empty() => {
                 // A refusal without a reason is indistinguishable from a
                 // deployment giving up, and the two need different answers.
@@ -554,6 +561,7 @@ pub enum Approval {
     /// whatever it printed -- their own commands, paths, sometimes secrets --
     /// so it is asked about once per conversation, in Full access too.
     TerminalRead,
+    WorkspaceControl,
 }
 
 /// Host paths under the real home directory that no run has a reason to read.
@@ -2299,7 +2307,7 @@ impl ToolPolicy {
     ///
     /// Returns `None` when the platform offers no sandbox, or when the root
     /// cannot be expressed safely in a profile.
-    fn sandbox_profile(&self) -> Option<String> {
+    pub fn sandbox_profile(&self) -> Option<String> {
         if !cfg!(target_os = "macos") || !Path::new(SEATBELT).is_file() {
             return None;
         }

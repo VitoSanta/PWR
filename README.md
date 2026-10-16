@@ -16,7 +16,7 @@ It is built for **bounded changes in existing repositories** — diagnosing and 
 - **A conversation that does the work.** Answers and reasoning stream as they are written; actions appear as they happen; you can steer a turn or stop it. **Goal mode** keeps working until the goal's acceptance check passes, or it pauses and says why.
 - **Your repository's own checks.** From `.pwr/checks.json`, CI configuration, `package.json` scripts or one of 19 build systems. They run after every turn that edits. A goal is *verified* only by an acceptance check you declared before the session began.
 - **Sandboxed tools.** Commands run under macOS's sandbox, confined to the workspace, with no shell and your credential folders unreadable. Three permission modes: **Protected** (asks before network, dependencies, new programs, history rewrites and publishing), **Standard** (asks only before what cannot be undone or leaves the sandbox), and **Full access** (no sandbox at all — your own environment).
-- **Changes you can inspect.** Per-file diffs, Revert through the core (it refuses a file you edited afterwards), a Terminal, a web preview, and a log of every action.
+- **Changes you can inspect.** Per-file diffs, Revert through the core (it refuses a file you edited afterwards), a Terminal, a web browser, and a log of every action.
 - **Models that fit your Mac.** The Model Manager searches Hugging Face for MLX models, rates each for this machine's memory, and downloads with checksums and resume. PWR computes the context window from your memory and the model. Unknown models are usable at once; a nine-request **Quick Calibration** checks that PWR can operate them.
 - **Chat without a workspace**, with attached files, folders and images for models that see.
 

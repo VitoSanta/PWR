@@ -1,4 +1,5 @@
 import { Injectable, OnDestroy, computed, effect, inject, signal, untracked } from '@angular/core';
+import { WorkbenchStore } from './workbench';
 import { ThemeService } from './theme';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
@@ -9,6 +10,7 @@ import { bridge, inTauri } from './bridge';
 @Injectable({ providedIn: 'root' })
 export class TerminalService implements OnDestroy {
   private readonly agent = inject(AgentStore);
+  private readonly work = inject(WorkbenchStore);
   readonly sessions = signal<TerminalSession[]>([]);
   readonly activeId = signal<number | null>(null);
   readonly active = computed(() => this.sessions().find(s => s.key === this.activeId()));
@@ -19,6 +21,39 @@ export class TerminalService implements OnDestroy {
 
   constructor() {
     this.agent.terminalReader = lines => this.read(lines);
+    this.agent.workspaceStops.add(() => this.sessions().filter(session => session.modelOwned).forEach(session => { session.takeControl(); void session.interrupt(); }));
+    this.agent.workspaceHandlers.set('terminal', async (operation, args) => {
+      this.work.show('terminal');
+      if (operation === 'start') {
+        if (this.sessions().length >= 16) throw new Error('Close a terminal before opening another.');
+        if (typeof args.executable !== 'string' || !Array.isArray(args.args ?? []) || !(args.args ?? []).every((arg: unknown) => typeof arg === 'string')) throw new Error('Specify executable and args.');
+        if (args.cwd !== this.agent.workspace()) throw new Error('The workspace changed.');
+        const epoch = this.agent.workspaceEpoch();
+        const session = new TerminalSession(++this.sequence, this.agent.workspace(), args, this.agent.sessionId());
+        this.active()?.detach(); this.sessions.update(all => [...all, session]); this.activeId.set(session.key);
+        await session.attach(this.host ?? document.createElement('div'));
+        if (epoch !== this.agent.workspaceEpoch()) { session.close(); throw new Error('The turn was cancelled.'); }
+        if (session.state() === 'exited' && session.error()) throw new Error(session.error());
+        return { id: session.key, state: session.state(), sandboxed: args.sandboxed, output: session.read(100) };
+      }
+      const session = this.sessions().find(item => item.key === Number(args.id));
+      if (!session || !session.modelOwned || session.conversationId !== this.agent.sessionId()) throw new Error('Choose a process started by this conversation.');
+      if (operation === 'read') {
+        const wait = Math.max(0, Math.min(2000, Number(args.waitMs) || 0));
+        if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+        return { id: session.key, state: session.state(), controller: session.controller(), output: session.read(Number(args.lines) || 200) };
+      }
+      if (session.controller() !== 'model') throw new Error('The engineer has taken control. Wait until they return control to PWR.');
+      if (operation === 'input') await session.send(String(args.data ?? '').slice(0, 16384));
+      else if (operation === 'interrupt') await session.interrupt();
+      else if (operation === 'close') await this.closeSession(session.key);
+      else throw new Error('Unknown terminal operation.');
+      return { id: session.key, state: session.state(), output: session.read(100) };
+    });
+    effect(() => {
+      const sessionId = this.agent.sessionId();
+      untracked(() => this.sessions().filter(item => item.modelOwned && item.conversationId !== sessionId).forEach(item => void this.closeSession(item.key)));
+    });
     const theme = inject(ThemeService);
     effect(() => {
       theme.theme(); theme.palette();
@@ -91,7 +126,19 @@ export class TerminalSession {
   private readonly element = document.createElement('div');
   readonly state = signal<'idle' | 'starting' | 'running' | 'exited' | 'unavailable'>('idle');
   readonly error = signal('');
-  constructor(readonly key: number, readonly cwd: string) {}
+  readonly controller = signal<'user' | 'model'>('user');
+  readonly modelOwned: boolean;
+  private starting?: Promise<void>;
+  constructor(readonly key: number, readonly cwd: string, readonly launch?: any, readonly conversationId: string | null = null) {
+    this.modelOwned = !!launch; this.controller.set(launch ? 'model' : 'user');
+  }
+  async send(data: string): Promise<void> {
+    if (this.id === null || this.state() !== 'running') throw new Error('This process has ended.');
+    await bridge.termWrite(this.id, data);
+  }
+  async interrupt(): Promise<void> { if (this.id !== null) await bridge.termWrite(this.id, '\x03'); }
+  takeControl(): void { this.controller.set('user'); this.focus(); }
+  giveControl(): void { if (this.modelOwned) this.controller.set('model'); }
   updateTheme(): void { if (this.term) this.term.options.theme = palette(); }
 
   /** Shows the terminal inside `host`, starting the shell the first time. */
@@ -102,7 +149,10 @@ export class TerminalSession {
       this.state.set('unavailable');
       return;
     }
-    if (!this.term) await this.start(this.cwd);
+    if (!this.term) {
+      this.starting ??= this.start(this.cwd).finally(() => { this.starting = undefined; });
+      await this.starting;
+    }
     this.resize();
   }
 
@@ -160,7 +210,7 @@ export class TerminalSession {
       else rows.push(text);
     }
     while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
-    return [{ title: `Terminal ${this.key}`, running: this.state() === 'running', text: rows.join('\n') }];
+    return [{ title: `Terminal ${this.key}`, running: this.state() === 'running', text: rows.join('\n').slice(-64000) }];
   }
 
   private async start(workspace: string): Promise<void> {
@@ -182,38 +232,68 @@ export class TerminalSession {
     term.open(this.element);
     this.term = term;
     this.fit = fit;
+    // What was started, as a shell would show it: the engineer sees the command, and so does read_terminal.
+    if (this.launch) {
+      const quote = (word: string) => /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
+      term.write(`\x1b[2m$ ${[this.launch.executable, ...(this.launch.args ?? [])].map(String).map(quote).join(' ')}\x1b[0m\r\n`);
+    }
     try {
       fit.fit();
     } catch {
       // Not laid out yet: fitted on the next resize.
     }
+    const listeners: Array<() => void> = [];
+    let id: number | null = null;
+    let opening = true;
+    const early: Array<{ id: number; data?: string }> = [];
+    let earlyBytes = 0;
+    const receive = (event: { id: number; data?: string }) => {
+      if (startup !== this.startup) return;
+      if (opening) {
+        // term_open can emit the prompt (or exit) before its IPC reply.
+        if (earlyBytes < 65536 && early.length < 1024) {
+          const data = event.data?.slice(0, 65536 - earlyBytes);
+          early.push({ id: event.id, data });
+          earlyBytes += data?.length ?? 0;
+        }
+        return;
+      }
+      if (event.id !== id) return;
+      if (event.data !== undefined) term.write(event.data);
+      else {
+        this.id = null;
+        this.state.set('exited');
+        term.write('\r\n\x1b[2m[shell ended]\x1b[0m\r\n');
+      }
+    };
     try {
-      const id = await bridge.termOpen(workspace, term.cols || 80, term.rows || 24);
+      listeners.push(await bridge.onTermOutput(receive));
+      listeners.push(await bridge.onTermExit(exited => receive({ id: exited })));
       if (startup !== this.startup) {
+        listeners.forEach(stop => stop());
+        return;
+      }
+      id = await bridge.termOpen(workspace, term.cols || 80, term.rows || 24, this.launch);
+      if (startup !== this.startup) {
+        listeners.forEach(stop => stop());
         await bridge.termClose(id);
         return;
       }
       this.id = id;
-      term.onData((data) => void bridge.termWrite(id, data));
-      const listeners = [
-        await bridge.onTermOutput((output) => {
-          if (output.id === id && startup === this.startup) term.write(output.data);
-        }),
-        await bridge.onTermExit((exited) => {
-          if (exited !== id || startup !== this.startup) return;
-          this.id = null;
-          this.state.set('exited');
-          term.write('\r\n\x1b[2m[shell ended]\x1b[0m\r\n');
-        }),
-      ];
-      if (startup !== this.startup) {
-        for (const stop of listeners) stop();
-        return;
-      }
       this.unlisten.push(...listeners);
       this.state.set('running');
+      opening = false;
+      early.forEach(receive);
+      early.length = 0;
+      const shellId = id;
+      term.onData((data) => {
+        if (this.id === shellId && this.controller() === 'user') void bridge.termWrite(shellId, data).catch(error => this.error.set(String(error)));
+      });
     } catch (error) {
+      listeners.forEach(stop => stop());
+      if (id !== null) await bridge.termClose(id).catch(() => {});
       if (startup !== this.startup) return;
+      this.id = null;
       this.state.set('exited');
       this.error.set(String(error).replace(/^Error: /, ''));
     }

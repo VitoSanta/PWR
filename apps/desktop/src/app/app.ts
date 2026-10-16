@@ -1,4 +1,7 @@
 import { ChangeDetectionStrategy, Component, HostListener, OnInit, inject } from '@angular/core';
+import { EditorStore } from './core/editor';
+import { TerminalService } from './core/terminal';
+import { BrowserStore } from './core/browser';
 import { AgentStore } from './core/agent.store';
 import { bridge, inTauri } from './core/bridge';
 import { LayoutService } from './core/layout';
@@ -51,6 +54,9 @@ export class App implements OnInit {
     // Listening from the start, so background work begun before the
     // Activity card opens is still shown in it.
     inject(ActivityStore);
+    inject(EditorStore);
+    inject(TerminalService);
+    inject(BrowserStore);
   }
 
   ngOnInit(): void {
