@@ -26,6 +26,10 @@ export class WebView implements AfterViewInit, OnDestroy {
   private readonly surface = viewChild.required<ElementRef<HTMLElement>>('surface');
   private readonly zone = inject(NgZone);
   private animation = 0;
+  private interval?: ReturnType<typeof setInterval>;
+  private resizeObserver?: ResizeObserver;
+  private mutationObserver?: MutationObserver;
+  private removeListeners: Array<() => void> = [];
   private disposed = false;
   private signature = '';
   /** The card slides in for a moment; the native page, which no transition can carry, waits for it. */
@@ -33,9 +37,9 @@ export class WebView implements AfterViewInit, OnDestroy {
   private settleTimer?: ReturnType<typeof setTimeout>;
 
   ngAfterViewInit(): void {
-    if (!this.settled) this.settleTimer = setTimeout(() => (this.settled = true), 360);
     this.zone.runOutsideAngular(() => {
-      const tick = () => {
+      const check = () => {
+        this.animation = 0;
         if (this.disposed) return;
         const element = this.surface().nativeElement;
         const rect = element.getBoundingClientRect();
@@ -55,22 +59,60 @@ export class WebView implements AfterViewInit, OnDestroy {
             if (!this.disposed) this.zone.run(() => this.error.set(String(error).replace(/^Error: /, '')));
           });
         }
-        this.animation = requestAnimationFrame(tick);
       };
-      this.animation = requestAnimationFrame(tick);
+      const schedule = () => {
+        if (!this.disposed && !this.animation) {
+          this.animation = requestAnimationFrame(check);
+        }
+      };
+      if (!this.settled) {
+        this.settleTimer = setTimeout(() => {
+          this.settled = true;
+          schedule();
+        }, 360);
+      }
+      schedule();
+      const element = this.surface().nativeElement;
+      if (typeof ResizeObserver !== 'undefined') {
+        this.resizeObserver = new ResizeObserver(schedule);
+        this.resizeObserver.observe(element);
+        this.resizeObserver.observe(document.documentElement);
+      }
+      if (typeof MutationObserver !== 'undefined') {
+        this.mutationObserver = new MutationObserver(schedule);
+        this.mutationObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['class', 'style', 'data-wb-transition', 'data-wb-enter', 'data-wb-exit'],
+        });
+        this.mutationObserver.observe(document.body, { childList: true, subtree: true });
+      }
+      const onWindow = (type: string, capture = false) => {
+        window.addEventListener(type, schedule, { passive: true, capture });
+        this.removeListeners.push(() => window.removeEventListener(type, schedule, { capture }));
+      };
+      onWindow('resize');
+      onWindow('scroll', true);
+      document.addEventListener('visibilitychange', schedule);
+      this.removeListeners.push(() => document.removeEventListener('visibilitychange', schedule));
+      this.interval = setInterval(schedule, 250);
     });
   }
   ngOnDestroy(): void {
     this.disposed = true;
     clearTimeout(this.settleTimer);
+    clearInterval(this.interval);
     cancelAnimationFrame(this.animation);
+    this.resizeObserver?.disconnect();
+    this.mutationObserver?.disconnect();
+    this.removeListeners.forEach(stop => stop());
     const id = this.tabId();
     void enqueue(() => bridge.browserSync({ id, x: 0, y: 0, width: 1, height: 1, visible: false })).catch(() => {});
   }
 }
 
 export function webViewVisible(element: HTMLElement, rect: DOMRect): boolean {
-  if (!element.isConnected || document.visibilityState === 'hidden' || rect.width < 2 || rect.height < 2
+  if (!element.isConnected || document.visibilityState === 'hidden' || document.documentElement.dataset['wbTransition']
+      || rect.width < 2 || rect.height < 2
       || rect.x < 0 || rect.y < 0 || rect.right > innerWidth + 1 || rect.bottom > innerHeight + 1) return false;
   return [[rect.x + 1, rect.y + 1], [rect.right - 1, rect.y + 1],
     [rect.x + rect.width / 2, rect.y + rect.height / 2], [rect.right - 1, rect.bottom - 1]]

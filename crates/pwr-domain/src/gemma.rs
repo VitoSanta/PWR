@@ -300,7 +300,48 @@ pub fn window(pack: &Pack, memory: u64, kv_bits: u32) -> u32 {
 
 /// The pack a model reference names, if it is one of the line.
 pub fn pack(model_ref: &str) -> Option<&'static Pack> {
-    PACKS.iter().find(|pack| pack.model_ref == model_ref)
+    if is_assistant(model_ref) {
+        return None;
+    }
+    if let Some(exact) = PACKS.iter().find(|pack| pack.model_ref == model_ref) {
+        return Some(exact);
+    }
+    let lower = model_ref.to_ascii_lowercase();
+    if !lower.ends_with(".gguf")
+        || !(lower.contains("gemma-4") || lower.contains("gemma4"))
+        || lower.contains("mmproj")
+        || lower.contains("imatrix")
+    {
+        return None;
+    }
+    if lower.contains("e2b") {
+        return PACKS.iter().find(|p| p.label == "Gemma 4 E2B");
+    }
+    if lower.contains("e4b") {
+        let label = if lower.contains("qat") {
+            "Gemma 4 E4B QAT"
+        } else {
+            "Gemma 4 E4B"
+        };
+        return PACKS.iter().find(|p| p.label == label);
+    }
+    if lower.contains("12b") {
+        return PACKS.iter().find(|p| p.label == "Gemma 4 12B");
+    }
+    if lower.contains("26b") {
+        let label = if lower.contains("6bit") || lower.contains("6-bit") || lower.contains("q6") {
+            "Gemma 4 26B 6-bit"
+        } else if lower.contains("qat") {
+            "Gemma 4 26B QAT"
+        } else {
+            "Gemma 4 26B"
+        };
+        return PACKS.iter().find(|p| p.label == label);
+    }
+    if lower.contains("31b") {
+        return PACKS.iter().find(|p| p.label == "Gemma 4 31B");
+    }
+    None
 }
 
 /// Whether a model reference is one of Google's assistant drafts: kept on
@@ -308,6 +349,7 @@ pub fn pack(model_ref: &str) -> Option<&'static Pack> {
 pub fn is_assistant(model_ref: &str) -> bool {
     PACKS.iter().any(|pack| pack.assistant == model_ref)
         || model_ref.to_ascii_lowercase().contains("-assistant")
+        || model_ref.to_ascii_lowercase().contains("_assistant")
 }
 
 /// What the person is told when a model that is not one of the line is
@@ -423,7 +465,25 @@ mod tests {
             pack("mlx-community/gemma-4-26b-a4b-it-4bit").unwrap().tier,
             Tier::Middle
         );
+        assert_eq!(
+            pack("bartowski/gemma-4-26b-a4b-it-Q4_K_M.gguf")
+                .unwrap()
+                .model_ref,
+            "mlx-community/gemma-4-26b-a4b-it-4bit"
+        );
+        assert_eq!(
+            pack("google/gemma-4-31b-it-Q8_0.gguf").unwrap().model_ref,
+            "mlx-community/gemma-4-31b-it-8bit"
+        );
+        assert_eq!(
+            pack("unsloth/gemma-4-e4b-it-Q4_K_M.gguf")
+                .unwrap()
+                .context_tokens,
+            131_072
+        );
         assert!(pack("mlx-community/gemma-4-26B-A4B-it-assistant-bf16").is_none());
+        assert!(pack("google/gemma-4-26b-a4b-it-assistant.gguf").is_none());
+        assert!(pack("google/gemma-4-26b-a4b-mmproj-f16.gguf").is_none());
         assert!(is_assistant("mlx-community/gemma-4-31B-it-assistant-bf16"));
         assert!(!is_assistant("mlx-community/gemma-4-31b-it-8bit"));
         assert!(pack("mlx-community/Qwen3.6-27B-4bit").is_none());

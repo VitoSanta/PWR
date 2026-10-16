@@ -2779,8 +2779,26 @@ impl ToolPolicy {
             // persists into the next one, and nothing in the real home
             // directory is read.
             .env("HOME", &scratch)
+            .env("USERPROFILE", &scratch)
             // Gradle's caches, which it keeps under `user.home`, not HOME.
             .env("GRADLE_USER_HOME", scratch.join(".gradle"));
+        #[cfg(windows)]
+        for key in [
+            "SystemRoot",
+            "WINDIR",
+            "COMSPEC",
+            "PATHEXT",
+            "SYSTEMDRIVE",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "CommonProgramFiles",
+            "APPDATA",
+            "LOCALAPPDATA",
+        ] {
+            if let Some(val) = std::env::var_os(key) {
+                command.env(key, val);
+            }
+        }
         // A JVM takes `user.home` from the account, not from HOME, and on
         // macOS its temporary directory from the system, not from TMPDIR.
         // Measured 2026-09-27 (stack matrix c3): Maven tried to create its
@@ -6491,7 +6509,7 @@ pub fn dependency_sources_with_cargo_home(
 fn cargo_home() -> Option<PathBuf> {
     std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")))
+        .or_else(|| pwr_domain::home_dir().map(|home| home.join(".cargo")))
 }
 
 /// At most this many packages of one ecosystem, newest declaration first. A

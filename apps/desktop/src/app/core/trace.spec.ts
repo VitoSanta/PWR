@@ -184,6 +184,21 @@ describe('what an action did, in plain words', () => {
     expect(actionPhrase(call('peek_file a.ts', 'a.ts', { toolKind: 'read' })).verb).toBe('Read');
     expect(actionPhrase(call('new_tool', 'x')).verb).toBe('new_tool');
   });
+
+  it('describes shared workspace interactions in plain words', () => {
+    expect(actionPhrase(call('workspace_interact', 'browser open http://localhost:3000', { toolKind: 'execute' }))).toEqual({
+      verb: 'Opened in browser',
+      object: 'http://localhost:3000',
+    });
+    expect(actionPhrase(call('workspace_interact', 'terminal start python3', { toolKind: 'execute' }))).toEqual({
+      verb: 'Started in terminal',
+      object: 'python3',
+    });
+    expect(actionPhrase(call('workspace_interact', 'editor open src/app.ts', { toolKind: 'execute' }))).toEqual({
+      verb: 'Opened in editor',
+      object: 'src/app.ts',
+    });
+  });
 });
 
 describe('a command that ran and failed', () => {

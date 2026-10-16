@@ -1400,19 +1400,31 @@ class ThoughtSampler:
     def sample_target(self, logits, *, row_ids, positions):
         if any(row != 0 for row in row_ids):
             raise ValueError("PWR speculative sampling serves one conversation")
+        if self.thought is None:
+            for position in positions:
+                self.states[position + 1] = (False, False)
+            return self.sampler(logits).reshape(-1)
+        if positions and self.states.get(positions[0]) == (True, True):
+            # Once the thought channel is closed (or pre-closed with thinking off),
+            # neither delimiter can ever be emitted again in this reply: mask the
+            # whole draft block at once without per-token GPU->CPU synchronization.
+            ids = mx.arange(logits.shape[-1])
+            forbidden = (ids == self.thought.open_id) | (ids == self.thought.close_id)
+            scores = mx.where(forbidden[None, :], -mx.inf, logits)
+            for position in positions:
+                self.states[position + 1] = (True, True)
+            return self.sampler(scores).reshape(-1)
         sampled = []
         for row, position in enumerate(positions):
             shut, closed = self.states[position]
             scores = logits[row:row + 1]
-            if self.thought is not None:
-                ids = mx.arange(scores.shape[-1])
-                forbidden = ((ids == self.thought.open_id) & shut) | ((ids == self.thought.close_id) & closed)
-                scores = mx.where(forbidden, -mx.inf, scores)
+            ids = mx.arange(scores.shape[-1])
+            forbidden = ((ids == self.thought.open_id) & shut) | ((ids == self.thought.close_id) & closed)
+            scores = mx.where(forbidden, -mx.inf, scores)
             token = self.sampler(scores)
             value = int(token.item())
-            if self.thought is not None:
-                shut = shut or value in (self.thought.open_id, self.thought.close_id)
-                closed = closed or value == self.thought.close_id
+            shut = shut or value in (self.thought.open_id, self.thought.close_id)
+            closed = closed or value == self.thought.close_id
             self.states[position + 1] = (shut, closed)
             sampled.append(token.reshape(-1))
         return mx.concatenate(sampled)
@@ -1745,11 +1757,16 @@ class Engine:
         if not request.get("aside"):
             return self.converse(request, reply, cancelled)
         kept = (self.cache, self.checkpoint, self.checkpoint_tokens)
+        vision_kept = (getattr(self.model, "embeds", None),
+                       getattr(self.model, "per_layer", None),
+                       getattr(self.model, "blocks", None))
         self.cache, self.checkpoint, self.checkpoint_tokens = None, None, []
         try:
             return self.converse(request, reply, cancelled)
         finally:
             self.cache, self.checkpoint, self.checkpoint_tokens = kept
+            if self.model is not None and hasattr(self.model, "embeds"):
+                self.model.embeds, self.model.per_layer, self.model.blocks = vision_kept
 
     def converse(self, request: dict, reply, cancelled=lambda: False) -> dict:
         if self.model is None:

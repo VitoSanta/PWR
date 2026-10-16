@@ -96,14 +96,24 @@ import { KnowledgeCard } from './workbench/knowledge';
             [style.view-transition-name]="'wb-' + card.id"
           >
             <header class="wb-card-head" (dblclick)="work.maximize(card.id)">
-                <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
-                  <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
-                  <pa-icon [name]="icon(info(card.id))" [size]="15" />
-                  <span>{{ info(card.id).label }}</span>
-                  @if (badge(card.id); as count) {
-                    <span class="count num">{{ count }}</span>
-                  }
-                </button>
+                @if (!work.focusMode() || work.visible().length > 1 || work.focused() === card.id) {
+                  <button class="wb-card-title" (click)="work.collapse(card.id)" [attr.aria-expanded]="!card.collapsed">
+                    <pa-icon class="wb-card-chevron" name="chevron-right" [size]="14" />
+                    <pa-icon [name]="icon(info(card.id))" [size]="15" />
+                    <span>{{ info(card.id).label }}</span>
+                    @if (badge(card.id); as count) {
+                      <span class="count num">{{ count }}</span>
+                    }
+                  </button>
+                } @else {
+                  <span class="wb-card-title is-static">
+                    <pa-icon [name]="icon(info(card.id))" [size]="15" />
+                    <span>{{ info(card.id).label }}</span>
+                    @if (badge(card.id); as count) {
+                      <span class="count num">{{ count }}</span>
+                    }
+                  </span>
+                }
               <span class="spacer"></span>
               <span class="wb-card-actions">
                 @if (work.focusMode() && !work.focused() && work.visible().length > 1) {

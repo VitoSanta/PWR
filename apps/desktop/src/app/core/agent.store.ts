@@ -330,9 +330,9 @@ export class AgentStore {
         clientInfo: { name: 'pwr-desktop', version: '0.1.0' },
       });
       this.chatHome.set(hello?._meta?.pwr?.chatHome ?? '');
-      this.coreState.set('ready');
       this.appendLog('Core initialized; protocol ready.');
       await Promise.all([this.refreshModels(), this.refreshSessions(), this.refreshPermissions()]);
+      this.coreState.set('ready');
       return true;
     } catch (error) {
       this.coreState.set('error');
@@ -1244,15 +1244,27 @@ function explain(raw: string): string {
 }
 
 function fileUri(path: string): string {
-  return 'file://' + path.split('/').map(encodeURIComponent).join('/');
+  const normalized = path.replace(/\\/g, '/');
+  const prefix = normalized.startsWith('/') ? 'file://' : 'file:///';
+  return (
+    prefix +
+    normalized
+      .split('/')
+      .map((part, index) => (index === 0 && /^[a-zA-Z]:$/.test(part) ? part : encodeURIComponent(part)))
+      .join('/')
+  );
 }
 
 function basename(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path;
+  return path.split(/[/\\]/).filter(Boolean).pop() ?? path;
 }
 
 function relative(path: string, workspace: string): string {
-  return workspace && path.startsWith(workspace + '/') ? path.slice(workspace.length + 1) : path;
+  const normPath = path.replace(/\\/g, '/');
+  const normWorkspace = workspace.replace(/\\/g, '/').replace(/\/+$/, '');
+  return normWorkspace && normPath.startsWith(normWorkspace + '/')
+    ? normPath.slice(normWorkspace.length + 1)
+    : path;
 }
 
 function unique(items: string[]): string[] {

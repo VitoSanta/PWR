@@ -121,6 +121,7 @@ const TOOL_VERBS: Record<string, string> = {
   look_at: 'Looked at',
   check_page: 'Checked',
   read_terminal: 'Read the terminal',
+  workspace_interact: 'Used',
   vcs_status: 'Checked git status',
   vcs_diff: 'Read the git diff',
   update_plan: 'Updated the plan',
@@ -147,6 +148,28 @@ export function actionPhrase(entry: Entry): ActionPhrase {
   // A call's text is its argument where it has one; "Arguments: path" is the
   // core naming the argument's key, which says nothing.
   const text = /^Arguments:/.test(entry.text) ? '' : entry.text;
+  if (tool === 'workspace_interact') {
+    const [target = '', op = '', ...rest] = text.split(' ');
+    const arg = rest.join(' ');
+    if (target === 'browser') {
+      if (op === 'open') return { verb: 'Opened in browser', object: arg || 'a page' };
+      if (op === 'snapshot') return { verb: 'Inspected browser tab', object: '' };
+      if (op === 'click') return { verb: 'Clicked in browser', object: arg };
+      if (op === 'fill') return { verb: 'Typed in browser', object: arg };
+      return { verb: 'Used browser', object: [op, arg].filter(Boolean).join(' ') };
+    }
+    if (target === 'terminal') {
+      if (op === 'start') return { verb: 'Started in terminal', object: arg || 'a process' };
+      if (op === 'read') return { verb: 'Read terminal', object: '' };
+      if (op === 'input') return { verb: 'Sent to terminal', object: arg };
+      if (op === 'interrupt') return { verb: 'Interrupted terminal', object: '' };
+      return { verb: 'Used terminal', object: [op, arg].filter(Boolean).join(' ') };
+    }
+    if (target === 'editor') {
+      if (op === 'open') return { verb: 'Opened in editor', object: arg || path };
+      return { verb: 'Inspected editor', object: '' };
+    }
+  }
   let verb = TOOL_VERBS[tool] ?? KIND_VERBS[entry.toolKind ?? ''] ?? tool;
   if (tool === 'write_file') verb = entry.diff && !entry.diff.oldText ? 'Created' : 'Wrote';
   let object = path || text;

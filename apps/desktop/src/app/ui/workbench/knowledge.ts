@@ -23,9 +23,8 @@ import { CORE_TOO_OLD, PersonalStore } from '../../core/personal.store';
 import { roveFocus } from '../../core/ui';
 import { WorkbenchStore } from '../../core/workbench';
 import { Icon } from '../kit/icon';
-import { Action } from '../kit/tool';
+import { Action, EmptyState, SearchField, ToolBar } from '../kit/tool';
 import { Select, SelectOption } from '../kit/select';
-import { Tooltip } from '../kit/tooltip';
 import { Markdown } from '../markdown';
 
 export type NodeKind = 'project' | 'module' | 'file' | 'symbol' | 'package' | 'work' | 'decision';
@@ -274,10 +273,10 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
 /** Knowledge: the project as a graph, its modules, the work done, its overview. */
 @Component({
   selector: 'pa-knowledge-card',
-  imports: [MatCheckboxModule, MatButtonModule, Graph3d, Icon, Tooltip, Markdown, Select, Action],
+  imports: [MatCheckboxModule, MatButtonModule, Graph3d, Icon, Markdown, Select, Action, EmptyState, SearchField, ToolBar],
   template: `
     @if (agent.chatMode() && projectOptions().length) {
-      <div class="card-toolbar">
+      <pa-tool-bar>
         <pa-select
           size="sm"
           ariaLabel="Project"
@@ -286,9 +285,9 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
           (valueChange)="choose($any($event))"
         />
         <span class="t-meta truncate">Read only</span>
-      </div>
+      </pa-tool-bar>
     }
-    <div class="card-toolbar">
+    <pa-tool-bar>
       <div class="tabs" role="tablist" aria-label="Knowledge view" (keydown)="viewKeys($event)">
         @for (item of views; track item.id) {
           <button
@@ -304,31 +303,35 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
       </div>
       <span class="spacer"></span>
       <pa-action icon="refresh" label="Refresh" [disabled]="loading()" (click)="load()" />
-    </div>
+    </pa-tool-bar>
     @if (error()) {
-      <p class="banner banner-danger card-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ error() }}</p>
+      <p class="banner banner-danger tool-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ error() }}</p>
     }
     @if (!source()) {
-      <p class="card-empty card-pad">
+      <pa-empty-state icon="target" title="No project selected">
         {{ agent.chatMode()
           ? 'No projects yet. A workspace appears here after PWR’s first reply in it, and any conversation can then look at what PWR knows about it.'
           : 'Open a workspace to see what PWR knows about it.' }}
-      </p>
+      </pa-empty-state>
     } @else if (wiki(); as data) {
       @switch (view()) {
         @case ('graph') {
           @if (data.graph.nodes.length < 2) {
             <!-- Only the project so far: no search, legend or lone dot, just what will be here. -->
-            <p class="card-empty knowledge-empty" animate.enter="anim-fade-in">
-              <pa-icon name="target" [size]="20" />
-              Nothing to map yet. The graph fills in as PWR reads and changes files in this workspace.
-            </p>
+            <pa-empty-state icon="target" title="Nothing to map yet">
+              The graph fills in as PWR reads and changes files in this workspace.
+            </pa-empty-state>
           } @else {
           <div class="knowledge-view" animate.enter="anim-fade-in">
           <div class="graph-controls">
-            <form class="graph-search" (submit)="$event.preventDefault(); find(search.value)">
-              <input #search class="input input-sm" placeholder="Find a file, folder or package" aria-label="Find in the graph" />
-            </form>
+            <pa-search-field
+              class="graph-search"
+              label="Find in the graph"
+              placeholder="Find a file, folder or package"
+              [(value)]="searchQuery"
+              (submitted)="find($event)"
+              (cleared)="selected.set(null); error.set('')"
+            />
             <mat-checkbox class="check-label" [checked]="symbols()" (change)="toggleSymbols()">Symbols</mat-checkbox>
             <mat-checkbox class="check-label" [checked]="builtins()" (change)="builtins.set($event.checked)">Standard library</mat-checkbox>
           </div>
@@ -351,9 +354,9 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
                   <strong class="truncate" [attr.title]="node.label">{{ node.label }}</strong>
                   <span class="spacer"></span>
                   @if (node.kind === 'file' && !agent.chatMode()) {
-                    <button matIconButton class="icon-btn icon-btn-sm" (click)="work.openFile(node.label)" aria-label="Open in Files" paTooltip="Open in Files"><pa-icon name="file" [size]="14" /></button>
+                    <pa-action icon="file" label="Open in Editor" (click)="work.openFile(node.label)" />
                   }
-                  <button matIconButton class="icon-btn icon-btn-sm" (click)="selected.set(null)" aria-label="Close"><pa-icon name="x" [size]="14" /></button>
+                  <pa-action icon="x" label="Close" (click)="selected.set(null)" />
                 </header>
                 @if (node.summary) {
                   <p class="graph-summary">{{ node.summary }} <span class="t-meta">· {{ node.stale ? 'written before its files changed' : 'written by the model, unverified' }}</span></p>
@@ -376,7 +379,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
         }
         @case ('modules') {
           <div class="knowledge-view" animate.enter="anim-fade-in">
-          <div class="card-toolbar">
+          <pa-tool-bar>
             <span class="t-meta">{{ summaryStatus() }}</span>
             <span class="spacer"></span>
             @if (!agent.chatMode()) {
@@ -384,7 +387,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
                 <pa-icon name="sparkles" [size]="14" /> Write summaries
               </button>
             }
-          </div>
+          </pa-tool-bar>
           <div class="card-scroll card-pad knowledge-list">
             @for (module of data.modules; track module.id) {
               <article class="knowledge-item">
@@ -434,7 +437,7 @@ type View = 'graph' | 'modules' | 'work' | 'overview';
     } @else if (loading()) {
       <p class="card-empty card-pad"><span class="spinner spinner-sm" aria-hidden="true"></span> Building the knowledge graph…</p>
     } @else if (!error()) {
-      <p class="card-empty card-pad">Nothing known about this workspace yet. PWR maps it after its first reply here.</p>
+      <pa-empty-state icon="target" title="Nothing known yet">PWR maps this workspace after its first reply here.</pa-empty-state>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -443,6 +446,7 @@ export class KnowledgeCard {
   protected readonly agent = inject(AgentStore);
   protected readonly work = inject(WorkbenchStore);
   private readonly personal = inject(PersonalStore);
+  protected searchQuery = '';
   /** Whose wiki `wiki` holds, or is being loaded for. */
   private shown: string | null = null;
   private loadVersion = 0;

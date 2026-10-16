@@ -206,7 +206,31 @@ export class WorkbenchStore {
   }
 
   private collapseNow(id: CardId): void {
-    this.open.update((open) => open.map((card) => (card.id === id ? { ...card, collapsed: !card.collapsed } : card)));
+    // A maximized tool cannot collapse in full screen: collapsing it leaves
+    // full screen first, and only folds the card when another open card in
+    // the column is expanded to take the space.
+    if (this.maximized() === id) {
+      this.maximized.set(null);
+      const usable = new Set(this.available().map((card) => card.id));
+      const othersExpanded = this.open().some((card) => card.id !== id && usable.has(card.id) && !card.collapsed);
+      this.open.update((open) =>
+        open.map((card) => (card.id === id ? { ...card, collapsed: othersExpanded } : card)),
+      );
+      this.persist();
+      return;
+    }
+    this.open.update((open) => {
+      const next = open.map((card) => (card.id === id ? { ...card, collapsed: !card.collapsed } : card));
+      if (!this.focusMode()) return next;
+      const usable = new Set(this.available().map((card) => card.id));
+      const visible = next.filter((card) => usable.has(card.id));
+      // Never leave every visible card in the column collapsed over an empty void.
+      if (visible.length > 0 && visible.every((card) => card.collapsed)) {
+        const other = visible.find((card) => card.id !== id) ?? visible[0];
+        return next.map((card) => (card.id === other.id ? { ...card, collapsed: false } : card));
+      }
+      return next;
+    });
     this.persist();
   }
 
@@ -263,9 +287,11 @@ export class WorkbenchStore {
       return;
     }
     const root = document.documentElement;
+    root.dataset['wbTransition'] = '1';
     if (motion?.enter) root.dataset['wbEnter'] = motion.enter;
     if (motion?.exit) root.dataset['wbExit'] = motion.exit;
     const clear = () => {
+      delete root.dataset['wbTransition'];
       delete root.dataset['wbEnter'];
       delete root.dataset['wbExit'];
     };
@@ -325,8 +351,13 @@ function load(): Saved {
     if (!raw) return fallback;
     const saved = JSON.parse(raw) as Saved;
     const known = new Set(CARDS.map((card) => card.id));
-    const open = (saved.open ?? []).filter((card) => known.has(card.id));
     const maximized = saved.maximized && known.has(saved.maximized) ? saved.maximized : null;
+    let open = (saved.open ?? [])
+      .filter((card) => known.has(card.id))
+      .map((card) => (card.id === maximized ? { ...card, collapsed: false } : card));
+    if (open.length > 0 && open.every((card) => card.collapsed)) {
+      open = open.map((card, index) => (index === 0 ? { ...card, collapsed: false } : card));
+    }
     return { open, maximized };
   } catch {
     return fallback;

@@ -743,10 +743,16 @@ fn carried_not_written(path: &str) -> bool {
                 | "third-party"
                 | "node_modules"
                 | "bower_components"
+                | "obj"
+                | "__pycache__"
+                | ".next"
+                | ".angular"
         )
     }) || lowered.contains(".min.")
         || lowered.ends_with(".po")
         || lowered.ends_with(".mo")
+        || lowered.ends_with(".nuget.dgspec.json")
+        || lowered.ends_with("project.assets.json")
 }
 
 /// Lines of context kept either side of the densest match.

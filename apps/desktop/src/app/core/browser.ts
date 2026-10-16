@@ -1,4 +1,4 @@
-import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
+import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { AgentStore } from './agent.store';
 import { WorkbenchStore } from './workbench';
 import { bridge, inTauri } from './bridge';
@@ -60,11 +60,20 @@ export class BrowserStore {
   private readonly loadWaiters = new Map<string, () => void>();
   private sequence: Promise<unknown> = Promise.resolve();
   constructor() {
-    this.agent.workspaceStops.add(() => this.tabs.update(tabs => tabs.map(tab => ({ ...tab, controller: 'user' }))));
+    const destroyRef = inject(DestroyRef);
+    const stopControl = () => this.tabs.update(tabs => tabs.map(tab => ({ ...tab, controller: 'user' })));
+    this.agent.workspaceStops.add(stopControl);
+    destroyRef.onDestroy(() => {
+      this.agent.workspaceStops.delete(stopControl);
+      this.loadWaiters.forEach(done => done());
+      this.loadWaiters.clear();
+    });
     if (inTauri()) {
-      void bridge.onBrowserNavigation(event => this.tabs.update(tabs => tabs.map(tab => tab.id === event.id ? { ...tab, url: event.url } : tab)));
-      void bridge.onBrowserTitle(event => this.tabs.update(tabs => tabs.map(tab => tab.id === event.id ? { ...tab, title: event.title } : tab)));
-      void bridge.onBrowserLoaded(event => { if (event.finished) this.loadWaiters.get(event.id)?.(); });
+      const unlisten: Array<() => void> = [];
+      void bridge.onBrowserNavigation(event => this.tabs.update(tabs => tabs.map(tab => tab.id === event.id ? { ...tab, url: event.url } : tab))).then(stop => unlisten.push(stop));
+      void bridge.onBrowserTitle(event => this.tabs.update(tabs => tabs.map(tab => tab.id === event.id ? { ...tab, title: event.title } : tab))).then(stop => unlisten.push(stop));
+      void bridge.onBrowserLoaded(event => { if (event.finished) this.loadWaiters.get(event.id)?.(); }).then(stop => unlisten.push(stop));
+      destroyRef.onDestroy(() => unlisten.forEach(stop => stop()));
     }
     effect(() => {
       const engine = this.engine();
@@ -75,7 +84,10 @@ export class BrowserStore {
       untracked(() => {
         if (cwd === this.cwd) return;
         const previous = this.tabs(); this.tabs.set([]); this.activeId.set(''); this.snapshot.set(null);
-        previous.forEach(tab => void bridge.browserClose(tab.id).catch(() => {}));
+        previous.forEach(tab => {
+          this.loadWaiters.get(tab.id)?.();
+          void bridge.browserClose(tab.id).catch(() => {});
+        });
         this.cwd = cwd;
         try { this.history.set(JSON.parse(localStorage.getItem(`pwr:browser-history:${cwd}`) ?? '[]')); } catch { this.history.set([]); }
       });
@@ -88,8 +100,9 @@ export class BrowserStore {
         this.work.show('browser');
         if (operation === 'tabs') return { tabs: this.tabs() };
         if (operation === 'open') { const tab = await this.open(String(args.url ?? ''), 'model', true); return { tab: this.tabs().find(item => item.id === tab.id) ?? tab }; }
-        const tab = this.tabs().find(tab => tab.id === String(args.tabId ?? ''));
-        if (!tab) throw new Error('Choose a tabId from browser tabs.');
+        const mine = this.tabs().filter(item => item.controller === 'model' && (!item.conversationId || item.conversationId === this.agent.sessionId()));
+        const tab = args.tabId ? this.tabs().find(item => item.id === String(args.tabId)) : (this.active()?.controller === 'model' && (!this.active()?.conversationId || this.active()?.conversationId === this.agent.sessionId()) ? this.active()! : mine.at(-1));
+        if (!tab) throw new Error('Choose a tabId from browser tabs, or open a page first with operation "open".');
         if (tab.controller !== 'model' || (tab.conversationId && tab.conversationId !== this.agent.sessionId())) throw new Error('This tab is controlled by the engineer. Ask them to give control to PWR.');
         // Control given before the conversation had an id belongs to the one that is asking.
         if (!tab.conversationId) this.tabs.update(tabs => tabs.map(item => item.id === tab.id ? { ...item, conversationId: this.agent.sessionId() } : item));
@@ -140,6 +153,14 @@ export class BrowserStore {
     const url = browserAddress(raw); await bridge.browserOpen(tab.id, url);
     this.tabs.update(tabs => tabs.map(item => item.id === tab.id ? { ...item, url } : item)); this.remember(url);
   }
+  /** A link the person followed: its page in the Browser, the tab it already has if it has one. Throws for an address the Browser refuses. */
+  async openLink(raw: string): Promise<void> {
+    const url = browserAddress(raw);
+    this.choosing.set(false);
+    const existing = this.tabs().find(tab => tab.url === url);
+    if (existing) { this.select(existing.id); return; }
+    await this.open(url);
+  }
   async openHome(): Promise<void> {
     if (this.choosing()) return;
     try { await this.open(this.home()); } catch (error) { this.error.set(String(error).replace(/^Error: /, '')); }
@@ -182,6 +203,7 @@ export class BrowserStore {
     finally { this.busy.set(false); }
   }
   async close(id: string): Promise<void> {
+    this.loadWaiters.get(id)?.();
     await bridge.browserClose(id); const tabs = this.tabs().filter(tab => tab.id !== id); this.tabs.set(tabs);
     if (this.activeId() === id) this.activeId.set(tabs.at(-1)?.id ?? '');
     this.snapshot.set(null);

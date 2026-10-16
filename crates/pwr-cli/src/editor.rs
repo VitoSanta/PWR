@@ -64,6 +64,20 @@ pub fn request(params: &Value) -> Result<Value, String> {
             if root.join(".pwr").exists() && !root.join(".pwr").canonicalize().map_err(|why|why.to_string())?.starts_with(root.canonicalize().map_err(|why|why.to_string())?) { return Err("Invalid project state folder.".into()); }
             std::fs::create_dir_all(&trash).map_err(|why| why.to_string())?;
             if !trash.canonicalize().map_err(|why|why.to_string())?.starts_with(root.canonicalize().map_err(|why|why.to_string())?) {return Err("Invalid project trash folder.".into());}
+            // Keep at most the latest 20 removed items per workspace.
+            if let Ok(entries) = std::fs::read_dir(&trash) {
+                let mut slots: Vec<_> = entries
+                    .flatten()
+                    .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+                    .collect();
+                if slots.len() >= 20 {
+                    slots.sort_by(|a, b| a.0.cmp(&b.0));
+                    let remove = slots.len() - 19;
+                    for (_, old) in slots.into_iter().take(remove) {
+                        let _ = std::fs::remove_dir_all(old);
+                    }
+                }
+            }
             let token = pwr_domain::new_id().to_string();
             let slot = trash.join(&token);
             std::fs::create_dir(&slot).map_err(|why| why.to_string())?;

@@ -117,4 +117,32 @@ describe('WorkbenchStore', () => {
     work.show('knowledge');
     expect(work.visible().map((card) => card.id)).toEqual(['review', 'activity', 'knowledge']);
   });
+
+  it('exits full screen when a maximized card is collapsed, and never leaves a column of only collapsed cards', () => {
+    const work = TestBed.inject(WorkbenchStore);
+    work.focusMode.set(true);
+    // Only 'review' is open: collapsing it while maximized exits full screen and keeps it expanded.
+    work.maximize('review');
+    expect(work.focused()).toBe('review');
+    work.collapse('review');
+    expect(work.focused()).toBeNull();
+    expect(work.visible()).toEqual([{ id: 'review', collapsed: false }]);
+
+    // With two cards open, collapsing a maximized card exits full screen and folds it beside the other.
+    work.show('browser');
+    work.maximize('browser');
+    work.collapse('browser');
+    expect(work.focused()).toBeNull();
+    expect(work.visible()).toEqual([
+      { id: 'review', collapsed: false },
+      { id: 'browser', collapsed: true },
+    ]);
+
+    // Collapsing the last expanded card automatically unfolds another so the column is never empty.
+    work.collapse('review');
+    expect(work.visible()).toEqual([
+      { id: 'review', collapsed: true },
+      { id: 'browser', collapsed: false },
+    ]);
+  });
 });

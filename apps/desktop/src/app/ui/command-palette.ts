@@ -9,6 +9,7 @@ import { LAYOUT_PALETTE, ThemeService } from '../core/theme';
 import { SHORTCUTS, UiStore, shortcut } from '../core/ui';
 import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
+import { EmptyState } from './kit/tool';
 
 interface Command {
   id: string;
@@ -26,7 +27,7 @@ interface Command {
  */
 @Component({
   selector: 'pa-command-palette',
-  imports: [Dialog, Icon],
+  imports: [Dialog, Icon, EmptyState],
   template: `
     @if (ui.paletteOpen()) {
       <pa-dialog
@@ -81,9 +82,7 @@ interface Command {
               }
             </div>
           } @empty {
-            <div class="empty-state">
-              <p class="empty-state-title">No matching commands</p>
-            </div>
+            <pa-empty-state icon="search" title="No matching commands" />
           }
         </div>
       </pa-dialog>

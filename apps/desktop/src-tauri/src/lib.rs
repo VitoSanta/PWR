@@ -73,59 +73,85 @@ fn bundled(app: &AppHandle, relative: &str) -> Option<PathBuf> {
         .filter(|path| path.is_file())
 }
 
+/// The user's home folder on Unix (`HOME`) or Windows (`USERPROFILE`).
+pub(crate) fn user_home() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
 /// `PWR_CORE`, the bundled core, the checkout build, then `pwr` on PATH.
 fn core_path(app: &AppHandle) -> PathBuf {
     if let Some(path) = std::env::var_os("PWR_CORE") {
         return PathBuf::from(path);
     }
-    if let Some(path) = bundled(app, "pwr") {
+    let bin = format!("pwr{}", std::env::consts::EXE_SUFFIX);
+    if let Some(path) = bundled(app, &bin) {
         return path;
     }
     repository()
         .map(|root| {
             root.join(if cfg!(debug_assertions) {
-                "target/debug/pwr"
+                "target/debug"
             } else {
-                "target/release/pwr"
+                "target/release"
             })
+            .join(&bin)
         })
         .filter(|path| path.is_file())
-        .unwrap_or_else(|| PathBuf::from("pwr"))
+        .unwrap_or_else(|| PathBuf::from(bin))
 }
 
 /// The PATH a terminal would have. An app opened from the Finder inherits
 /// launchd's `/usr/bin:/bin:/usr/sbin:/sbin`, where the checks a workspace
 /// declares (`npm`, `node`, `cargo`) are not found.
 fn login_path() -> String {
-    let current = std::env::var("PATH").unwrap_or_default();
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let from_shell = Command::new(shell)
-        .args(["-lc", "printf %s \"$PATH\""])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-        .unwrap_or_default();
-    let home = std::env::var("HOME").unwrap_or_default();
-    let known = [
-        "/opt/homebrew/bin".to_owned(),
-        "/usr/local/bin".to_owned(),
-        format!("{home}/.cargo/bin"),
-    ];
-    let mut parts: Vec<String> = Vec::new();
-    for part in from_shell
-        .split(':')
-        .chain(current.split(':'))
-        .map(str::to_owned)
-        .chain(known)
-    {
-        if !part.is_empty() && !parts.contains(&part) {
-            parts.push(part);
-        }
-    }
-    parts.join(":")
+    static LOGIN_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    LOGIN_PATH
+        .get_or_init(|| {
+            let current = std::env::var_os("PATH").unwrap_or_default();
+            #[cfg(unix)]
+            let from_shell = {
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+                Command::new(shell)
+                    .args(["-lc", "printf %s \"$PATH\""])
+                    .stdin(Stdio::null())
+                    .stderr(Stdio::null())
+                    .output()
+                    .ok()
+                    .filter(|output| output.status.success())
+                    .map(|output| {
+                        std::ffi::OsString::from(String::from_utf8_lossy(&output.stdout).trim())
+                    })
+                    .unwrap_or_default()
+            };
+            #[cfg(not(unix))]
+            let from_shell = std::ffi::OsString::new();
+            let mut known: Vec<PathBuf> = Vec::new();
+            #[cfg(unix)]
+            {
+                known.push(PathBuf::from("/opt/homebrew/bin"));
+                known.push(PathBuf::from("/usr/local/bin"));
+            }
+            if let Some(home) = user_home() {
+                known.push(home.join(".cargo/bin"));
+            }
+            let mut parts: Vec<PathBuf> = Vec::new();
+            for part in std::env::split_paths(&from_shell)
+                .chain(std::env::split_paths(&current))
+                .chain(known)
+            {
+                if !part.as_os_str().is_empty() && !parts.contains(&part) {
+                    parts.push(part);
+                }
+            }
+            std::env::join_paths(parts)
+                .ok()
+                .and_then(|joined| joined.into_string().ok())
+                .unwrap_or_else(|| current.to_string_lossy().into_owned())
+        })
+        .clone()
 }
 
 /// Where the app remembers the workspace it last opened.
@@ -139,7 +165,7 @@ fn last_workspace_file(app: &AppHandle) -> Option<PathBuf> {
 fn chat_home() -> Result<PathBuf, String> {
     let path = std::env::var_os("PWR_CHAT_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/chat")))
+        .or_else(|| user_home().map(|home| home.join(".pwr/chat")))
         .ok_or("HOME is not set")?;
     std::fs::create_dir_all(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     path.canonicalize()
@@ -181,191 +207,220 @@ fn is_workspace_trusted(app: &AppHandle, workspace: &Path) -> Result<bool, Strin
 }
 
 #[tauri::command]
-fn chat_home_path() -> Result<String, String> {
-    chat_home().map(|path| path.display().to_string())
+async fn chat_home_path() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| chat_home().map(|path| path.display().to_string()))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-fn workspace_is_trusted(app: AppHandle, workspace: String) -> Result<bool, String> {
-    let path = canonical_workspace(&workspace)?;
-    is_workspace_trusted(&app, &path)
+async fn workspace_is_trusted(app: AppHandle, workspace: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = canonical_workspace(&workspace)?;
+        is_workspace_trusted(&app, &path)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-fn trust_workspace(app: AppHandle, workspace: String) -> Result<(), String> {
-    let path = canonical_workspace(&workspace)?;
-    if chat_home().is_ok_and(|home| home == path) {
-        return Ok(());
-    }
-    let mut paths = read_trusted_workspaces(&app)?;
-    if paths.iter().any(|trusted| trusted == &path) {
-        return Ok(());
-    }
-    paths.push(path);
-    let file = trusted_workspaces_file(&app)?;
-    let parent = file.parent().ok_or("app config directory has no parent")?;
-    std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-    let bytes = serde_json::to_vec_pretty(&paths).map_err(|error| error.to_string())?;
-    let temporary = file.with_extension("json.tmp");
-    std::fs::write(&temporary, bytes).map_err(|error| format!("{}: {error}", temporary.display()))?;
-    std::fs::rename(&temporary, &file).map_err(|error| format!("{}: {error}", file.display()))
+async fn trust_workspace(app: AppHandle, workspace: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = canonical_workspace(&workspace)?;
+        if chat_home().is_ok_and(|home| home == path) {
+            return Ok(());
+        }
+        let mut paths = read_trusted_workspaces(&app)?;
+        if paths.iter().any(|trusted| trusted == &path) {
+            return Ok(());
+        }
+        paths.push(path);
+        let file = trusted_workspaces_file(&app)?;
+        let parent = file.parent().ok_or("app config directory has no parent")?;
+        std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        let bytes = serde_json::to_vec_pretty(&paths).map_err(|error| error.to_string())?;
+        let temporary = file.with_extension("json.tmp");
+        std::fs::write(&temporary, bytes)
+            .map_err(|error| format!("{}: {error}", temporary.display()))?;
+        std::fs::rename(&temporary, &file).map_err(|error| format!("{}: {error}", file.display()))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// `PWR_WORKSPACE`, else the workspace opened last (if it still exists),
 /// else the checkout's site, else the home folder.
 #[tauri::command]
-fn default_workspace(app: AppHandle) -> String {
-    std::env::var("PWR_WORKSPACE")
-        .ok()
-        .or_else(|| {
-            last_workspace_file(&app)
-                .and_then(|file| std::fs::read_to_string(file).ok())
-                .map(|path| path.trim().to_owned())
-                .filter(|path| Path::new(path).is_dir())
-        })
-        .or_else(|| {
-            repository()
-                .map(|root| root.join("pwr-website"))
-                .filter(|path| path.is_dir())
-                .map(|path| path.display().to_string())
-        })
-        .or_else(|| std::env::var("HOME").ok())
-        .unwrap_or_else(|| ".".into())
+async fn default_workspace(app: AppHandle) -> String {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::env::var("PWR_WORKSPACE")
+            .ok()
+            .or_else(|| {
+                last_workspace_file(&app)
+                    .and_then(|file| std::fs::read_to_string(file).ok())
+                    .map(|path| path.trim().to_owned())
+                    .filter(|path| Path::new(path).is_dir())
+            })
+            .or_else(|| {
+                repository()
+                    .map(|root| root.join("pwr-website"))
+                    .filter(|path| path.is_dir())
+                    .map(|path| path.display().to_string())
+            })
+            .or_else(|| user_home().map(|home| home.display().to_string()))
+            .unwrap_or_else(|| ".".into())
+    })
+    .await
+    .unwrap_or_else(|_| ".".into())
 }
 
 #[tauri::command]
-fn core_start(app: AppHandle, core: State<'_, Core>, workspace: String) -> Result<Started, String> {
-    let workspace = canonical_workspace(&workspace)?;
-    if !is_workspace_trusted(&app, &workspace)? {
-        return Err(format!("Workspace has not been trusted: {}", workspace.display()));
-    }
-    let program = core_path(&app);
-    let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    // On a Mac the app runs MLX only; llama.cpp arrives with Windows. A
-    // development build still honours `PWR_BACKEND` so the GGUF path can be
-    // worked on; a release build never switches engine from the environment.
-    let default_backend = if cfg!(target_os = "macos") { "mlx" } else { "llama" };
-    let backend = if cfg!(debug_assertions) {
-        std::env::var("PWR_BACKEND").unwrap_or_else(|_| default_backend.into())
-    } else {
-        default_backend.into()
-    };
-    let mut command = Command::new(&program);
-    command
-        .args(["--backend", &backend, "serve", "--stdio"])
-        .current_dir(&workspace)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    command.env("PATH", login_path());
-    #[cfg(debug_assertions)]
-    let (trace_path, trace_owned) = match std::env::var_os("PWR_MLX_TRACE") {
-        Some(path) => (PathBuf::from(path), false),
-        None => {
-            let directory = app
-                .path()
-                .app_cache_dir()
-                .map_err(|error| error.to_string())?
-                .join("debug-traces");
-            std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
-                    .map_err(|error| error.to_string())?;
-            }
-            let nonce = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|error| error.to_string())?
-                .as_nanos();
-            let path = directory.join(format!("core-{}-{generation}-{nonce}.jsonl", std::process::id()));
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            options.open(&path).map_err(|error| error.to_string())?;
-            (path, true)
+async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let core = app.state::<Core>();
+        let workspace = canonical_workspace(&workspace)?;
+        if !is_workspace_trusted(&app, &workspace)? {
+            return Err(format!("Workspace has not been trusted: {}", workspace.display()));
         }
-    };
-    #[cfg(debug_assertions)]
-    command.env("PWR_MLX_TRACE", &trace_path);
-    // The MLX interpreter: named by the environment, installed by this app on
-    // first run, or (in development) the checkout's. See `engine`.
-    if let Some(python) = engine::python(&app) {
-        command.env("PWR_MLX_PYTHON", python);
-    }
-    // The engine's scripts, bundled beside the core. Without this the core
-    // falls back to the path of the checkout it was compiled in, which exists
-    // only on the machine that built it -- so a downloaded app found an
-    // engine to run and no script to run in it. The environment still wins,
-    // and a development build without bundled scripts keeps the checkout's.
-    for (variable, script) in [
-        ("PWR_MLX_SIDECAR", "sidecar/pwr_mlx.py"),
-        ("PWR_EMBED_SIDECAR", "sidecar/pwr_embed.py"),
-    ] {
-        if std::env::var_os(variable).is_none() {
-            if let Some(path) = bundled(&app, script) {
-                command.env(variable, path);
-            }
-        }
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("could not start {}: {error}", program.display()))?;
-    let stdin = child.stdin.take().ok_or("the core has no input")?;
-    let stdout = child.stdout.take().ok_or("the core has no output")?;
-    let stderr = child.stderr.take().ok_or("the core has no error output")?;
-
-    if let Some(previous) = core.0.lock().map_err(|_| "core state poisoned")?.replace(Running {
-        child,
-        stdin,
+        let program = core_path(&app);
+        let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        // On a Mac the app runs MLX only; llama.cpp arrives with Windows. A
+        // development build still honours `PWR_BACKEND` so the GGUF path can be
+        // worked on; a release build never switches engine from the environment.
+        let default_backend = if cfg!(target_os = "macos") { "mlx" } else { "llama" };
+        let backend = if cfg!(debug_assertions) {
+            std::env::var("PWR_BACKEND").unwrap_or_else(|_| default_backend.into())
+        } else {
+            default_backend.into()
+        };
+        let mut command = Command::new(&program);
+        command
+            .args(["--backend", &backend, "serve", "--stdio"])
+            .current_dir(&workspace)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        command.env("PATH", login_path());
         #[cfg(debug_assertions)]
-        trace_path,
-        #[cfg(debug_assertions)]
-        trace_owned,
-    }) {
-        previous.stop();
-    }
-
-    let events = app.clone();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines() {
-            let Ok(line) = line else { break };
-            match serde_json::from_str::<serde_json::Value>(&line) {
-                Ok(message) => {
-                    let _ = events.emit("acp", message);
+        let (trace_path, trace_owned) = match std::env::var_os("PWR_MLX_TRACE") {
+            Some(path) => (PathBuf::from(path), false),
+            None => {
+                let directory = app
+                    .path()
+                    .app_cache_dir()
+                    .map_err(|error| error.to_string())?
+                    .join("debug-traces");
+                std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+                        .map_err(|error| error.to_string())?;
                 }
-                Err(_) => {
-                    let _ = events.emit("core-log", line);
+                let nonce = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|error| error.to_string())?
+                    .as_nanos();
+                let path =
+                    directory.join(format!("core-{}-{generation}-{nonce}.jsonl", std::process::id()));
+                let mut options = std::fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                options.open(&path).map_err(|error| error.to_string())?;
+                (path, true)
+            }
+        };
+        #[cfg(debug_assertions)]
+        command.env("PWR_MLX_TRACE", &trace_path);
+        // The MLX interpreter: named by the environment, installed by this app on
+        // first run, or (in development) the checkout's. See `engine`.
+        if let Some(python) = engine::python(&app) {
+            command.env("PWR_MLX_PYTHON", python);
+        }
+        // The engine's scripts, bundled beside the core. Without this the core
+        // falls back to the path of the checkout it was compiled in, which exists
+        // only on the machine that built it -- so a downloaded app found an
+        // engine to run and no script to run in it. The environment still wins,
+        // and a development build without bundled scripts keeps the checkout's.
+        for (variable, script) in [
+            ("PWR_MLX_SIDECAR", "sidecar/pwr_mlx.py"),
+            ("PWR_EMBED_SIDECAR", "sidecar/pwr_embed.py"),
+        ] {
+            if std::env::var_os(variable).is_none() {
+                if let Some(path) = bundled(&app, script) {
+                    command.env(variable, path);
                 }
             }
         }
-        let _ = events.emit("core-exit", generation);
-    });
-    let logs = app.clone();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            let _ = logs.emit("core-log", line);
-        }
-    });
-    // Remembered only once the core has started there, so a folder that
-    // cannot be opened is not reopened next time.
-    if !chat_home().is_ok_and(|home| home == workspace) {
-        if let Some(file) = last_workspace_file(&app) {
-            if let Some(dir) = file.parent() {
-                let _ = std::fs::create_dir_all(dir);
+        if std::env::var_os("PWR_LLAMA_SERVER").is_none() {
+            let llama_bin = format!("llama-server{}", std::env::consts::EXE_SUFFIX);
+            let llama_nested = format!("llama/{llama_bin}");
+            if let Some(path) = bundled(&app, &llama_bin).or_else(|| bundled(&app, &llama_nested)) {
+                command.env("PWR_LLAMA_SERVER", path);
             }
-            let _ = std::fs::write(file, workspace.display().to_string());
         }
-    }
-    Ok(Started {
-        core: program.display().to_string(),
-        workspace: workspace.display().to_string(),
-        generation,
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("could not start {}: {error}", program.display()))?;
+        let stdin = child.stdin.take().ok_or("the core has no input")?;
+        let stdout = child.stdout.take().ok_or("the core has no output")?;
+        let stderr = child.stderr.take().ok_or("the core has no error output")?;
+
+        if let Some(previous) = core.0.lock().map_err(|_| "core state poisoned")?.replace(Running {
+            child,
+            stdin,
+            #[cfg(debug_assertions)]
+            trace_path,
+            #[cfg(debug_assertions)]
+            trace_owned,
+        }) {
+            // Stop the old core on a background thread so starting the new one never waits.
+            std::thread::spawn(move || previous.stop());
+        }
+
+        let events = app.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                match serde_json::from_str::<serde_json::Value>(&line) {
+                    Ok(message) => {
+                        let _ = events.emit("acp", message);
+                    }
+                    Err(_) => {
+                        let _ = events.emit("core-log", line);
+                    }
+                }
+            }
+            let _ = events.emit("core-exit", generation);
+        });
+        let logs = app.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let _ = logs.emit("core-log", line);
+            }
+        });
+        // Remembered only once the core has started there, so a folder that
+        // cannot be opened is not reopened next time.
+        if !chat_home().is_ok_and(|home| home == workspace) {
+            if let Some(file) = last_workspace_file(&app) {
+                if let Some(dir) = file.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(file, workspace.display().to_string());
+            }
+        }
+        Ok(Started {
+            core: program.display().to_string(),
+            workspace: workspace.display().to_string(),
+            generation,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// One protocol message, written as one line.
@@ -533,6 +588,10 @@ pub fn run() {
         .manage(browser::Browser::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Warm up login PATH on a background thread so the first core launch never waits.
+            std::thread::spawn(|| {
+                let _ = login_path();
+            });
             // Full screen gets a glass title bar over the app, not a white strip.
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {

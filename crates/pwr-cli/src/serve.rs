@@ -2828,6 +2828,7 @@ fn search_engine_param(params: &Value) -> Option<(String, String)> {
 /// (`_meta.pwr.at`, milliseconds): the person's message at the start of its
 /// turn, everything the turn then did at its end. Without it a conversation
 /// reopened the next day read "Finished" at the time it was reopened, "took 0s".
+#[cfg(test)]
 fn replay(
     messages: &[ChatMessage],
     turn_models: &[Option<String>],
@@ -3322,15 +3323,16 @@ pub fn leaves_tests_alone(request: &str) -> bool {
 /// ACP's tool kind for a PWR capability.
 pub fn tool_kind(capability: &str) -> &'static str {
     match capability {
-        "read_file" => "read",
-        "search" | "find_definition" | "list_tree" | "recall_project" | "wiki_query" => "search",
-        "remember" => "think",
+        "read_file" | "extract_document" | "read_terminal" => "read",
+        "search" | "find_definition" | "list_tree" | "recall_project" | "wiki_query"
+        | "vcs_status" | "vcs_diff" => "search",
+        "remember" | "update_plan" => "think",
         "replace_text" | "apply_patch" | "apply_replace" | "write_file" | "make_directory"
         | "restore_file" => "edit",
         "delete_path" => "delete",
         "move_path" => "move",
-        "run_command" | "start_service" | "stop_service" => "execute",
-        "fetch_url" => "fetch",
+        "run_command" | "start_service" | "stop_service" | "workspace_interact" => "execute",
+        "fetch_url" | "look_at" | "check_page" => "fetch",
         _ => "other",
     }
 }

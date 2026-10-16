@@ -162,7 +162,9 @@ export class EngineSetup {
   );
 
   protected readonly shortLocation = computed(() =>
-    (this.engine()?.location ?? '').replace(/^\/Users\/[^/]+/, '~'),
+    (this.engine()?.location ?? '')
+      .replace(/^(\/Users|\/home)\/[^/]+/, '~')
+      .replace(/^[A-Za-z]:\\Users\\[^\\]+/, '~'),
   );
 
   protected readonly lastLine = computed(() => {

@@ -1,3 +1,4 @@
+import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { PermissionRequest } from '../core/model';
@@ -10,7 +11,7 @@ import { Icon } from './kit/icon';
  */
 @Component({
   selector: 'pa-permission',
-  imports: [Dialog, Icon],
+  imports: [MatButtonModule, Dialog, Icon],
   template: `
     @if (store.permission(); as asked) {
       <pa-dialog
@@ -36,12 +37,19 @@ import { Icon } from './kit/icon';
         </div>
         <div class="dialog-footer">
           @for (option of ordered(asked.options); track option.optionId) {
-            <button
-              [class]="option.kind.startsWith('reject') ? 'btn btn-danger-quiet' : option.kind === 'allow_once' ? 'btn btn-primary' : 'btn'"
-              (click)="store.answerPermission(option.optionId)"
-            >
-              {{ option.name }}
-            </button>
+            @if (option.kind.startsWith('reject')) {
+              <button matButton class="btn btn-danger-quiet" (click)="store.answerPermission(option.optionId)">
+                {{ option.name }}
+              </button>
+            } @else if (option.kind === 'allow_once') {
+              <button matButton="filled" class="btn btn-primary" (click)="store.answerPermission(option.optionId)">
+                {{ option.name }}
+              </button>
+            } @else {
+              <button matButton="outlined" class="btn" (click)="store.answerPermission(option.optionId)">
+                {{ option.name }}
+              </button>
+            }
           }
         </div>
       </pa-dialog>
@@ -59,6 +67,7 @@ export class Permission {
       outside_sandbox: 'Runs a command outside the sandbox, with your full rights',
       outside_workspace: 'Reaches a folder outside the workspace',
       terminal_read: 'Reads the recent terminal output — read-only; it cannot type there',
+      workspace_control: 'Controls the shared Editor, Terminal or Browser in this workspace; you can take control back at any time',
       dependency_change: 'Changes a dependency manifest or lockfile',
       verifier_proposal: "Adopts a command as this workspace's check",
       history_rewrite: 'Rewrites version-control history',

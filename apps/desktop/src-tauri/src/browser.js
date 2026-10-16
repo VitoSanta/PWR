@@ -23,9 +23,19 @@
     if (operation === 'click') element().click();
     else if (operation === 'fill') {
       const el = element();
-      if (el.disabled || el.readOnly || !['INPUT','TEXTAREA'].includes(el.tagName) || ['file','password'].includes(el.type)) throw new Error('This field requires direct user input or cannot be filled.');
-      const prototype = el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
-      Object.getOwnPropertyDescriptor(prototype, 'value').set.call(el, String(args.text || '').slice(0, 16000));
+      if (el.disabled || el.readOnly || (!['INPUT','TEXTAREA','SELECT'].includes(el.tagName) && !el.isContentEditable) || ['file','password'].includes(el.type)) throw new Error('This field requires direct user input or cannot be filled.');
+      const text = String(args.text || '').slice(0, 16000);
+      if (el.tagName === 'SELECT') {
+        const option = [...el.options].find(o => o.value === text || o.text.trim() === text.trim());
+        if (!option) throw new Error('No matching option in select.');
+        el.value = option.value;
+      } else if (el.isContentEditable) {
+        el.focus();
+        el.textContent = text;
+      } else {
+        const prototype = el.tagName === 'INPUT' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+        Object.getOwnPropertyDescriptor(prototype, 'value').set.call(el, text);
+      }
       el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true}));
     } else if (operation === 'key') {
       const el = args.ref ? element() : document.activeElement;

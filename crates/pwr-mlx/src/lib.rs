@@ -228,9 +228,7 @@ pub struct MlxConfig {
 
 impl MlxConfig {
     pub fn from_env() -> Self {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
+        let home = pwr_domain::home_dir().unwrap_or_default();
         MlxConfig {
             // Without an override, the engine the desktop app installed is
             // preferred over the system `python3`, which has no MLX: a `pwr`
@@ -263,8 +261,8 @@ impl MlxConfig {
     /// Only a directory holding a `config.json` is a model.
     pub fn model_dir(&self, model_ref: &str) -> Result<PathBuf, ProviderError> {
         let expanded = match model_ref.strip_prefix("~/") {
-            Some(rest) => std::env::var_os("HOME")
-                .map(|home| PathBuf::from(home).join(rest))
+            Some(rest) => pwr_domain::home_dir()
+                .map(|home| home.join(rest))
                 .unwrap_or_else(|| PathBuf::from(model_ref)),
             None => PathBuf::from(model_ref),
         };
@@ -834,7 +832,12 @@ impl MlxProvider {
                 Some("loaded") => {
                     sidecar.loaded = Some(dir.to_path_buf());
                     sidecar.loaded_rope = rope;
-                    sidecar.loaded_assistant = assistant;
+                    sidecar.loaded_assistant = assistant.filter(|_| {
+                        event
+                            .get("assistant")
+                            .and_then(serde_json::Value::as_bool)
+                            != Some(false)
+                    });
                     return Ok(());
                 }
                 _ => {

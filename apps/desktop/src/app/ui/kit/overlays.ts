@@ -85,6 +85,7 @@ export class Toasts {
         <div class="dialog-footer">
           <button matButton="outlined" class="btn" (click)="cancel()" [disabled]="busy()" data-autofocus>Cancel</button>
           <button
+            matButton="filled"
             [class]="request.tone === 'primary' ? 'btn btn-primary' : 'btn btn-danger'"
             (click)="accept()"
             [disabled]="busy()"

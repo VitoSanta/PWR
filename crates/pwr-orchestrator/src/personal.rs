@@ -137,7 +137,7 @@ pub fn home() -> Option<PathBuf> {
     if let Some(home) = std::env::var_os("PWR_HOME").filter(|home| !home.is_empty()) {
         return Some(PathBuf::from(home));
     }
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr"))
+    pwr_domain::home_dir().map(|home| home.join(".pwr"))
 }
 
 /// Where the person's own files are kept. Passed explicitly rather than read

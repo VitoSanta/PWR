@@ -16,6 +16,8 @@ export class TerminalService implements OnDestroy {
   readonly active = computed(() => this.sessions().find(s => s.key === this.activeId()));
   readonly state = computed(() => this.active()?.state() ?? 'idle');
   readonly error = computed(() => this.active()?.error() ?? '');
+  /** Local servers the terminals that are still running have printed. */
+  readonly localUrls = computed(() => [...new Set(this.sessions().filter(s => s.state() === 'running').flatMap(s => s.localUrls()))]);
   private host?: HTMLElement;
   private sequence = 0;
 
@@ -26,7 +28,7 @@ export class TerminalService implements OnDestroy {
       this.work.show('terminal');
       if (operation === 'start') {
         if (this.sessions().length >= 16) throw new Error('Close a terminal before opening another.');
-        if (typeof args.executable !== 'string' || !Array.isArray(args.args ?? []) || !(args.args ?? []).every((arg: unknown) => typeof arg === 'string')) throw new Error('Specify executable and args.');
+        if (typeof args.executable !== 'string' || !Array.isArray(args.args ?? []) || !(args.args ?? []).every((arg: unknown) => typeof arg === 'string')) throw new Error('start needs arguments: {"executable":"python3","args":["-m","http.server","8000"]}.');
         if (args.cwd !== this.agent.workspace()) throw new Error('The workspace changed.');
         const epoch = this.agent.workspaceEpoch();
         const session = new TerminalSession(++this.sequence, this.agent.workspace(), args, this.agent.sessionId());
@@ -34,21 +36,41 @@ export class TerminalService implements OnDestroy {
         await session.attach(this.host ?? document.createElement('div'));
         if (epoch !== this.agent.workspaceEpoch()) { session.close(); throw new Error('The turn was cancelled.'); }
         if (session.state() === 'exited' && session.error()) throw new Error(session.error());
-        return { id: session.key, state: session.state(), sandboxed: args.sandboxed, output: session.read(100) };
+        // A process that cannot start (a port already in use) ends within a moment; one that can, speaks. Wait for either, so the model hears the outcome, not just "started".
+        if (inTauri()) {
+          const printed = () => session.read(5).map(part => part.text).join('\n');
+          const initial = printed().length;
+          let last = initial, quiet = 0;
+          for (let waited = 0; waited < 4500 && session.state() === 'running'; waited += 100) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            if (session.localUrls().length) break;
+            const text = printed();
+            const now = text.length;
+            quiet = now === last ? quiet + 1 : 0;
+            last = now;
+            const building = /\b(building|compiling|restoring)\b/i.test(text) && !session.localUrls().length;
+            // More than the command line is out and has been still for a third of a second.
+            if (quiet >= 3 && now > initial && !building) break;
+          }
+        }
+        if (session.state() === 'exited') throw new Error(`The process ended at once. Its output:\n${session.read(60).map(part => part.text).join('\n')}`);
+        return { id: session.key, state: session.state(), sandboxed: args.sandboxed, urls: session.localUrls(), output: session.read(100) };
       }
-      const session = this.sessions().find(item => item.key === Number(args.id));
-      if (!session || !session.modelOwned || session.conversationId !== this.agent.sessionId()) throw new Error('Choose a process started by this conversation.');
+      // Without an id, the process this conversation started last.
+      const mine = this.sessions().filter(item => item.modelOwned && item.conversationId === this.agent.sessionId());
+      const session = args.id === undefined || args.id === null ? mine.at(-1) : mine.find(item => item.key === Number(args.id));
+      if (!session) throw new Error(`Choose a process started by this conversation${mine.length ? ` (open: ${mine.map(item => item.key).join(', ')})` : ': none is open, use start'}.`);
       if (operation === 'read') {
         const wait = Math.max(0, Math.min(2000, Number(args.waitMs) || 0));
         if (wait) await new Promise(resolve => setTimeout(resolve, wait));
-        return { id: session.key, state: session.state(), controller: session.controller(), output: session.read(Number(args.lines) || 200) };
+        return { id: session.key, state: session.state(), controller: session.controller(), urls: session.localUrls(), output: session.read(Number(args.lines) || 200) };
       }
       if (session.controller() !== 'model') throw new Error('The engineer has taken control. Wait until they return control to PWR.');
       if (operation === 'input') await session.send(String(args.data ?? '').slice(0, 16384));
       else if (operation === 'interrupt') await session.interrupt();
       else if (operation === 'close') await this.closeSession(session.key);
       else throw new Error('Unknown terminal operation.');
-      return { id: session.key, state: session.state(), output: session.read(100) };
+      return { id: session.key, state: session.state(), urls: session.localUrls(), output: session.read(100) };
     });
     effect(() => {
       const sessionId = this.agent.sessionId();
@@ -126,6 +148,8 @@ export class TerminalSession {
   private readonly element = document.createElement('div');
   readonly state = signal<'idle' | 'starting' | 'running' | 'exited' | 'unavailable'>('idle');
   readonly error = signal('');
+  /** Local addresses this terminal has said it serves, as they appeared in its output. */
+  readonly localUrls = signal<string[]>([]);
   readonly controller = signal<'user' | 'model'>('user');
   readonly modelOwned: boolean;
   private starting?: Promise<void>;
@@ -137,6 +161,16 @@ export class TerminalSession {
     await bridge.termWrite(this.id, data);
   }
   async interrupt(): Promise<void> { if (this.id !== null) await bridge.termWrite(this.id, '\x03'); }
+  /** Notes a local address in what the process printed, so the Browser can offer it. */
+  private scan(data: string): void {
+    const text = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
+    const found = new Set<string>();
+    for (const match of text.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d{2,5})/gi)) found.add(match[1]);
+    // `python -m http.server` says only `port 8000`.
+    for (const match of text.matchAll(/\bport (\d{4,5})\b/gi)) found.add(match[1]);
+    const urls = [...found].filter(port => Number(port) >= 1024 && Number(port) <= 65535).map(port => `http://localhost:${port}/`);
+    if (urls.some(url => !this.localUrls().includes(url))) this.localUrls.update(all => [...new Set([...all, ...urls])].slice(-6));
+  }
   takeControl(): void { this.controller.set('user'); this.focus(); }
   giveControl(): void { if (this.modelOwned) this.controller.set('model'); }
   updateTheme(): void { if (this.term) this.term.options.theme = palette(); }
@@ -259,7 +293,7 @@ export class TerminalSession {
         return;
       }
       if (event.id !== id) return;
-      if (event.data !== undefined) term.write(event.data);
+      if (event.data !== undefined) { term.write(event.data); this.scan(event.data); }
       else {
         this.id = null;
         this.state.set('exited');

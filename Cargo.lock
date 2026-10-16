@@ -1501,6 +1501,7 @@ dependencies = [
  "pwr-compat",
  "pwr-domain",
  "pwr-eval",
+ "pwr-llama",
  "pwr-mlx",
  "pwr-models",
  "pwr-observe",
@@ -1564,8 +1565,10 @@ name = "pwr-llama"
 version = "0.4.1-alpha"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
  "futures-util",
+ "pwr-compat",
  "pwr-domain",
  "pwr-provider",
  "reqwest",

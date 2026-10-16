@@ -886,7 +886,9 @@ impl Default for ChatConfig {
 fn chat_home() -> Result<PathBuf, String> {
     let home = match std::env::var_os("PWR_CHAT_HOME") {
         Some(path) => PathBuf::from(path),
-        None => PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(".pwr/chat"),
+        None => pwr_domain::home_dir()
+            .ok_or("HOME is not set")?
+            .join(".pwr/chat"),
     };
     fs::create_dir_all(&home).map_err(|error| format!("{}: {error}", home.display()))?;
     home.canonicalize()
@@ -1024,7 +1026,7 @@ fn chat_config_path(root: &Path) -> PathBuf {
 /// can be reused from every workspace; each workspace retains its own copy as
 /// an audit trail when a probe is executed there.
 fn global_model_evidence_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/models"))
+    pwr_domain::home_dir().map(|home| home.join(".pwr/models"))
 }
 
 /// Restore a previously measured, globally cached profile when opening a new
@@ -2677,10 +2679,11 @@ impl serve::TurnRunner for ConsoleTurns {
         let model = config
             .model
             .ok_or("choose a model before attaching an image")?;
-        // The model's own configuration says whether it carries an encoder;
-        // only the MLX engine reads images (C.25). A model it cannot find is
-        // one it cannot show an image to either.
-        if pwr_mlx::MlxConfig::from_env().has_vision_encoder(&model) != Some(true) {
+        // The model's own configuration says whether it carries an encoder.
+        // A model it cannot find is one it cannot show an image to either.
+        let sees_images = pwr_mlx::MlxConfig::from_env().has_vision_encoder(&model) == Some(true)
+            || pwr_llama::LlamaConfig::from_env().has_vision_encoder(&model) == Some(true);
+        if !sees_images {
             return Err(format!(
                 "{model} cannot read images; choose a model marked \"sees images\""
             ));
@@ -2734,6 +2737,7 @@ impl serve::TurnRunner for ConsoleTurns {
                     save_chat_config(&root, &config).map_err(|error| error.context)?;
                 }
                 pwr_mlx::set_assistant(config.assistant);
+                pwr_llama::set_assistant(config.assistant);
                 // What the backend has installed, or why it could not say: an
                 // unreachable backend is itself what the client needs to show.
                 let installed = match self
@@ -2822,15 +2826,25 @@ impl serve::TurnRunner for ConsoleTurns {
                 let line = pwr_domain::gemma::PACKS
                     .iter()
                     .map(|pack| {
+                        let matching_model = installed.as_ref().and_then(|models| {
+                            models
+                                .iter()
+                                .find(|m| *m == pack.model_ref)
+                                .or_else(|| {
+                                    models.iter().find(|m| {
+                                        pwr_domain::gemma::pack(m)
+                                            .is_some_and(|p| p.model_ref == pack.model_ref)
+                                    })
+                                })
+                                .cloned()
+                        });
                         serde_json::json!({
-                            "model": pack.model_ref,
+                            "model": matching_model.as_deref().unwrap_or(pack.model_ref),
                             "label": pack.label,
                             "tier": pack.tier,
                             "tierMemoryGib": pack.tier.memory_gib(),
                             "weightsBytes": pack.weights_bytes,
-                            "installed": installed
-                                .as_ref()
-                                .is_some_and(|models| models.iter().any(|model| model == pack.model_ref)),
+                            "installed": matching_model.is_some(),
                         })
                     })
                     .collect::<Vec<_>>();
@@ -2850,7 +2864,13 @@ impl serve::TurnRunner for ConsoleTurns {
                     // the switch can say it has nothing to draft with yet.
                     "assistantInstalled": config.model.as_deref().is_some_and(|model| {
                         let mlx = pwr_mlx::MlxConfig::from_env();
+                        let llama = pwr_llama::LlamaConfig::from_env();
                         mlx.assistant_dir(&mlx.models_root.join(model)).is_some()
+                            || llama
+                                .model_file(model)
+                                .ok()
+                                .and_then(|file| llama.assistant_file(&file))
+                                .is_some()
                     }),
                     "thoughtCapTokens": pwr_domain::gemma::THOUGHT_CAP,
                     "contextSource": "core_backend",
@@ -2925,14 +2945,7 @@ impl serve::TurnRunner for ConsoleTurns {
         download_artifact(artifact, None, &mut progress, &stop).await
     }
 
-    async fn hardware(&self) -> Result<serde_json::Value, String> {
-        let active = self.runtime.kind();
-        let host = pwr_runtime::host::detect_host(&pwr_runtime::models_root(active)).await;
-        let backends = pwr_runtime::backend_status(active).await;
-        Ok(serde_json::json!({"host": host, "backends": backends}))
-    }
-
-    /// The Gemma line as this Mac sees it: each pack, whether it is here,
+    /// The Gemma line as this machine sees it: each pack, whether it is here,
     /// how much of the 262,144-token context this machine's memory holds for
     /// it, and the registry entry it downloads from.
     async fn local_models(&self, root: &Path) -> Result<serde_json::Value, String> {
@@ -2942,11 +2955,26 @@ impl serve::TurnRunner for ConsoleTurns {
             .ok()
             .and_then(|root| load_chat_config(&root).ok())
             .unwrap_or_default();
-        let models_root = pwr_runtime::models_root(BackendKind::Mlx);
+        let kind = self.runtime.kind();
+        let models_root = pwr_runtime::models_root(kind);
         let host = pwr_runtime::host::detect_host(&models_root).await;
         let memory = host.memory.total_bytes;
-        let local = pwr_models::local::list(&models_root, Format::Mlx);
-        let found = |model_ref: &str| local.iter().find(|model| model.model_ref == model_ref);
+        let format = match kind {
+            BackendKind::Mlx => Format::Mlx,
+            BackendKind::Llama => Format::Gguf,
+        };
+        let local = pwr_models::local::list(&models_root, format);
+        let found = |model_ref: &str| {
+            local
+                .iter()
+                .find(|model| model.model_ref == model_ref)
+                .or_else(|| {
+                    local.iter().find(|model| {
+                        pwr_domain::gemma::pack(&model.model_ref)
+                            .is_some_and(|p| p.model_ref == model_ref)
+                    })
+                })
+        };
         let registry =
             load_artifact_registry(Path::new(ARTIFACT_FILE)).map_err(|error| error.context)?;
         let packs = pwr_domain::gemma::PACKS
@@ -4398,6 +4426,7 @@ async fn chat_turn(
     task_profile.sampling.extend(pwr_domain::gemma::sampling());
     continuity.reasoning_effort = pwr_domain::gemma::effort(config.thinking);
     pwr_mlx::set_assistant(config.assistant);
+    pwr_llama::set_assistant(config.assistant);
     // A goal set its own limit; a conversation takes the workspace's.
     if continuity.action_limit.is_none() && config.actions_per_turn > 0 {
         continuity.action_limit = Some(config.actions_per_turn);
@@ -4575,9 +4604,18 @@ async fn chat_turn(
         .map(|profile| profile.memory_enabled)
         .unwrap_or(false);
     let catalog = converse::product_tool_catalog(groups, chat_only);
+    // Where the app shares its Terminal, a server runs there, in the person's
+    // view, not as a hidden background service of the core.
+    let catalog = if !chat_only && !minimal && approvals.controls_workspace() {
+        converse::without_services(catalog)
+    } else {
+        catalog
+    };
     let catalog = if chat_only {
         catalog
-    } else if pwr_mlx::MlxConfig::from_env().has_vision_encoder(&model) == Some(true) {
+    } else if pwr_mlx::MlxConfig::from_env().has_vision_encoder(&model) == Some(true)
+        || pwr_llama::LlamaConfig::from_env().has_vision_encoder(&model) == Some(true)
+    {
         converse::with_vision(catalog)
     } else {
         converse::with_page_check(catalog)
@@ -5222,17 +5260,11 @@ async fn release_if_loaded_here(
     }
     match selection.backend.release(&selection.deployment).await {
         Ok(()) => eprintln!("released {model} from memory"),
-        Err(error) => eprintln!("could not release {model} from memory: {error}"),
+        Err(error) => eprintln!("could not release {model}: {error}"),
     }
 }
 
 async fn dispatch(cli: Cli) -> i32 {
-    // Resolved once. Every path below is handed a value that already carries
-    // whether leaving this machine was granted, so no later constructor can
-    // reach a remote backend without having been given one that says so.
-    // Named on the command line, else remembered by this workspace, else MLX.
-    // A workspace served by a non-default engine should not have to be told so
-    // on every invocation, and a flag should still win when it is given.
     let named = cli.backend.clone().or_else(|| {
         std::env::current_dir()
             .ok()
@@ -5240,7 +5272,16 @@ async fn dispatch(cli: Cli) -> i32 {
             .and_then(|config| config.backend)
     });
     let from_flag = cli.backend.is_some();
-    let requested = named.unwrap_or_else(|| BackendKind::Mlx.id().to_owned());
+    let default_kind = if let Ok(env) = std::env::var("PWR_BACKEND")
+        && let Some(kind) = BackendKind::parse(&env)
+    {
+        kind
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        BackendKind::Mlx
+    } else {
+        BackendKind::Llama
+    };
+    let requested = named.unwrap_or_else(|| default_kind.id().to_owned());
     let kind = match BackendKind::parse(&requested) {
         Some(kind) => kind,
         // A workspace that remembers an engine this build does not have is
@@ -5249,9 +5290,10 @@ async fn dispatch(cli: Cli) -> i32 {
         None if !from_flag => {
             eprintln!(
                 "note: this workspace was set to {requested}, which PWR does not have; \
-                 running on its own engine (mlx)."
+                 running on its own engine ({}).",
+                default_kind.id()
             );
-            BackendKind::Mlx
+            default_kind
         }
         None => {
             return print::<()>(
@@ -7142,7 +7184,7 @@ fn artifact_download_plan(
 fn default_artifact_destination_root() -> PathBuf {
     std::env::var_os("PWR_MODEL_ARTIFACTS")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pwr/artifacts")))
+        .or_else(|| pwr_domain::home_dir().map(|home| home.join(".pwr/artifacts")))
         .unwrap_or_else(|| PathBuf::from(".pwr/artifacts"))
 }
 

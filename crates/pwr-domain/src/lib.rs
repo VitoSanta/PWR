@@ -23,6 +23,14 @@ fn unclassified_kind() -> String {
 
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// The user's home directory on Unix (`HOME`) or Windows (`USERPROFILE`).
+pub fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|path| !path.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 /// Refuses an artifact written by a schema this build does not know.
 ///
 /// Every persisted contract carries a `schema_version` and nothing compared it

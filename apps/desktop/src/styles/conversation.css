@@ -109,6 +109,7 @@ pa-composer {
   max-width: 440px;
   color: var(--text-secondary);
   font-size: var(--fs-body);
+  animation: pa-fade-in var(--dur-slow) var(--ease-out) backwards;
 }
 
 .welcome-text .spinner {
@@ -123,6 +124,7 @@ pa-composer {
   gap: var(--space-2);
   max-width: 100%;
   margin-top: var(--space-2);
+  animation: pa-fade-in var(--dur-slow) var(--ease-out) backwards;
 }
 
 .welcome-context .path-token {

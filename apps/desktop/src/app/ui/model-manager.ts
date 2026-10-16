@@ -6,6 +6,7 @@ import { DownloadView, LinePack, ModelTarget } from '../core/model';
 import { ModelsStore, isTerminal } from '../core/models.store';
 import { Dialog } from './kit/dialog';
 import { Icon } from './kit/icon';
+import { EmptyState } from './kit/tool';
 import { Tooltip } from './kit/tooltip';
 
 /**
@@ -15,7 +16,7 @@ import { Tooltip } from './kit/tooltip';
  */
 @Component({
   selector: 'pa-model-manager',
-  imports: [MatButtonModule, Dialog, Icon, Tooltip],
+  imports: [MatButtonModule, Dialog, Icon, EmptyState, Tooltip],
   template: `
     @if (models.open()) {
       <pa-dialog size="lg" labelledBy="mm-title" describedBy="mm-description" (closed)="models.close()" animate.leave="is-leaving">
@@ -43,12 +44,11 @@ import { Tooltip } from './kit/tooltip';
 
         <div class="mm-panel mm-line" role="list" aria-label="Gemma 4 models">
           @if (models.status() === 'error') {
-            <div class="empty-state">
-              <span class="empty-state-icon"><pa-icon name="alert" /></span>
-              <p class="empty-state-title">The models could not be read</p>
-              <p class="empty-state-text">{{ models.error() }}</p>
+            <pa-empty-state icon="alert" title="The models could not be read">
+              {{ models.error() }}
+              <br />
               <button matButton="outlined" class="btn" (click)="models.load()">Try again</button>
-            </div>
+            </pa-empty-state>
           } @else {
             @if (models.status() === 'loading' && !models.packs().length) {
               <p class="result-status"><span class="spinner spinner-sm" aria-hidden="true"></span> Reading the models folder…</p>

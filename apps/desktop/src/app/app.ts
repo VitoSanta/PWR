@@ -47,6 +47,7 @@ export class App implements OnInit {
   private readonly dialogs = inject(DialogStack);
   private readonly toast = inject(ToastService);
   private readonly work = inject(WorkbenchStore);
+  private readonly browser = inject(BrowserStore);
 
   constructor() {
     // Created now so the theme is applied and followed from the first frame.
@@ -56,7 +57,6 @@ export class App implements OnInit {
     inject(ActivityStore);
     inject(EditorStore);
     inject(TerminalService);
-    inject(BrowserStore);
   }
 
   ngOnInit(): void {
@@ -64,9 +64,10 @@ export class App implements OnInit {
   }
 
   /**
-   * Web links open in the browser. In the app's webview a new-tab link does
-   * nothing, and any other would replace the whole interface -- the Hub
-   * links, and links inside what a model writes.
+   * Web links in the conversation open in the Browser card, beside it; with
+   * Command held, or anywhere else in the app, in the person's own browser. In
+   * the app's webview a new-tab link does nothing, and any other would replace
+   * the whole interface -- the Hub links, and links inside what a model writes.
    */
   @HostListener('document:click', ['$event'])
   protected externalLink(event: MouseEvent): void {
@@ -75,11 +76,17 @@ export class App implements OnInit {
     const url = new URL(link.href, location.href);
     if (!/^https?:$/.test(url.protocol) || url.origin === location.origin) return;
     event.preventDefault();
-    if (inTauri()) {
-      bridge.openExternal(url.href).catch((error) => this.toast.show(String(error), 'danger'));
-    } else {
+    if (!inTauri()) {
       window.open(url.href, '_blank', 'noopener');
+      return;
     }
+    const outside = () => bridge.openExternal(url.href).catch((error) => this.toast.show(String(error), 'danger'));
+    if (event.metaKey || !link.closest('.conversation')) {
+      void outside();
+      return;
+    }
+    this.work.show('browser');
+    this.browser.openLink(url.href).catch(() => outside());
   }
 
   @HostListener('window:keydown', ['$event'])

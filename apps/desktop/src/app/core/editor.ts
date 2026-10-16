@@ -49,19 +49,24 @@ export class EditorStore {
       if (path) untracked(() => { this.work.fileRequest.set(null); void this.open(path); });
     });
     // Poll disk changes without replacing unsaved text. Buffers outlive cards.
-    const timer = setInterval(() => { if (this.agent.coreState() === 'ready') void this.refresh(); }, 2500);
+    const timer = setInterval(() => {
+      if (this.agent.coreState() === 'ready' && (typeof document === 'undefined' || document.visibilityState !== 'hidden')) {
+        void this.refresh();
+      }
+    }, 2500);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    const norm = (raw: string) => raw.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
     this.agent.workspaceHandlers.set('editor', async (operation, args) => {
       if (operation === 'guard') {
         const dirty = this.documents().filter(doc => doc.text !== doc.saved);
-        const path = String(args.path ?? '');
+        const path = norm(String(args.path ?? ''));
         if (dirty.some(doc => !path || doc.path === path || doc.path.startsWith(path + '/'))) {
           throw new Error('Unsaved editor changes overlap this action. Ask the engineer to save or discard them before changing files.');
         }
         return { allowed: true };
       }
       this.work.show('files');
-      if (operation === 'open') { await this.open(String(args.path ?? '')); return this.snapshot(); }
+      if (operation === 'open') { await this.open(norm(String(args.path ?? ''))); return this.snapshot(); }
       if (operation === 'snapshot') return this.snapshot();
       throw new Error('Editor supports snapshot and open. Modify saved files with the normal checked file tools.');
     });
@@ -77,6 +82,7 @@ export class EditorStore {
       note: 'Editor buffers are user data. Unsaved text must not be overwritten.' };
   }
   async open(path: string): Promise<void> {
+    path = path.replace(/\\/g, '/').replace(/^\.\//, '');
     if (!path) return;
     const version = ++this.openVersion;
     const existing = this.documents().find(doc => doc.path === path);
@@ -90,7 +96,7 @@ export class EditorStore {
         readonly: reply.truncated || !reply.hash, conflict: false };
       if (!this.documents().some(item => item.path === path)) this.documents.update(docs => [...docs, doc]);
       if (version === this.openVersion) this.activePath.set(path); this.error.set('');
-    } catch (error) { if (cwd === this.cwd) this.error.set(String(error)); }
+    } catch (error) { if (epoch === this.epoch) this.error.set(String(error)); }
   }
   async list(): Promise<void> {
     const cwd = this.cwd, epoch = this.epoch, version = ++this.listVersion;
@@ -118,14 +124,14 @@ export class EditorStore {
     await this.list();
   }
   async save(): Promise<void> {
-    const doc = this.active(), cwd = this.cwd;
+    const doc = this.active(), cwd = this.cwd, epoch = this.epoch;
     if (!doc || doc.readonly || this.saving()) return;
     this.saving.set(true); this.error.set('');
     try {
       const reply = await this.agent.call('_pwr/editor', { cwd, operation: 'save', path: doc.path, text: doc.text, hash: doc.hash });
-      if (cwd !== this.cwd) return;
+      if (epoch !== this.epoch) return;
       this.documents.update(docs => docs.map(item => item.path === doc.path ? { ...item, saved: doc.text, hash: reply.hash, conflict: false } : item));
-    } catch (error) { if (cwd === this.cwd) this.error.set(String(error)); }
+    } catch (error) { if (epoch === this.epoch) this.error.set(String(error)); }
     finally { this.saving.set(false); }
   }
   async close(doc: EditorDocument): Promise<void> {
@@ -141,12 +147,14 @@ export class EditorStore {
     await this.open(doc.path);
   }
   async mutate(operation: string, path: string, to?: string): Promise<void> {
-    const cwd = this.cwd;
+    path = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (to !== undefined) to = to.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const cwd = this.cwd, epoch = this.epoch;
     const affected = this.documents().filter(doc => doc.path === path || doc.path.startsWith(path + '/'));
     if (affected.some(doc => this.dirty(doc))) throw new Error('Save or close unsaved files before moving or removing this path.');
     const doc = this.documents().find(doc => doc.path === path);
     const reply = await this.agent.call('_pwr/editor', { cwd, operation, path, to, text: '', hash: doc?.hash });
-    if (cwd !== this.cwd) return;
+    if (epoch !== this.epoch) return;
     if (operation === 'trash') {
       this.lastTrash.set({ path, token: reply.restoreToken, cwd });
       this.documents.update(docs => docs.filter(item => !affected.includes(item)));

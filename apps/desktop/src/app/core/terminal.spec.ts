@@ -79,6 +79,15 @@ describe('Terminal output for the core', () => {
     session.state.set('running');
   });
 
+  it('notes the local servers a process says it runs, for the Browser to offer', () => {
+    const scan = (text: string) => (session as any).scan(text);
+    scan('Serving HTTP on :: port 8000 (http://[::]:8000/) ...');
+    scan('\x1b[32m  ➜\x1b[0m  Local:   http://localhost:5173/');
+    scan('listening on port 80; port 22; port 3000');
+    expect(session.localUrls()).toEqual(['http://localhost:8000/', 'http://localhost:5173/', 'http://localhost:3000/']);
+    expect(terminal.localUrls()).toEqual(session.localUrls());
+  });
+
   it('returns plain text with wrapped rows joined and trailing blank rows removed', () => {
     expect(terminal.read(100)).toEqual([{ title: 'Terminal 1', running: true,
       text: 'Module not found: ./styles.css\nBuild failed' }]);

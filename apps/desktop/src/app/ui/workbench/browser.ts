@@ -1,11 +1,13 @@
-import { ChangeDetectionStrategy, Component, effect, inject, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal, untracked } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { FormsModule } from '@angular/forms';
 import { BrowserStore, SEARCH_ENGINES } from '../../core/browser';
+import { TerminalService } from '../../core/terminal';
 import { ToastService } from '../../core/ui';
 import { bridge, inTauri } from '../../core/bridge';
 import { WebView } from './web-view';
 import { Icon } from '../kit/icon';
+import { Popover } from '../kit/popover';
 import { Action, EmptyState, ToolBar, ToolTab } from '../kit/tool';
 
 /** No engine is favoured by its place in the list: the order changes each time it is shown. */
@@ -18,13 +20,29 @@ function shuffled<T>(items: readonly T[]): T[] {
   return copy;
 }
 @Component({
-  selector: 'pa-browser-card', imports: [MatButtonModule, FormsModule, WebView, Icon, Action, EmptyState, ToolBar, ToolTab],
+  selector: 'pa-browser-card', imports: [MatButtonModule, FormsModule, WebView, Icon, Popover, Action, EmptyState, ToolBar, ToolTab],
   template: `
     <div class="tool-tabs" role="tablist" aria-label="Browser tabs">
       @for (tab of store.tabs(); track tab.id) {
         <pa-tool-tab animate.leave="tool-out" icon="globe" [label]="tab.title" [hint]="tab.url" [active]="store.activeId() === tab.id" (selected)="store.select(tab.id)" (closed)="close(tab.id)" />
       }
-      <pa-action icon="plus" label="New tab" (click)="store.openHome()" />
+      <span #plus class="tab-plus" [class.has-servers]="servers().length">
+        <pa-action icon="plus" [label]="servers().length ? 'New tab · a server is running here' : 'New tab'" [pressed]="newMenu()" (click)="newTab()" />
+      </span>
+      @if (newMenu()) {
+        <pa-popover [anchor]="plus" anchorAlign="start" width="280px" ariaLabel="New tab" panelRole="menu" [focusFirst]="true" (closed)="newMenu.set(false)" animate.leave="anim-pop-out">
+          <div class="menu" role="none">
+            <button class="menu-item" role="menuitem" (click)="newMenu.set(false); store.openHome()">
+              <pa-icon name="globe" [size]="16" /><span class="truncate">{{ homeName() }}</span><span class="menu-hint">Home page</span>
+            </button>
+            @for (url of servers(); track url) {
+              <button class="menu-item" role="menuitem" (click)="newMenu.set(false); openLocal(url)">
+                <pa-icon name="terminal" [size]="16" /><span class="truncate">{{ hostOf(url) }}</span><span class="menu-hint">Running here</span>
+              </button>
+            }
+          </div>
+        </pa-popover>
+      }
     </div>
     <form class="browser-address-bar" (submit)="$event.preventDefault(); go()">
       <pa-action icon="arrow-right" size="md" class="browser-back" label="Back" [disabled]="!store.active()" (click)="action('back')" />
@@ -85,7 +103,19 @@ export class BrowserCard {
   private readonly toast = inject(ToastService);
   protected address = '';
   protected readonly engines = shuffled(SEARCH_ENGINES);
-  protected hostOf(url: string): string { return new URL(url).hostname.replace(/^www\./, ''); }
+  protected hostOf(url: string): string { return new URL(url).host.replace(/^www\./, ''); }
+  private readonly terminal = inject(TerminalService);
+  /** Servers the terminals say they run: offered by the new-tab button. */
+  protected readonly servers = this.terminal.localUrls;
+  protected readonly newMenu = signal(false);
+  /** With a server running, the button asks where; otherwise it opens the home page. */
+  protected newTab(): void {
+    if (this.servers().length) this.newMenu.update(open => !open);
+    else void this.store.openHome();
+  }
+  protected async openLocal(url: string): Promise<void> {
+    try { await this.store.openLink(url); } catch (error) { this.store.error.set(String(error).replace(/^Error: /, '')); }
+  }
   constructor() {
     effect(() => { const tab = this.store.active(); untracked(() => { this.address = tab?.url ?? ''; }); });
     // The first time the Browser opens it shows the home page, unless PWR is the one opening a tab.

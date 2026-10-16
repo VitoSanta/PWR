@@ -29,9 +29,12 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
   private updating = false;
   constructor() {
     effect(() => {
-      const doc = this.store.active(); const docs = this.store.documents(); const theme = this.theme.theme();
+      const doc = this.store.active();
+      const docs = this.store.documents();
+      const theme = this.theme.theme();
+      const palette = this.theme.palette();
       if (!this.ready()) return;
-      untracked(() => this.show(doc, docs, theme));
+      untracked(() => this.show(doc, docs, theme, palette));
     });
   }
   async ngAfterViewInit(): Promise<void> {
@@ -59,9 +62,17 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
       this.ready.set(true);
     } catch (error) { this.error.set(`The editor could not load: ${String(error)}`); }
   }
-  private show(doc: EditorDocument | null, docs: EditorDocument[], theme: string): void {
+  private show(doc: EditorDocument | null, docs: EditorDocument[], theme: string, palette: string): void {
     if (!this.monaco || !this.editor) return;
-    this.monaco.editor.setTheme(theme === 'dark' ? 'vs-dark' : 'vs');
+    const monacoTheme =
+      palette === 'contrast-dark'
+        ? 'hc-black'
+        : palette === 'contrast-light'
+          ? 'hc-light'
+          : theme === 'dark'
+            ? 'vs-dark'
+            : 'vs';
+    this.monaco.editor.setTheme(monacoTheme);
     this.updating = true;
     try {
       for (const [path, model] of this.models) if (!docs.some(item => item.path === path)) { model.dispose(); this.models.delete(path); }

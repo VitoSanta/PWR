@@ -153,7 +153,7 @@ const MAX_HEIGHT = 260;
         }
       </div>
     }
-    <div class="composer-dock" [class.is-pinned]="draft().length > 0 || store.turnActive() || store.attachments().length > 0 || store.queue().length > 0 || dropping() || !!ui.runControls()">
+    <div class="composer-dock" [class.is-pinned]="draft().length > 0 || store.turnActive() || store.coreState() === 'starting' || store.attachments().length > 0 || store.queue().length > 0 || dropping() || !!ui.runControls()">
     <button
       type="button"
       class="composer-beacon"
@@ -483,6 +483,11 @@ export class Composer implements OnInit, OnDestroy {
 
   /** The box's height to its text, between one line and 30% of the window. */
   private fit(box: HTMLTextAreaElement): void {
+    if (!box.value) {
+      box.style.height = `${MIN_HEIGHT}px`;
+      box.style.overflowY = 'hidden';
+      return;
+    }
     box.style.height = 'auto';
     // In a short window the box stops growing sooner, so the conversation
     // above it always keeps room.

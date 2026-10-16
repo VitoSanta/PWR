@@ -129,17 +129,34 @@ fn marker_current(marker: &[u8]) -> bool {
 /// Whether `python` runs and can find mlx-lm. Found, not imported: importing
 /// it loads MLX, which takes seconds; finding it takes a fraction of one.
 fn has_engine(python: &Path) -> bool {
-    python.is_file()
-        && std::process::Command::new(python)
-            .args([
-                "-c",
-                "import importlib.util, sys; sys.exit(importlib.util.find_spec('mlx_lm') is None)",
-            ])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
+    static VERIFIED: std::sync::OnceLock<Mutex<Option<PathBuf>>> = std::sync::OnceLock::new();
+    if !python.is_file() {
+        return false;
+    }
+    let cache = VERIFIED.get_or_init(|| Mutex::new(None));
+    if cache
+        .lock()
+        .ok()
+        .is_some_and(|cached| cached.as_deref() == Some(python))
+    {
+        return true;
+    }
+    let ok = std::process::Command::new(python)
+        .args([
+            "-c",
+            "import importlib.util, sys; sys.exit(importlib.util.find_spec('mlx_lm') is None)",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if ok {
+        if let Ok(mut cached) = cache.lock() {
+            *cached = Some(python.to_path_buf());
+        }
+    }
+    ok
 }
 
 /// The interpreter the core should be started with, if there is one.
@@ -148,33 +165,38 @@ pub fn python(app: &AppHandle) -> Option<PathBuf> {
 }
 
 #[tauri::command]
-pub fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
-    let found = find(&app);
-    Ok(EngineStatus {
-        needed: needed(),
-        supported: supported(),
-        ready: found.is_some(),
-        source: found.as_ref().map(|(source, _)| *source),
-        python: found.map(|(_, python)| python.display().to_string()),
-        location: root(&app)?.display().to_string(),
-        packages: PACKAGES.to_vec(),
-        python_version: PYTHON_VERSION,
+pub async fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let found = find(&app);
+        Ok(EngineStatus {
+            needed: needed(),
+            supported: supported(),
+            ready: found.is_some(),
+            source: found.as_ref().map(|(source, _)| *source),
+            python: found.map(|(_, python)| python.display().to_string()),
+            location: root(&app)?.display().to_string(),
+            packages: PACKAGES.to_vec(),
+            python_version: PYTHON_VERSION,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// The bundled `uv`; in development, the one on PATH.
 fn uv(app: &AppHandle) -> Result<PathBuf, String> {
+    let bin = format!("uv{}", std::env::consts::EXE_SUFFIX);
     if let Some(path) = app
         .path()
         .resource_dir()
         .ok()
-        .map(|dir| dir.join("uv"))
+        .map(|dir| dir.join(&bin))
         .filter(|path| path.is_file())
     {
         return Ok(path);
     }
-    for dir in crate::login_path().split(':') {
-        let path = Path::new(dir).join("uv");
+    for dir in std::env::split_paths(&crate::login_path()) {
+        let path = dir.join(&bin);
         if path.is_file() {
             return Ok(path);
         }

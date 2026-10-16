@@ -1,5 +1,5 @@
 import { MatButtonModule } from '@angular/material/button';
-import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { tokens } from '../core/format';
 import { ModelsStore } from '../core/models.store';
@@ -97,9 +97,10 @@ export class RunMetricsChip {
   );
 
   constructor() {
-    setInterval(() => {
+    const timer = setInterval(() => {
       if (this.shown() && this.store.turnActive()) this.now.set(Date.now());
     }, 1000);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
     // Opened from elsewhere: fresh figures, and the machine's when missing.
     effect(() => {
       if (this.panelOnly() && this.ui.runMetrics()) untracked(() => this.refresh());

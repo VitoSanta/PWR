@@ -334,6 +334,10 @@
   font-weight: var(--fw-medium);
 }
 
+.empty-state .btn {
+  margin-top: var(--space-2);
+}
+
 /* ------------------------------------------------------------- editor */
 .editor-path-form {
   background: var(--surface-secondary);
@@ -534,12 +538,18 @@
   display: block;
   flex: 1;
   min-height: 0;
-  background: var(--surface-elevated);
+  background: var(--surface-primary);
 }
 
 .code-editor-surface {
   position: absolute;
   inset: 0;
+}
+
+.code-editor-surface .monaco-editor,
+.code-editor-surface .monaco-editor-background,
+.code-editor-surface .monaco-editor .margin {
+  background-color: var(--surface-primary) !important;
 }
 
 .editor-diff {
@@ -932,4 +942,25 @@
   transition:
     background-color var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease);
+}
+
+/* A dot on the new-tab button says a server is running here: its menu offers it. */
+.tab-plus {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.tab-plus.has-servers::after {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--surface-primary);
+  border-radius: 50%;
+  background: var(--accent-primary);
+  content: '';
+  pointer-events: none;
+  animation: pa-fade-in var(--dur-slow) var(--ease) backwards;
 }

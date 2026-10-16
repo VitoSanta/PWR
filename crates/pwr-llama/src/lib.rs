@@ -22,15 +22,35 @@ use std::io::{Cursor, Read};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::{Duration, Instant};
 use tokio::process::{Child, Command};
+use tokio::sync::Mutex;
 use tokio::time::{sleep, timeout};
 
 pub const DEFAULT_MAX_TOKENS: u64 = 16_384;
-const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(30);
+pub const DEFAULT_CACHE_REUSE: u32 = 256;
+pub const DEFAULT_DRAFT_MAX: u32 = 8;
+const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(60);
 const SERVER_READY_INTERVAL: Duration = Duration::from_millis(100);
 const SERVER_VERSION_TIMEOUT: Duration = Duration::from_secs(5);
 const INSPECTION_ARRAY_SAMPLE_ITEMS: usize = 32;
+
+/// Whether the person turned on the pack's assistant (speculative decoding).
+static ASSISTANT_ON: AtomicBool = AtomicBool::new(false);
+
+pub fn set_assistant(on: bool) {
+    ASSISTANT_ON.store(on, Ordering::Relaxed);
+}
+
+pub fn assistant_enabled() -> bool {
+    ASSISTANT_ON.load(Ordering::Relaxed)
+        || std::env::var("PWR_LLAMA_ASSISTANT").as_deref() == Ok("on")
+        || std::env::var("PWR_MLX_ASSISTANT").as_deref() == Ok("on")
+}
 
 #[derive(Debug, Clone)]
 pub struct LlamaConfig {
@@ -45,16 +65,33 @@ const LOOPBACK: &str = "127.0.0.1";
 
 impl LlamaConfig {
     pub fn from_env() -> Self {
-        let home = std::env::var_os("HOME")
+        let home = pwr_domain::home_dir().unwrap_or_default();
+        let bin = format!("llama-server{}", std::env::consts::EXE_SUFFIX);
+        let server = std::env::var_os("PWR_LLAMA_SERVER")
             .map(PathBuf::from)
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                let mut candidates = Vec::new();
+                if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+                    candidates.push(local_app_data.join("ai.pwr.desktop/engine/llama").join(&bin));
+                }
+                if let Some(app_data) = std::env::var_os("APPDATA").map(PathBuf::from) {
+                    candidates.push(app_data.join("ai.pwr.desktop/engine/llama").join(&bin));
+                }
+                candidates.push(
+                    home.join("Library/Application Support/ai.pwr.desktop/engine/llama")
+                        .join(&bin),
+                );
+                candidates.push(home.join(".pwr/engine/llama").join(&bin));
+                candidates
+                    .into_iter()
+                    .find(|path| path.is_file())
+                    .unwrap_or_else(|| PathBuf::from("llama-server"))
+            });
         LlamaConfig {
             models_root: std::env::var_os("PWR_LLAMA_MODELS")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join(".pwr/models")),
-            server: std::env::var_os("PWR_LLAMA_SERVER")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("llama-server")),
+            server,
             // Loopback only, not configurable. The server PWR starts is the
             // model a prompt full of repository excerpts is sent to, and
             // `PWR_LLAMA_HOST` let it bind any address with nothing refusing
@@ -70,11 +107,20 @@ impl LlamaConfig {
 
     pub fn model_file(&self, model_ref: &str) -> Result<PathBuf, ProviderError> {
         let expanded = match model_ref.strip_prefix("~/") {
-            Some(rest) => std::env::var_os("HOME")
-                .map(|home| PathBuf::from(home).join(rest))
+            Some(rest) => pwr_domain::home_dir()
+                .map(|home| home.join(rest))
                 .unwrap_or_else(|| PathBuf::from(model_ref)),
             None => PathBuf::from(model_ref),
         };
+        if !expanded.is_absolute()
+            && expanded
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            return Err(ProviderError::Protocol {
+                safe_context: format!("{model_ref} leaves the models folder"),
+            });
+        }
         let candidate = if expanded.is_absolute() {
             expanded
         } else {
@@ -95,6 +141,65 @@ impl LlamaConfig {
             })
         }
     }
+
+    /// Finds a multimodal vision projector (`mmproj*.gguf`) alongside the model
+    /// or named by `PWR_LLAMA_MMPROJ`.
+    pub fn mmproj_file(&self, model_path: &Path) -> Option<PathBuf> {
+        if let Some(explicit) = std::env::var_os("PWR_LLAMA_MMPROJ").map(PathBuf::from) {
+            return explicit.is_file().then_some(explicit);
+        }
+        let dir = model_path.parent()?;
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.is_file()
+                    && path
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("gguf"))
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.to_ascii_lowercase().contains("mmproj"))
+            })
+            .collect();
+        found.sort();
+        found.into_iter().next()
+    }
+
+    /// Whether a GGUF model has a multimodal projector (`mmproj`) or belongs to
+    /// the Gemma 4 line.
+    pub fn has_vision_encoder(&self, model_ref: &str) -> Option<bool> {
+        let file = self.model_file(model_ref).ok()?;
+        Some(self.mmproj_file(&file).is_some() || pwr_domain::gemma::pack(model_ref).is_some())
+    }
+
+    /// Finds a draft/assistant `.gguf` for speculative decoding (`--model-draft`).
+    pub fn assistant_file(&self, model_path: &Path) -> Option<PathBuf> {
+        if let Some(explicit) = std::env::var_os("PWR_LLAMA_DRAFT_MODEL").map(PathBuf::from) {
+            return explicit.is_file().then_some(explicit);
+        }
+        let dir = model_path.parent()?;
+        let mut candidates = Vec::new();
+        for search_dir in [Some(dir), dir.parent(), Some(self.models_root.as_path())]
+            .into_iter()
+            .flatten()
+        {
+            for path in gguf_files(search_dir) {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if name.contains("assistant") || name.contains("draft") {
+                    candidates.push(path);
+                }
+            }
+        }
+        candidates.sort();
+        candidates.into_iter().next()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -104,11 +209,58 @@ pub struct LlamaServerPlan {
     pub host: String,
     pub port: u16,
     pub context_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_layers: Option<String>,
+    pub flash_attn: bool,
+    pub jinja: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_reuse: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kv_cache_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mmproj: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_model: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_max: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threads: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ubatch_size: Option<u32>,
 }
 
 impl LlamaServerPlan {
+    pub fn new(
+        server: PathBuf,
+        model: PathBuf,
+        host: String,
+        port: u16,
+        context_tokens: u32,
+    ) -> Self {
+        Self {
+            server,
+            model,
+            host,
+            port,
+            context_tokens,
+            gpu_layers: None,
+            flash_attn: false,
+            jinja: false,
+            cache_reuse: None,
+            kv_cache_type: None,
+            mmproj: None,
+            draft_model: None,
+            draft_max: None,
+            threads: None,
+            batch_size: None,
+            ubatch_size: None,
+        }
+    }
+
     pub fn args(&self) -> Vec<String> {
-        vec![
+        let mut args = vec![
             "--model".into(),
             self.model.display().to_string(),
             "--host".into(),
@@ -117,11 +269,73 @@ impl LlamaServerPlan {
             self.port.to_string(),
             "--ctx-size".into(),
             self.context_tokens.to_string(),
-        ]
+        ];
+        if self.jinja {
+            args.push("--jinja".into());
+        }
+        if let Some(layers) = &self.gpu_layers {
+            args.push("--gpu-layers".into());
+            args.push(layers.clone());
+        }
+        if self.flash_attn {
+            args.push("--flash-attn".into());
+            args.push("on".into());
+        }
+        if let Some(reuse) = self.cache_reuse {
+            args.push("--cache-reuse".into());
+            args.push(reuse.to_string());
+        }
+        if let Some(kv_type) = &self.kv_cache_type {
+            args.push("--cache-type-k".into());
+            args.push(kv_type.clone());
+            args.push("--cache-type-v".into());
+            args.push(kv_type.clone());
+        }
+        if let Some(mmproj) = &self.mmproj {
+            args.push("--mmproj".into());
+            args.push(mmproj.display().to_string());
+        }
+        if let Some(draft) = &self.draft_model {
+            args.push("--model-draft".into());
+            args.push(draft.display().to_string());
+            args.push("--gpu-layers-draft".into());
+            args.push("all".into());
+            if let Some(max) = self.draft_max {
+                args.push("--draft-max".into());
+                args.push(max.to_string());
+            }
+        }
+        if let Some(threads) = self.threads {
+            args.push("--threads".into());
+            args.push(threads.to_string());
+        }
+        if let Some(batch) = self.batch_size {
+            args.push("--batch-size".into());
+            args.push(batch.to_string());
+        }
+        if let Some(ubatch) = self.ubatch_size {
+            args.push("--ubatch-size".into());
+            args.push(ubatch.to_string());
+        }
+        args
     }
 
     pub fn endpoint(&self) -> String {
         format!("http://{}:{}/v1/chat/completions", self.host, self.port)
+    }
+
+    /// Whether a running server with `self` can serve a new request planned as `other`
+    /// without restarting the process.
+    fn compatible_with(&self, other: &Self) -> bool {
+        self.server == other.server
+            && self.model == other.model
+            && self.context_tokens == other.context_tokens
+            && self.gpu_layers == other.gpu_layers
+            && self.flash_attn == other.flash_attn
+            && self.jinja == other.jinja
+            && self.kv_cache_type == other.kv_cache_type
+            && self.mmproj == other.mmproj
+            && self.draft_model == other.draft_model
     }
 }
 
@@ -133,11 +347,18 @@ pub fn chat_completions_body(request: &ModelRequest) -> serde_json::Value {
             .cloned()
             .unwrap_or(serde_json::Value::Null)
     };
+    let repeat_penalty = sampling
+        .get("repetition_penalty")
+        .or_else(|| sampling.get("repeat_penalty"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     let mut body = serde_json::json!({
         "model": request.deployment.model_ref,
         "messages": chat_messages(&request.messages),
         "tools": request.tools,
         "stream": true,
+        "cache_prompt": true,
+        "stream_options": {"include_usage": true},
         "max_tokens": sampling
             .get("max_tokens")
             .and_then(serde_json::Value::as_u64)
@@ -145,13 +366,27 @@ pub fn chat_completions_body(request: &ModelRequest) -> serde_json::Value {
         "temperature": number("temperature"),
         "top_p": number("top_p"),
         "top_k": number("top_k"),
+        "min_p": number("min_p"),
+        "presence_penalty": number("presence_penalty"),
+        "repeat_penalty": repeat_penalty,
         "seed": request.seed,
     });
+    if let Some(think) = sampling.get("think").and_then(serde_json::Value::as_bool) {
+        body["chat_template_kwargs"] = serde_json::json!({"enable_thinking": think});
+    }
+    if let Some(budget) = sampling.get("reasoning_budget").filter(|v| !v.is_null()) {
+        body["reasoning_budget"] = budget.clone();
+    }
     if request.tools.is_some() {
         // llama-server derives a grammar from the offered native tools. Mark
-        // the choice required so an agent turn cannot fall back to prose and
-        // leave the harness guessing whether a malformed call was intended.
-        body["tool_choice"] = serde_json::Value::String("required".into());
+        // the choice required by default so an agent turn cannot fall back to
+        // prose and leave the harness guessing whether a malformed call was
+        // intended, while honouring an explicit tool_choice override.
+        let choice = sampling
+            .get("tool_choice")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("required");
+        body["tool_choice"] = serde_json::Value::String(choice.into());
     }
     body
 }
@@ -200,7 +435,7 @@ pub async fn post_chat_stream(
     )))
 }
 
-fn keep_server_alive(stream: ModelStream, server: LlamaServer) -> ModelStream {
+fn keep_server_alive(stream: ModelStream, server: Arc<LlamaServer>) -> ModelStream {
     Box::pin(stream::try_unfold(
         (stream, Some(server)),
         |(mut stream, server)| async move {
@@ -216,7 +451,7 @@ fn keep_server_alive(stream: ModelStream, server: LlamaServer) -> ModelStream {
 #[derive(Debug)]
 pub struct LlamaServer {
     plan: LlamaServerPlan,
-    child: Child,
+    child: std::sync::Mutex<Child>,
 }
 
 impl LlamaServer {
@@ -241,17 +476,33 @@ impl LlamaServer {
             let _ = child.kill().await;
             return Err(error);
         }
-        Ok(Self { plan, child })
+        Ok(Self {
+            plan,
+            child: std::sync::Mutex::new(child),
+        })
     }
 
     pub fn endpoint(&self) -> String {
         self.plan.endpoint()
     }
+
+    pub fn is_alive(&self) -> bool {
+        self.child
+            .lock()
+            .ok()
+            .is_some_and(|mut child| matches!(child.try_wait(), Ok(None)))
+    }
+
+    pub fn kill(&self) {
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.start_kill();
+        }
+    }
 }
 
 impl Drop for LlamaServer {
     fn drop(&mut self) {
-        let _ = self.child.start_kill();
+        self.kill();
     }
 }
 
@@ -362,6 +613,34 @@ fn chat_messages(messages: &[pwr_domain::ChatMessage]) -> Vec<serde_json::Value>
 fn chat_message(message: &pwr_domain::ChatMessage) -> serde_json::Value {
     let mut value = serde_json::json!({"role": message.role, "content": message.content});
     let object = value.as_object_mut().expect("literal object");
+    if !message.images.is_empty() {
+        use base64::Engine as _;
+        let mut parts: Vec<serde_json::Value> = message
+            .images
+            .iter()
+            .filter_map(|path| {
+                let bytes = std::fs::read(path).ok()?;
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("png")
+                    .to_ascii_lowercase();
+                let mime = match ext.as_str() {
+                    "jpg" | "jpeg" => "image/jpeg",
+                    "webp" => "image/webp",
+                    "gif" => "image/gif",
+                    _ => "image/png",
+                };
+                let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+                Some(serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {"url": format!("data:{mime};base64,{encoded}")}
+                }))
+            })
+            .collect();
+        parts.push(serde_json::json!({"type": "text", "text": message.content}));
+        object.insert("content".into(), serde_json::Value::Array(parts));
+    }
     // As for MLX: `llama-server --jinja` passes it to the model's template,
     // which renders it while the exchange it belongs to continues.
     if message.role == "assistant"
@@ -399,6 +678,8 @@ fn chat_message(message: &pwr_domain::ChatMessage) -> serde_json::Value {
 #[derive(Debug, Default)]
 pub struct LlamaStreamDecoder {
     tool_calls: BTreeMap<u64, PartialToolCall>,
+    accumulated_content: String,
+    sent_content: usize,
 }
 
 impl LlamaStreamDecoder {
@@ -423,6 +704,9 @@ impl LlamaStreamDecoder {
         let delta = &choice["delta"];
         self.capture_tool_calls(delta)?;
         let content = delta["content"].as_str().unwrap_or_default().to_owned();
+        if !content.is_empty() {
+            self.accumulated_content.push_str(&content);
+        }
         let thinking = delta
             .get("reasoning_content")
             .or_else(|| delta.get("reasoning"))
@@ -437,20 +721,66 @@ impl LlamaStreamDecoder {
                     ),
                 });
             }
+            let mut tool_calls = self.finish_tool_calls()?;
+            let mut final_content = content;
+            let mut final_thinking = thinking;
+            if tool_calls.is_empty()
+                && (self.accumulated_content.contains("<|tool_call>")
+                    || self.accumulated_content.contains("<|channel>thought"))
+            {
+                use pwr_compat::ModelBehaviorAdapter as _;
+                let normalized = pwr_compat::Gemma4Adapter.normalize(&pwr_provider::ModelReply {
+                    content: self.accumulated_content.clone(),
+                    thinking: String::new(),
+                    tool_calls: Vec::new(),
+                    chunks: 0,
+                    metrics: None,
+                });
+                if normalized.diagnostics.iter().any(|d| {
+                    d.kind == "gemma_unterminated_tool_call"
+                        || d.kind == "gemma_undecodable_tool_call"
+                }) {
+                    return Err(ProviderError::Truncated {
+                        safe_context:
+                            "the model stopped inside an unfinished tool call; no call was executed"
+                                .into(),
+                    });
+                }
+                tool_calls = normalized.tool_calls;
+                if !normalized.thinking.is_empty() && final_thinking.is_none() {
+                    final_thinking = Some(normalized.thinking);
+                }
+                let shown = self.accumulated_content[..self.sent_content.min(self.accumulated_content.len())].trim_start();
+                let whole = normalized.narrative.trim_start();
+                final_content = whole
+                    .strip_prefix(shown)
+                    .map(str::to_owned)
+                    .unwrap_or_default();
+            }
             return Ok(Some(ModelChunk {
-                content,
-                thinking,
-                tool_calls: self.finish_tool_calls()?,
+                content: final_content,
+                thinking: final_thinking,
+                tool_calls,
                 metrics: metrics(event),
                 prefill: None,
                 done: true,
             }));
         }
-        if content.is_empty() && thinking.as_ref().is_none_or(String::is_empty) {
+        // Hold back content once a Gemma native tool call marker begins so raw
+        // tool call text is never streamed as prose to the conversation.
+        let visible_content = if self.accumulated_content.contains("<|tool_call>")
+            || self.accumulated_content.contains("<|channel>thought")
+        {
+            String::new()
+        } else {
+            self.sent_content = self.accumulated_content.len();
+            content
+        };
+        if visible_content.is_empty() && thinking.as_ref().is_none_or(String::is_empty) {
             return Ok(None);
         }
         Ok(Some(ModelChunk {
-            content,
+            content: visible_content,
             thinking,
             tool_calls: Vec::new(),
             metrics: None,
@@ -516,19 +846,35 @@ impl PartialToolCall {
 
 fn metrics(event: &Value) -> Option<GenerationMetrics> {
     let usage = event.get("usage")?;
+    let timings = event.get("timings");
     // The server counts with the model's own tokenizer. It separates
     // reasoning tokens only where its build reports them in the OpenAI shape;
     // otherwise the split is left unknown rather than set to zero.
     let generated = usage["completion_tokens"].as_u64();
     let reasoning = usage["completion_tokens_details"]["reasoning_tokens"].as_u64();
+    let cached = usage["prompt_tokens_details"]["cached_tokens"]
+        .as_u64()
+        .or_else(|| timings.and_then(|t| t["cache_n"].as_u64()));
+    let ms_to_ns = |key: &str| {
+        timings
+            .and_then(|t| t[key].as_f64())
+            .filter(|ms| *ms >= 0.0)
+            .map(|ms| (ms * 1_000_000.0) as u64)
+    };
+    let prompt_ns = ms_to_ns("prompt_ms");
+    let gen_ns = ms_to_ns("predicted_ms");
     Some(GenerationMetrics {
         prompt_tokens: usage["prompt_tokens"].as_u64(),
+        cached_prompt_tokens: cached,
         generated_tokens: generated,
         reasoning_tokens: reasoning,
         answer_tokens: generated
             .zip(reasoning)
             .map(|(total, reasoning)| total.saturating_sub(reasoning)),
         token_accounting: generated.map(|_| pwr_domain::TokenAccounting::ServerUsage),
+        prompt_eval_duration_ns: prompt_ns,
+        generation_duration_ns: gen_ns,
+        total_duration_ns: prompt_ns.zip(gen_ns).map(|(a, b)| a + b),
         ..GenerationMetrics::default()
     })
 }
@@ -582,13 +928,22 @@ impl LlamaSseDecoder {
     }
 }
 
+fn shared_server() -> Arc<Mutex<Option<Arc<LlamaServer>>>> {
+    static SERVER: OnceLock<Arc<Mutex<Option<Arc<LlamaServer>>>>> = OnceLock::new();
+    SERVER.get_or_init(|| Arc::new(Mutex::new(None))).clone()
+}
+
 pub struct LlamaProvider {
     config: LlamaConfig,
+    server: Arc<Mutex<Option<Arc<LlamaServer>>>>,
 }
 
 impl LlamaProvider {
     pub fn new(config: LlamaConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            server: shared_server(),
+        }
     }
 
     pub fn server_plan(
@@ -596,18 +951,91 @@ impl LlamaProvider {
         deployment: &DeploymentDescriptor,
         context_tokens: u32,
     ) -> Result<LlamaServerPlan, ProviderError> {
+        let model = self.config.model_file(&deployment.model_ref)?;
         let port = if self.config.port == 0 {
             reserve_port(&self.config.host)?
         } else {
             self.config.port
         };
+        let gpu_layers = std::env::var("PWR_LLAMA_GPU_LAYERS")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| Some("all".into()));
+        let flash_attn = std::env::var("PWR_LLAMA_FLASH_ATTN").as_deref() != Ok("off");
+        let cache_reuse = std::env::var("PWR_LLAMA_CACHE_REUSE")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .or(Some(DEFAULT_CACHE_REUSE));
+        let kv_cache_type = std::env::var("PWR_LLAMA_KV_TYPE")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| {
+                (std::env::var("PWR_LLAMA_KV_BITS").as_deref() == Ok("8")
+                    || std::env::var("PWR_MLX_KV_BITS").as_deref() == Ok("8"))
+                .then(|| "q8_0".into())
+            });
+        let mmproj = self.config.mmproj_file(&model);
+        let draft_model = assistant_enabled()
+            .then(|| self.config.assistant_file(&model))
+            .flatten();
+        let draft_max = draft_model.as_ref().map(|_| {
+            std::env::var("PWR_LLAMA_DRAFT_BLOCK")
+                .ok()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(DEFAULT_DRAFT_MAX)
+        });
+        let threads = std::env::var("PWR_LLAMA_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok());
+        let batch_size = std::env::var("PWR_LLAMA_BATCH")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok());
+        let ubatch_size = std::env::var("PWR_LLAMA_UBATCH")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok());
         Ok(LlamaServerPlan {
             server: self.config.server.clone(),
-            model: self.config.model_file(&deployment.model_ref)?,
+            model,
             host: self.config.host.clone(),
             port,
             context_tokens,
+            gpu_layers,
+            flash_attn,
+            jinja: true,
+            cache_reuse,
+            kv_cache_type,
+            mmproj,
+            draft_model,
+            draft_max,
+            threads,
+            batch_size,
+            ubatch_size,
         })
+    }
+
+    async fn ensure_server(
+        &self,
+        plan: LlamaServerPlan,
+        client: &reqwest::Client,
+    ) -> Result<Arc<LlamaServer>, ProviderError> {
+        let mut guard = self.server.lock().await;
+        if let Some(running) = guard.as_ref()
+            && running.is_alive()
+            && running.plan.compatible_with(&plan)
+        {
+            return Ok(running.clone());
+        }
+        *guard = None;
+        let started = Arc::new(LlamaServer::start(plan, client).await?);
+        *guard = Some(started.clone());
+        Ok(started)
+    }
+
+    async fn stop(&self) {
+        let mut guard = self.server.lock().await;
+        if let Some(running) = guard.take() {
+            running.kill();
+        }
     }
 
     fn read_metadata(path: &Path) -> Result<Value, ProviderError> {
@@ -668,18 +1096,10 @@ impl LlamaProvider {
             .get("tokenizer.chat_template")
             .and_then(Value::as_str);
         let chat_template_identity = template.map(|template| hash_bytes(template.as_bytes()));
-        // llama-server separates reasoning into `reasoning_content` but takes
-        // no per-request budget, and PWR does not pass template variables
-        // to it: whatever the template supports, PWR can only observe.
         let reasoning = template
             .map(pwr_domain::TemplateReasoning::of)
             .unwrap_or_default();
-        let reasoning_capability = match reasoning.capability(false) {
-            pwr_domain::ReasoningCapability::TemplateControlled => {
-                pwr_domain::ReasoningCapability::ObservableOnly
-            }
-            other => other,
-        };
+        let reasoning_capability = reasoning.capability(false);
         let mut capabilities = BTreeMap::new();
         capabilities.insert(
             "capability_probe".into(),
@@ -733,15 +1153,33 @@ impl ModelProvider for LlamaProvider {
     }
 
     async fn runtime_state(&self) -> Result<BackendState, ProviderError> {
+        let mut guard = self.server.lock().await;
+        let mut loaded_models = Vec::new();
+        let mut status = "server_on_demand";
+        if let Some(running) = guard.as_ref() {
+            if running.is_alive() {
+                status = "ready";
+                let model_ref = running
+                    .plan
+                    .model
+                    .strip_prefix(&self.config.models_root)
+                    .unwrap_or(&running.plan.model)
+                    .display()
+                    .to_string();
+                loaded_models.push(model_ref);
+            } else {
+                *guard = None;
+            }
+        }
         Ok(BackendState {
             observed_at: Utc::now(),
-            loaded_models: Vec::new(),
+            loaded_models,
             state: serde_json::json!({
                 "engine": "llama.cpp",
                 "server": self.config.server,
                 "host": self.config.host,
                 "port": self.config.port,
-                "status": "server_on_demand"
+                "status": status
             }),
         })
     }
@@ -749,7 +1187,7 @@ impl ModelProvider for LlamaProvider {
     async fn chat(&self, request: ModelRequest) -> Result<ModelStream, ProviderError> {
         let plan = self.server_plan(&request.deployment, request.context_tokens)?;
         let client = reqwest::Client::new();
-        let server = LlamaServer::start(plan, &client).await?;
+        let server = self.ensure_server(plan, &client).await?;
         let stream = post_chat_stream(&client, &server.endpoint(), request).await?;
         Ok(keep_server_alive(stream, server))
     }
@@ -785,6 +1223,17 @@ impl InferenceBackend for LlamaProvider {
     async fn discover_models(&self) -> Result<Vec<DiscoveredModel>, ProviderError> {
         let mut found = Vec::new();
         for path in gguf_files(&self.config.models_root) {
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if file_name.contains("mmproj")
+                || file_name.contains("imatrix")
+                || file_name.starts_with("ggml-vocab")
+            {
+                continue;
+            }
             let Ok(relative) = path.strip_prefix(&self.config.models_root) else {
                 continue;
             };
@@ -800,6 +1249,48 @@ impl InferenceBackend for LlamaProvider {
         }
         found.sort_by(|a, b| a.model_ref.cmp(&b.model_ref));
         Ok(found)
+    }
+
+    async fn load_model(&self, model_ref: &str) -> Result<(), ProviderError> {
+        let context_tokens = pwr_domain::gemma::pack(model_ref)
+            .map(|p| p.context_tokens)
+            .unwrap_or(32_768);
+        let deployment = DeploymentDescriptor {
+            schema_version: 1,
+            id: new_id(),
+            provider: "llama".into(),
+            endpoint: String::new(),
+            model_ref: model_ref.to_owned(),
+            backend_options: BTreeMap::new(),
+            auth_ref: None,
+        };
+        let plan = self.server_plan(&deployment, context_tokens)?;
+        let client = reqwest::Client::new();
+        let _ = self.ensure_server(plan, &client).await?;
+        Ok(())
+    }
+
+    async fn unload_model(&self, _model_ref: &str) -> Result<(), ProviderError> {
+        self.stop().await;
+        Ok(())
+    }
+
+    async fn is_resident(&self, deployment: &DeploymentDescriptor) -> Result<bool, ProviderError> {
+        let target = self.config.model_file(&deployment.model_ref)?;
+        let mut guard = self.server.lock().await;
+        let Some(running) = guard.as_ref() else {
+            return Ok(false);
+        };
+        if !running.is_alive() {
+            *guard = None;
+            return Ok(false);
+        }
+        Ok(running.plan.model == target)
+    }
+
+    async fn release(&self, _deployment: &DeploymentDescriptor) -> Result<(), ProviderError> {
+        self.stop().await;
+        Ok(())
     }
 
     async fn model_facts(
@@ -1423,13 +1914,13 @@ http.server.HTTPServer((host, port), Handler).serve_forever()
         make_executable(script.path());
         let port = reserve_port("127.0.0.1").unwrap();
         let server = LlamaServer::start(
-            LlamaServerPlan {
-                server: script.path().to_path_buf(),
-                model: PathBuf::from("model.gguf"),
-                host: "127.0.0.1".into(),
+            LlamaServerPlan::new(
+                script.path().to_path_buf(),
+                PathBuf::from("model.gguf"),
+                "127.0.0.1".into(),
                 port,
-                context_tokens: 8192,
-            },
+                8192,
+            ),
             &reqwest::Client::new(),
         )
         .await
@@ -1450,13 +1941,13 @@ http.server.HTTPServer((host, port), Handler).serve_forever()
         .unwrap();
         make_executable(script.path());
         let failed = LlamaServer::start(
-            LlamaServerPlan {
-                server: script.path().to_path_buf(),
-                model: PathBuf::from("model.gguf"),
-                host: "127.0.0.1".into(),
-                port: reserve_port("127.0.0.1").unwrap(),
-                context_tokens: 8192,
-            },
+            LlamaServerPlan::new(
+                script.path().to_path_buf(),
+                PathBuf::from("model.gguf"),
+                "127.0.0.1".into(),
+                reserve_port("127.0.0.1").unwrap(),
+                8192,
+            ),
             &reqwest::Client::new(),
         )
         .await
@@ -1626,6 +2117,77 @@ http.server.HTTPServer((host, port), Handler).serve_forever()
         cancel.cancel();
         let failed = reply.await.unwrap().unwrap_err();
         assert!(matches!(failed, ProviderError::Cancelled));
+    }
+
+    #[test]
+    fn server_plan_includes_gpu_offload_flash_attn_mmproj_and_draft_assistant() {
+        let dir = tempfile::tempdir().unwrap();
+        let model_dir = dir.path().join("gemma4");
+        std::fs::create_dir_all(&model_dir).unwrap();
+        let model = model_dir.join("gemma-4-26b-a4b-it-Q4_K_M.gguf");
+        let mmproj = model_dir.join("mmproj-gemma-4-26b-f16.gguf");
+        let draft = model_dir.join("gemma-4-26b-a4b-assistant.gguf");
+        write_tiny_gguf(&model);
+        write_tiny_gguf(&mmproj);
+        write_tiny_gguf(&draft);
+
+        set_assistant(true);
+        let provider = LlamaProvider::new(LlamaConfig {
+            models_root: dir.path().to_path_buf(),
+            server: PathBuf::from("llama-server"),
+            host: "127.0.0.1".into(),
+            port: 49152,
+        });
+        let deployment = DeploymentDescriptor {
+            schema_version: 1,
+            id: new_id(),
+            provider: "llama".into(),
+            endpoint: "http://127.0.0.1:0/".into(),
+            model_ref: "gemma4/gemma-4-26b-a4b-it-Q4_K_M.gguf".into(),
+            backend_options: BTreeMap::new(),
+            auth_ref: None,
+        };
+        let plan = provider.server_plan(&deployment, 262_144).unwrap();
+        set_assistant(false);
+
+        let args = plan.args();
+        assert!(args.contains(&"--jinja".to_string()));
+        assert!(args.contains(&"--gpu-layers".to_string()));
+        assert!(args.contains(&"--flash-attn".to_string()));
+        assert!(args.contains(&"--cache-reuse".to_string()));
+        assert!(args.contains(&"--mmproj".to_string()));
+        assert!(args.contains(&mmproj.display().to_string()));
+        assert!(args.contains(&"--model-draft".to_string()));
+        assert!(args.contains(&draft.display().to_string()));
+        assert!(args.contains(&"--draft-max".to_string()));
+    }
+
+    #[test]
+    fn normalizes_gemma4_native_tool_calls_and_thoughts_in_stream() {
+        let mut decoder = LlamaStreamDecoder::default();
+        let chunk = decoder
+            .decode_data(
+                r#"{"choices":[{"delta":{"content":"<|channel>thought\nChecking terminal\n<channel|><|tool_call>call:workspace_interact{operation:\"start\",target:\"terminal\",arguments:{executable:\"dotnet\"}}<tool_call|>"},"finish_reason":null}]}"#,
+            )
+            .unwrap();
+        assert!(chunk.is_none());
+
+        let done = decoder
+            .decode_data(
+                r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":42,"completion_tokens":18,"prompt_tokens_details":{"cached_tokens":30}},"timings":{"prompt_ms":12.5,"predicted_ms":50.0}}"#,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(done.done);
+        assert_eq!(done.thinking.as_deref(), Some("Checking terminal"));
+        assert_eq!(done.tool_calls.len(), 1);
+        assert_eq!(done.tool_calls[0].name, "workspace_interact");
+        assert_eq!(done.tool_calls[0].arguments["target"], "terminal");
+        assert_eq!(done.tool_calls[0].arguments["operation"], "start");
+        let m = done.metrics.unwrap();
+        assert_eq!(m.cached_prompt_tokens, Some(30));
+        assert_eq!(m.prompt_eval_duration_ns, Some(12_500_000));
+        assert_eq!(m.generation_duration_ns, Some(50_000_000));
     }
 
     #[cfg(unix)]

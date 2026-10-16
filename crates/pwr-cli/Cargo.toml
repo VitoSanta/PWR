@@ -21,6 +21,7 @@ futures-util.workspace = true
 pwr-compat = { path = "../pwr-compat" }
 pwr-domain = { path = "../pwr-domain" }
 pwr-eval = { path = "../pwr-eval" }
+pwr-llama = { path = "../pwr-llama" }
 pwr-observe = { path = "../pwr-observe" }
 pwr-mlx = { path = "../pwr-mlx" }
 pwr-models = { path = "../pwr-models" }

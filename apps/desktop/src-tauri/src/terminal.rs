@@ -119,7 +119,27 @@ pub fn open_terminal(
         std::fs::create_dir_all(scratch.join("home")).map_err(|why| why.to_string())?;
         std::fs::create_dir_all(scratch.join("tmp")).map_err(|why| why.to_string())?;
         command.env("HOME", scratch.join("home"));
+        command.env("USERPROFILE", scratch.join("home"));
         command.env("TMPDIR", scratch.join("tmp"));
+        command.env("TMP", scratch.join("tmp"));
+        command.env("TEMP", scratch.join("tmp"));
+        #[cfg(windows)]
+        for key in [
+            "SystemRoot",
+            "WINDIR",
+            "COMSPEC",
+            "PATHEXT",
+            "SYSTEMDRIVE",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "CommonProgramFiles",
+            "APPDATA",
+            "LOCALAPPDATA",
+        ] {
+            if let Some(val) = std::env::var_os(key) {
+                command.env(key, val);
+            }
+        }
         command.env("PATH", launch.path.clone().unwrap_or_else(crate::login_path));
         command
     } else {

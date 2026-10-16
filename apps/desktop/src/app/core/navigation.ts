@@ -27,8 +27,10 @@ export class NavigationService {
     if (!path) return 'no folder open';
     const parts = path.split(/[\\/]/).filter(Boolean);
     parts.pop();
-    const parent = parts.length > 2 ? '…/' + parts.slice(-2).join('/') : '/' + parts.join('/');
-    return parent.replace(/^\/Users\/[^/]+/, '~');
+    const isWinDrive = parts[0] && /^[A-Za-z]:$/.test(parts[0]);
+    const prefix = isWinDrive ? '' : '/';
+    const parent = parts.length > 2 ? '…/' + parts.slice(-2).join('/') : prefix + parts.join('/');
+    return parent.replace(/^(\/Users|\/home)\/[^/]+/, '~');
   });
 
   /** The open conversation's title, as the history lists it. */
