@@ -19,20 +19,25 @@ import time
 class Core:
     def __init__(self, binary, transcript_path, env=None):
         self.transcript = open(transcript_path, "a", buffering=1)
-        self.proc = subprocess.Popen(
-            [binary, "serve", "--stdio"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=dict(os.environ, **(env or {})),
-            text=True,
-            bufsize=1,
-        )
+        try:
+            self.proc = subprocess.Popen(
+                [binary, "serve", "--stdio"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=dict(os.environ, **(env or {})),
+                text=True,
+                bufsize=1,
+            )
+        except BaseException:
+            self.transcript.close()
+            raise
         self.next_id = 0
         self.incoming = queue.Queue()
         self.lock = threading.Lock()
-        threading.Thread(target=self._read, daemon=True).start()
-        threading.Thread(target=self._stderr, daemon=True).start()
+        self.readers = [threading.Thread(target=target, daemon=True) for target in (self._read, self._stderr)]
+        for reader in self.readers:
+            reader.start()
 
     def record(self, direction, message):
         self.transcript.write(json.dumps({"t": round(time.time(), 3), direction: message}) + "\n")
@@ -68,9 +73,11 @@ class Core:
         self.next_id += 1
         ident = self.next_id
         self.send({"jsonrpc": "2.0", "id": ident, "method": method, "params": params})
-        deadline = None if timeout is None else time.time() + timeout
+        deadline = None if timeout is None else time.monotonic() + timeout
         while True:
-            left = None if deadline is None else max(0.1, deadline - time.time())
+            left = None if deadline is None else deadline - time.monotonic()
+            if left is not None and left <= 0:
+                raise TimeoutError(f"{method} did not answer in {timeout}s")
             try:
                 message = self.incoming.get(timeout=left)
             except queue.Empty:
@@ -89,11 +96,22 @@ class Core:
 
     def close(self):
         try:
-            self.proc.stdin.close()
-            self.proc.wait(timeout=30)
-        except Exception:
-            self.proc.kill()
-        self.transcript.close()
+            try:
+                self.proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+            try:
+                self.proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=30)
+            # Drain the last output before closing the transcript it writes to.
+            for reader in self.readers:
+                reader.join()
+        finally:
+            for stream in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
+                stream.close()
+            self.transcript.close()
 
 
 def initialize(core):

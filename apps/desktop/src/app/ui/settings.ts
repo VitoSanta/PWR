@@ -1,5 +1,6 @@
 import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { UpdatesStore } from '../core/updates';
 import { AgentStore } from '../core/agent.store';
 import { EngineStatus } from '../core/model';
 import { LAYOUT_PALETTE, Theme, ThemeMode, ThemeService } from '../core/theme';
@@ -11,7 +12,7 @@ import { Dialog } from './kit/dialog';
 import { Icon, IconName } from './kit/icon';
 import { MemorySettings, ProfileSettings, ProjectsSettings } from './personal';
 
-type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
+type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts' | 'updates';
 
 /** Preferences, one page at a time: kept out of the main screen. */
 @Component({
@@ -48,6 +49,36 @@ type Page = 'profile' | 'memory' | 'projects' | 'appearance' | 'shortcuts';
               <pa-icon name="x" />
             </button>
             @switch (page()) {
+              @case ('updates') {
+                <section class="settings-page" aria-labelledby="updates-title">
+                  <h3 id="updates-title">Updates</h3>
+                  <p>PWR {{ updates.currentVersion() }} · {{ updates.channel() }}</p>
+                  @if (!updates.configured()) { <p>In-app updates are not configured for this build.</p> }
+                  @else {
+                    <label><input type="checkbox" [checked]="updates.auto()" (change)="updates.setAuto($any($event.target).checked)" /> Check for updates when PWR opens</label>
+                    <p>Updates are installed only when you choose.</p>
+                    <button matButton [disabled]="updates.busy() || updates.phase() === 'installed'" (click)="updates.check()">Check for updates</button>
+                  }
+                  <div aria-live="polite">
+                    @if (updates.phase() === 'checking') { <p>Checking for updates…</p> }
+                    @if (updates.message()) { <p>{{ updates.message() }}</p> }
+                    @if (updates.available(); as update) {
+                      <h4>Version {{ update.version }}</h4>
+                      <p style="white-space: pre-wrap">{{ update.notes }}</p>
+                      @if (updates.phase() === 'available') { <button matButton (click)="updates.download()">Download update</button> }
+                      @if (updates.phase() === 'downloading') { <p>Downloading: {{ updates.received() }} bytes</p><progress aria-label="Update download" [value]="updates.received()" [attr.max]="updates.total() ?? null"></progress> }
+                      @if (updates.phase() === 'ready') {
+                        <p>The download signature has been verified.</p>
+                        @if (updates.blocked()) { <p>{{ updates.blocked() }}</p> }
+                        <button matButton [disabled]="!!updates.blocked()" (click)="updates.install()">Install and restart</button>
+                      }
+                      @if (updates.phase() === 'installing') { <p>Installing update…</p> }
+                      @if (updates.phase() === 'installed') { <button matButton (click)="updates.restart()">Restart PWR</button> }
+                    }
+                  </div>
+                  @if (updates.error()) { <p role="alert">{{ updates.error() }}</p> }
+                </section>
+              }
               @case ('profile') {
                 <pa-profile-settings animate.enter="anim-fade-in" />
               }
@@ -198,6 +229,7 @@ export class Settings {
   protected readonly ui = inject(UiStore);
   protected readonly theme = inject(ThemeService);
   protected readonly store = inject(AgentStore);
+  protected readonly updates = inject(UpdatesStore);
   protected readonly shortcut = shortcut;
   protected readonly page = signal<Page>('profile');
   protected readonly pages: { id: Page; label: string; icon: IconName }[] = [
@@ -206,6 +238,7 @@ export class Settings {
     { id: 'projects', label: 'Projects', icon: 'folder' },
     { id: 'appearance', label: 'Appearance', icon: 'sun' },
     { id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
+    { id: 'updates', label: 'Updates', icon: 'download' },
   ];
   protected readonly themes: { value: ThemeMode; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
@@ -236,8 +269,8 @@ export class Settings {
     return [
       {
         id: LAYOUT_PALETTE,
-        label: 'Google',
-        description: "Google's colours, Material 3",
+        label: 'PWR',
+        description: 'PWR default colours',
       },
       ...PALETTES.filter((palette) => palette.scheme === scheme),
     ];

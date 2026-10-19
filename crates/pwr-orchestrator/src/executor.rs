@@ -1196,6 +1196,7 @@ async fn drive<H: SessionHost + ?Sized>(
         last.content.push_str(&format!("\n\n{note}"));
     }
     let mut goal_edited = false;
+    let mut goal_delivered = false;
     // One action of PWR's own, through a turn (see `TurnInput::scripted`).
     macro_rules! scripted {
         ($call:expr, $said:expr) => {{
@@ -1615,7 +1616,7 @@ async fn drive<H: SessionHost + ?Sized>(
         } else {
             turn.await
         };
-        let (report, next_messages) = match outcome {
+        let (mut report, next_messages) = match outcome {
             Ok(value) => value,
             Err(problem) => {
                 return SessionEnd::Error {
@@ -1624,6 +1625,10 @@ async fn drive<H: SessionHost + ?Sized>(
                 };
             }
         };
+        // A later review/check-in must not erase an observed file delivery.
+        // Prose alone does not establish delivery of workspace changes.
+        goal_delivered |= report.edited && report.outcome.delivered;
+        report.outcome.delivered |= goal_delivered;
         last_report = Some(report.clone());
         total_actions = total_actions.saturating_add(report.actions);
         budget.actions = total_actions;
@@ -1863,7 +1868,7 @@ async fn drive<H: SessionHost + ?Sized>(
                         total_actions,
                         terminal: "blocked",
                         text: format!(
-                            "Goal mode stopped: the work was declared complete {} times and verification refused it the same way each time ({}). Something the code cannot change is probably in the way -- a missing tool, a permission, the environment; the checks' output says which.\n{}",
+                            "Goal mode stopped: the work was declared complete {} times and verification refused it the same way each time ({}). The repeated failure does not establish its cause. Inspect the checks' output and the current implementation before continuing.\n{}",
                             same_failure.1,
                             verification.failing.join(", "),
                             verification.summary
@@ -2679,6 +2684,7 @@ mod tests {
             SessionEnd::Stopped { terminal, text, .. } => {
                 assert_eq!(terminal, "blocked");
                 assert!(text.contains("the same way each time"), "{text}");
+                assert!(text.contains("does not establish its cause"), "{text}");
             }
             _ => panic!("the goal did not stop as blocked"),
         }
@@ -2806,18 +2812,42 @@ mod tests {
         };
         let mut edited = report(2, true);
         edited.edited = true;
+        edited.outcome.delivered = true;
         // The reply to the review: no call, no action, "Complete." in prose.
         let host = Fake::new(
             vec![edited, report(0, false)],
             vec![Ok(GoalVerification::default()), Ok(passing)],
         );
-        let SessionEnd::Reply { verification, .. } =
-            run(&host, Policy::Goal, GoalLimits::default()).end
+        let SessionEnd::Reply {
+            report,
+            verification,
+            ..
+        } = run(&host, Policy::Goal, GoalLimits::default()).end
         else {
             panic!("the goal did not reply");
         };
         assert!(verification.expect("carries it").technical_passed);
+        assert!(
+            report.outcome.delivered,
+            "review preserves the observed delivery"
+        );
         assert_eq!(host.ran.load(Ordering::Relaxed), 2, "not asked again");
+    }
+
+    #[test]
+    fn prose_delivery_is_not_carried_as_a_workspace_artifact() {
+        let mut prose = report(0, false);
+        prose.outcome.delivered = true;
+        let host = Fake::new(
+            vec![prose, report(0, false)],
+            vec![Ok(GoalVerification::default())],
+        );
+        let SessionEnd::Stopped { report, .. } =
+            run(&host, Policy::Goal, GoalLimits::default()).end
+        else {
+            panic!("the idle goal should stop");
+        };
+        assert!(!report.outcome.delivered);
     }
 
     #[test]

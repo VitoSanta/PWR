@@ -1,5 +1,5 @@
 import { Entry } from './model';
-import { actionPhrase, ranAndFailed, compactTurn, groupSteps, runMetrics, runOutcome, toolCategory } from './trace';
+import { retryPresentation, actionPhrase, ranAndFailed, compactTurn, groupSteps, runMetrics, runOutcome, toolCategory } from './trace';
 
 let clock = 0;
 const entry = (kind: Entry['kind'], extra: Partial<Entry> = {}): Entry => ({
@@ -212,5 +212,31 @@ describe('a command that ran and failed', () => {
     // A core that does not say which it was is read as before.
     expect(ranAndFailed(old)).toBe(false);
     expect(toolCategory(old)).toBe('refused');
+  });
+});
+
+describe('retry presentation evidence', () => {
+  it('does not infer recovery from a later successful tool', () => {
+    expect(retryPresentation([tool('edit', 'denied', { status: 'failed' }), tool('read', 'ok')], false)).toBeNull();
+  });
+  it('shows a confirmed recovery after an earlier exhausted retry', () => {
+    expect(retryPresentation([entry('retry', { status: 'failed' }), entry('recovery', { data: { retries: 2 } })], false)).toEqual({ text: 'Recovered after 2 retries', tone: 'ok' });
+  });
+  it('keeps a later exhausted retry visible despite an earlier recovery', () => {
+    expect(retryPresentation([entry('recovery'), entry('retry', { status: 'failed' })], false)?.tone).toBe('bad');
+  });
+  it('distinguishes an active retry from one interrupted before recovery', () => {
+    const entries = [entry('retry', { status: 'running', data: { cause: 'backend_fault' } })];
+    expect(retryPresentation(entries, true)?.tone).toBe('warn');
+    expect(retryPresentation(entries, false)?.tone).toBe('bad');
+  });
+});
+
+describe('a workspace reply without actions', () => {
+  it('does not present a plan-only reply as verified work', () => {
+    const reply={stopReason:'end_turn',_meta:{pwr:{actions:0}}};
+    expect(runOutcome(reply,false,true)).toMatchObject({tone:'paused',action:null});
+    expect(runOutcome(reply,false,true).text).toContain('no work was verified');
+    expect(runOutcome(reply,false,false).tone).toBe('done');
   });
 });

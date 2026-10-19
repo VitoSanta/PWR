@@ -1782,22 +1782,24 @@ class Engine:
             budget = max(0, min(int(budget), max(0, max_tokens - FINAL_RESERVE)))
         if request.get("seed") is not None:
             mx.random.seed(int(request["seed"]))
-        sampler = make_sampler(
-            temp=float(request.get("temperature") or 0.0),
-            top_p=float(request.get("top_p") or 0.0),
-            top_k=int(request.get("top_k") or 0),
-            min_p=float(request.get("min_p") or 0.0),
-        )
+        sampling = {
+            "temp": float(request.get("temperature") or 0.0),
+            "top_p": float(request.get("top_p") or 0.0),
+            "top_k": int(request.get("top_k") or 0),
+            "min_p": float(request.get("min_p") or 0.0),
+        }
+        sampler = make_sampler(**sampling)
         # mlx-lm penalises only the last 20 tokens by default. A vendor's
         # presence penalty (Qwen's 1.5) is defined over everything generated
         # so far, and a loop of a passage longer than 20 tokens is invisible to
         # a 20-token window: `presence_context_size` widens it where the
         # caller asks (PWR does after a reply has looped).
-        logits_processors = make_logits_processors(
-            presence_penalty=request.get("presence_penalty"),
-            presence_context_size=int(request.get("presence_context_size") or 20),
-            repetition_penalty=request.get("repetition_penalty"),
-        )
+        penalties = {
+            "presence_penalty": request.get("presence_penalty"),
+            "presence_context_size": int(request.get("presence_context_size") or 20),
+            "repetition_penalty": request.get("repetition_penalty"),
+        }
+        logits_processors = make_logits_processors(**penalties)
         thought = one_thought(self.tokenizer, template)
         # With the assistant unless the request asks for penalties, which the
         # speculative rounds cannot apply.
@@ -1824,6 +1826,11 @@ class Engine:
             max_tokens = min(max_tokens, context_tokens - len(full))
             if budget is not None:
                 budget = max(0, min(budget, max_tokens - FINAL_RESERVE))
+        trace({"event": "generation_parameters", "sampler": sampling,
+               "logits_processors": penalties, "seed_requested": request.get("seed"),
+               "max_tokens": max_tokens, "context_tokens": context_tokens,
+               "thinking": thinking, "reasoning_budget": budget,
+               "speculative": speculative, "one_thought_processor": thought is not None})
         base, _ = self.render(messages, tools, thinking, False)
         if full == base:
             # A model turn going on after a tool result (Gemma 4).

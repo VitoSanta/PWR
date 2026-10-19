@@ -7,7 +7,7 @@
     "frontendDist": "../dist/desktop/browser",
     "devUrl": "http://localhost:4200",
     "beforeDevCommand": "cargo build --manifest-path ../../Cargo.toml --target-dir ../../target -p pwr-cli && npm run start",
-    "beforeBuildCommand": "npm run build && cargo build --manifest-path ../../Cargo.toml --target-dir ../../target --release -p pwr-cli && sh ../../scripts/bundle-uv.sh"
+    "beforeBuildCommand": "npm run build && cargo build --manifest-path ../../Cargo.toml --target-dir ../../target --release -p pwr-cli && sh ../../scripts/bundle-uv.sh && node ../../scripts/bundle-notices.mjs"
   },
   "app": {
     "windows": [
@@ -41,7 +41,9 @@
         "frame-ancestors": "'none'",
         "frame-src": "http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
       },
-      "dangerousDisableAssetCspModification": ["style-src"],
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ],
       "devCsp": {
         "default-src": "'self' ipc: http://ipc.localhost",
         "script-src": "'self' 'unsafe-inline'",
@@ -60,7 +62,10 @@
       "../../../target/release/pwr": "pwr",
       "../../../crates/pwr-mlx/sidecar/pwr_mlx.py": "sidecar/pwr_mlx.py",
       "../../../crates/pwr-mlx/sidecar/pwr_embed.py": "sidecar/pwr_embed.py",
-      "resources/uv": "uv"
+      "resources/uv": "uv",
+      "resources/notices/": "notices/",
+      "../../../crates/pwr-mlx/sidecar/encoder_assets.py": "sidecar/encoder_assets.py",
+      "../../../crates/pwr-mlx/sidecar/encoder.json": "sidecar/encoder.json"
     },
     "icon": [
       "icons/32x32.png",
@@ -89,6 +94,11 @@
           "y": 200
         }
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": ""
     }
   }
 }

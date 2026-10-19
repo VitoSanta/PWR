@@ -3,6 +3,23 @@
 PWR is an open-source coding agent for local models, in continuous evolution.
 Statuses such as *experimental* mean what they say: usable, still changing.
 
+## Unreleased
+
+- Anchor Unix model-download reads, verification, publication and revision markers to pinned directories; reject replaced roots and serialize downloads sharing a destination.
+
+- Add Settings → Updates with opt-in startup checks, signed downloads, explicit installation/restart and activity/unsaved-buffer guards. Release scripts can generate signed updater archives and manifests; production key/feed activation and real upgrade qualification remain pending.
+
+- Refuse late Unix partial-download symlink/hard-link substitution before truncation; pin the destination directory across HTTP waits, publish without replacing concurrent files, and reject changed publication identity.
+- Record normalized generation parameters in MLX traces without changing sampling defaults.
+
+- Bind delayed editor confirmations and browser results to their original workspace; recover from stalled startup requests and route macOS Cmd-Q through unsaved-buffer confirmation.
+- Apply PTY backpressure until xterm consumes output, invalidate Unix index entries after same-size/mtime rewrites, and stop repeated permission refusals without claiming completion.
+- Pin Unix site-serving directory descriptors and open components without following symlinks; stream responses with a write timeout and reject linked build outputs during discovery.
+- Formally scope F6 product deployments to Gemma 4; retain external-family benchmarks and all unpassed validation gates.
+
+- Update Angular to 22.2.3 and DOMPurify to 3.4.17, including Monaco's sanitizer dependency, to address the dependency advisories identified during candidate verification.
+- Adopt the updated [product verification plan](docs/plan/piano-campagne-gemma4-e-windows.md); track current checks and remaining release prerequisites in the [campaign record](docs/reviews/2026-10-18-product-verification.md).
+
 ## v0.4.1-alpha — 2026-10-16
 
 Maintenance update: isolated native local web preview, independent terminal
@@ -279,3 +296,11 @@ workspace was already present in v0.1.2-alpha and has been extended.
 First public alpha: the macOS desktop app with PWR's own MLX engine, Hugging
 Face model downloads into `~/.pwr/models`, the agent loop with goal mode,
 the macOS sandbox and permission modes.
+
+
+### Additional unreleased robustness work (2026-10-18)
+
+- Recover unsaved text editor buffers from private local copies after abnormal application exit; preserve workspace isolation and original checked-save hashes.
+- Bind updater builds to the owner-authorized public signing identity; keep private signing material outside the repository and leave network update checks disabled without a configured feed.
+
+- Include generated frontend, font, available Rust-package and uv attribution material in native bundles, with a target-specific hashed inventory and a mounted-artifact integrity check. Missing license texts remain explicit review items.

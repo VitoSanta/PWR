@@ -32,6 +32,8 @@ export class WebView implements AfterViewInit, OnDestroy {
   private removeListeners: Array<() => void> = [];
   private disposed = false;
   private signature = '';
+  private failedSignature = '';
+  private failures = 0;
   /** The card slides in for a moment; the native page, which no transition can carry, waits for it. */
   private settled = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   private settleTimer?: ReturnType<typeof setTimeout>;
@@ -51,11 +53,15 @@ export class WebView implements AfterViewInit, OnDestroy {
         const options = { id: this.tabId(), address: this.address(), x: Math.max(0, rect.x), y: Math.max(0, rect.y),
           width: Math.max(1, rect.width), height: Math.max(1, rect.height), visible, radius };
         const signature = JSON.stringify(options);
-        if (signature !== this.signature) {
+        if (signature !== this.signature && (signature !== this.failedSignature || this.failures < 3)) {
           this.signature = signature;
           void enqueue(() => bridge.browserSync(options)).then(() => {
+            this.failedSignature = ''; this.failures = 0;
             if (!this.disposed && this.error()) this.zone.run(() => this.error.set(''));
           }, error => {
+            if (this.signature === signature) this.signature = '';
+            this.failures = this.failedSignature === signature ? this.failures + 1 : 1;
+            this.failedSignature = signature;
             if (!this.disposed) this.zone.run(() => this.error.set(String(error).replace(/^Error: /, '')));
           });
         }

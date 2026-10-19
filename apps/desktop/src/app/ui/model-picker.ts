@@ -3,7 +3,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { AgentStore } from '../core/agent.store';
 import { tokens } from '../core/format';
-import { modelLabel } from '../core/model';
+import { groupModels, modelIdentity } from '../core/model-groups';
 import { ModelsStore } from '../core/models.store';
 import { rate, runMetrics } from '../core/trace';
 import { UiStore, roveFocus } from '../core/ui';
@@ -22,15 +22,23 @@ import { Tooltip } from './kit/tooltip';
     <button
       #chip
       class="topbar-chip"
-      (click)="open.set(!open())"
+      (click)="toggle()"
       [attr.aria-expanded]="open()"
       aria-haspopup="dialog"
       [class.is-missing]="!store.model()"
       [class.is-compact]="compact()"
       [attr.aria-label]="'Model: ' + store.modelName()"
-      [paTooltip]="compact() ? store.modelName() + ' · model, thinking and speed' : 'Model, reasoning and working context'"
+      [paTooltip]="
+        compact()
+          ? store.modelName() + ' · model, thinking and speed'
+          : 'Model, reasoning and working context'
+      "
     >
-      <span class="dot" [class]="'dot ' + (store.model() && !store.backendNote() ? 'dot-success' : 'dot-warning')" aria-hidden="true"></span>
+      <span
+        class="dot"
+        [class]="'dot ' + (store.model() && !store.backendNote() ? 'dot-success' : 'dot-warning')"
+        aria-hidden="true"
+      ></span>
       <span class="truncate topbar-chip-label">{{ compact() ? short() : store.modelName() }}</span>
       <pa-icon name="chevron-down" [size]="14" />
     </button>
@@ -47,7 +55,12 @@ import { Tooltip } from './kit/tooltip';
       >
         <div class="popover-head">
           <h2 class="popover-title">Model</h2>
-          <button matIconButton class="icon-btn icon-btn-sm" (click)="open.set(false)" aria-label="Close">
+          <button
+            matIconButton
+            class="icon-btn icon-btn-sm"
+            (click)="open.set(false)"
+            aria-label="Close"
+          >
             <pa-icon name="x" [size]="16" />
           </button>
         </div>
@@ -65,36 +78,88 @@ import { Tooltip } from './kit/tooltip';
           }
           @if (store.backendNote()) {
             <div class="popover-section">
-              <p class="banner banner-warning"><pa-icon name="alert" [size]="16" />{{ store.backendNote() }}</p>
+              <p class="banner banner-warning">
+                <pa-icon name="alert" [size]="16" />{{ store.backendNote() }}
+              </p>
             </div>
           }
 
           <section class="popover-section" aria-labelledby="model-list-label">
             <h3 class="section-label" id="model-list-label">On this machine</h3>
-            <div class="model-list" role="radiogroup" aria-labelledby="model-list-label" (keydown)="listKeys($event)">
-              @for (ref of store.models(); track ref) {
-                <button
-                  class="model-option"
-                  role="radio"
-                  [attr.aria-checked]="ref === store.model()"
-                  [attr.tabindex]="ref === store.model() || (!store.model() && $first) ? 0 : -1"
-                  (click)="choose(ref)"
-                  [disabled]="store.turnActive()"
-                  [attr.title]="ref"
-                >
-                  <span class="radio" aria-hidden="true"></span>
-                  <span class="model-identity">
-                    <span class="model-name truncate">{{ label(ref) }}</span>
-                    <span class="model-reference">{{ ref }}</span>
-                  </span>
-                  @if (store.visionModels().includes(ref)) {
-                    <span class="badge badge-info"><pa-icon name="eye" [size]="12" /> sees images</span>
-                  }
-                </button>
-              } @empty {
-                <p class="fine">No models on this machine yet. Find one in the Model Manager.</p>
-              }
-            </div>
+            @if (selectedGroup(); as group) {
+              <button type="button" class="model-option model-back" (click)="back($event)">
+                <pa-icon name="chevron-left" [size]="16" /> All models
+              </button>
+              <h4 class="section-label">{{ group.name }}</h4>
+              <div
+                class="model-list"
+                role="radiogroup"
+                [attr.aria-label]="group.name + ' variants'"
+                (keydown)="listKeys($event)"
+              >
+                @for (ref of group.variants; track ref) {
+                  <button
+                    class="model-option"
+                    role="radio"
+                    [attr.aria-checked]="ref === store.model()"
+                    [attr.tabindex]="
+                      ref === store.model() ||
+                      (!group.variants.includes(store.model() ?? '') && $first)
+                        ? 0
+                        : -1
+                    "
+                    (click)="choose(ref)"
+                    [disabled]="store.turnActive()"
+                    [attr.title]="ref"
+                  >
+                    <span class="radio" aria-hidden="true"></span>
+                    <span class="model-identity">
+                      <span class="model-name truncate">{{ identity(ref).variant }}</span>
+                      <span class="model-reference">{{ ref }}</span>
+                    </span>
+                    @if (store.visionModels().includes(ref)) {
+                      <span class="badge badge-info"
+                        ><pa-icon name="eye" [size]="12" /> sees images</span
+                      >
+                    }
+                  </button>
+                }
+              </div>
+            } @else {
+              <div class="model-list" (keydown)="groupKeys($event)">
+                @for (group of groups(); track group.key) {
+                  @let selected = group.variants.includes(store.model() ?? '');
+                  <button
+                    type="button"
+                    class="model-option model-family"
+                    [attr.data-model-group]="group.key"
+                    [attr.aria-label]="
+                      group.name + (group.variants.length > 1 ? ', choose variant' : '')
+                    "
+                    [attr.aria-current]="selected ? 'true' : null"
+                    (click)="enter(group.key, $event)"
+                    [disabled]="store.turnActive()"
+                  >
+                    <span class="model-identity">
+                      <span class="model-name truncate">{{ group.name }}</span>
+                      <span class="model-reference">{{
+                        group.variants.length > 1
+                          ? group.variants.length + ' variants'
+                          : identity(group.variants[0]).variant
+                      }}</span>
+                    </span>
+                    @if (selected) {
+                      <pa-icon name="check" [size]="14" />
+                    }
+                    @if (group.variants.length > 1) {
+                      <pa-icon name="chevron-right" [size]="16" />
+                    }
+                  </button>
+                } @empty {
+                  <p class="fine">No models on this machine yet. Find one in the Model Manager.</p>
+                }
+              </div>
+            }
           </section>
 
           <section class="popover-section" aria-label="Generation settings">
@@ -102,17 +167,33 @@ import { Tooltip } from './kit/tooltip';
               <div class="field-row">
                 <span class="field-label" id="window-label">Working context</span>
                 <div class="stepper" role="group" aria-labelledby="window-label">
-                  <button matIconButton class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(-1)" [disabled]="store.turnActive()" aria-label="Smaller window">
+                  <button
+                    matIconButton
+                    class="icon-btn icon-btn-sm icon-btn-outline"
+                    (click)="store.stepContext(-1)"
+                    [disabled]="store.turnActive()"
+                    aria-label="Smaller window"
+                  >
                     <pa-icon name="minus" [size]="14" />
                   </button>
                   <strong class="num" aria-live="polite">{{ t(context.tokens) }}</strong>
-                  <button matIconButton class="icon-btn icon-btn-sm icon-btn-outline" (click)="store.stepContext(1)" [disabled]="store.turnActive()" aria-label="Larger window">
+                  <button
+                    matIconButton
+                    class="icon-btn icon-btn-sm icon-btn-outline"
+                    (click)="store.stepContext(1)"
+                    [disabled]="store.turnActive()"
+                    aria-label="Larger window"
+                  >
                     <pa-icon name="plus" [size]="14" />
                   </button>
                 </div>
               </div>
               <p class="fine">
-                {{ context.setting ? 'Your setting, capped by what this machine holds.' : 'Computed for this machine.' }}
+                {{
+                  context.setting
+                    ? 'Your setting, capped by what this machine holds.'
+                    : 'Computed for this machine.'
+                }}
                 @if (context.rationale) {
                   {{ sentence(context.rationale) }}
                 }
@@ -143,7 +224,7 @@ import { Tooltip } from './kit/tooltip';
               <span
                 class="field-label"
                 id="assistant-label"
-                paTooltip="Google's small assistant model drafts a few tokens ahead and Gemma checks them. Experimental: not yet faster or identical on every pack."
+                paTooltip="The small assistant model drafts a few tokens ahead and Gemma checks them. Experimental: not yet faster or identical on every pack."
                 >Assistant <span class="badge badge-outline">experimental</span></span
               >
               <mat-slide-toggle
@@ -185,10 +266,60 @@ export class ModelPicker {
   private readonly models = inject(ModelsStore);
   protected readonly open = signal(false);
   private readonly ui = inject(UiStore);
-  protected readonly label = modelLabel;
+  protected readonly identity = modelIdentity;
+  protected readonly groups = computed(() => groupModels(this.store.models(), (ref) => ref));
+  protected readonly groupKey = signal<string | null>(null);
+  protected readonly selectedGroup = computed(() =>
+    this.groups().find((group) => group.key === this.groupKey()),
+  );
+
+  protected toggle(): void {
+    this.groupKey.set(null);
+    this.open.set(!this.open());
+  }
+
+  protected enter(key: string, event: Event): void {
+    const group = this.groups().find((entry) => entry.key === key);
+    if (!group) return;
+    if (group.variants.length === 1) {
+      this.choose(group.variants[0]);
+      return;
+    }
+    const container = (event.currentTarget as HTMLElement).closest('.popover-section');
+    this.groupKey.set(key);
+    setTimeout(() => container?.querySelector<HTMLElement>('[role=radio][tabindex="0"]')?.focus());
+  }
+
+  protected back(event: Event): void {
+    const container = (event.currentTarget as HTMLElement).closest('.popover-section');
+    const key = this.groupKey();
+    this.groupKey.set(null);
+    setTimeout(() =>
+      Array.from(container?.querySelectorAll<HTMLElement>('[data-model-group]') ?? [])
+        .find((item) => item.dataset['modelGroup'] === key)
+        ?.focus(),
+    );
+  }
+
+  protected groupKeys(event: KeyboardEvent): void {
+    if (event.key === 'ArrowRight') {
+      const target = event.target as HTMLElement;
+      const key = target.closest<HTMLElement>('[data-model-group]')?.dataset['modelGroup'];
+      if (key) {
+        event.preventDefault();
+        this.enter(key, event);
+      }
+      return;
+    }
+    roveFocus(event, event.currentTarget as HTMLElement, 'button');
+  }
   /** The last generation's speed, as the run metrics read it. */
   protected readonly speed = computed(() => {
-    const value = runMetrics(this.store.timeline(), Date.now(), this.store.turnActive()).generationTps;
+    const value = runMetrics(
+      this.store.timeline(),
+      Date.now(),
+      this.store.turnActive(),
+    ).generationTps;
     return value === null ? '' : rate(value);
   });
 
@@ -215,6 +346,11 @@ export class ModelPicker {
   }
 
   protected listKeys(event: KeyboardEvent): void {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      this.back(event);
+      return;
+    }
     roveFocus(event, event.currentTarget as HTMLElement, '[role=radio]');
   }
 

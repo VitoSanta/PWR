@@ -21,6 +21,9 @@ sha2.workspace = true
 tokio.workspace = true
 url.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs"] }
+
 [dev-dependencies]
 async-trait.workspace = true
 tempfile.workspace = true

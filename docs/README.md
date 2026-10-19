@@ -18,7 +18,9 @@ the evidence still needed before a new tag or release.
 | [README](../README.md) | What PWR is, install, status |
 | [Product overview](product-overview.md) | Current features, intended use and unreleased changes |
 | [MASTER_SPEC](../MASTER_SPEC.md) | The product and research contract: promise, thesis, principles, evidence words |
+| [Sprint verso 0.5.0](plan/sprint-v0.5.0.md) | Weekly execution: macOS development, bounded integration research, final macOS/Windows E2E and public release readiness |
 | [Implementation plan](plan/implementation-plan.md) | Every work item, with acceptance criteria and tests, and the gates |
+| [PWR integrity, Gemma 4 and Windows completion plan](plan/piano-campagne-gemma4-e-windows.md) | Cross-stack integrity checks, audit and experiment reconciliation, all-pack campaign, G3 and Windows v0.5.0 |
 | [Roadmap](roadmap.md) | The plan in NOW / NEXT / LATER / NOT NOW, with milestone status |
 | [Executor parity](plan/executor-parity.md) | What the scripted loop does that the app's turn does not, and the proposed disposition of each |
 | [Decisions](decisions.md) | Dated decisions, including what is not built |
@@ -39,6 +41,8 @@ the evidence still needed before a new tag or release.
 | [`pwr serve`](pwr-serve.md) | The protocol between the app and the core |
 | [Command line](cli.md) | Commands and environment variables |
 | [Security](../SECURITY.md) | The boundary, for users |
+
+Execution of the updated plan is tracked in the [2026-10-18 candidate verification record](reviews/2026-10-18-product-verification.md). Current implementation contracts cover [editor draft recovery](plan/editor-recovery.md) and [signed in-app updates](release/in-app-updates.md).
 
 ## Quality and evidence
 

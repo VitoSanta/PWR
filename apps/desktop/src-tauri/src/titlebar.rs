@@ -11,7 +11,7 @@ use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSColor, NSGlassEffectView, NSView, NSVisualEffectBlendingMode,
     NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowButton,
-    NSWindowOrderingMode,
+    NSWindowOrderingMode, NSWindowStyleMask,
 };
 use tauri::{Runtime, WebviewWindow};
 
@@ -36,34 +36,43 @@ thread_local! {
 /// focus changes; each call puts the title bar in the state the window is in,
 /// so calling it again changes nothing.
 pub fn follow<R: Runtime>(window: &WebviewWindow<R>) {
-    let full = window.is_fullscreen().unwrap_or(false);
-    let Ok(pointer) = window.ns_window() else { return };
+    let Ok(pointer) = window.ns_window() else {
+        return;
+    };
     let pointer = pointer as usize;
     let _ = window.run_on_main_thread(move || {
         // SAFETY: the pointer is this window's NSWindow, alive while the
         // window is, and it is used on the main thread.
         let ns_window = unsafe { &*(pointer as *const NSWindow) };
-        if full {
-            glaze(ns_window);
-        } else {
-            clear(ns_window);
-        }
+        sync(ns_window);
     });
     // Entering full screen, macOS moves the title bar into its own window
     // only once the animation has run: look again when it has.
-    if full {
+    {
         let window = window.clone();
         std::thread::spawn(move || {
             for wait in [400, 1200] {
                 std::thread::sleep(std::time::Duration::from_millis(wait));
-                let Ok(pointer) = window.ns_window() else { return };
+                let Ok(pointer) = window.ns_window() else {
+                    return;
+                };
                 let pointer = pointer as usize;
                 let _ = window.run_on_main_thread(move || {
                     let ns_window = unsafe { &*(pointer as *const NSWindow) };
-                    glaze(ns_window);
+                    sync(ns_window);
                 });
             }
         });
+    }
+}
+
+// Recheck AppKit state when the queued callback actually runs. A delayed
+// full-screen callback may execute after the user has already left it.
+fn sync(window: &NSWindow) {
+    if window.styleMask().contains(NSWindowStyleMask::FullScreen) {
+        glaze(window);
+    } else {
+        clear(window);
     }
 }
 
@@ -84,12 +93,19 @@ fn is_background(view: &NSView) -> bool {
 }
 
 fn glaze(window: &NSWindow) {
-    let Some(mtm) = MainThreadMarker::new() else { return };
-    let Some((bar, container)) = title_bar(window) else { return };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let Some((bar, container)) = title_bar(window) else {
+        return;
+    };
     GLAZED.with(|glazed| {
         let mut glazed = glazed.borrow_mut();
         let ours = glazed.glass.clone();
-        let is_ours = |view: &NSView| ours.as_deref().is_some_and(|glass| std::ptr::eq(glass, view));
+        let is_ours = |view: &NSView| {
+            ours.as_deref()
+                .is_some_and(|glass| std::ptr::eq(glass, view))
+        };
         for parent in [&bar, &container] {
             for view in parent.subviews().iter() {
                 if is_ours(&view) || view.isHidden() || !is_background(&view) {
@@ -102,7 +118,8 @@ fn glaze(window: &NSWindow) {
         if glazed.glass.is_none() {
             let glass = make_glass(mtm, container.bounds());
             glass.setAutoresizingMask(
-                NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+                NSAutoresizingMaskOptions::ViewWidthSizable
+                    | NSAutoresizingMaskOptions::ViewHeightSizable,
             );
             container.addSubview_positioned_relativeTo(&glass, NSWindowOrderingMode::Below, None);
             glazed.glass = Some(glass);

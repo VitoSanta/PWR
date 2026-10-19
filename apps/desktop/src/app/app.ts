@@ -43,7 +43,7 @@ export class App implements OnInit {
   protected readonly layout = inject(LayoutService);
   /** Followed from the first frame: in full screen macOS gives the traffic lights' space back. */
   protected readonly win = inject(WindowState);
-  private readonly ui = inject(UiStore);
+  protected readonly ui = inject(UiStore);
   private readonly dialogs = inject(DialogStack);
   private readonly toast = inject(ToastService);
   private readonly work = inject(WorkbenchStore);

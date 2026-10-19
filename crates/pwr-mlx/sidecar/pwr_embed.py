@@ -23,15 +23,18 @@ Environment:
 - `PWR_EMBED_POOLING`: `mean` (e5's convention, default) or `cls` (bge-m3's).
 """
 import json
+import hashlib
 import os
 import sys
 
 # Before any hub import: a model that is not cached is an error to report,
 # never a download to start.
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+# A signed application's resource directory must remain immutable.
+sys.dont_write_bytecode = True
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-DEFAULT_MODEL = "intfloat/multilingual-e5-small"
+from encoder_assets import MODEL as DEFAULT_MODEL, REVISION, resolve_for_runtime
 # e5 was trained with these prefixes and ranks worse without them; other
 # models are given none.
 PREFIXES = {
@@ -55,8 +58,13 @@ class Encoder:
         self.mx = mx
         self.name = name
         self.pooling = pooling
-        self.model, self.tokenizer = load(name)
         self.prefixes = PREFIXES.get(name, {})
+        revision = REVISION if name == DEFAULT_MODEL else None
+        identity = {"pipeline": 1, "model": name, "revision": revision,
+                    "pooling": pooling, "max_length": MAX_LENGTH, "prefixes": self.prefixes}
+        settings = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        self.identity = f"{name}@{revision or 'custom'};settings={settings}"
+        self.model, self.tokenizer = load(str(resolve_for_runtime(name)))
 
     def embed(self, kind, texts):
         mx = self.mx
@@ -86,7 +94,7 @@ def main():
     except Exception as error:  # noqa: BLE001 -- reported, not raised
         emit({"error": f"could not load {name} offline: {error}"})
         return 1
-    emit({"ready": True, "model": name, "pooling": pooling})
+    emit({"ready": True, "model": encoder.identity, "modelRef": name, "pooling": pooling})
     for line in sys.stdin:
         line = line.strip()
         if not line:

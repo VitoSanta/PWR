@@ -1952,9 +1952,16 @@ pub trait ApprovalPrompt: Send + Sync {
 
     /// Whether whoever answers can also show the person's own terminal tabs
     /// (the desktop's Terminal card): `read_terminal` is offered only then.
-    fn controls_workspace(&self) -> bool { false }
+    fn controls_workspace(&self) -> bool {
+        false
+    }
 
-    async fn workspace_interact(&self, _target: &str, _operation: &str, _arguments: serde_json::Value) -> Result<serde_json::Value, String> {
+    async fn workspace_interact(
+        &self,
+        _target: &str,
+        _operation: &str,
+        _arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
         Err("This client has no shared workspace controls.".into())
     }
 
@@ -2444,7 +2451,11 @@ fn action_fingerprint(action: &ActionProposal) -> String {
         ActionProposal::CheckPage { target, steps } => {
             format!("check_page:{target}:{}", steps.len())
         }
-        ActionProposal::WorkspaceInteract { target, operation, arguments } => format!("workspace:{target}:{operation}:{arguments}"),
+        ActionProposal::WorkspaceInteract {
+            target,
+            operation,
+            arguments,
+        } => format!("workspace:{target}:{operation}:{arguments}"),
         ActionProposal::ReadTerminal { lines } => {
             format!("read_terminal:{}", lines.unwrap_or_default())
         }

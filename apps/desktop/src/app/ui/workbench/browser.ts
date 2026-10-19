@@ -94,7 +94,7 @@ function shuffled<T>(items: readonly T[]): T[] {
           }</ul>
         </details>
       }
-    } @else { <pa-empty-state icon="globe" title="Open a page">Open a website or a development server. PWR can use the same tab after you share control.<br /><button matButton="tonal" class="btn empty-action" (click)="store.openHome()">Open {{ homeName() }}</button></pa-empty-state> }
+    } @else { <pa-empty-state icon="globe" title="Open a page">Open a website or a development server. PWR can use the same tab after you share control.<br /><button matButton="tonal" class="btn empty-action" (click)="store.openHome()">Open home page</button></pa-empty-state> }
   `, changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BrowserCard {

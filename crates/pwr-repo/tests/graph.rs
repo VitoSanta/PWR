@@ -8,6 +8,7 @@
 use pwr_repo::{extract_imports, index_incremental, retrieve, test_subject};
 use std::fs;
 
+#[cfg(unix)]
 #[test]
 fn an_unchanged_file_is_not_read_again() {
     let root = tempfile::tempdir().unwrap();
@@ -210,4 +211,34 @@ fn unavailable_or_malformed_semantic_scores_restore_the_exact_lexical_result() {
             serde_json::to_value(&expected).unwrap()
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn restoring_mtime_after_same_size_edit_does_not_reuse_stale_symbols() {
+    let root = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let path = root.path().join("source.rs");
+    fs::write(&path, "fn alpha() {}\n").unwrap();
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    let (before, _) = index_incremental(root.path(), Some(state.path())).unwrap();
+    // The writer restores mtime deliberately; the OS-owned change time must
+    // still invalidate the cache. This is the HI-34 reproducer.
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    fs::write(&path, "fn bravo() {}\n").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    let (after, work) = index_incremental(root.path(), Some(state.path())).unwrap();
+    assert_eq!(work.read, 1);
+    assert_ne!(before.files[0].content_hash, after.files[0].content_hash);
+    assert!(
+        after.files[0]
+            .symbols
+            .iter()
+            .any(|symbol| symbol == "bravo")
+    );
 }

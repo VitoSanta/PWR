@@ -21,6 +21,32 @@ fn policy(root: &std::path::Path, output_limit: usize) -> ToolPolicy {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn a_detached_child_cannot_hold_output_past_the_command_deadline() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("child.py"), "import os,time\npid=os.fork()\nif pid==0:\n os.setsid()\n open('child.pid','w').write(str(os.getpid()))\n time.sleep(5)\nelse:\n while not os.path.exists('child.pid'): time.sleep(0.01)\n").unwrap();
+    let mut policy = policy(root.path(), 4096);
+    policy.timeout = Duration::from_millis(300);
+    let started = std::time::Instant::now();
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(run_command(
+            &policy,
+            "sh",
+            &["-c".into(), "python3 child.py".into()],
+        ));
+    if let Ok(pid) = std::fs::read_to_string(root.path().join("child.pid")) {
+        let pid: u32 = pid.trim().parse().unwrap();
+        assert!(pid > 1);
+        let _ = std::process::Command::new("/bin/kill")
+            .args(["-KILL", &pid.to_string()])
+            .output();
+    }
+    assert!(result.is_err());
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
+
 /// A test run that prints twenty thousand lines and fails on the last one.
 ///
 /// Every test runner puts its verdict at the end: `cargo test` ends with

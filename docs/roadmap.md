@@ -6,11 +6,24 @@ of every item — problem, evidence, change, acceptance, tests — is in the
 reader needs first. The roadmap before this date, with its reconciliations and
 release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/6da514ab/docs/archive/roadmap.md).
 
+## Sprint execution proposal — 2026-10-19
+
+The [0.5.0 sprint guide](plan/sprint-v0.5.0.md) organises the remaining work into
+weekly increments: finish macOS development, evaluate agentic integrations,
+qualify the installed macOS candidate, then validate Windows and prepare a
+possible public 0.5.0. Gate states below remain unchanged; the guide explicitly
+requires reconciliation of the beta release scope with the existing F6 contract.
+
 ## Owner roadmap update — 2026-10-12
 
-**PLANNED v0.4.0: PWR Coding.** A selected, measured family of models adapted to PWR's coding protocol. Start by evaluating a Qwen3.5-9B LoRA/QLoRA pilot against its original model on the same frozen harness. Build verified training data with independent evaluation; retain runtime effect boundaries. Further model sizes, exclusive support and a separate general chat remain decisions informed by results. No trained model or fine-tuning uplift exists yet.
+**Current product completion scope (2026-10-18): Gemma 4 only.** Qualify measured Gemma 4 deployments on the product executor and the same-engine minimal control. Other families are external benchmarks. This supersedes the former Qwen pilot as a product direction; no fine-tuning uplift or F6 pass is claimed. Windows is the final campaign phase. See D-2026-10-18-1 and D-2026-10-18-2 in the [decision log](decisions.md).
 
 **PLANNED v0.5.0: Windows.** Moved behind the coding product validation. The existing correctness and exit gates are unpassed; this version assignment does not waive them or certify Windows support. [Owner decision D-2026-10-12-1](decisions.md#d-2026-10-12-1--pwr-coding-v040-windows-v050) updates the release direction. Historical status tables below retain their dated provenance.
+
+The ordered execution path for the Gemma pack campaign, small-model
+experiments, G3 and Windows validation is in the
+[PWR integrity, Gemma 4 and Windows completion plan](plan/piano-campagne-gemma4-e-windows.md).
+It follows the existing milestone gates and does not advance their status.
 
 ## Where things stand
 
@@ -46,7 +59,7 @@ release plans, is in the [archive](https://github.com/VitoSanta/PWR/blob/6da514a
 | G0 Documents match the code | **passed 2026-09-30** | Documentation rewritten from the code at 4ae7c5f1 (plan W0.1); every claim of the 2026-09-30 review verified (docs/reviews/2026-09-30-verification.md); older documents archived whole. | Keep it true: a change that alters described behaviour updates the document in the same commit. |
 | G1 Effects are safe and honestly reported | **in progress: candidate validation pending** | IMPLEMENTED on develop: version-bound/atomic edits, command protections, Goal budgets, frozen acceptance, context/sampling correctness repairs, managed cancellation, zero-test reporting and structured conversation outcomes. Dated local suites are recorded in docs/reviews/ and docs/experiment-log.md; their counts do not certify a later candidate. Additional page/repair/runtime work landed through 2026-10-07. No candidate gate is advanced by the documentation review. | Freeze a candidate and obtain its complete local/hosted macOS checks, explicit skip coverage and native-app walk. Remaining work includes W3.2 (CI proposals), W1.10 (ordinary aggregate budget), W4.2 (exact preflight), W2.1 (scripted result migration) and documented lifecycle/evidence gaps. Release packaging/licence work is in the next-release checklist. |
 | G2 One execution path | **in progress: shared product executor; scripted research path separate** | `executor::execute` runs the conversation and the goal for the app and the console, with the checks that close a turn (W2.3). The scripted loop (`pwr run`, `eval run`) keeps its own holds, compaction, recovery and catalogue; two of its completion holds, reasoning effort and the catalogue were aligned with the app (docs/plan/executor-parity.md, D-2026-09-30-6). The evaluator measures the scripted loop; the stack-matrix runner drives the app's own protocol. | IMPLEMENTED product-path runner tooling: engine lease/provenance, frozen splits, minimal control and paired/power analysis. Still needed: validated competitor endpoints/arms, controlled campaigns and the declared scripted-result migration (W2.1). The runner is the designated product-path evaluator (D-2026-10-02-1); no EvalHost migration is implied. |
-| G3 All-tier mission exit before Windows | **not started** | PLANNED under the owner-approved contract of 2026-10-01 (D-2026-10-01-2). No product-path confirmatory comparison or all-tier baseline exists. | W8.3 same-engine simple loop; W2.4/G2 parity; initial S/M/L/XL baseline and prospective power; owner-approved numerical thresholds; frozen W8.4/F6 against the simple loop and at least two eligible competitors per tier, with all capacity, daily-use, lightness, reliability and audit criteria satisfied; W8.5 publish evidence. |
+| G3 All-tier mission exit before Windows | **not started** | PLANNED under the owner-approved contract of 2026-10-01 (D-2026-10-01-2). No product-path confirmatory comparison or all-tier baseline exists. Product deployment scope amended to Gemma 4 only by D-2026-10-18-2; other families are external benchmarks. Development diagnostics do not pass this gate. | W8.3 same-engine simple loop; W2.4/G2 parity; initial measured Gemma 4 tier baseline (unsupported tiers remain unqualified) and prospective power; owner-approved numerical thresholds; frozen W8.4/F6 against the simple loop and at least two eligible competitors per tier, with all capacity, daily-use, lightness, reliability and audit criteria satisfied; W8.5 publish evidence. |
 
 Campaign evidence: no confirmatory current-product comparison against a simple loop or competitors is recorded. Historical paired R2 (2026-09-15, scripted loop) found 11/30 vs 11/30 on one deployment and 13 vs 18 on another (p = 0.227). Product-path development runs on 2026-10-01 showed 3/8 to 6/8 final outcomes on one deployment, one trial per task; limited proposals measurements on 2026-10-06 had mixed model/task results (plan W2.9). These do not establish general uplift. Raw artifacts remain unpublished; candidate evidence is tracked separately in docs/release/next-release-readiness.md.
 <!-- /generated:milestones -->

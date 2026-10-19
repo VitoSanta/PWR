@@ -31,11 +31,11 @@ pub fn action_fingerprint(action: &ActionProposal) -> String {
     crate::action_fingerprint(action)
 }
 
-/// Refused proposals since the last one that was not refused.
+/// Refused proposals against the current workspace inputs.
 ///
-/// A refusal followed by a success is recovery rather than a loop, so progress
-/// clears the streak. Repetition is counted per fingerprint rather than in
-/// total: a deployment that is refused three different ways is failing at three
+/// An unrelated read is not recovery from a refused write. Only a successful
+/// retry or an observed input change clears the relevant refusals. Count per
+/// fingerprint, not in total: three different refusals are three different
 /// things, and telling it that it repeated itself would be false.
 #[derive(Debug, Default)]
 pub struct RefusalStreak {
@@ -62,20 +62,27 @@ impl RefusalStreak {
         {
             return false;
         }
-        self.refused.clear();
+        self.refused.retain(|seen| seen != fingerprint);
         true
     }
 
     /// Records what became of a proposal that ran.
     ///
     /// Read from the outcome rather than from the proposal: an action that was
-    /// refused contributes, and one that succeeded clears what came before it.
+    /// refused contributes; success clears that proposal, while an observed
+    /// file change invalidates refusals against the previous input state.
     pub fn observe(&mut self, fingerprint: &str, outcome: &serde_json::Value) {
         if outcome.get("denied").is_some() {
             self.refused.push(fingerprint.to_owned());
+        } else if !failed(outcome) && outcome.get("new_hash").is_some() {
+            self.inputs_changed();
         } else {
-            self.refused.clear();
+            self.refused.retain(|seen| seen != fingerprint);
         }
+    }
+
+    pub fn inputs_changed(&mut self) {
+        self.refused.clear();
     }
 
     /// Records a refusal that never reached an outcome, such as a proposal the
@@ -485,6 +492,33 @@ pub fn echo_notice(seen: usize) -> String {
 #[cfg(test)]
 mod echo_tests {
     use super::*;
+
+    #[test]
+    fn unrelated_successes_do_not_hide_repeated_refusals() {
+        let mut streak = RefusalStreak::new();
+        for _ in 0..REPEATED_REFUSAL_LIMIT {
+            streak.refused("same write");
+            streak.observe("read", &serde_json::json!({"content":"unchanged"}));
+            streak.observe("check", &serde_json::json!({"exit_code":0}));
+        }
+        assert!(streak.would_only_repeat("same write"));
+    }
+
+    #[test]
+    fn a_real_change_or_successful_retry_allows_the_action_again() {
+        for change in [false, true] {
+            let mut streak = RefusalStreak::new();
+            for _ in 0..REPEATED_REFUSAL_LIMIT {
+                streak.refused("retry");
+            }
+            if change {
+                streak.observe("edit", &serde_json::json!({"new_hash":"changed"}));
+            } else {
+                streak.observe("retry", &serde_json::json!({"exit_code":0}));
+            }
+            assert!(!streak.would_only_repeat("retry"));
+        }
+    }
 
     #[test]
     fn the_same_result_three_times_is_named() {

@@ -47,13 +47,7 @@ import { Popover } from '../kit/popover';
         >
           <span class="focus-run-copy">
             <strong>Auto-approve</strong>
-            <small>{{
-              store.permissionMode() === 'auto'
-                ? 'Routine permissions are granted automatically inside the sandbox.'
-                : store.permissionMode() === 'full'
-                  ? 'Switch to automatic permissions inside the sandbox.'
-                  : 'PWR asks before sensitive actions.'
-            }}</small>
+            <small>Automatically approve routine actions inside the sandbox.</small>
           </span>
           <span class="switch" aria-hidden="true"></span>
         </button>

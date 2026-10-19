@@ -103,6 +103,7 @@ import { Tooltip } from './kit/tooltip';
                 <span class="field-label" id="compact-label">Auto-compact at</span>
                 <span class="compact-control">
                   <span class="t-meta num">≈ {{ t(info.autoCompact.thresholdTokens) }}</span>
+                  @defer (when open()) {
                   <pa-select
                     size="sm"
                     labelledBy="compact-label"
@@ -111,6 +112,7 @@ import { Tooltip } from './kit/tooltip';
                     (valueChange)="setThreshold($any($event))"
                     [disabled]="store.turnActive()"
                   />
+                  }
                 </span>
               </div>
               <p class="fine">

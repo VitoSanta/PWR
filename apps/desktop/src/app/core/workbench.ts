@@ -47,7 +47,7 @@ const TWO_COLUMNS = 760;
 /**
  * The right-hand column: tools as cards, stacked, each collapsible,
  * maximisable and closable. Replaces the inspector's fixed tabs; what is open
- * is remembered across launches.
+ * is remembered across launches, except terminal cards whose shell ended.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkbenchStore {
@@ -206,31 +206,11 @@ export class WorkbenchStore {
   }
 
   private collapseNow(id: CardId): void {
-    // A maximized tool cannot collapse in full screen: collapsing it leaves
-    // full screen first, and only folds the card when another open card in
-    // the column is expanded to take the space.
-    if (this.maximized() === id) {
-      this.maximized.set(null);
-      const usable = new Set(this.available().map((card) => card.id));
-      const othersExpanded = this.open().some((card) => card.id !== id && usable.has(card.id) && !card.collapsed);
-      this.open.update((open) =>
-        open.map((card) => (card.id === id ? { ...card, collapsed: othersExpanded } : card)),
-      );
-      this.persist();
-      return;
-    }
-    this.open.update((open) => {
-      const next = open.map((card) => (card.id === id ? { ...card, collapsed: !card.collapsed } : card));
-      if (!this.focusMode()) return next;
-      const usable = new Set(this.available().map((card) => card.id));
-      const visible = next.filter((card) => usable.has(card.id));
-      // Never leave every visible card in the column collapsed over an empty void.
-      if (visible.length > 0 && visible.every((card) => card.collapsed)) {
-        const other = visible.find((card) => card.id !== id) ?? visible[0];
-        return next.map((card) => (card.id === other.id ? { ...card, collapsed: false } : card));
-      }
-      return next;
-    });
+    // Collapsing is independent of how much space the card occupied.
+    if (this.maximized() === id) this.maximized.set(null);
+    this.open.update((open) =>
+      open.map((card) => card.id === id ? { ...card, collapsed: !card.collapsed } : card),
+    );
     this.persist();
   }
 
@@ -351,13 +331,10 @@ function load(): Saved {
     if (!raw) return fallback;
     const saved = JSON.parse(raw) as Saved;
     const known = new Set(CARDS.map((card) => card.id));
-    const maximized = saved.maximized && known.has(saved.maximized) ? saved.maximized : null;
-    let open = (saved.open ?? [])
-      .filter((card) => known.has(card.id))
+    const maximized = saved.maximized && saved.maximized !== 'terminal' && known.has(saved.maximized) ? saved.maximized : null;
+    const open = (saved.open ?? [])
+      .filter((card) => known.has(card.id) && card.id !== 'terminal')
       .map((card) => (card.id === maximized ? { ...card, collapsed: false } : card));
-    if (open.length > 0 && open.every((card) => card.collapsed)) {
-      open = open.map((card, index) => (index === 0 ? { ...card, collapsed: false } : card));
-    }
     return { open, maximized };
   } catch {
     return fallback;

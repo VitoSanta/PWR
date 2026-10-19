@@ -1,5 +1,7 @@
 # Implementation plan
 
+> **Execution guide, 2026-10-19:** the [0.5.0 sprint sequence](sprint-v0.5.0.md) maps this backlog to weekly work, integration research and macOS-first/Windows-last qualification. It does not waive acceptance criteria or advance milestone state.
+
 > **Owner update, 2026-10-12:** v0.4.0 targets PWR Coding with selected adapted models; Windows moves to v0.5.0. See [D-2026-10-12-1](../decisions.md#d-2026-10-12-1--pwr-coding-v040-windows-v050). This changes roadmap priorities; no model uplift or gate completion is implied, and existing verification requirements remain.
 
 **Adopted 2026-09-30.** Built from the [technical review of
@@ -997,8 +999,7 @@ superseded design, kept for its inventory.
 (`provenance.py`, runner tests in CI against a stand-in core). (2) Frozen split
 manifest: IMPLEMENTED 2026-10-02 (`splits.json`, 20 dev / 11 heldout). (3) Paired
 analysis and exact power: IMPLEMENTED 2026-10-02 (`analyze.py`). (4) The W8.3
-minimal control as `--arm minimal`: IMPLEMENTED 2026-10-02. Next: (4) the W8.3 minimal control as
-an arm, (5) competitors against a matched endpoint (installs need the owner).
+minimal control as `--arm minimal`: IMPLEMENTED 2026-10-02. Next: validate the W8.3 control on the frozen product candidate and add competitors against a matched endpoint (installs need the owner). The 2026-10-18 offline runner tests cover infrastructure only; see the [candidate verification record](../reviews/2026-10-18-product-verification.md).
 
 **Former status:** IN PROGRESS · L — dispositions accepted (D-2026-09-30-6); rows 5, 6, 8 and 14 applied locally; the evaluator is not yet on the executor (see *Progress*)
 
@@ -1532,12 +1533,17 @@ The review's fourth "build next", and the reason for the order above.
 
 ### W8.4 The confirmatory campaign
 
+**Scope amendment (2026-10-18):** only Gemma 4 is a product deployment. Other
+families are external benchmarks, reported separately. Unsupported tiers and
+unavailable identical-deployment competitor endpoints remain unqualified; this
+decision does not waive comparisons, numerical approval or any safety gate.
+
 **Status:** NEXT · L (after G1/G2 and initial baseline). Expanded on 2026-10-01
 by D-2026-10-01-2; the former 9B/14B question remains a subset, not the exit gate.
 
 - **Question.** On the app executor, does PWR meet the approved all-tier exit
   criterion against a minimal loop and at least two eligible competitors?
-- **Deployments.** S/M/L/XL, at least two current families each; artifact/revision,
+- **Deployments.** Gemma 4 only under D-2026-10-18-2, across measured S/M/L/XL tiers; artifact/revision,
   quantization, engine, actual window, sampling/provenance and reasoning mode
   pinned. Compare identical deployments across harnesses; document unequal
   endpoint/template/runtime factors. XL fit is measured, not assumed.
@@ -1600,6 +1606,12 @@ services. And the agent-mode model matrix: every model the Model Manager
 offers, on the same small fixed tasks, one recorded result each, shown in the
 Model Manager. Thresholds written before the run.
 
+**Execution protocol:** the Gemma pack inventory, small-model diagnosis,
+per-pack screening, confirmatory handoff and post-G3 Windows sequence are in
+[the PWR integrity, Gemma 4 and Windows completion plan](piano-campagne-gemma4-e-windows.md).
+That guide does not change W8.4's power analysis, owner-approved thresholds,
+held-out split or decision rule.
+
 ---
 
 ## W9 — Distribution and reproducibility
@@ -1615,12 +1627,17 @@ Model Manager. Thresholds written before the run.
 
 ### W9.2 Lock the engine's environment
 
-**Status:** NEXT · S
+**Status:** IN PROGRESS · S
 
 - **Change.** A lock file for the engine's Python packages with hashes,
   transitives included (`uv pip compile --generate-hashes`), installed with
   `--require-hashes`; the Python version pinned to a patch release. Used by
   the app's installer, `scripts/setup-mlx.sh` and the sidecar CI job.
+
+Local 2026-10-18: the [managed environment](../release/managed-engine.md) now
+uses a 76-package hash lock in native setup, the shell helper and sidecar CI
+configuration. Actual native cancel/retry and offline encoder checks pass.
+Hosted CI and broader platform/distribution qualification remain open.
 
 ### W9.3 Licence and supply-chain inventory
 

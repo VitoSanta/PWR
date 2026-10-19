@@ -168,6 +168,7 @@ export interface DownloadView {
 /** One pack of the Gemma 4 line, as `_pwr/local_models` describes it on this Mac. */
 export interface LinePack {
   model: string;
+  format?: 'mlx' | 'gguf';
   label: string;
   tier: 'low' | 'middle' | 'high';
   tierMemoryGib: number;
@@ -188,6 +189,7 @@ export interface LinePack {
 
 export interface LineAssistant {
   model: string;
+  format?: 'mlx' | 'gguf';
   /** The registry entry it downloads from. */
   artifact: string | null;
   weightsBytes: number;
@@ -198,6 +200,7 @@ export interface LineAssistant {
 /** What the Model Manager downloads or deletes: a pack or its assistant. */
 export interface ModelTarget {
   model: string;
+  format?: 'mlx' | 'gguf';
   label: string;
   artifact: string | null;
   weightsBytes: number;

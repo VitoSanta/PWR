@@ -800,7 +800,10 @@ impl<R: TurnRunner + 'static> Server<R> {
     async fn request(self: &Rc<Self>, id: Value, method: &str, params: Value) {
         match method {
             "initialize" => {
-                self.client_controls_workspace.set(params["clientCapabilities"]["_meta"]["pwr"]["workspaceControl"].as_bool() == Some(true));
+                self.client_controls_workspace.set(
+                    params["clientCapabilities"]["_meta"]["pwr"]["workspaceControl"].as_bool()
+                        == Some(true),
+                );
                 self.client_reads_terminal.set(
                     params["clientCapabilities"]["_meta"]["pwr"]["readTerminal"].as_bool()
                         == Some(true),
@@ -1964,6 +1967,7 @@ impl<R: TurnRunner + 'static> Server<R> {
                     "actions": report.actions,
                     "totalActions": total_actions,
                     "edited": report.edited,
+                    "outcome": report.outcome,
                     "goal": {
                         "enabled": true,
                         "completed": false,
@@ -2637,15 +2641,17 @@ impl<R: TurnRunner + 'static> Server<R> {
             "_pwr/wiki_summarising",
             json!({"cwd": cwd, "state": "started"}),
         ));
-        let prepared = personal::Home::from_env().and_then(|home| {
-            wiki::index(root).map(|index| (home, index))
-        });
+        let prepared = personal::Home::from_env()
+            .and_then(|home| wiki::index(root).map(|index| (home, index)));
         let (home, index) = match prepared {
             Ok(prepared) => prepared,
             Err(why) => {
-                self.send(notification("_pwr/wiki_summarising", json!({
-                    "cwd": cwd, "state": "failed", "written": 0, "error": why,
-                })));
+                self.send(notification(
+                    "_pwr/wiki_summarising",
+                    json!({
+                        "cwd": cwd, "state": "failed", "written": 0, "error": why,
+                    }),
+                ));
                 return;
             }
         };
@@ -2812,11 +2818,15 @@ fn search_engine_param(params: &Value) -> Option<(String, String)> {
     let template = engine.get("search")?.as_str()?;
     let name_ok = !name.is_empty()
         && name.len() <= 40
-        && name.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-'));
+        && name
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-'));
     let template_ok = template.len() <= 200
         && template.starts_with("https://")
         && template.matches("%s").count() == 1
-        && !template.chars().any(|c| c.is_whitespace() || c.is_control());
+        && !template
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control());
     (name_ok && template_ok).then(|| (name.to_owned(), template.to_owned()))
 }
 
@@ -2932,7 +2942,8 @@ fn replay_with_diffs(
                         id,
                         call.id.clone(),
                         // The file an edit named: where its recorded diff goes.
-                        path.filter(|_| tool_kind(&call.name) == "edit").map(str::to_owned),
+                        path.filter(|_| tool_kind(&call.name) == "edit")
+                            .map(str::to_owned),
                     ));
                 }
             }
@@ -3015,9 +3026,9 @@ fn replay_with_diffs(
                     .collect();
                 if !failed
                     && let Some(path) = edited
-                    && let Some(at) = stored
-                        .iter()
-                        .position(|diff| diff.path.trim_start_matches("./") == path.trim_start_matches("./"))
+                    && let Some(at) = stored.iter().position(|diff| {
+                        diff.path.trim_start_matches("./") == path.trim_start_matches("./")
+                    })
                 {
                     let diff = stored.remove(at);
                     content.push(json!({
@@ -3067,18 +3078,29 @@ const TERMINAL_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 
 #[async_trait::async_trait]
 impl ApprovalPrompt for ClientApproval {
-    fn controls_workspace(&self) -> bool { self.controls_workspace }
-    async fn workspace_interact(&self, target: &str, operation: &str, arguments: Value) -> Result<Value, String> {
+    fn controls_workspace(&self) -> bool {
+        self.controls_workspace
+    }
+    async fn workspace_interact(
+        &self,
+        target: &str,
+        operation: &str,
+        arguments: Value,
+    ) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (reply, answer) = oneshot::channel();
-        if let Ok(mut waiting) = self.pending.lock() { waiting.insert(id, (self.session_id.clone(), reply)); }
+        if let Ok(mut waiting) = self.pending.lock() {
+            waiting.insert(id, (self.session_id.clone(), reply));
+        }
         if self.out.send(json!({"jsonrpc":"2.0","id":id,"method":"_pwr/workspace/interact",
             "params":{"sessionId":self.session_id,"target":target,"operation":operation,"arguments":arguments}})).is_err() {
             if let Ok(mut waiting) = self.pending.lock() { waiting.remove(&id); }
             return Err("The desktop disconnected.".into());
         }
         let result = tokio::time::timeout(std::time::Duration::from_secs(30), answer).await;
-        if let Ok(mut waiting) = self.pending.lock() { waiting.remove(&id); }
+        if let Ok(mut waiting) = self.pending.lock() {
+            waiting.remove(&id);
+        }
         match result {
             Ok(Ok(response)) if response.get("error").is_none() => Ok(response["result"].clone()),
             Ok(Ok(response)) => Err(response["error"]["message"].as_str().unwrap_or("Desktop action failed").into()),
@@ -3767,12 +3789,29 @@ fn file_request(id: Value, params: &Value) -> Value {
         Ok(_) => return error_response(id, -32602, "not a file"),
         Err(why) => return error_response(id, -32602, &why),
     };
-    let Ok(bytes) = std::fs::read(&path) else {
+    let Ok(file) = std::fs::File::open(&path) else {
         return error_response(id, -32000, "the file could not be read");
     };
-    let size = bytes.len();
-    let head = &bytes[..size.min(LIMIT)];
-    if head.iter().take(8_000).any(|byte| *byte == 0) || std::str::from_utf8(&bytes).is_err() {
+    let size = match file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return error_response(id, -32000, "the file metadata could not be read"),
+    };
+    let mut bytes = Vec::new();
+    if std::io::Read::read_to_end(&mut std::io::Read::take(file, LIMIT as u64 + 1), &mut bytes)
+        .is_err()
+    {
+        return error_response(id, -32000, "the file could not be read");
+    }
+    let truncated = bytes.len() > LIMIT || size > LIMIT as u64;
+    bytes.truncate(LIMIT);
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(text) => Some(text),
+        Err(error) if truncated && error.error_len().is_none() => {
+            std::str::from_utf8(&bytes[..error.valid_up_to()]).ok()
+        }
+        Err(_) => None,
+    };
+    if bytes.iter().take(8_000).any(|byte| *byte == 0) || text.is_none() {
         return result(id, json!({"path": relative, "bytes": size, "binary": true}));
     }
     result(
@@ -3780,10 +3819,10 @@ fn file_request(id: Value, params: &Value) -> Value {
         json!({
             "path": relative,
             "bytes": size,
-            "hash": pwr_domain::hash_bytes(&bytes),
+            "hash": (!truncated).then(|| pwr_domain::hash_bytes(&bytes)),
             "binary": false,
-            "truncated": size > LIMIT,
-            "text": String::from_utf8_lossy(head),
+            "truncated": truncated,
+            "text": text,
         }),
     )
 }
@@ -3894,6 +3933,27 @@ fn memory_request(id: Value, params: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn editor_preview_is_bounded_and_keeps_a_whole_utf8_prefix() {
+        use std::io::Write as _;
+        let root = tempfile::tempdir().unwrap();
+        let mut file = std::fs::File::create(root.path().join("large.txt")).unwrap();
+        file.write_all(&vec![b'a'; 1024 * 1024 - 1]).unwrap();
+        file.write_all("\u{e9}".as_bytes()).unwrap();
+        file.set_len(64 * 1024 * 1024).unwrap();
+        drop(file);
+        let reply = super::file_request(
+            serde_json::json!(1),
+            &serde_json::json!({"cwd":root.path(),"path":"large.txt"}),
+        );
+        assert_eq!(reply["result"]["truncated"], true);
+        assert_eq!(reply["result"]["binary"], false);
+        assert!(reply["result"]["hash"].is_null());
+        assert_eq!(
+            reply["result"]["text"].as_str().unwrap().len(),
+            1024 * 1024 - 1
+        );
+    }
     #[test]
     fn rewind_finds_a_preserved_message_after_indices_shift() {
         let point = super::RewindPoint {
@@ -4289,11 +4349,20 @@ mod tests {
                 .unwrap()
                 .push(turn.session_grants.lock().unwrap().len());
             if run == 0 && self.delay == Some("workspace_bridge") {
-                let available=turn.approvals.controls_workspace();
-                let result=if available {
-                    turn.approvals.workspace_interact("browser","snapshot",json!({"tabId":"visible-tab"})).await.unwrap().to_string()
-                } else { "not offered".into() };
-                self.requests.lock().unwrap().push(format!("WORKSPACE {available} {result}"));
+                let available = turn.approvals.controls_workspace();
+                let result = if available {
+                    turn.approvals
+                        .workspace_interact("browser", "snapshot", json!({"tabId":"visible-tab"}))
+                        .await
+                        .unwrap()
+                        .to_string()
+                } else {
+                    "not offered".into()
+                };
+                self.requests
+                    .lock()
+                    .unwrap()
+                    .push(format!("WORKSPACE {available} {result}"));
             }
             if run == 0 && self.read_terminal_on_first {
                 let reads = turn.approvals.reads_terminal();
@@ -4726,8 +4795,10 @@ mod tests {
 
     #[tokio::test]
     async fn shared_workspace_requests_are_negotiated_and_answered_in_the_same_session() {
-        for declared in [false,true] {
-            let mut runner=budget_runner();runner.delay=Some("workspace_bridge");let requests=Arc::clone(&runner.requests);
+        for declared in [false, true] {
+            let mut runner = budget_runner();
+            runner.delay = Some("workspace_bridge");
+            let requests = Arc::clone(&runner.requests);
             with_runner(runner,|mut client|async move {
                 client.request(1,"initialize",json!({"protocolVersion":1,"clientCapabilities":{"_meta":{"pwr":{"workspaceControl":declared}}}})).await;
                 client.until_response(1).await;
@@ -4741,8 +4812,19 @@ mod tests {
                     if message.get("method").is_none() && message["id"]==3 {break;}
                 }
             }).await;
-            let seen=requests.lock().unwrap();let line=seen.iter().find(|line|line.starts_with("WORKSPACE")).unwrap();
-            assert!(if declared {line.contains("Visible page")}else{line=="WORKSPACE false not offered"},"{line}");
+            let seen = requests.lock().unwrap();
+            let line = seen
+                .iter()
+                .find(|line| line.starts_with("WORKSPACE"))
+                .unwrap();
+            assert!(
+                if declared {
+                    line.contains("Visible page")
+                } else {
+                    line == "WORKSPACE false not offered"
+                },
+                "{line}"
+            );
         }
     }
 
@@ -6022,6 +6104,10 @@ mod tests {
     /// Seen 2026-09-26: 57 check-ins in 23 minutes without one action.
     #[tokio::test]
     async fn a_goal_that_takes_no_action_pauses_as_stalled() {
+        let mut idle = turn(0, false, None);
+        idle.outcome.checks = pwr_domain::ChecksOutcome::Failed {
+            fingerprints: vec!["acceptance failure".into()],
+        };
         let (messages, turns) = goal_prompt(GoalScripted {
             limits: GoalLimits::default(),
             verifications: Default::default(),
@@ -6032,15 +6118,16 @@ mod tests {
             ask_on_first: None,
             read_terminal_on_first: false,
             grants_seen: Default::default(),
-            script: vec![
-                turn(5, false, Some(StopReason::BudgetSpent)),
-                turn(0, false, None),
-            ],
+            script: vec![turn(5, false, Some(StopReason::BudgetSpent)), idle],
             verification: GoalVerification::default(),
         })
         .await;
         let response = messages.last().unwrap();
         assert_eq!(response["result"]["_meta"]["pwr"]["terminal"], "stalled");
+        assert_eq!(
+            response["result"]["_meta"]["pwr"]["outcome"]["checks"]["status"],
+            "failed"
+        );
         assert!(says(&messages, "took no action"), "{messages:#?}");
         assert_eq!(turns, 4);
     }
@@ -6141,20 +6228,30 @@ mod tests {
             let root = tempfile::tempdir().unwrap();
             std::fs::write(root.path().join("lib.rs"), "pub fn value() {}\n").unwrap();
             client.receive_wiki_notifications = true;
-            client.request(1, "_pwr/wiki_summarise", json!({"cwd": root.path()})).await;
+            client
+                .request(1, "_pwr/wiki_summarise", json!({"cwd": root.path()}))
+                .await;
             let mut failed = None;
             tokio::time::timeout(std::time::Duration::from_secs(2), async {
                 loop {
                     let message = client.receive().await;
                     if message["method"] == "_pwr/wiki_summarising"
-                        && message["params"]["state"] == "failed" {
+                        && message["params"]["state"] == "failed"
+                    {
                         failed = Some(message);
                         break;
                     }
                 }
-            }).await.expect("summary failure was silent");
-            assert!(failed.unwrap()["params"]["error"].as_str().is_some_and(|error| !error.is_empty()));
-        }).await;
+            })
+            .await
+            .expect("summary failure was silent");
+            assert!(
+                failed.unwrap()["params"]["error"]
+                    .as_str()
+                    .is_some_and(|error| !error.is_empty())
+            );
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -6798,12 +6895,27 @@ mod tests {
         let ok = || ChatMessage::text("tool", r#"{"result":{"written":true}}"#);
         let failed = || ChatMessage::text("tool", r#"{"result":{"denied":"policy"}}"#);
         let diffs = [
-            StoredDiff { path: "a.txt".into(), old_text: None, new_text: "one".into() },
-            StoredDiff { path: "a.txt".into(), old_text: Some("one".into()), new_text: "two".into() },
+            StoredDiff {
+                path: "a.txt".into(),
+                old_text: None,
+                new_text: "one".into(),
+            },
+            StoredDiff {
+                path: "a.txt".into(),
+                old_text: Some("one".into()),
+                new_text: "two".into(),
+            },
         ];
         let shown = replay_with_diffs(
             Path::new("/work"),
-            &[edit("a.txt"), ok(), edit("a.txt"), failed(), edit("a.txt"), ok()],
+            &[
+                edit("a.txt"),
+                ok(),
+                edit("a.txt"),
+                failed(),
+                edit("a.txt"),
+                ok(),
+            ],
             &[],
             &[],
             &diffs,
@@ -6824,8 +6936,16 @@ mod tests {
 
     #[test]
     fn only_a_plain_https_search_engine_reaches_the_model() {
-        let ok = search_engine_param(&json!({"searchEngine": {"name": "Brave Search", "search": "https://search.brave.com/search?q=%s"}}));
-        assert_eq!(ok, Some(("Brave Search".into(), "https://search.brave.com/search?q=%s".into())));
+        let ok = search_engine_param(
+            &json!({"searchEngine": {"name": "Brave Search", "search": "https://search.brave.com/search?q=%s"}}),
+        );
+        assert_eq!(
+            ok,
+            Some((
+                "Brave Search".into(),
+                "https://search.brave.com/search?q=%s".into()
+            ))
+        );
         for bad in [
             json!({"searchEngine": {"name": "X", "search": "http://example.com/?q=%s"}}),
             json!({"searchEngine": {"name": "X", "search": "https://example.com/?q=%s&r=%s"}}),

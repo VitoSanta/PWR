@@ -39,7 +39,9 @@ export class AgentStore {
   /** Chat mode's folder, from the core: a conversation there has no workspace. */
   readonly chatHome = signal('');
   /** Talking without a workspace: the model only reads what is attached. */
-  readonly chatMode = computed(() => this.chatHome() !== '' && this.workspace() === this.chatHome());
+  readonly chatMode = computed(
+    () => this.chatHome() !== '' && this.workspace() === this.chatHome(),
+  );
   /** The workspace to go back to from chat mode. */
   private lastWorkspace = '';
   readonly corePath = signal('');
@@ -107,7 +109,10 @@ export class AgentStore {
   /** Recent terminal output, exposed only after core permission approval. */
   readonly workspaceEpoch = signal(0);
   readonly workspaceStops = new Set<() => void>();
-  readonly workspaceHandlers = new Map<string, (operation: string, args: any) => Promise<unknown>>();
+  readonly workspaceHandlers = new Map<
+    string,
+    (operation: string, args: any) => Promise<unknown>
+  >();
   terminalReader: ((lines: number) => TerminalSnapshot[]) | null = null;
   /**
    * Tokens the conversation occupies and the window: the engine's count after
@@ -151,11 +156,18 @@ export class AgentStore {
     const model = this.model();
     return model ? modelLabel(model) : 'No model selected';
   });
-  readonly actionCount = computed(() => this.timeline().filter((entry) => entry.kind === 'tool').length);
+  readonly actionCount = computed(
+    () => this.timeline().filter((entry) => entry.kind === 'tool').length,
+  );
 
   private nextId = 1;
   private readonly listeners = new Map<string, Set<(params: any) => void>>();
   private generation = 0;
+  private sessionOperation = 0;
+  private reviewOperation = 0;
+  private compactOperation = 0;
+  private rewindOperation = 0;
+  private commandOperation = 0;
   private pending = new Map<number, Pending>();
   // A new stretch of streamed text starts after every action, so what the
   // model says after acting appears below the action, not above it.
@@ -176,9 +188,9 @@ export class AgentStore {
       this.coreError.set('Open this interface through the PWR app (npm run tauri dev).');
       return;
     }
-    await bridge.onMessage((message) => this.receive(message));
-    await bridge.onLog((line) => {
-      this.appendLog(line);
+    await bridge.onMessage((message, generation) => this.receive(message, generation));
+    await bridge.onLog((line, generation) => {
+      if (generation === this.generation) this.appendLog(line);
     });
     await bridge.onExit((generation) => {
       // A core this app already replaced; the running one is unaffected.
@@ -281,11 +293,25 @@ export class AgentStore {
     this.engineSetup.set(true);
     this.demoEngine = async () => {
       this.demoCancelled = false;
-      const steps = ['Preparing Python', 'Installing the MLX engine', 'Downloading the search encoder', 'Checking the installation'];
+      const steps = [
+        'Preparing Python',
+        'Installing the MLX engine',
+        'Downloading the search encoder',
+        'Checking the installation',
+      ];
       const lines = [
         ['Using CPython 3.14.8', 'Creating virtual environment at: venv'],
-        ['Resolved 64 packages in 1.4s', 'Prepared 64 packages in 9.8s', 'Installed 64 packages in 180ms', ' + mlx==0.32.3', ' + mlx-lm==0.32.0'],
-        ['Fetching 11 files', '/Users/you/.cache/huggingface/hub/models--intfloat--multilingual-e5-small'],
+        [
+          'Resolved 64 packages in 1.4s',
+          'Prepared 64 packages in 9.8s',
+          'Installed 64 packages in 180ms',
+          ' + mlx==0.32.3',
+          ' + mlx-lm==0.32.0',
+        ],
+        [
+          'Fetching 11 files',
+          '/Users/you/.cache/huggingface/hub/models--intfloat--multilingual-e5-small',
+        ],
         ['mlx 0.32.3 on Device(gpu, 0)'],
       ];
       for (let step = 1; step <= steps.length; step++) {
@@ -307,14 +333,12 @@ export class AgentStore {
     this.coreState.set('starting');
     this.coreError.set('');
     this.appendLog(`Starting core in ${path}`);
-    this.sessionId.set(null);
-    this.timeline.set([]);
-    this.changes.set([]);
-    this.outcome.set('');
-    this.runOutcome.set(null);
+    this.cancel();
+    this.resetConversationState(true);
     try {
       // Requests to the core being replaced will never be answered.
-      for (const waiting of this.pending.values()) waiting.reject(new Error('the workspace changed'));
+      for (const waiting of this.pending.values())
+        waiting.reject(new Error('the workspace changed'));
       this.pending.clear();
       // No core is current while one is being replaced: the old one's exit
       // can arrive before the new one's number does.
@@ -326,21 +350,71 @@ export class AgentStore {
       this.appendLog(`Core process: ${started.core}`);
       const hello = await this.request('initialize', {
         protocolVersion: 1,
-        clientCapabilities: inTauri() ? { _meta: { pwr: { readTerminal: true, workspaceControl: true } } } : {},
+        clientCapabilities: inTauri()
+          ? { _meta: { pwr: { readTerminal: true, workspaceControl: true } } }
+          : {},
         clientInfo: { name: 'pwr-desktop', version: '0.1.0' },
       });
       this.chatHome.set(hello?._meta?.pwr?.chatHome ?? '');
       this.appendLog('Core initialized; protocol ready.');
-      await Promise.all([this.refreshModels(), this.refreshSessions(), this.refreshPermissions()]);
+      const initialReads = [
+        ['models', () => this.refreshModels()],
+        ['sessions', () => this.refreshSessions()],
+        ['permissions', () => this.refreshPermissions()],
+      ] as const;
+      await Promise.all(
+        initialReads.map(async ([name, read]) => {
+          this.appendLog(`Loading ${name}…`);
+          await read();
+          this.appendLog(`${name} loaded.`);
+        }),
+      );
       this.coreState.set('ready');
       return true;
     } catch (error) {
+      // An unresponsive startup must not keep the workspace picker locked.
+      // Revoke this core before stopping it, so its exit and late replies
+      // cannot replace the error or populate the next workspace.
+      this.generation = -1;
+      for (const waiting of this.pending.values()) waiting.reject(new Error('Core startup failed.'));
+      this.pending.clear();
+      await bridge.stop().catch(() => {});
       this.coreState.set('error');
       this.coreError.set(String(error));
       this.appendLog(`Core startup failed: ${String(error)}`);
       return false;
     } finally {
       this.switchingWorkspace.set(false);
+    }
+  }
+
+  /** Invalidates conversation-scoped UI and asynchronous replies before a switch. */
+  private resetConversationState(workspaceChanged = false): void {
+    this.sessionOperation += 1;
+    this.reviewOperation += 1;
+    this.compactOperation += 1;
+    this.rewindOperation += 1;
+    this.commandOperation += 1;
+    this.queue.set([]);
+    this.permission.set(null);
+    this.turnActive.set(false);
+    this.usage.set(null);
+    this.commandOutput.set(null);
+    this.commandRunning.set(null);
+    this.prefill.set(null);
+    this.streamedChars.set(0);
+    this.sessionId.set(null);
+    this.timeline.set([]);
+    this.changes.set([]);
+    this.outcome.set('');
+    this.runOutcome.set(null);
+    this.reviewingAcceptance.set(false);
+    this.compacting.set(false);
+    this.rewinding.set(false);
+    this.segment = 0;
+    if (workspaceChanged) {
+      this.contextInfo.set(null);
+      this.asking.set([]);
     }
   }
 
@@ -386,12 +460,20 @@ export class AgentStore {
    * folders and images attached to it. The model in use comes along.
    */
   async openChat(): Promise<void> {
-    if (this.chatMode() || !this.chatHome() || this.turnActive() || this.switchingMode() || this.switchingWorkspace()) return;
+    if (
+      this.chatMode() ||
+      !this.chatHome() ||
+      this.turnActive() ||
+      this.switchingMode() ||
+      this.switchingWorkspace()
+    )
+      return;
     this.switchingMode.set(true);
     this.lastWorkspace = this.workspace();
     const model = this.model();
     try {
-      if (await this.openWorkspace(this.chatHome()) && !this.model() && model) await this.selectModel(model);
+      if ((await this.openWorkspace(this.chatHome())) && !this.model() && model)
+        await this.selectModel(model);
     } finally {
       this.switchingMode.set(false);
     }
@@ -437,7 +519,9 @@ export class AgentStore {
 
   async refreshPermissions(params: Record<string, unknown> = {}): Promise<void> {
     const reply = await this.request('_pwr/approvals', { cwd: this.workspace(), ...params });
-    this.permissionMode.set(reply.mode === 'full' ? 'full' : reply.mode === 'auto' ? 'auto' : 'ask');
+    this.permissionMode.set(
+      reply.mode === 'full' ? 'full' : reply.mode === 'auto' ? 'auto' : 'ask',
+    );
     this.asking.set(reply.asking ?? []);
     this.sandboxed.set(reply.sandboxed !== false);
   }
@@ -513,7 +597,10 @@ export class AgentStore {
       this.contextInfo.set(null);
       return;
     }
-    this.contextInfo.set(await this.request('_pwr/context', { sessionId, ...params }));
+    const operation = this.sessionOperation;
+    const context = await this.request('_pwr/context', { sessionId, ...params });
+    if (operation === this.sessionOperation && this.sessionId() === sessionId)
+      this.contextInfo.set(context);
   }
 
   /** Sets the share of the window at which the conversation compacts itself. */
@@ -528,16 +615,24 @@ export class AgentStore {
   async compactNow(): Promise<void> {
     const sessionId = this.sessionId();
     if (!sessionId || this.turnActive() || this.compacting()) return;
+    const operation = ++this.compactOperation;
     this.compacting.set(true);
     try {
       const reply = await this.request('_pwr/compact', { sessionId });
-      if (!reply.compacted) this.notice('Nothing to compact', reply.reason ?? 'The conversation is already small.', 'info');
+      if (operation !== this.compactOperation || this.sessionId() !== sessionId) return;
+      if (!reply.compacted)
+        this.notice(
+          'Nothing to compact',
+          reply.reason ?? 'The conversation is already small.',
+          'info',
+        );
       else this.usage.set(null);
       await this.refreshContext();
     } catch (error) {
-      this.notice('Compaction failed', String(error), 'error');
+      if (operation === this.compactOperation && this.sessionId() === sessionId)
+        this.notice('Compaction failed', String(error), 'error');
     } finally {
-      this.compacting.set(false);
+      if (operation === this.compactOperation) this.compacting.set(false);
     }
   }
 
@@ -582,7 +677,9 @@ export class AgentStore {
   async deleteConversation(sessionId: string): Promise<void> {
     if (this.turnActive()) return;
     if (this.demoAnswer) {
-      this.sessions.update((sessions) => sessions.filter((session) => session.sessionId !== sessionId));
+      this.sessions.update((sessions) =>
+        sessions.filter((session) => session.sessionId !== sessionId),
+      );
       if (this.sessionId() === sessionId) this.newConversation();
       return;
     }
@@ -593,24 +690,13 @@ export class AgentStore {
 
   newConversation(): void {
     if (this.turnActive()) return;
-    this.usage.set(null);
-    this.streamedChars.set(0);
+    this.resetConversationState();
     this.contextInfo.set(null);
-    this.sessionId.set(null);
-    this.timeline.set([]);
-    this.changes.set([]);
-    this.outcome.set('');
-    this.runOutcome.set(null);
   }
 
   async resume(sessionId: string): Promise<void> {
     if (this.turnActive()) return;
-    this.timeline.set([]);
-    this.changes.set([]);
-    this.segment = 0;
-    this.runOutcome.set(null);
-    this.usage.set(null);
-    this.streamedChars.set(0);
+    this.resetConversationState();
     this.contextInfo.set(null);
     this.sessionId.set(sessionId);
     await this.request('session/load', { sessionId, cwd: this.workspace(), mcpServers: [] });
@@ -621,6 +707,7 @@ export class AgentStore {
   async send(text: string): Promise<void> {
     const prompt = text.trim();
     if (!prompt) return;
+    const generation = this.generation;
     if (this.turnActive()) {
       this.queue.update((queued) => [...queued, prompt]);
       return;
@@ -628,6 +715,7 @@ export class AgentStore {
     let sessionId = this.sessionId();
     if (!sessionId) {
       const created = await this.request('session/new', { cwd: this.workspace(), mcpServers: [] });
+      if (generation !== this.generation) return;
       sessionId = created.sessionId as string;
       this.sessionId.set(sessionId);
     }
@@ -661,16 +749,17 @@ export class AgentStore {
         // The engine the engineer chose in the Browser, so a web search opens with it.
         ...(this.searchEngine() ? { searchEngine: this.searchEngine() } : {}),
       });
-      this.finish(reply);
+      if (generation === this.generation) this.finish(reply);
     } catch (error) {
-      this.notice('The turn failed', String(error), 'error');
+      if (generation === this.generation) this.notice('The turn failed', String(error), 'error');
     } finally {
-      this.turnActive.set(false);
-      // What an unfinished generation streamed is not kept in the history.
-      this.streamedChars.set(0);
-      this.settleLive();
-      void this.refreshSessions();
-      this.sendNextQueued();
+      if (generation === this.generation) {
+        this.turnActive.set(false);
+        this.streamedChars.set(0);
+        this.settleLive();
+        void this.refreshSessions();
+        this.sendNextQueued();
+      }
     }
   }
 
@@ -678,16 +767,34 @@ export class AgentStore {
   async reviewAcceptanceChanges(): Promise<void> {
     const sessionId = this.sessionId();
     const outcome = this.runOutcome();
-    if (!sessionId || this.turnActive() || this.reviewingAcceptance() || !outcome?.acceptanceChanges?.length) return;
+    if (
+      !sessionId ||
+      this.turnActive() ||
+      this.reviewingAcceptance() ||
+      !outcome?.acceptanceChanges?.length
+    )
+      return;
+    const operation = ++this.reviewOperation;
     this.reviewingAcceptance.set(true);
     try {
       for (const path of outcome.acceptanceChanges) {
         const reply = await this.request('_pwr/acceptance_authorize', { sessionId, path });
-        if (this.sessionId() !== sessionId || !reply.allowed) return;
+        if (operation !== this.reviewOperation || this.sessionId() !== sessionId || !reply.allowed)
+          return;
       }
-      this.runOutcome.set({ ...outcome, acceptanceChanges: [], text: 'Acceptance changes authorized. Continue to run verification again.', action: 'continue', tone: 'paused' });
-    } catch (error) { this.notice('Acceptance authorization failed', String(error), 'error'); }
-    finally { this.reviewingAcceptance.set(false); }
+      this.runOutcome.set({
+        ...outcome,
+        acceptanceChanges: [],
+        text: 'Acceptance changes authorized. Continue to run verification again.',
+        action: 'continue',
+        tone: 'paused',
+      });
+    } catch (error) {
+      if (operation === this.reviewOperation && this.sessionId() === sessionId)
+        this.notice('Acceptance authorization failed', String(error), 'error');
+    } finally {
+      if (operation === this.reviewOperation) this.reviewingAcceptance.set(false);
+    }
   }
 
   /** Picks up a paused turn once the core's own automatic retries are spent. */
@@ -695,7 +802,9 @@ export class AgentStore {
     const outcome = this.runOutcome();
     if (!outcome?.action || this.turnActive()) return Promise.resolve();
     this.runOutcome.set(null);
-    return this.send(outcome.action === 'retry' ? 'Retry the last step and continue.' : 'Continue.');
+    return this.send(
+      outcome.action === 'retry' ? 'Retry the last step and continue.' : 'Continue.',
+    );
   }
 
   /** The next queued prompt, once the turn it waited for has ended. */
@@ -703,7 +812,11 @@ export class AgentStore {
     const [next, ...rest] = this.queue();
     if (next === undefined) return;
     this.queue.set(rest);
-    setTimeout(() => void this.send(next), 0);
+    const generation = this.generation,
+      session = this.sessionId();
+    setTimeout(() => {
+      if (generation === this.generation && session === this.sessionId()) void this.send(next);
+    }, 0);
   }
 
   unqueue(index: number): void {
@@ -713,7 +826,9 @@ export class AgentStore {
   /** Changes a queued message before it is sent; an empty one is removed. */
   editQueued(index: number, text: string): void {
     if (!text.trim()) return this.unqueue(index);
-    this.queue.update((queued) => queued.map((item, position) => (position === index ? text : item)));
+    this.queue.update((queued) =>
+      queued.map((item, position) => (position === index ? text : item)),
+    );
   }
 
   /** Moves a queued message earlier (-1) or later (+1). */
@@ -739,6 +854,7 @@ export class AgentStore {
   ): Promise<{ conflicts: string[] }> {
     const sessionId = this.sessionId();
     if (!sessionId || entry.turn === undefined || this.turnActive()) return { conflicts: [] };
+    const operation = ++this.rewindOperation;
     this.rewinding.set(true);
     try {
       const reply = await this.request('_pwr/rewind', {
@@ -747,13 +863,18 @@ export class AgentStore {
         restoreFiles: options.restoreFiles,
         force: options.force === true,
       });
+      if (operation !== this.rewindOperation || this.sessionId() !== sessionId)
+        return { conflicts: [] };
       if (!reply.rewound) return { conflicts: reply.conflicts ?? [] };
-      const restored: string[] = (reply.restored ?? []).map((path: string) => relative(path, this.workspace()));
+      const restored: string[] = (reply.restored ?? []).map((path: string) =>
+        relative(path, this.workspace()),
+      );
       this.timeline.update((entries) => {
         const index = entries.findIndex((item) => item.key === entry.key);
         return index < 0 ? entries : entries.slice(0, index);
       });
-      if (restored.length) this.changes.update((all) => all.filter((change) => !restored.includes(change.path)));
+      if (restored.length)
+        this.changes.update((all) => all.filter((change) => !restored.includes(change.path)));
       this.usage.set(null);
       this.streamedChars.set(0);
       this.outcome.set('');
@@ -763,10 +884,11 @@ export class AgentStore {
       if (this.contextInfo()) void this.refreshContext();
       return { conflicts: [] };
     } catch (error) {
-      this.notice('Rewind failed', String(error).replace(/^Error: /, ''), 'error');
+      if (operation === this.rewindOperation && this.sessionId() === sessionId)
+        this.notice('Rewind failed', String(error).replace(/^Error: /, ''), 'error');
       return { conflicts: [] };
     } finally {
-      this.rewinding.set(false);
+      if (operation === this.rewindOperation) this.rewinding.set(false);
     }
   }
 
@@ -780,17 +902,25 @@ export class AgentStore {
     const sessionId = this.sessionId();
     if (text === undefined || !sessionId || !this.turnActive()) return;
     this.unqueue(index);
-    this.push({ key: `user-${Date.now()}`, kind: 'user', title: 'You', text, status: 'sent', at: Date.now() });
+    this.push({
+      key: `user-${Date.now()}`,
+      kind: 'user',
+      title: 'You',
+      text,
+      status: 'sent',
+      at: Date.now(),
+    });
     this.segment += 1;
     try {
       await this.request('_pwr/steer', { sessionId, text });
     } catch (error) {
-      this.notice('The message could not be delivered', String(error), 'error');
+      if (this.sessionId() === sessionId)
+        this.notice('The message could not be delivered', String(error), 'error');
     }
   }
 
   cancel(): void {
-    this.workspaceEpoch.update(value => value + 1);
+    this.workspaceEpoch.update((value) => value + 1);
     for (const stop of this.workspaceStops) stop();
     const sessionId = this.sessionId();
     if (sessionId && this.turnActive()) {
@@ -804,15 +934,19 @@ export class AgentStore {
       this.commandOutput.set({ name, text: 'Start a conversation first.' });
       return;
     }
+    const operation = ++this.commandOperation;
     this.commandOutput.set({ name, text: 'Running…' });
     this.commandRunning.set(name);
     try {
       const reply = await this.request(`_pwr/${name}`, { sessionId });
-      this.commandOutput.set({ name, text: reply.text ?? JSON.stringify(reply, null, 2) });
+      if (operation === this.commandOperation && this.sessionId() === sessionId)
+        this.commandOutput.set({ name, text: reply.text ?? JSON.stringify(reply, null, 2) });
     } catch (error) {
-      this.commandOutput.set({ name, text: String(error) });
+      if (operation === this.commandOperation && this.sessionId() === sessionId)
+        this.commandOutput.set({ name, text: String(error) });
     } finally {
-      if (this.commandRunning() === name) this.commandRunning.set(null);
+      if (operation === this.commandOperation && this.commandRunning() === name)
+        this.commandRunning.set(null);
     }
   }
 
@@ -856,8 +990,8 @@ export class AgentStore {
   }
 
   private appendLog(line: string): void {
-    this.logs.update(lines => [...lines.slice(-399), line]);
-    this.logLines.update(lines => [...lines.slice(-399), { at: Date.now(), line }]);
+    this.logs.update((lines) => [...lines.slice(-399), line]);
+    this.logLines.update((lines) => [...lines.slice(-399), { at: Date.now(), line }]);
   }
 
   private request(method: string, params: unknown): Promise<any> {
@@ -875,20 +1009,41 @@ export class AgentStore {
     }
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject: error => {
-        this.appendLog(`${method}: ${String(error)}`);
-        reject(error);
-      } });
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const waiting = {
+        resolve: (value: any) => { clearTimeout(deadline); resolve(value); },
+        reject: (error: unknown) => {
+          clearTimeout(deadline);
+          this.appendLog(`${method}: ${String(error)}`);
+          reject(error);
+        },
+      };
+      this.pending.set(id, waiting);
+      // Only startup metadata is bounded here. Inference has its own Stop
+      // and goal budget and must not inherit this short deadline.
+      if (this.coreState() === 'starting') {
+        deadline = setTimeout(() => {
+          if (this.pending.delete(id)) waiting.reject(new Error(
+            `${method} did not answer during startup. Open the workspace folder again to grant macOS access, or choose another workspace.`,
+          ));
+        }, 30_000);
+      }
       bridge.send({ jsonrpc: '2.0', id, method, params }).catch((error) => {
-        this.pending.delete(id);
-        this.appendLog(`${method}: transport failed: ${String(error)}`);
-        reject(error);
+        if (this.pending.delete(id)) waiting.reject(error);
       });
     });
   }
 
   /** Every message from the core; public so tests can feed it one. */
-  receive(message: any): void {
+  receive(message: any, generation = this.generation): void {
+    if (generation !== this.generation) return;
+    const session = message.params?.sessionId;
+    if (
+      ['session/update', '_pwr/usage'].includes(message.method) &&
+      session &&
+      session !== this.sessionId()
+    )
+      return;
     this.lastEventAt.set(Date.now());
     if (message.method && message.id !== undefined) {
       this.serverRequest(message);
@@ -942,7 +1097,8 @@ export class AgentStore {
       return;
     }
     if (message.method && message.id === undefined) {
-      for (const listener of this.listeners.get(message.method) ?? []) listener(message.params ?? {});
+      for (const listener of this.listeners.get(message.method) ?? [])
+        listener(message.params ?? {});
       return;
     }
     if (message.id !== undefined && this.pending.has(message.id)) {
@@ -955,24 +1111,38 @@ export class AgentStore {
 
   private serverRequest(message: any): void {
     if (message.method === '_pwr/workspace/interact') {
-      const params = message.params ?? {}, cwd = this.workspace();
+      const params = message.params ?? {},
+        cwd = this.workspace();
+      const generation = this.generation;
+      const respond = (reply: unknown) =>
+        generation === this.generation ? bridge.send(reply) : Promise.resolve();
       const answer = async () => {
-        if (!params.sessionId || params.sessionId !== this.sessionId() || !this.turnActive()) throw new Error('The requesting conversation is not active.');
+        if (!params.sessionId || params.sessionId !== this.sessionId() || !this.turnActive())
+          throw new Error('The requesting conversation is not active.');
         const handler = this.workspaceHandlers.get(params.target);
         if (!handler) throw new Error('This workspace control is unavailable.');
         const result = await handler(params.operation, params.arguments ?? {});
-        if (cwd !== this.workspace() || params.sessionId !== this.sessionId()) throw new Error('The workspace changed.');
+        if (cwd !== this.workspace() || params.sessionId !== this.sessionId())
+          throw new Error('The workspace changed.');
         return result;
       };
-      void answer().then(result => bridge.send({ jsonrpc: '2.0', id: message.id, result }),
-        error => bridge.send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: String(error) } }));
+      void answer().then(
+        (result) => respond({ jsonrpc: '2.0', id: message.id, result }),
+        (error) =>
+          respond({
+            jsonrpc: '2.0',
+            id: message.id,
+            error: { code: -32000, message: String(error) },
+          }),
+      );
       return;
     }
 
     // Asked only after the person allowed it in the permission dialog.
     if (message.method === '_pwr/terminal/read') {
       const lines = Math.max(1, Math.min(1000, Number(message.params?.lines) || 200));
-      const terminals = message.params?.sessionId === this.sessionId() ? this.terminalReader?.(lines) ?? [] : [];
+      const terminals =
+        message.params?.sessionId === this.sessionId() ? (this.terminalReader?.(lines) ?? []) : [];
       void bridge.send({ jsonrpc: '2.0', id: message.id, result: { terminals } });
       return;
     }
@@ -1009,19 +1179,59 @@ export class AgentStore {
         // streams into a new block rather than onto it.
         this.settleLive();
         this.segment += 1;
-        this.push({ key, kind: 'retry', title: String(data.cause ?? 'retry'), text: String(data.detail ?? ''), status: 'running', data, raw: [params], at });
+        this.push({
+          key,
+          kind: 'retry',
+          title: String(data.cause ?? 'retry'),
+          text: String(data.detail ?? ''),
+          status: 'running',
+          data,
+          raw: [params],
+          at,
+        });
         return;
       case 'recovered':
         this.timeline.update((entries) =>
-          entries.map((entry) => (entry.kind === 'retry' && entry.status === 'running' ? { ...entry, status: 'done' } : entry)),
+          entries.map((entry) =>
+            entry.kind === 'retry' && entry.status === 'running'
+              ? { ...entry, status: 'done' }
+              : entry,
+          ),
         );
-        this.push({ key, kind: 'recovery', title: 'Recovered', text: '', status: 'done', data, raw: [params], at });
+        this.push({
+          key,
+          kind: 'recovery',
+          title: 'Recovered',
+          text: '',
+          status: 'done',
+          data,
+          raw: [params],
+          at,
+        });
         return;
       case 'generation':
-        this.push({ key, kind: 'generation', title: 'Generation', text: '', status: 'info', data, raw: [params], at });
+        this.push({
+          key,
+          kind: 'generation',
+          title: 'Generation',
+          text: '',
+          status: 'info',
+          data,
+          raw: [params],
+          at,
+        });
         return;
       case 'note':
-        this.push({ key, kind: 'note', title: 'Core', text: String(data.text ?? ''), status: data.level === 'warning' ? 'error' : 'info', data, raw: [params], at });
+        this.push({
+          key,
+          kind: 'note',
+          title: 'Core',
+          text: String(data.text ?? ''),
+          status: data.level === 'warning' ? 'error' : 'info',
+          data,
+          raw: [params],
+          at,
+        });
         return;
       default:
         return;
@@ -1048,7 +1258,14 @@ export class AgentStore {
       case 'user_message_chunk':
         // A replayed prompt carries what the core appended to it (goal-mode
         // instructions, attachments); the person's own words come first.
-        this.push({ key: `user-${Date.now()}-${Math.random()}`, kind: 'user', title: 'You', text: ownWords(text), status: 'sent', at: happenedAt(update) });
+        this.push({
+          key: `user-${Date.now()}-${Math.random()}`,
+          kind: 'user',
+          title: 'You',
+          text: ownWords(text),
+          status: 'sent',
+          at: happenedAt(update),
+        });
         this.segment += 1;
         return;
       case 'tool_call':
@@ -1067,25 +1284,47 @@ export class AgentStore {
     const detail: string | undefined = update._meta?.pwr?.detail;
     const outcome: string | undefined = update._meta?.pwr?.outcome;
     const diffBlock = (update.content ?? []).find?.((block: any) => block.type === 'diff');
-    const failure = (update.content ?? []).find?.((block: any) => block.type === 'content')?.content?.text;
+    const failure = (update.content ?? []).find?.((block: any) => block.type === 'content')?.content
+      ?.text;
     // What a look at a page saw: drawn under the action, and kept out of the
     // raw trace, where its bytes would bury everything else.
-    const shot = (update.content ?? []).find?.((block: any) => block.type === 'content' && block.content?.type === 'image')?.content;
-    const image: string | undefined = shot?.data ? `data:${shot.mimeType ?? 'image/png'};base64,${shot.data}` : undefined;
+    const shot = (update.content ?? []).find?.(
+      (block: any) => block.type === 'content' && block.content?.type === 'image',
+    )?.content;
+    const image: string | undefined = shot?.data
+      ? `data:${shot.mimeType ?? 'image/png'};base64,${shot.data}`
+      : undefined;
     const logged = image
-      ? { ...update, content: update.content.map((block: any) => (block.content?.type === 'image' ? { ...block, content: { ...block.content, data: `[${shot.data.length} base64 characters]` } } : block)) }
+      ? {
+          ...update,
+          content: update.content.map((block: any) =>
+            block.content?.type === 'image'
+              ? {
+                  ...block,
+                  content: { ...block.content, data: `[${shot.data.length} base64 characters]` },
+                }
+              : block,
+          ),
+        }
       : update;
     const location: string | undefined = update.locations?.[0]?.path;
     const path = location ? relative(location, this.workspace()) : undefined;
     const diff: FileDiff | undefined = diffBlock
-      ? { path: relative(diffBlock.path, this.workspace()), oldText: diffBlock.oldText ?? '', newText: diffBlock.newText ?? '', created: diffBlock.oldText == null }
+      ? {
+          path: relative(diffBlock.path, this.workspace()),
+          oldText: diffBlock.oldText ?? '',
+          newText: diffBlock.newText ?? '',
+          created: diffBlock.oldText == null,
+        }
       : undefined;
     if (diff) {
       // Most recent first; a file touched again moves back to the top, keeping
       // the state it started from so its diff covers the whole conversation.
       this.changes.update((all) => {
         const earlier = all.find((item) => item.path === diff.path);
-        const merged = earlier ? { ...diff, oldText: earlier.oldText, created: earlier.created ?? diff.created } : diff;
+        const merged = earlier
+          ? { ...diff, oldText: earlier.oldText, created: earlier.created ?? diff.created }
+          : diff;
         return [merged, ...all.filter((item) => item.path !== diff.path)];
       });
     }
@@ -1103,11 +1342,16 @@ export class AgentStore {
         key,
         kind: 'tool',
         title: update.title ?? previous?.title ?? 'Action',
-        text: failure ? explain(failure) : detail ?? previous?.text ?? '',
+        text: failure ? explain(failure) : (detail ?? previous?.text ?? ''),
         status: toolStatus(status),
         toolKind: update.kind ?? previous?.toolKind,
         diff: diff ?? previous?.diff,
-        data: { ...previous?.data, ...(path ? { path } : {}), ...(outcome ? { outcome } : {}), ...(image ? { image } : {}) },
+        data: {
+          ...previous?.data,
+          ...(path ? { path } : {}),
+          ...(outcome ? { outcome } : {}),
+          ...(image ? { image } : {}),
+        },
         raw: [...(previous?.raw ?? []), logged],
         at: previous?.at ?? happenedAt(update),
       };
@@ -1123,7 +1367,10 @@ export class AgentStore {
     this.timeline.update((entries) => {
       const index = entries.findIndex((entry) => entry.key === key);
       if (index < 0) {
-        return [...entries, { key, kind, title, text: delta.replace(/^\s+/, ''), status: 'live', at: Date.now() }];
+        return [
+          ...entries,
+          { key, kind, title, text: delta.replace(/^\s+/, ''), status: 'live', at: Date.now() },
+        ];
       }
       const copy = entries.slice();
       copy[index] = { ...copy[index], text: copy[index].text + delta };
@@ -1139,24 +1386,43 @@ export class AgentStore {
       return;
     }
     const entries = this.timeline();
-    const live = [...entries].reverse().find((entry) => entry.kind === 'reply' && entry.status === 'live');
+    const live = [...entries]
+      .reverse()
+      .find((entry) => entry.kind === 'reply' && entry.status === 'live');
     if (live) {
       // The final core message is authoritative. It can include a check
       // verdict added after the streamed model answer, so keeping both would
       // show the answer twice (once inside the work phase).
-      this.timeline.update((current) => current.map((entry) => entry.key === live.key
-        ? { ...entry, text, status: 'done', raw: update ? [...(entry.raw ?? []), update] : entry.raw }
-        : entry));
+      this.timeline.update((current) =>
+        current.map((entry) =>
+          entry.key === live.key
+            ? {
+                ...entry,
+                text,
+                status: 'done',
+                raw: update ? [...(entry.raw ?? []), update] : entry.raw,
+              }
+            : entry,
+        ),
+      );
       this.settleLive();
       return;
     }
     this.settleLive();
-    this.push({ key: `reply-final-${Date.now()}-${Math.random()}`, kind: 'reply', title: 'PWR', text, status: 'done', raw: update ? [update] : undefined, at: happenedAt(update) });
+    this.push({
+      key: `reply-final-${Date.now()}-${Math.random()}`,
+      kind: 'reply',
+      title: 'PWR',
+      text,
+      status: 'done',
+      raw: update ? [update] : undefined,
+      at: happenedAt(update),
+    });
   }
 
   private finish(reply: any): void {
     this.prefill.set(null);
-    const outcome = runOutcome(reply, false);
+    const outcome = runOutcome(reply, false, !this.chatMode());
     // The core ends the answer with its own reason for stopping. It becomes
     // the run's stop state -- the phases say it in their own words, the steps
     // keep the core's -- instead of prose from the model.
@@ -1167,7 +1433,9 @@ export class AgentStore {
         let index = entries.length - 1;
         while (index >= 0 && entries[index].kind !== 'reply') index--;
         const copy = entries.map((entry) =>
-          entry.kind === 'retry' && entry.status === 'running' ? { ...entry, status: 'failed' as const } : entry,
+          entry.kind === 'retry' && entry.status === 'running'
+            ? { ...entry, status: 'failed' as const }
+            : entry,
         );
         if (index >= 0 && copy[index].text.trimEnd().endsWith(said)) {
           const rest = copy[index].text.trimEnd().slice(0, -said.length).trimEnd();
@@ -1176,7 +1444,16 @@ export class AgentStore {
         }
         return [
           ...copy,
-          { key: `stop-${at}`, kind: 'stop', title: outcome.terminal ?? 'stopped', text: said, status: 'error', data: { terminal: outcome.terminal }, raw: [reply], at },
+          {
+            key: `stop-${at}`,
+            kind: 'stop',
+            title: outcome.terminal ?? 'stopped',
+            text: said,
+            status: 'error',
+            data: { terminal: outcome.terminal },
+            raw: [reply],
+            at,
+          },
         ];
       });
     }
@@ -1186,7 +1463,14 @@ export class AgentStore {
 
   private notice(title: string, text: string, status: 'info' | 'error'): void {
     this.settleLive();
-    this.push({ key: `notice-${Date.now()}-${Math.random()}`, kind: 'notice', title, text, status, at: Date.now() });
+    this.push({
+      key: `notice-${Date.now()}-${Math.random()}`,
+      kind: 'notice',
+      title,
+      text,
+      status,
+      at: Date.now(),
+    });
   }
 
   private settleLive(): void {
@@ -1250,7 +1534,9 @@ function fileUri(path: string): string {
     prefix +
     normalized
       .split('/')
-      .map((part, index) => (index === 0 && /^[a-zA-Z]:$/.test(part) ? part : encodeURIComponent(part)))
+      .map((part, index) =>
+        index === 0 && /^[a-zA-Z]:$/.test(part) ? part : encodeURIComponent(part),
+      )
       .join('/')
   );
 }

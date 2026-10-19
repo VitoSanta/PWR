@@ -72,7 +72,11 @@ impl LlamaConfig {
             .unwrap_or_else(|| {
                 let mut candidates = Vec::new();
                 if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
-                    candidates.push(local_app_data.join("ai.pwr.desktop/engine/llama").join(&bin));
+                    candidates.push(
+                        local_app_data
+                            .join("ai.pwr.desktop/engine/llama")
+                            .join(&bin),
+                    );
                 }
                 if let Some(app_data) = std::env::var_os("APPDATA").map(PathBuf::from) {
                     candidates.push(app_data.join("ai.pwr.desktop/engine/llama").join(&bin));
@@ -420,16 +424,13 @@ pub async fn post_chat_stream(
                     return Ok(Some((chunk, (bytes, decoder, queue))));
                 }
                 let Some(next) = bytes.next().await else {
+                    decoder.finish()?;
                     return Ok(None);
                 };
                 let bytes = next.map_err(|error| ProviderError::Unavailable {
                     safe_context: format!("llama.cpp stream read failed: {error}"),
                 })?;
-                let text =
-                    std::str::from_utf8(&bytes).map_err(|error| ProviderError::Protocol {
-                        safe_context: format!("llama.cpp stream was not UTF-8: {error}"),
-                    })?;
-                queue.extend(decoder.push(text)?);
+                queue.extend(decoder.push_bytes(&bytes)?);
             }
         },
     )))
@@ -750,7 +751,9 @@ impl LlamaStreamDecoder {
                 if !normalized.thinking.is_empty() && final_thinking.is_none() {
                     final_thinking = Some(normalized.thinking);
                 }
-                let shown = self.accumulated_content[..self.sent_content.min(self.accumulated_content.len())].trim_start();
+                let shown = self.accumulated_content
+                    [..self.sent_content.min(self.accumulated_content.len())]
+                    .trim_start();
                 let whole = normalized.narrative.trim_start();
                 final_content = whole
                     .strip_prefix(shown)
@@ -893,17 +896,25 @@ fn reserve_port(host: &str) -> Result<u16, ProviderError> {
 
 #[derive(Debug, Default)]
 pub struct LlamaSseDecoder {
-    pending: String,
+    pending: Vec<u8>,
     event_data: Vec<String>,
     stream: LlamaStreamDecoder,
 }
 
 impl LlamaSseDecoder {
     pub fn push(&mut self, text: &str) -> Result<Vec<ModelChunk>, ProviderError> {
-        self.pending.push_str(text);
+        self.push_bytes(text.as_bytes())
+    }
+
+    pub fn push_bytes(&mut self, bytes: &[u8]) -> Result<Vec<ModelChunk>, ProviderError> {
+        self.pending.extend_from_slice(bytes);
         let mut chunks = Vec::new();
-        while let Some(newline) = self.pending.find('\n') {
-            let mut line = self.pending[..newline].to_owned();
+        while let Some(newline) = self.pending.iter().position(|byte| *byte == b'\n') {
+            let mut line = std::str::from_utf8(&self.pending[..newline])
+                .map_err(|error| ProviderError::Protocol {
+                    safe_context: format!("llama.cpp stream was not UTF-8: {error}"),
+                })?
+                .to_owned();
             if line.ends_with('\r') {
                 line.pop();
             }
@@ -913,6 +924,15 @@ impl LlamaSseDecoder {
             }
         }
         Ok(chunks)
+    }
+
+    pub fn finish(&self) -> Result<(), ProviderError> {
+        if !self.pending.is_empty() || !self.event_data.is_empty() {
+            return Err(ProviderError::Truncated {
+                safe_context: "llama.cpp stream ended within an SSE event".into(),
+            });
+        }
+        Ok(())
     }
 
     fn consume_line(&mut self, line: &str) -> Result<Option<ModelChunk>, ProviderError> {
@@ -1829,6 +1849,38 @@ mod tests {
         assert_eq!(done.len(), 1);
         assert!(done[0].done);
         assert!(decoder.push("data: [DONE]\n\n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn sse_reassembles_multibyte_text_split_at_every_byte() {
+        let expected = "caf\u{e9}\u{20ac}\u{1f600}";
+        let body = format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{expected}\"}},\"finish_reason\":null}}]}}\n\n"
+        );
+        let mut decoder = LlamaSseDecoder::default();
+        let mut received = String::new();
+        for byte in body.as_bytes() {
+            for chunk in decoder.push_bytes(&[*byte]).unwrap() {
+                received.push_str(&chunk.content);
+            }
+        }
+        decoder.finish().unwrap();
+        assert_eq!(received, expected);
+    }
+
+    #[test]
+    fn sse_rejects_invalid_and_truncated_transport_data() {
+        let mut invalid = LlamaSseDecoder::default();
+        assert!(matches!(
+            invalid.push_bytes(&[0xff, b'\n']),
+            Err(ProviderError::Protocol { .. })
+        ));
+        let mut partial = LlamaSseDecoder::default();
+        partial.push_bytes(b"data: {").unwrap();
+        assert!(matches!(
+            partial.finish(),
+            Err(ProviderError::Truncated { .. })
+        ));
     }
 
     #[tokio::test]

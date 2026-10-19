@@ -398,3 +398,69 @@ Restated from the archive, with where they were first recorded.
 | Compaction is mechanical; no model writes the summary | archived `models-and-context.md` | Unchanged; W4.1 adds that the objective is never shortened |
 | Research evidence under `experiments/` and `.pwr/` stays off the public repository until a publishing policy exists (2026-09-22/23) | `.gitignore` | Holds for old campaigns; W8.5 publishes the confirmatory campaign |
 | The ADR series is closed at ADR-012 | archived MASTER_SPEC | Durable decisions are entries in this file |
+
+
+## Reconciliation opened 2026-10-18 — product completion campaign
+
+The owner requested adoption and execution of the [updated verification plan](plan/piano-campagne-gemma4-e-windows.md), starting with phase 0. This authorizes local inventory, diagnosis and verification; it does not close gates or authorize publication.
+
+Two conflicts remain open: Windows integration is reported and platform-specific code exists, while the roadmap still defers implementation until G3; audit existing code now, retaining native qualification and release gates. The Gemma-only direction conflicts with the historical F6 multi-family requirement; no second product family or revised gate is adopted by this entry. Record an explicit owner decision before declaring F6 passed.
+
+Current execution and limitations: [candidate verification record](reviews/2026-10-18-product-verification.md).
+
+
+## D-2026-10-18-1 — macOS completion first; Windows last
+
+The owner explicitly requested implementation and execution of the verification guide, postponing Windows to the end of the campaign. Continue macOS integrity/security/native checks, deterministic Gemma/controller diagnosis and qualified experiments first. Existing Windows code is retained; Windows audit, native qualification and release evidence remain pending until that final phase. This changes execution order, not the platform's readiness or G1/G2/G3/F6 acceptance criteria. No publication is authorized by this instruction.
+
+
+## D-2026-10-18-2 — Gemma 4 product scope and formal F6 amendment
+
+The owner explicitly selected a Gemma 4-only product. Other model families may be measured only as external benchmarks. This supersedes the product multi-family requirement of D-2026-10-01-2 and the corresponding F6 deployment requirement; it does not remove historical evidence or support claims from their dated context.
+
+F6/W8.4 qualifies pinned Gemma 4 artifacts across measured tiers. Every supported tier still requires the same-engine minimal control and at least two eligible competitor harnesses where their endpoints support the identical deployment. Cross-family comparisons are reported separately as external context and cannot substitute for this controlled comparison. A tier with no suitable Gemma 4 deployment or eligible comparison remains unqualified; report the limitation and obtain an evidenced contract revision rather than inventing a pass.
+
+Retain prospective power, frozen dev/heldout separation, approved numerical margins and latency/resource bounds, zero observed false verification or unauthorized effects, complete candidate checks and written disposition of F1 findings. No G1/G2/G3/F6 gate passes by this scope decision. Windows remains last under D-2026-10-18-1. No model default, release version or publication is approved here.
+
+
+## D-2026-10-18-3 — In-app updates approved
+
+The owner explicitly approved including in-app update checks and user-selected installation in the completion work. Implement via the official Tauri updater, preserve signature verification and the trusted-main-window IPC boundary, and protect active work/unsaved buffers. Startup checks are opt-in; installation requires confirmation. This authorizes local implementation and tests, not a release publication, production key distribution or a gate pass. Durable key ownership, channel hosting and a real signed installed-version upgrade remain release prerequisites.
+
+
+### D-2026-10-18-4 — Local updater signing identity
+
+Owner approval: create a new local Tauri signing pair. Keep private material outside the repository; retain only the public trust anchor in product sources. Key creation does not authorize release publication or establish an operational hosted update feed. Ownership, independent backup and installed-upgrade qualification remain explicit release requirements; see [in-app updates](release/in-app-updates.md#local-signing-identity--2026-10-18).
+
+
+## D-2026-10-19-1 — Weekly completion planning and integration research
+
+The owner requests a maintained sprint guide: complete development on macOS,
+perform thorough fixing/greenfield/general-use final validation there, then
+repeat the functional qualification on Windows before considering a public
+0.5.0. External user experience should inform a later 1.0 decision. The owner
+also requests a serious evaluation of Harness², WebMCP and other relevant
+agentic technologies rather than assuming the first pilot settles their value.
+
+The [sprint guide](plan/sprint-v0.5.0.md) is the proposed execution breakdown,
+with bounded research and measured adoption decisions. Individual integrations,
+defaults, numerical thresholds, definitive version/channel and any change to
+G3/F6 still require their existing explicit decisions. No purchase, release,
+publication or gate pass is authorized here. Obtaining Apple membership before
+the final signed macOS package qualification is a recommendation in the guide;
+the owner's account availability is not presumed.
+
+
+## D-2026-10-19-2 — Apple membership deferred until after Windows
+
+The owner cannot obtain Apple Developer membership now and explicitly moves
+that expense and the associated signing work to the final step, after Windows.
+Proceed with S00 and subsequent development and ad-hoc macOS qualification;
+Apple membership is not a prerequisite for those sprints. This supersedes the
+previous recommendation to obtain membership before S08. Developer ID and
+notarization qualification remain open until membership is available, followed
+by install/upgrade checks on the actual signed package in S12.
+
+No purchase, public ad-hoc release, version bump or publication is authorized
+by this deferral. Updater package signing remains a separate existing task.
+All other acceptance and gate requirements remain unchanged.

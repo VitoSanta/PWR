@@ -39,8 +39,80 @@ pub struct ServiceOutcome {
     pub ran_for_ms: u128,
 }
 
+#[derive(Default)]
+struct LogBuffer {
+    bytes: Vec<u8>,
+    total: usize,
+    failed: bool,
+}
+
+struct Capture {
+    log: std::sync::Arc<std::sync::Mutex<LogBuffer>>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Capture {
+    fn start(mut pipe: impl tokio::io::AsyncRead + Unpin + Send + 'static, limit: usize) -> Self {
+        use tokio::io::AsyncReadExt as _;
+        let log = std::sync::Arc::new(std::sync::Mutex::new(LogBuffer::default()));
+        let output = log.clone();
+        let task = tokio::spawn(async move {
+            let mut buffer = [0u8; 8192];
+            loop {
+                let read = match pipe.read(&mut buffer).await {
+                    Ok(0) => break,
+                    Ok(read) => read,
+                    Err(_) => {
+                        if let Ok(mut log) = output.lock() {
+                            log.failed = true;
+                        }
+                        break;
+                    }
+                };
+                let Ok(mut log) = output.lock() else {
+                    break;
+                };
+                log.total = log.total.saturating_add(read);
+                let excess = log.bytes.len().saturating_add(read).saturating_sub(limit);
+                if excess >= log.bytes.len() {
+                    log.bytes.clear();
+                    log.bytes
+                        .extend_from_slice(&buffer[read.saturating_sub(limit)..read]);
+                } else {
+                    log.bytes.drain(..excess);
+                    log.bytes.extend_from_slice(&buffer[..read]);
+                }
+            }
+        });
+        Self { log, task }
+    }
+
+    async fn finish(mut self, limit: usize) -> (Vec<u8>, bool) {
+        let complete = tokio::time::timeout(Duration::from_secs(2), &mut self.task)
+            .await
+            .is_ok_and(|result| result.is_ok());
+        if !complete {
+            self.task.abort();
+        }
+        let Ok(log) = self.log.lock() else {
+            return (Vec::new(), true);
+        };
+        let bytes = log.bytes[log.bytes.len().saturating_sub(limit)..].to_vec();
+        let truncated = log.total > bytes.len() || log.failed || !complete;
+        (bytes, truncated)
+    }
+}
+
+impl Drop for Capture {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 struct Running {
     child: tokio::process::Child,
+    stdout: Capture,
+    stderr: Capture,
     group: Option<u32>,
     handle: ServiceHandle,
     started: Instant,
@@ -131,7 +203,9 @@ impl ServiceSupervisor {
             )));
         }
         let args = crate::args_after_program(executable, args)?;
-        let mut command = policy.prepare_command(executable, args)?;
+        let mut command = policy
+            .for_persistent_process()
+            .prepare_command(executable, args)?;
         command
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -139,7 +213,21 @@ impl ServiceSupervisor {
             .kill_on_drop(true);
         #[cfg(unix)]
         command.process_group(0);
-        let child = command.spawn()?;
+        let mut child = command.spawn()?;
+        let stdout = Capture::start(
+            child
+                .stdout
+                .take()
+                .ok_or_else(|| std::io::Error::other("service stdout missing"))?,
+            policy.output_limit,
+        );
+        let stderr = Capture::start(
+            child
+                .stderr
+                .take()
+                .ok_or_else(|| std::io::Error::other("service stderr missing"))?,
+            policy.output_limit,
+        );
         let id = self.next_id;
         self.next_id += 1;
         let handle = ServiceHandle {
@@ -154,6 +242,8 @@ impl ServiceSupervisor {
             Running {
                 group: child.id(),
                 child,
+                stdout,
+                stderr,
                 handle: handle.clone(),
                 started: Instant::now(),
             },
@@ -275,16 +365,10 @@ impl ServiceSupervisor {
         };
         kill_group(running.group);
         let _ = running.child.start_kill();
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        if let Some(pipe) = running.child.stdout.as_mut() {
-            let _ = read_capped(pipe, output_limit, &mut stdout).await;
-        }
-        if let Some(pipe) = running.child.stderr.as_mut() {
-            let _ = read_capped(pipe, output_limit, &mut stderr).await;
-        }
+        let (stdout, stdout_truncated) = running.stdout.finish(output_limit).await;
+        let (stderr, stderr_truncated) = running.stderr.finish(output_limit).await;
         let status = running.child.wait().await.ok();
-        let truncated = stdout.len() >= output_limit || stderr.len() >= output_limit;
+        let truncated = stdout_truncated || stderr_truncated;
         let (stdout, _) = policy_redact(&String::from_utf8_lossy(&stdout));
         let (stderr, _) = policy_redact(&String::from_utf8_lossy(&stderr));
         Ok(ServiceOutcome {
@@ -360,28 +444,6 @@ fn kill_group(pid: Option<u32>) {
     }
     #[cfg(not(unix))]
     let _ = pid;
-}
-
-async fn read_capped(
-    pipe: &mut (impl tokio::io::AsyncRead + Unpin),
-    limit: usize,
-    into: &mut Vec<u8>,
-) -> std::io::Result<()> {
-    use tokio::io::AsyncReadExt as _;
-    let mut buffer = [0u8; 8192];
-    while into.len() < limit {
-        // The process is already killed, so a read that would block means
-        // there is nothing more coming.
-        let read =
-            match tokio::time::timeout(Duration::from_millis(200), pipe.read(&mut buffer)).await {
-                Ok(Ok(0)) | Err(_) => break,
-                Ok(Ok(read)) => read,
-                Ok(Err(error)) => return Err(error),
-            };
-        let room = limit - into.len();
-        into.extend_from_slice(&buffer[..read.min(room)]);
-    }
-    Ok(())
 }
 
 /// Service output is untrusted text like any other, and is redacted before it

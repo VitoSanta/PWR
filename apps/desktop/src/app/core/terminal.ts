@@ -105,6 +105,11 @@ export class TerminalService implements OnDestroy {
       if (session === this.active()) session.focus();
     }
   }
+  /** Visible tab position is separate from the stable process identifier. */
+  label(session: TerminalSession): string {
+    const position = this.sessions().indexOf(session) + 1;
+    return `${session.modelOwned ? 'PWR process' : 'Terminal'} ${position}`;
+  }
   async select(key: number): Promise<void> {
     const session = this.sessions().find(s => s.key === key);
     if (!session || session === this.active()) return;
@@ -279,21 +284,25 @@ export class TerminalSession {
     const listeners: Array<() => void> = [];
     let id: number | null = null;
     let opening = true;
-    const early: Array<{ id: number; data?: string }> = [];
-    let earlyBytes = 0;
-    const receive = (event: { id: number; data?: string }) => {
+    const early: Array<{ id: number; data?: string; sequence?: number }> = [];
+    const receive = (event: { id: number; data?: string; sequence?: number }) => {
       if (startup !== this.startup) return;
       if (opening) {
         // term_open can emit the prompt (or exit) before its IPC reply.
-        if (earlyBytes < 65536 && early.length < 1024) {
-          const data = event.data?.slice(0, 65536 - earlyBytes);
-          early.push({ id: event.id, data });
-          earlyBytes += data?.length ?? 0;
-        }
+        // The native reader permits only one unconsumed frame per terminal.
+        if (early.length < 1024) early.push(event);
         return;
       }
       if (event.id !== id) return;
-      if (event.data !== undefined) { term.write(event.data); this.scan(event.data); }
+      if (event.data !== undefined) {
+        term.write(event.data, () => {
+          // Never acknowledge output until xterm actually parsed it.
+          if (startup === this.startup && event.sequence !== undefined) {
+            void bridge.termAck(event.id, event.sequence).catch(error => this.error.set(String(error)));
+          }
+        });
+        this.scan(event.data);
+      }
       else {
         this.id = null;
         this.state.set('exited');

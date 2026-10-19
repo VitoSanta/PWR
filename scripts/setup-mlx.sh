@@ -18,13 +18,14 @@ fi
 "$SETUP_UV" venv --python "${PWR_MLX_PYTHON:-3.14.8}" "$VENV"
 # mlx-vlm loads a model that has a vision encoder once, for text and images
 # alike. Gemma runtime pins updated 2026-10-14; Python 3.14.8 in the app.
-"$SETUP_UV" pip install --python "$VENV/bin/python" "mlx==0.32.3" "mlx-lm==0.32.0" "mlx-embeddings==0.1.0" "mlx-vlm==0.7.8"
+"$SETUP_UV" pip install --python "$VENV/bin/python" --require-hashes --only-binary :all: --no-deps \
+    --requirement "$ROOT/apps/desktop/src-tauri/engine/requirements-macos-arm64-py314.lock"
 
 # The encoder the semantic section ranking uses (backlog C.22), fetched once
 # here so that nothing downloads at run time: the embedding sidecar runs with
 # the hub offline. About 0.5 GB, MIT licence. Skip with PWR_SKIP_ENCODER=1.
 if [ -z "${PWR_SKIP_ENCODER:-}" ]; then
-    "$VENV/bin/python" -c "from huggingface_hub import snapshot_download; snapshot_download('intfloat/multilingual-e5-small')"
+    "$VENV/bin/python" "$ROOT/crates/pwr-mlx/sidecar/encoder_assets.py" --install
 fi
 
 printf '%s\n' "MLX engine environment ready: $VENV/bin/python"

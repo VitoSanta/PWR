@@ -9,6 +9,17 @@ describe('WorkbenchStore', () => {
     TestBed.configureTestingModule({});
   });
 
+  it('does not resurrect a terminal card from the previous application session', () => {
+    localStorage.setItem('pwr:workbench', JSON.stringify({ open: [{ id: 'terminal', collapsed: false }], maximized: 'terminal' }));
+    const work = TestBed.inject(WorkbenchStore);
+    expect(work.open()).toEqual([]);
+    expect(work.maximized()).toBeNull();
+    work.show('files');
+    expect(work.visible().map(card => card.id)).toEqual(['files']);
+    work.show('terminal');
+    expect(work.visible().map(card => card.id)).toEqual(['files', 'terminal']);
+  });
+
   it('opens, collapses, maximises, moves and closes cards, and remembers them', () => {
     const work = TestBed.inject(WorkbenchStore);
     work.show('terminal');
@@ -118,31 +129,32 @@ describe('WorkbenchStore', () => {
     expect(work.visible().map((card) => card.id)).toEqual(['review', 'activity', 'knowledge']);
   });
 
-  it('exits full screen when a maximized card is collapsed, and never leaves a column of only collapsed cards', () => {
+  it('collapses and expands the only card after leaving maximized mode', () => {
     const work = TestBed.inject(WorkbenchStore);
     work.focusMode.set(true);
-    // Only 'review' is open: collapsing it while maximized exits full screen and keeps it expanded.
     work.maximize('review');
-    expect(work.focused()).toBe('review');
     work.collapse('review');
     expect(work.focused()).toBeNull();
+    expect(work.visible()).toEqual([{ id: 'review', collapsed: true }]);
+    work.collapse('review');
     expect(work.visible()).toEqual([{ id: 'review', collapsed: false }]);
+  });
 
-    // With two cards open, collapsing a maximized card exits full screen and folds it beside the other.
+  it('allows every card to collapse without silently expanding a different one', () => {
+    const work = TestBed.inject(WorkbenchStore);
+    work.focusMode.set(true);
     work.show('browser');
     work.maximize('browser');
     work.collapse('browser');
+    work.collapse('review');
     expect(work.focused()).toBeNull();
     expect(work.visible()).toEqual([
-      { id: 'review', collapsed: false },
-      { id: 'browser', collapsed: true },
+      { id: 'review', collapsed: true }, { id: 'browser', collapsed: true },
     ]);
+  });
 
-    // Collapsing the last expanded card automatically unfolds another so the column is never empty.
-    work.collapse('review');
-    expect(work.visible()).toEqual([
-      { id: 'review', collapsed: true },
-      { id: 'browser', collapsed: false },
-    ]);
+  it('preserves intentionally collapsed cards when loading the session', () => {
+    localStorage.setItem('pwr:workbench', JSON.stringify({ open: [{ id: 'review', collapsed: true }], maximized: null }));
+    expect(TestBed.inject(WorkbenchStore).visible()).toEqual([{ id: 'review', collapsed: true }]);
   });
 });

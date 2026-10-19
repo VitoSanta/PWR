@@ -5,7 +5,7 @@
   try {
     const visible = el => !!(el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
     const snapshot = () => {
-      const nonce = crypto.randomUUID();
+      const nonce = token;
       const refs = new Map();
       const elements = [...document.querySelectorAll('a[href],button,input,textarea,select,[role="button"],[role="link"],[contenteditable="true"]')].filter(visible).slice(0, 300).map((el, i) => {
         const ref = nonce + ':' + i; refs.set(ref, el);
@@ -40,8 +40,25 @@
     } else if (operation === 'key') {
       const el = args.ref ? element() : document.activeElement;
       if (!['Enter','Escape','Tab','ArrowDown','ArrowUp','ArrowLeft','ArrowRight',' '].includes(args.key)) throw new Error('Unsupported key.');
-      if (args.key === 'Enter' && el?.form) el.form.requestSubmit();
-      else { el?.dispatchEvent(new KeyboardEvent('keydown',{key:args.key,bubbles:true})); el?.dispatchEvent(new KeyboardEvent('keyup',{key:args.key,bubbles:true})); }
+      el?.focus?.();
+      const proceed = el?.dispatchEvent(new KeyboardEvent('keydown',{key:args.key,bubbles:true,cancelable:true}));
+      if (proceed && args.key === 'Tab') {
+        const targets = [...document.querySelectorAll('a[href],button,input,textarea,select,[tabindex],[contenteditable="true"]')]
+          .filter(target => visible(target) && !target.disabled && target.tabIndex >= 0 && !target.closest('[inert]'))
+          .sort((left,right) => (left.tabIndex || Number.MAX_SAFE_INTEGER) - (right.tabIndex || Number.MAX_SAFE_INTEGER));
+        if (!targets.length) throw new Error('The page has no focusable elements.');
+        targets[(targets.indexOf(el) + 1) % targets.length].focus();
+      } else if (proceed && args.key === 'Enter') {
+        if (el?.tagName === 'TEXTAREA') {
+          if (el.disabled || el.readOnly) throw new Error('This field cannot be edited.');
+          if (el.dispatchEvent(new InputEvent('beforeinput',{bubbles:true,cancelable:true,inputType:'insertLineBreak',data:null}))) {
+            el.setRangeText('\n',el.selectionStart,el.selectionEnd,'end');
+            el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertLineBreak',data:null}));
+          }
+        } else if (el?.matches('button,a[href],input[type="submit"],input[type="button"]')) el.click();
+        else if (el?.tagName === 'INPUT' && el.form) el.form.requestSubmit();
+      }
+      (document.activeElement || el)?.dispatchEvent(new KeyboardEvent('keyup',{key:args.key,bubbles:true,cancelable:true}));
     } else if (operation === 'scroll') window.scrollBy(0, Math.max(-2000,Math.min(2000,Number(args.delta)||600)));
     else if (operation === 'back') history.back();
     else if (operation === 'forward') history.forward();

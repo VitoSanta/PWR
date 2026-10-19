@@ -56,23 +56,29 @@ version from the tag and the notes from `docs/release/<tag>-release-notes.md`,
 and creates a draft prerelease. Its execution must be verified for the
 selected candidate; historical CI is not new artifact evidence.
 
-## Reproducibility gaps
+## Reproducibility and remaining qualification
 
-| Gap | Evidence | Plan |
-|---|---|---|
-| The release workflow requires the reused CI jobs before packaging; candidate execution and artifact provenance still need verification | `needs: checks` | W9.1 / next-release checklist |
-| The engine installs its four direct pins (`mlx==0.32.3`, `mlx-lm==0.31.3`, `mlx-embeddings==0.1.0`, `mlx-vlm==0.7.2`) with no lock of their transitive dependencies and no hashes | `engine.rs`, `scripts/setup-mlx.sh` | W9.2 |
-| Managed-engine package pins are compared with the installation marker. Obsolete pins offer reinstallation; a candidate upgrade/cancel/retry walk is still needed. Explicit environment/checkout interpreters have separate discovery semantics | `marker_current` / `find` in `engine.rs` | W9.2 / native upgrade check |
-| Python pinned to `3.14.8` since 2026-10-14; transitive Python dependencies still are not locked | `engine.rs` | W9.2, partial |
-| CI's sidecar job installs only `mlx` and `mlx-lm` | `ci.yml` | W9.2 |
-| No licence or supply-chain inventory ships with the release | — | W9.3 |
-| Not notarized | — | W9.4 |
+The release script refuses tracked/untracked source changes before cleaning or
+building. A hosted tag must resolve to HEAD. Before checksums are emitted it
+requires the same clean commit/tree again. It records tool versions, source
+identity and artifact sizes/SHA256 in `build-provenance.json`, included in the
+checksum set and draft workflow attachments. This is an unsigned local build
+record, not a cryptographic attestation, hermetic build or proof that gates ran.
+Ignored build outputs are excluded from Git cleanliness checks. No current
+uncommitted development tree is eligible for release packaging.
 
-Cargo and npm dependencies are locked (`Cargo.lock`, `apps/desktop/package-lock.json`).
+Cargo and npm dependencies are locked. The [managed engine](release/managed-engine.md)
+now pins Python 3.14.8 and 76 hash-locked Python packages in native setup,
+the shell helper and sidecar CI configuration. Actual native cancel/retry and
+pinned offline encoder execution pass on the development artifact. Other
+Python overrides, Python distribution provenance and older hosts remain outside
+that qualification; hosted CI has not run on the current changes.
 
-The release script does not enforce a clean Git tree or produce full build
-provenance. Freeze and record the candidate commit before running it. Version
-agreement alone does not prove that an artifact contains the reviewed source.
+[Bundled notices](release/third-party-notices.md) contain 426 Cargo records and
+712 texts, with 23 unresolved review items. They do not establish legal
+clearance or full engine/model attribution. Apple signing/notarization,
+selected-candidate hosted checks and operational updater qualification remain
+open. See the [release checklist](release/next-release-readiness.md).
 
 ## Branches
 

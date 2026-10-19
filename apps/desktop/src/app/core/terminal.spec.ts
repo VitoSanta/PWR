@@ -32,25 +32,42 @@ describe('Terminal output for the core', () => {
 
   it('preserves output and an immediate exit emitted before term_open replies', async () => {
     session.close();
-    let output!: (event: { id: number; data: string }) => void;
+    let output!: (event: { id: number; data: string; sequence: number }) => void;
     let exited!: (id: number) => void;
     const stopOutput = vi.fn(), stopExit = vi.fn();
     vi.spyOn(bridge, 'onTermOutput').mockImplementation(async handler => { output = handler; return stopOutput; });
     vi.spyOn(bridge, 'onTermExit').mockImplementation(async handler => { exited = handler; return stopExit; });
     vi.spyOn(bridge, 'termOpen').mockImplementation(async () => {
-      output({ id: 72, data: 'another shell' });
-      output({ id: 71, data: 'prompt> ' });
+      output({ id: 72, data: 'another shell', sequence: 1 });
+      output({ id: 71, data: 'prompt> ', sequence: 1 });
       exited(71);
       return 71;
     });
     await (session as any).start('/project-a');
     const write = (session as any).term.write;
-    expect(write).toHaveBeenCalledWith('prompt> ');
-    expect(write).not.toHaveBeenCalledWith('another shell');
+    expect(write).toHaveBeenCalledWith('prompt> ', expect.any(Function));
+    expect(write.mock.calls.some(([text]: [string]) => text === 'another shell')).toBe(false);
     expect(session.state()).toBe('exited');
     session.close();
     expect(stopOutput).toHaveBeenCalledOnce();
     expect(stopExit).toHaveBeenCalledOnce();
+  });
+
+  it('acknowledges output only after xterm consumes it and ignores callbacks after close', async () => {
+    session.close();
+    let output!: (event: {id:number;data:string;sequence:number})=>void;
+    vi.spyOn(bridge,'onTermOutput').mockImplementation(async handler=>{output=handler;return ()=>{};});
+    vi.spyOn(bridge,'onTermExit').mockResolvedValue(()=>{});
+    vi.spyOn(bridge,'termOpen').mockResolvedValue(81);
+    vi.spyOn(bridge,'termClose').mockResolvedValue(undefined as any);
+    const ack=vi.spyOn(bridge,'termAck').mockResolvedValue(undefined);
+    await (session as any).start('/project-a');
+    output({id:81,data:'first',sequence:1});
+    const write=(session as any).term.write;
+    expect(ack).not.toHaveBeenCalled();
+    write.mock.calls.at(-1)[1]();expect(ack).toHaveBeenCalledWith(81,1);
+    output({id:81,data:'second',sequence:2});const consumed=write.mock.calls.at(-1)[1];
+    session.close();consumed();expect(ack).toHaveBeenCalledTimes(1);
   });
 
   let terminal: TerminalService;
@@ -124,6 +141,10 @@ describe('Independent terminal sessions', () => {
     expect(closeFirst).toHaveBeenCalledOnce();
     expect(closeSecond).not.toHaveBeenCalled();
     expect(terminal.active()).toBe(second);
+    expect(terminal.label(second)).toBe('Terminal 1');
+    expect(second.key).not.toBe(first.key);
+    await terminal.newSession();
+    expect(terminal.sessions().map(session => terminal.label(session))).toEqual(['Terminal 1', 'Terminal 2']);
     terminal.close();
   });
 });

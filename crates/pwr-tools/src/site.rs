@@ -29,12 +29,17 @@ const CONSOLE_LINES: usize = 5;
 /// The folder a build left a site in: the shallowest `index.html` under
 /// `dist/`, `build/` or `out/`.
 pub fn built_site(root: &Path) -> Option<PathBuf> {
+    let regular = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file());
+    let directory = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir());
     for base in ["dist", "build", "out"] {
-        let mut level = vec![root.join(base)];
+        let mut level: Vec<_> = [root.join(base)]
+            .into_iter()
+            .filter(|p| directory(p))
+            .collect();
         for _ in 0..4 {
             if let Some(found) = level
                 .iter()
-                .find(|folder| folder.join("index.html").is_file())
+                .find(|folder| regular(&folder.join("index.html")))
             {
                 return Some(found.clone());
             }
@@ -44,7 +49,7 @@ pub fn built_site(root: &Path) -> Option<PathBuf> {
                 .flat_map(|entries| entries.flatten())
                 .map(|entry| entry.path())
                 .filter(|path| {
-                    path.is_dir() && path.file_name().is_some_and(|name| name != "node_modules")
+                    directory(path) && path.file_name().is_some_and(|name| name != "node_modules")
                 })
                 .collect();
             next.sort();
@@ -123,6 +128,41 @@ pub(crate) struct Served {
 
 impl Served {
     pub(crate) fn start(folder: PathBuf) -> std::io::Result<Self> {
+        let folder = folder.canonicalize()?;
+        if !folder.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "site root is not a directory",
+            ));
+        }
+        #[cfg(unix)]
+        let folder = Arc::new(SiteRoot::open(&folder)?);
+        #[cfg(not(unix))]
+        let folder = Arc::new(SiteRoot(folder));
+        Self::with_root(folder)
+    }
+
+    fn start_built(root: &Path, folder: &Path) -> std::io::Result<Self> {
+        let relative = folder
+            .strip_prefix(root)
+            .map_err(|_| std::io::ErrorKind::PermissionDenied)?;
+        #[cfg(unix)]
+        {
+            let pinned = SiteRoot::open(&root.canonicalize()?)?.directory(relative)?;
+            Self::with_root(Arc::new(pinned))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = relative;
+            let canonical = folder.canonicalize()?;
+            if !canonical.starts_with(root.canonicalize()?) {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
+            Self::start(canonical)
+        }
+    }
+
+    fn with_root(folder: Arc<SiteRoot>) -> std::io::Result<Self> {
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
@@ -155,10 +195,95 @@ impl Drop for Served {
     }
 }
 
-fn answer(mut stream: std::net::TcpStream, folder: &Path) {
+// Pin the directory and walk each component relative to an open descriptor.
+// No check-then-reopen pathname or symlink traversal occurs during a request.
+#[cfg(unix)]
+struct SiteRoot(std::fs::File);
+
+#[cfg(unix)]
+impl SiteRoot {
+    fn open(path: &Path) -> std::io::Result<Self> {
+        use rustix::fs::{Mode, OFlags, openat};
+        let mut directory = std::fs::File::open("/")?;
+        for component in path.components() {
+            if let std::path::Component::Normal(name) = component {
+                directory = openat(
+                    &directory,
+                    name,
+                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )?
+                .into();
+            }
+        }
+        Ok(Self(directory))
+    }
+
+    fn directory(&self, path: &Path) -> std::io::Result<Self> {
+        use rustix::fs::{Mode, OFlags, openat};
+        let mut directory = self.0.try_clone()?;
+        for component in path.components() {
+            let std::path::Component::Normal(name) = component else {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            };
+            directory = openat(
+                &directory,
+                name,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )?
+            .into();
+        }
+        Ok(Self(directory))
+    }
+
+    fn file(&self, path: &Path) -> std::io::Result<std::fs::File> {
+        use rustix::fs::{Mode, OFlags, openat};
+        let mut directory = self.0.try_clone()?;
+        let mut components = path.components().peekable();
+        while let Some(component) = components.next() {
+            let std::path::Component::Normal(name) = component else {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            };
+            let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK;
+            let flags = if components.peek().is_some() {
+                flags | OFlags::DIRECTORY
+            } else {
+                flags
+            };
+            let file: std::fs::File = openat(&directory, name, flags, Mode::empty())?.into();
+            if components.peek().is_none() {
+                return if file.metadata()?.is_file() {
+                    Ok(file)
+                } else {
+                    Err(std::io::ErrorKind::PermissionDenied.into())
+                };
+            }
+            directory = file;
+        }
+        Err(std::io::ErrorKind::NotFound.into())
+    }
+}
+
+// Windows qualification is tracked separately; retain its existing path checks.
+#[cfg(not(unix))]
+struct SiteRoot(PathBuf);
+#[cfg(not(unix))]
+impl SiteRoot {
+    fn file(&self, path: &Path) -> std::io::Result<std::fs::File> {
+        let file = self.0.join(path).canonicalize()?;
+        if !file.starts_with(&self.0) {
+            return Err(std::io::ErrorKind::PermissionDenied.into());
+        }
+        std::fs::File::open(file)
+    }
+}
+
+fn answer(mut stream: std::net::TcpStream, folder: &SiteRoot) {
     // An accepted socket inherits the listener's non-blocking mode on macOS.
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
     let mut request = [0u8; 4096];
     let read = stream.read(&mut request).unwrap_or(0);
     let line = String::from_utf8_lossy(&request[..read]);
@@ -172,10 +297,25 @@ fn answer(mut stream: std::net::TcpStream, folder: &Path) {
         .trim_start_matches('/')
         .to_owned();
     let inside = !asked.split('/').any(|part| part == "..");
-    let file = Some(folder.join(&asked))
-        .filter(|path| inside && !asked.is_empty() && path.is_file())
-        .unwrap_or_else(|| folder.join("index.html"));
-    let kind = match file.extension().and_then(|extension| extension.to_str()) {
+    let requested = if inside && !asked.is_empty() {
+        Path::new(&asked)
+    } else {
+        Path::new("index.html")
+    };
+    let (name, file) = match folder.file(requested) {
+        Ok(file) => (requested, Ok(file)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
+            Path::new("index.html"),
+            folder.file(Path::new("index.html")),
+        ),
+        Err(error) => (requested, Err(error)),
+    };
+    let Ok(file) = file else {
+        let _ = stream
+            .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        return;
+    };
+    let kind = match name.extension().and_then(|extension| extension.to_str()) {
         Some("html") => "text/html; charset=utf-8",
         Some("js" | "mjs") => "text/javascript; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
@@ -187,13 +327,16 @@ fn answer(mut stream: std::net::TcpStream, folder: &Path) {
         Some("woff2") => "font/woff2",
         _ => "application/octet-stream",
     };
-    let body = std::fs::read(&file).unwrap_or_default();
+    let Ok(metadata) = file.metadata() else {
+        return;
+    };
+    let length = metadata.len();
     let _ = write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
+        length
     );
-    let _ = stream.write_all(&body);
+    let _ = std::io::copy(&mut file.take(length), &mut stream);
 }
 
 /// What each page of the built site shows, as text for a reviewer, or `None`
@@ -201,7 +344,7 @@ fn answer(mut stream: std::net::TcpStream, folder: &Path) {
 /// review goes on without it.
 pub async fn shown(policy: &ToolPolicy) -> Option<String> {
     let folder = built_site(&policy.root)?;
-    let served = Served::start(folder).ok()?;
+    let served = Served::start_built(&policy.root, &folder).ok()?;
     let mut looking = policy.clone();
     if !looking.approvals.contains(&Approval::LocalService) {
         looking.approvals.push(Approval::LocalService);
@@ -245,6 +388,26 @@ mod tests {
         std::fs::write(root.path().join("dist/node_modules/x/index.html"), "").unwrap();
         std::fs::write(site.join("index.html"), "<html>").unwrap();
         assert_eq!(built_site(root.path()), Some(site));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_discovery_does_not_leave_the_workspace_through_symlinks() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("index.html"), "synthetic secret").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("dist")).unwrap();
+        assert_eq!(built_site(root.path()), None);
+        std::fs::remove_file(root.path().join("dist")).unwrap();
+        std::fs::create_dir(root.path().join("dist")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("dist/linked")).unwrap();
+        assert_eq!(built_site(root.path()), None);
+        std::os::unix::fs::symlink(
+            outside.path().join("index.html"),
+            root.path().join("dist/index.html"),
+        )
+        .unwrap();
+        assert_eq!(built_site(root.path()), None);
     }
 
     #[test]
@@ -366,6 +529,72 @@ mod tests {
             );
         }
         assert_eq!(look.title.as_deref(), Some("Aurora"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_symlinks_are_never_served_including_the_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "synthetic secret").unwrap();
+        std::fs::write(root.path().join("index.html"), "public page").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            root.path().join("file.txt"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("directory")).unwrap();
+        let served = Served::start(root.path().to_path_buf()).unwrap();
+        let get = |path: &str| {
+            let mut stream = std::net::TcpStream::connect(("127.0.0.1", served.port)).unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            write!(stream, "GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            response
+        };
+        for path in ["/file.txt", "/directory/secret.txt"] {
+            let response = get(path);
+            assert!(response.starts_with("HTTP/1.1 403"), "{response}");
+            assert!(!response.contains("synthetic secret"));
+        }
+        std::fs::remove_file(root.path().join("index.html")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            root.path().join("index.html"),
+        )
+        .unwrap();
+        for path in ["/", "/route", "/index.html"] {
+            let response = get(path);
+            assert!(response.starts_with("HTTP/1.1 403"), "{response}");
+            assert!(!response.contains("synthetic secret"));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_the_served_directory_cannot_redirect_reads() {
+        let root = tempfile::tempdir().unwrap();
+        let site = root.path().join("dist");
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&site).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(site.join("index.html"), "original public page").unwrap();
+        std::fs::write(outside.join("index.html"), "synthetic secret").unwrap();
+        let served = Served::start(site.clone()).unwrap();
+        std::fs::rename(&site, root.path().join("original")).unwrap();
+        std::os::unix::fs::symlink(&outside, &site).unwrap();
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", served.port)).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        write!(stream, "GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(!response.contains("synthetic secret"), "{response}");
+        assert!(response.ends_with("original public page"), "{response}");
     }
 
     #[test]

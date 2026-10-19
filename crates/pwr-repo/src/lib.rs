@@ -42,11 +42,14 @@ pub struct FileRecord {
     /// disk.
     #[serde(default)]
     pub terms: Vec<String>,
-    /// Modification time and size, the pair that says "unchanged" without
-    /// reading. A file whose hash matters is still hashed; this only decides
-    /// whether it has to be.
+    /// Modification time, combined with an OS-owned change identity for reuse.
     #[serde(default)]
     pub mtime_ns: u64,
+    /// Unix device/inode/change-time stamp. Older records lack it and are
+    /// refreshed. Platforms without a reliable stamp re-read instead of
+    /// treating preserved mtime and size as proof of unchanged content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_stamp: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryIndex {
@@ -415,11 +418,10 @@ const MAX_INDEXED_BYTES: usize = 1_000_000;
 /// bytes) twice, on a workspace the previous run had already read. This is the
 /// half that stops the first re-read.
 ///
-/// Keyed on modification time and size together, and never on either alone: a
-/// file rewritten with the same length in the same second is the case where
-/// both are needed and the hash is what settles it. A cache hit still carries
-/// the hash the previous run computed, so nothing downstream is told a hash
-/// that was not measured.
+/// Keyed on modification time and size together, and never on either alone.
+/// This is a practical cache heuristic, not a content-integrity check: if a
+/// writer changes bytes while preserving both values, the prior record (and
+/// its previously measured hash) is reused until a later cache miss.
 pub struct IndexCache {
     connection: rusqlite::Connection,
 }
@@ -444,7 +446,14 @@ impl IndexCache {
         Ok(Self { connection })
     }
 
-    fn get(&self, path: &str, mtime_ns: u64, bytes: u64) -> Option<FileRecord> {
+    fn get(
+        &self,
+        path: &str,
+        mtime_ns: u64,
+        bytes: u64,
+        stamp: Option<&str>,
+    ) -> Option<FileRecord> {
+        let stamp = stamp?;
         let record: String = self
             .connection
             .query_row(
@@ -453,7 +462,8 @@ impl IndexCache {
                 |row| row.get(0),
             )
             .ok()?;
-        serde_json::from_str(&record).ok()
+        let record: FileRecord = serde_json::from_str(&record).ok()?;
+        (record.change_stamp.as_deref() == Some(stamp)).then_some(record)
     }
 
     fn put(&self, record: &FileRecord) -> Result<(), RepoError> {
@@ -570,7 +580,10 @@ fn walk_with_cache(
             .map(|since| since.as_nanos() as u64)
             .unwrap_or_default();
         work.files += 1;
-        if let Some(cached) = cache.and_then(|cache| cache.get(&relative, mtime_ns, size)) {
+        let change_stamp = change_stamp(&metadata);
+        if let Some(cached) =
+            cache.and_then(|cache| cache.get(&relative, mtime_ns, size, change_stamp.as_deref()))
+        {
             work.reused += 1;
             files.push(cached);
             continue;
@@ -593,6 +606,7 @@ fn walk_with_cache(
             tests: test_subject(&relative),
             terms: extract_terms(&text),
             mtime_ns,
+            change_stamp,
             path: relative,
         };
         if let Some(cache) = cache {
@@ -606,6 +620,25 @@ fn walk_with_cache(
         work.forgotten = cache.retain(&present)?;
     }
     Ok(work)
+}
+
+fn change_stamp(metadata: &fs::Metadata) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Some(format!(
+            "{}:{}:{}:{}",
+            metadata.dev(),
+            metadata.ino(),
+            metadata.ctime(),
+            metadata.ctime_nsec()
+        ))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        None
+    }
 }
 
 /// A ranked passage of the repository, with everything needed to audit why it

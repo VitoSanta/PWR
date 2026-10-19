@@ -4,6 +4,41 @@ import { TestBed } from '@angular/core/testing';
 import { AgentStore } from './agent.store';
 
 describe('AgentStore context', () => {
+  it('ignores timeline updates for another conversation', () => {
+    const update = {
+      sessionUpdate: 'agent_message_chunk',
+      content: { text: 'old text' },
+      _meta: { pwr: { live: true } },
+    };
+    store.receive({ method: 'session/update', params: { sessionId: 'previous', update } });
+    expect(store.timeline()).toEqual([]);
+    store.receive({ method: 'session/update', params: { sessionId: 's1', update } });
+    expect(store.timeline()[0].text).toBe('old text');
+  });
+
+  it('ignores messages from a replaced core generation', () => {
+    (store as any).generation = 2;
+    const message = {
+      method: 'session/request_permission',
+      id: 1,
+      params: { toolCall: { title: 'old permission' } },
+    };
+    (store.receive as any)(message, 1);
+    expect(store.permission()).toBeNull();
+    (store.receive as any)(message, 2);
+    expect(store.permission()?.title).toBe('old permission');
+  });
+
+  it('keeps background extension notifications from other conversations', () => {
+    const seen = vi.fn();
+    store.on('_pwr/memory_proposed', seen);
+    store.receive({
+      method: '_pwr/memory_proposed',
+      params: { sessionId: 'other', cwd: '/other', text: 'remember' },
+    });
+    expect(seen).toHaveBeenCalledWith({ sessionId: 'other', cwd: '/other', text: 'remember' });
+  });
+
   it('keeps the selected model fixed during an active turn', async () => {
     const request = vi.spyOn(store as any, 'request').mockResolvedValue({});
     store.turnActive.set(true);
@@ -11,11 +46,35 @@ describe('AgentStore context', () => {
     expect(request).not.toHaveBeenCalled();
     store.turnActive.set(false);
     await store.selectModel('mlx-community/gemma-4-26b-a4b-it-4bit');
-    expect(request).toHaveBeenCalledWith('_pwr/models', expect.objectContaining({ model: 'mlx-community/gemma-4-26b-a4b-it-4bit' }));
+    expect(request).toHaveBeenCalledWith(
+      '_pwr/models',
+      expect.objectContaining({ model: 'mlx-community/gemma-4-26b-a4b-it-4bit' }),
+    );
+  });
+
+  it('times out an unanswered startup request and permits choosing another workspace', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(bridge,'start').mockResolvedValue({core:'/tmp/pwr',workspace:'/tmp/blocked',generation:1});
+      vi.spyOn(bridge,'send').mockResolvedValue(undefined);
+      const stop=vi.spyOn(bridge,'stop').mockResolvedValue(undefined);
+      const opening=store.openWorkspace('/tmp/blocked');
+      await vi.advanceTimersByTimeAsync(30_001);
+      expect(await opening).toBe(false);
+      expect(store.switchingWorkspace()).toBe(false);
+      expect(store.coreState()).toBe('error');
+      expect(store.coreError()).toContain('Open the workspace folder again');
+      expect(stop).toHaveBeenCalledOnce();
+      expect((store as any).pending.size).toBe(0);
+    } finally {vi.useRealTimers();}
   });
 
   it('clears the previous run outcome when opening another workspace', async () => {
-    vi.spyOn(bridge, 'start').mockResolvedValue({ core: '/tmp/pwr', workspace: '/tmp/next', generation: 1 });
+    vi.spyOn(bridge, 'start').mockResolvedValue({
+      core: '/tmp/pwr',
+      workspace: '/tmp/next',
+      generation: 1,
+    });
     vi.spyOn(store as any, 'request').mockImplementation(async (...args: unknown[]) => {
       const method = args[0] as string;
       if (method === 'initialize') return { _meta: { pwr: { chatHome: '/tmp/chat' } } };
@@ -24,39 +83,144 @@ describe('AgentStore context', () => {
       if (method === '_pwr/approvals') return { mode: 'ask', sandboxed: true, asking: [] };
       throw new Error(`Unexpected request: ${method}`);
     });
-    store.runOutcome.set({ terminal: 'completed', text: 'Finished after 0 actions.', detail: null, action: null, tone: 'done', confinement: 'Sandboxed' });
+    store.runOutcome.set({
+      terminal: 'completed',
+      text: 'Finished after 0 actions.',
+      detail: null,
+      action: null,
+      tone: 'done',
+      confinement: 'Sandboxed',
+    });
     store.outcome.set('Finished after 0 actions.');
+    store.queue.set(['must not reach the next workspace']);
+    store.permission.set({ id: 9, title: 'old', approval: 'network', options: [] });
+    store.usage.set({ used: 100, window: 1000, estimated: true });
 
     await store.openWorkspace('/tmp/next');
 
     expect(store.runOutcome()).toBeNull();
     expect(store.outcome()).toBe('');
+    expect(store.queue()).toEqual([]);
+    expect(store.permission()).toBeNull();
+    expect(store.usage()).toBeNull();
     expect(store.logs().join('\n')).toContain('Core initialized; protocol ready.');
-    expect(store.logLines().at(-1)?.line).toBe('Core initialized; protocol ready.');
+    expect(store.logLines().map((line) => line.line)).toContain(
+      'Core initialized; protocol ready.',
+    );
+  });
+
+  it('clears conversation-scoped queues, progress and controls when switching sessions', async () => {
+    store.queue.set(['old queued prompt']);
+    store.permission.set({ id: 9, title: 'old request', approval: 'network', options: [] });
+    store.prefill.set({ processed: 10, total: 100, at: Date.now() });
+    store.commandOutput.set({ name: 'verify', text: 'old result' });
+    store.commandRunning.set('verify');
+    store.compacting.set(true);
+    store.reviewingAcceptance.set(true);
+    store.rewinding.set(true);
+    store.outcome.set('old outcome');
+    store.runOutcome.set({
+      terminal: 'completed',
+      text: 'old run',
+      detail: null,
+      action: null,
+      tone: 'done',
+    });
+
+    store.newConversation();
+
+    expect(store.queue()).toEqual([]);
+    expect(store.permission()).toBeNull();
+    expect(store.prefill()).toBeNull();
+    expect(store.commandOutput()).toBeNull();
+    expect(store.commandRunning()).toBeNull();
+    expect(store.compacting()).toBe(false);
+    expect(store.reviewingAcceptance()).toBe(false);
+    expect(store.rewinding()).toBe(false);
+    expect(store.outcome()).toBe('');
+    expect(store.runOutcome()).toBeNull();
+  });
+
+  it('does not publish an old command result into the next conversation', async () => {
+    let resolve!: (result: { text: string }) => void;
+    vi.spyOn(store as any, 'request').mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const command = store.runCommand('verify');
+    store.newConversation();
+    store.sessionId.set('s2');
+    resolve({ text: 'old verification result' });
+    await command;
+    expect(store.commandOutput()).toBeNull();
+    expect(store.commandRunning()).toBeNull();
+  });
+
+  it('does not apply a delayed context reply after the conversation changes', async () => {
+    let resolve!: (result: { used: number }) => void;
+    vi.spyOn(store as any, 'request').mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    store.contextInfo.set({ used: 1 } as any);
+    const refresh = store.refreshContext();
+    store.newConversation();
+    store.contextInfo.set({ used: 2 } as any);
+    resolve({ used: 99 });
+    await refresh;
+    expect(store.contextInfo()).toEqual({ used: 2 });
   });
 
   it('turns thinking on and off through the core and shows what it said', async () => {
-    const request = vi.spyOn(store as any, 'request').mockResolvedValue({ thinking: true, thoughtCapTokens: 4096 });
+    const request = vi
+      .spyOn(store as any, 'request')
+      .mockResolvedValue({ thinking: true, thoughtCapTokens: 4096 });
     await store.setThinking(true);
-    expect(request).toHaveBeenCalledWith('_pwr/models', expect.objectContaining({ thinking: true }));
+    expect(request).toHaveBeenCalledWith(
+      '_pwr/models',
+      expect.objectContaining({ thinking: true }),
+    );
     expect(store.thinking()).toBe(true);
     expect(store.thoughtCap()).toBe(4096);
   });
 
   it('does not send the current terminal to a request from another session', () => {
     const send = vi.spyOn(bridge, 'send').mockResolvedValue(undefined as any);
-    const read = vi.fn().mockReturnValue([{ title: 'Terminal', running: true, text: 'Current project output' }]);
+    const read = vi
+      .fn()
+      .mockReturnValue([{ title: 'Terminal', running: true, text: 'Current project output' }]);
     store.terminalReader = read;
-    store.receive({ jsonrpc: '2.0', id: 19, method: '_pwr/terminal/read', params: { sessionId: 'previous-session', lines: 20 } });
+    store.receive({
+      jsonrpc: '2.0',
+      id: 19,
+      method: '_pwr/terminal/read',
+      params: { sessionId: 'previous-session', lines: 20 },
+    });
     expect(read).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith({ jsonrpc: '2.0', id: 19, result: { terminals: [] } });
     send.mockRestore();
   });
 
   it('does not publish an old acceptance review into a newly opened session', async () => {
-    store.runOutcome.set({ terminal: 'contract_changed', text: 'Old review', detail: null, action: null, tone: 'failed', acceptanceChanges: ['tests/a.rs'] });
+    store.runOutcome.set({
+      terminal: 'contract_changed',
+      text: 'Old review',
+      detail: null,
+      action: null,
+      tone: 'failed',
+      acceptanceChanges: ['tests/a.rs'],
+    });
     let resolve!: (result: { allowed: boolean }) => void;
-    vi.spyOn(store as any, 'request').mockImplementation(() => new Promise(done => { resolve = done; }));
+    vi.spyOn(store as any, 'request').mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
     const review = store.reviewAcceptanceChanges();
     store.sessionId.set('new-session');
     store.runOutcome.set(null);
@@ -66,9 +230,21 @@ describe('AgentStore context', () => {
   });
 
   it('does not queue duplicate acceptance dialogs after a second review click', async () => {
-    store.runOutcome.set({ terminal: 'contract_changed', text: 'Review required', detail: null, action: null, tone: 'failed', acceptanceChanges: ['tests/a.rs'] });
+    store.runOutcome.set({
+      terminal: 'contract_changed',
+      text: 'Review required',
+      detail: null,
+      action: null,
+      tone: 'failed',
+      acceptanceChanges: ['tests/a.rs'],
+    });
     let resolve!: (result: { allowed: boolean }) => void;
-    const request = vi.spyOn(store as any, 'request').mockImplementation(() => new Promise(done => { resolve = done; }));
+    const request = vi.spyOn(store as any, 'request').mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
     const first = store.reviewAcceptanceChanges();
     const second = store.reviewAcceptanceChanges();
     expect(request).toHaveBeenCalledTimes(1);
@@ -78,19 +254,29 @@ describe('AgentStore context', () => {
   });
 
   it('replaces a streamed answer with the final answer and its check verdict', () => {
-    const message = (text: string, live: boolean) => store.receive({
-      jsonrpc: '2.0', method: 'session/update',
-      params: { update: { sessionUpdate: 'agent_message_chunk', content: { text }, ...(live ? { _meta: { pwr: { live: true } } } : {}) } },
-    });
+    const message = (text: string, live: boolean) =>
+      store.receive({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { text },
+            ...(live ? { _meta: { pwr: { live: true } } } : {}),
+          },
+        },
+      });
     message('Wrote result.txt.', true);
-    message('Wrote result.txt.\n\nIndependent verification unavailable: this workspace declares no automated checks.', false);
+    message(
+      'Wrote result.txt.\n\nIndependent verification unavailable: this workspace declares no automated checks.',
+      false,
+    );
     expect(store.timeline().filter((entry) => entry.kind === 'reply')).toHaveLength(1);
     expect(store.timeline()[0]).toMatchObject({
       status: 'done',
       text: 'Wrote result.txt.\n\nIndependent verification unavailable: this workspace declares no automated checks.',
     });
   });
-
 
   it('keeps how far the engine has read the prompt, for this session only', () => {
     store.sessionId.set('s1');
@@ -109,30 +295,59 @@ describe('AgentStore context', () => {
     expect(store.prefill()).toMatchObject({ processed: 4_096, total: 20_000 });
   });
 
-
   it('reads the terminal tabs back to the core, within its bounds', () => {
     const send = vi.spyOn(bridge, 'send').mockResolvedValue(undefined as any);
     const asked: number[] = [];
     store.terminalReader = (lines: number) => {
       asked.push(lines);
-      return [{ title: 'Terminal 1', running: true, text: "Module not found: Can't resolve './globals.css'" }];
+      return [
+        {
+          title: 'Terminal 1',
+          running: true,
+          text: "Module not found: Can't resolve './globals.css'",
+        },
+      ];
     };
-    store.receive({ jsonrpc: '2.0', id: 9, method: '_pwr/terminal/read', params: { sessionId: 's1', lines: 50_000 } });
+    store.receive({
+      jsonrpc: '2.0',
+      id: 9,
+      method: '_pwr/terminal/read',
+      params: { sessionId: 's1', lines: 50_000 },
+    });
     expect(asked).toEqual([1000]);
     expect(send).toHaveBeenCalledWith({
       jsonrpc: '2.0',
       id: 9,
-      result: { terminals: [{ title: 'Terminal 1', running: true, text: "Module not found: Can't resolve './globals.css'" }] },
+      result: {
+        terminals: [
+          {
+            title: 'Terminal 1',
+            running: true,
+            text: "Module not found: Can't resolve './globals.css'",
+          },
+        ],
+      },
     });
     store.terminalReader = null;
-    store.receive({ jsonrpc: '2.0', id: 10, method: '_pwr/terminal/read', params: { sessionId: 's1' } });
+    store.receive({
+      jsonrpc: '2.0',
+      id: 10,
+      method: '_pwr/terminal/read',
+      params: { sessionId: 's1' },
+    });
     expect(send).toHaveBeenLastCalledWith({ jsonrpc: '2.0', id: 10, result: { terminals: [] } });
     send.mockRestore();
   });
 
-
   it('requires authorization for each named acceptance artifact before offering continuation', async () => {
-    store.runOutcome.set({ terminal: 'contract_changed', text: 'Review required', detail: null, action: null, tone: 'failed', acceptanceChanges: ['tests/a.rs', 'tests/b.rs'] });
+    store.runOutcome.set({
+      terminal: 'contract_changed',
+      text: 'Review required',
+      detail: null,
+      action: null,
+      tone: 'failed',
+      acceptanceChanges: ['tests/a.rs', 'tests/b.rs'],
+    });
     const request = vi.spyOn(store as any, 'request').mockResolvedValue({ allowed: true });
     await store.reviewAcceptanceChanges();
     expect(request.mock.calls).toEqual([
@@ -143,13 +358,19 @@ describe('AgentStore context', () => {
   });
 
   it('keeps changed acceptance evidence blocked after a refusal', async () => {
-    store.runOutcome.set({ terminal: 'contract_changed', text: 'Review required', detail: null, action: null, tone: 'failed', acceptanceChanges: ['tests/a.rs'] });
+    store.runOutcome.set({
+      terminal: 'contract_changed',
+      text: 'Review required',
+      detail: null,
+      action: null,
+      tone: 'failed',
+      acceptanceChanges: ['tests/a.rs'],
+    });
     vi.spyOn(store as any, 'request').mockResolvedValue({ allowed: false });
     await store.reviewAcceptanceChanges();
     expect(store.runOutcome()?.tone).toBe('failed');
     expect(store.runOutcome()?.action).toBeNull();
   });
-
 
   let store: AgentStore;
 
@@ -198,12 +419,24 @@ describe('AgentStore context', () => {
 
   it("numbers the person's message with the turn the core started for it", () => {
     store.sessionId.set('s1');
-    store.timeline.set([{ key: 'u1', kind: 'user', title: 'You', text: 'build it', status: 'sent', at: 1 }]);
-    store.receive({ jsonrpc: '2.0', method: '_pwr/turn_started', params: { sessionId: 's1', turn: 3 } });
+    store.timeline.set([
+      { key: 'u1', kind: 'user', title: 'You', text: 'build it', status: 'sent', at: 1 },
+    ]);
+    store.receive({
+      jsonrpc: '2.0',
+      method: '_pwr/turn_started',
+      params: { sessionId: 's1', turn: 3 },
+    });
     expect(store.timeline()[0].turn).toBe(3);
     // Another session's turn is not this one's.
-    store.timeline.set([{ key: 'u2', kind: 'user', title: 'You', text: 'x', status: 'sent', at: 2 }]);
-    store.receive({ jsonrpc: '2.0', method: '_pwr/turn_started', params: { sessionId: 'other', turn: 4 } });
+    store.timeline.set([
+      { key: 'u2', kind: 'user', title: 'You', text: 'x', status: 'sent', at: 2 },
+    ]);
+    store.receive({
+      jsonrpc: '2.0',
+      method: '_pwr/turn_started',
+      params: { sessionId: 'other', turn: 4 },
+    });
     expect(store.timeline()[0].turn).toBeUndefined();
   });
 
@@ -230,13 +463,21 @@ describe('AgentStore context', () => {
         jsonrpc: '2.0',
         method: 'session/update',
         params: {
-          update: { sessionUpdate, content: { text }, ...(live ? { _meta: { pwr: { live: true } } } : {}) },
+          update: {
+            sessionUpdate,
+            content: { text },
+            ...(live ? { _meta: { pwr: { live: true } } } : {}),
+          },
         },
       });
     chunk('agent_thought_chunk', 'x'.repeat(400));
     chunk('agent_message_chunk', 'y'.repeat(400), true);
     expect(store.streamedTokens()).toBe(200);
-    store.receive({ jsonrpc: '2.0', method: '_pwr/usage', params: { used: 20_190, window: 262_144 } });
+    store.receive({
+      jsonrpc: '2.0',
+      method: '_pwr/usage',
+      params: { used: 20_190, window: 262_144 },
+    });
     expect(store.streamedTokens()).toBe(0);
     expect(store.usage()).toEqual({ used: 20_190, window: 262_144, estimated: false });
   });
@@ -300,11 +541,26 @@ describe('AgentStore turn events', () => {
     store.sessionId.set('s1');
   });
 
-  const event = (params: any) => store.receive({ jsonrpc: '2.0', method: '_pwr/turn_event', params: { sessionId: 's1', ...params } });
+  const event = (params: any) =>
+    store.receive({
+      jsonrpc: '2.0',
+      method: '_pwr/turn_event',
+      params: { sessionId: 's1', ...params },
+    });
 
   it('keeps a retry running until the turn recovers', () => {
-    event({ event: 'retry', cause: 'reply_fault', attempt: 1, limit: 2, detail: 'tool calls were not valid JSON' });
-    expect(store.timeline()[0]).toMatchObject({ kind: 'retry', status: 'running', data: { cause: 'reply_fault', attempt: 1 } });
+    event({
+      event: 'retry',
+      cause: 'reply_fault',
+      attempt: 1,
+      limit: 2,
+      detail: 'tool calls were not valid JSON',
+    });
+    expect(store.timeline()[0]).toMatchObject({
+      kind: 'retry',
+      status: 'running',
+      data: { cause: 'reply_fault', attempt: 1 },
+    });
     event({ event: 'recovered', retries: 1 });
     expect(store.timeline().map((entry) => [entry.kind, entry.status])).toEqual([
       ['retry', 'done'],
@@ -323,9 +579,17 @@ describe('AgentStore turn events', () => {
     store.receive({
       jsonrpc: '2.0',
       method: 'session/update',
-      params: { update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `Read the files.\n\n${said}` } } },
+      params: {
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: `Read the files.\n\n${said}` },
+        },
+      },
     });
-    (store as any).finish({ stopReason: 'end_turn', _meta: { pwr: { terminal: 'protocol', actions: 2, stoppedBecause: said } } });
+    (store as any).finish({
+      stopReason: 'end_turn',
+      _meta: { pwr: { terminal: 'protocol', actions: 2, stoppedBecause: said } },
+    });
     const kinds = store.timeline().map((entry) => entry.kind);
     expect(kinds).toEqual(['retry', 'reply', 'stop']);
     expect(store.timeline()[0].status).toBe('failed');

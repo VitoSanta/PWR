@@ -145,17 +145,16 @@ a.mat-mdc-icon-button {
 }
 
 /* -------------------------------------------------------------- inputs
- * Material 3's outlined text field: 4px corners, the outline colour, a
- * 2px primary outline while focused. Search fields (an input with a
- * leading icon) are Google's filled, full-round search bar instead. */
+ * Rounded fields share the control shape with buttons and selects.
+ * A primary outline marks focus; search fields use the same family. */
 .input {
   display: block;
   width: 100%;
   height: var(--control-h);
   padding: 0 var(--space-3);
   border: 1px solid var(--mat-sys-outline);
-  border-radius: var(--radius-xs);
-  background: transparent;
+  border-radius: var(--radius-control);
+  background: var(--surface-elevated);
   color: var(--text-primary);
   font-size: var(--fs-body-sm);
   transition:
@@ -1067,7 +1066,7 @@ pa-select {
   height: var(--control-h);
   padding: 0 var(--space-2) 0 var(--space-3);
   border: 1px solid var(--mat-sys-outline);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-control);
   background: transparent;
   transition: border-color var(--dur-fast) var(--ease);
 }
@@ -1097,8 +1096,20 @@ pa-select {
 }
 
 /* The list: Material's panel, at the trigger's width or wider, with hints. */
-.pa-select-panel {
+.mat-mdc-select-panel.pa-select-panel {
   min-width: 180px;
+  padding: var(--space-1);
+  border-radius: var(--radius-card);
+  background: var(--mat-sys-surface-container);
+  box-shadow: var(--mat-sys-level2);
+}
+
+.pa-select-panel .mat-mdc-option {
+  min-height: var(--control-h-lg);
+  margin-block: 1px;
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-body-sm);
 }
 
 .pa-select-panel .mat-mdc-option .mdc-list-item__primary-text {
@@ -1196,4 +1207,12 @@ pa-popover.popover {
 
 .resize-handle:focus-visible {
   outline: none;
+}
+
+/* Mirror a glyph present in the local subset, never expose a missing ligature. */
+pa-icon.icon-reversed > mat-icon { transform: rotate(180deg); }
+
+textarea.input {
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
 }

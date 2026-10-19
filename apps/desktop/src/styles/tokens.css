@@ -7,6 +7,12 @@
  */
 
 :root {
+  /* Shared PWR identity palette. Azure matches pwr-mark.svg. */
+  --brand-blue: #1a73e8;
+  --brand-azure: #4c8df6;
+  --brand-sky: #a8c7fa;
+  --brand-spectrum: var(--brand-blue), var(--brand-azure), var(--brand-sky), var(--brand-blue);
+
   /* ---------------------------------------------------------- geometry */
   --space-1: 4px;
   --space-2: 8px;

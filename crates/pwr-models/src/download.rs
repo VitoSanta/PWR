@@ -6,7 +6,7 @@
 //! disk is overwritten: a file that exists and matches is kept, one that
 //! exists and does not is refused with the path to move.
 //!
-//! Bytes go to `<file>.part` and are renamed into place only once verified,
+//! Bytes go to `<file>.part` and are published without replacement once verified,
 //! so a half-written file never looks like a model. An interrupted download
 //! -- cancelled, the network gone, the app quit -- leaves its `.part`, and the
 //! next attempt resumes it with an HTTP range request.
@@ -15,11 +15,13 @@
 //! SHA-256 the Hub publishes for large files, and the git blob SHA-1 for the
 //! small files git stores directly (`sha1("blob <len>\0" + content)`).
 
+mod storage;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use storage::{Location, Root};
 
 /// Free space kept on the disk after a download, for everything else.
 pub const DISK_MARGIN_BYTES: u64 = 5 * 1024 * 1024 * 1024;
@@ -199,7 +201,9 @@ pub fn preflight(plan: &Plan, available_bytes: u64) -> Result<Preflight, Downloa
             return Err(conflict(&file.destination));
         }
         let part = part_path(&file.destination);
-        let existing = part.metadata().map(|m| m.len()).unwrap_or(0);
+        let existing = partial_metadata(&part)?
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
         if existing > file.expected_bytes {
             return Err(DownloadError::new(
                 FailureKind::Conflict,
@@ -237,6 +241,28 @@ fn conflict(destination: &Path) -> DownloadError {
             destination.display()
         ),
     )
+}
+
+/// A resumable partial must be a regular file itself. Following a `.part`
+/// symlink here could overwrite a file outside the selected artifact folder.
+fn partial_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, DownloadError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            Err(DownloadError::new(
+                FailureKind::Conflict,
+                format!(
+                    "{} is not a regular partial file; move it before retrying",
+                    path.display()
+                ),
+            ))
+        }
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(DownloadError::new(
+            FailureKind::Io,
+            format!("cannot inspect {}: {error}", path.display()),
+        )),
+    }
 }
 
 /// Free bytes where `path` will be written. `PWR_DOWNLOAD_FREE_BYTES`
@@ -282,13 +308,26 @@ pub async fn download(
     progress: &mut dyn FnMut(&Progress),
     stop: &AtomicBool,
 ) -> Result<Vec<FileOutcome>, DownloadError> {
+    let root = Root::new(&plan.destination_root).map_err(|e| {
+        DownloadError::new(
+            FailureKind::Conflict,
+            if e.kind() == std::io::ErrorKind::WouldBlock { "Another download is using this destination; wait for it to finish or cancel it first.".into() } else { format!("cannot anchor download root: {e}") },
+        )
+    })?;
     let total = plan.total_bytes();
     let mut done_before = 0_u64;
     let mut outcomes = Vec::new();
     for file in &plan.files {
+        let location = root.location(&file.destination).map_err(|e| {
+            DownloadError::new(
+                FailureKind::Conflict,
+                format!("invalid download destination: {e}"),
+            )
+        })?;
         let outcome = download_file(
             client,
             file,
+            &location,
             auth_token,
             &mut |phase, file_bytes| {
                 progress(&Progress {
@@ -308,14 +347,18 @@ pub async fn download(
     }
     if let Some(revision) = plan.revision.as_deref().filter(|r| catalog_revision(r)) {
         // Best effort: a missing marker only leaves the revision unknown.
-        let _ = std::fs::write(plan.destination_root.join(REVISION_FILE), revision);
+        let _ = root.revision(revision);
     }
+    root.ensure_current().map_err(|e| {
+        DownloadError::new(FailureKind::Conflict, format!("download root changed: {e}"))
+    })?;
     Ok(outcomes)
 }
 
 async fn download_file(
     client: &reqwest::Client,
     file: &PlannedFile,
+    location: &Location,
     auth_token: Option<&str>,
     progress: &mut dyn FnMut(Phase, u64),
     stop: &AtomicBool,
@@ -331,32 +374,22 @@ async fn download_file(
         sha256: observed.sha256,
         git_sha1: observed.git_sha1,
     };
-    if destination.is_file() {
+    if location.read(false).is_ok() {
         progress(Phase::Verifying, file.expected_bytes);
-        let observed = observe_async(destination, needs).await?;
+        let observed = observe_location(location, false, needs).await?;
         if file.matches(&observed) {
             return Ok(outcome("already_present", observed));
         }
         return Err(conflict(destination));
     }
-    let parent = destination.parent().ok_or_else(|| {
-        DownloadError::new(
-            FailureKind::Io,
-            format!("{} has no parent directory", destination.display()),
-        )
+    let part = &location.part;
+    let started_with = location.partial_len().map_err(|e| {
+        DownloadError::new(FailureKind::Conflict, format!("invalid partial file: {e}"))
     })?;
-    std::fs::create_dir_all(parent).map_err(|error| {
-        DownloadError::new(
-            FailureKind::Io,
-            format!("cannot create {}: {error}", parent.display()),
-        )
-    })?;
-    let part = part_path(destination);
-    let started_with = part.metadata().map(|m| m.len()).unwrap_or(0);
     if started_with == file.expected_bytes {
         progress(Phase::Verifying, started_with);
-        let observed = observe_async(&part, needs).await?;
-        return finish(file, &part, observed, "verified_part").map(|o| outcome(&o.0, o.1));
+        let observed = observe_location(location, true, needs).await?;
+        return finish(file, location, observed, "verified_part").map(|o| outcome(&o.0, o.1));
     }
     // A transfer that stops after data arrived is resumed where the `.part`
     // ends: large files over a real connection are interrupted now and then,
@@ -366,7 +399,7 @@ async fn download_file(
     let mut retries_left = TRANSFER_RETRIES;
     let mut progressed_before = false;
     let written = loop {
-        match fetch(client, file, auth_token, &part, progress, stop).await {
+        match fetch(client, file, location, auth_token, part, progress, stop).await {
             Ok(written) => break written,
             Err(attempt) => {
                 let resumable = attempt.transient
@@ -393,13 +426,13 @@ async fn download_file(
         }
     };
     progress(Phase::Verifying, written);
-    let observed = observe_async(&part, needs).await?;
+    let observed = observe_location(location, true, needs).await?;
     let status = if started_with > 0 {
         "resumed"
     } else {
         "downloaded"
     };
-    finish(file, &part, observed, status).map(|o| outcome(&o.0, o.1))
+    finish(file, location, observed, status).map(|o| outcome(&o.0, o.1))
 }
 
 /// How many times a stalled or dropped transfer is resumed in a row before
@@ -435,6 +468,7 @@ async fn pause(wait: std::time::Duration, stop: &AtomicBool) -> bool {
 async fn fetch(
     client: &reqwest::Client,
     file: &PlannedFile,
+    location: &Location,
     auth_token: Option<&str>,
     part: &Path,
     progress: &mut dyn FnMut(Phase, u64),
@@ -445,7 +479,12 @@ async fn fetch(
         transient: false,
         progressed: false,
     };
-    let existing = part.metadata().map(|m| m.len()).unwrap_or(0);
+    let existing = location.partial_len().map_err(|e| {
+        fatal(DownloadError::new(
+            FailureKind::Conflict,
+            format!("invalid partial file: {e}"),
+        ))
+    })?;
     progress(Phase::Downloading, existing);
     if existing > file.expected_bytes {
         return Err(fatal(DownloadError::new(
@@ -495,18 +534,13 @@ async fn fetch(
         });
     }
     let append = existing > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT;
-    let mut writer = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(append)
-        .truncate(!append)
-        .open(part)
-        .map_err(|error| {
-            fatal(DownloadError::new(
-                FailureKind::Io,
-                format!("cannot open {}: {error}", part.display()),
-            ))
-        })?;
+    let writer = location.writer(append, existing);
+    let mut writer = writer.map_err(|error| {
+        fatal(DownloadError::new(
+            FailureKind::Io,
+            format!("cannot open {}: {error}", part.display()),
+        ))
+    })?;
     let from = if append { existing } else { 0 };
     let mut written = from;
     let mut stream = response.bytes_stream();
@@ -537,7 +571,7 @@ async fn fetch(
         written += chunk.len() as u64;
         if written > file.expected_bytes {
             drop(writer);
-            let _ = std::fs::remove_file(part);
+            let _ = location.remove_partial();
             return Err(fatal(DownloadError::new(
                 FailureKind::Verification,
                 format!(
@@ -565,17 +599,69 @@ async fn fetch(
     Ok(written)
 }
 
-/// Moves a verified `.part` into place. A `.part` that is complete and wrong
+#[cfg(unix)]
+fn pin_partial_directory(part: &Path) -> std::io::Result<std::fs::File> {
+    use rustix::fs::{Mode, OFlags, openat};
+    let path = part
+        .parent()
+        .ok_or(std::io::ErrorKind::InvalidInput)?
+        .canonicalize()?;
+    let mut directory = std::fs::File::open("/")?;
+    for component in path.components() {
+        if let std::path::Component::Normal(name) = component {
+            directory = openat(
+                &directory,
+                name,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )?
+            .into();
+        }
+    }
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn open_partial_at(
+    directory: &std::fs::File,
+    part: &Path,
+    append: bool,
+    existing: u64,
+) -> std::io::Result<std::fs::File> {
+    use rustix::fs::{Mode, OFlags, openat};
+    use std::os::unix::fs::MetadataExt;
+    let name = part.file_name().ok_or(std::io::ErrorKind::InvalidInput)?;
+    let flags =
+        OFlags::WRONLY | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK;
+    let flags = if append {
+        flags | OFlags::APPEND
+    } else {
+        flags
+    };
+    // Never truncate until the opened descriptor itself has been validated.
+    let file: std::fs::File = openat(directory, name, flags, Mode::RUSR | Mode::WUSR)?.into();
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.nlink() != 1 || (append && metadata.len() != existing) {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    if !append {
+        file.set_len(0)?;
+    }
+    Ok(file)
+}
+
+/// Publishes a verified `.part` without replacing a destination. A complete, wrong partial
 /// is removed: resuming it could never succeed.
 fn finish(
     file: &PlannedFile,
-    part: &Path,
+    location: &Location,
     observed: Observed,
     status: &str,
 ) -> Result<(String, Observed), DownloadError> {
+    let part = &location.part;
     if !file.matches(&observed) {
         if observed.bytes >= file.expected_bytes {
-            let _ = std::fs::remove_file(part);
+            let _ = location.remove_partial();
         }
         return Err(DownloadError::new(
             FailureKind::Verification,
@@ -585,14 +671,45 @@ fn finish(
             ),
         ));
     }
-    std::fs::rename(part, &file.destination).map_err(|error| {
+    // Atomically create the destination only if absent. rename would replace
+    // a file another download/person installed while HTTP was in flight.
+    location.publish().map_err(|error| {
         DownloadError::new(
             FailureKind::Io,
             format!(
-                "cannot move {} to {}: {error}",
+                "cannot publish {} to {} without overwriting: {error}",
                 part.display(),
                 file.destination.display()
             ),
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = location
+            .read(false)
+            .and_then(|f| f.metadata())
+            .map_err(|error| {
+                DownloadError::new(
+                    FailureKind::Io,
+                    format!("cannot inspect published artifact: {error}"),
+                )
+            })?;
+        if !metadata.is_file() || observed.identity != Some((metadata.dev(), metadata.ino())) {
+            // Preserve the conflicting path: another writer may now own it.
+            return Err(DownloadError::new(
+                FailureKind::Verification,
+                "partial file changed identity during publication",
+            ));
+        }
+    }
+    // Publication succeeded. Failure to remove a redundant partial does not
+    // invalidate the verified destination; a later retry recognizes it.
+    let _ = location.remove_partial();
+    location.ensure_current().map_err(|e| {
+        DownloadError::new(
+            FailureKind::Conflict,
+            format!("download destination changed: {e}"),
         )
     })?;
     Ok((status.to_owned(), observed))
@@ -659,6 +776,8 @@ struct Needs {
 
 #[derive(Debug, Clone, Default)]
 struct Observed {
+    #[cfg(unix)]
+    identity: Option<(u64, u64)>,
     bytes: u64,
     blake3: Option<String>,
     sha256: Option<String>,
@@ -666,6 +785,38 @@ struct Observed {
 }
 
 fn observe(path: &Path, needs: Needs) -> Result<Observed, DownloadError> {
+    let io = |error: std::io::Error| {
+        DownloadError::new(
+            FailureKind::Io,
+            format!("cannot read {}: {error}", path.display()),
+        )
+    };
+    #[cfg(unix)]
+    let file: std::fs::File = {
+        use rustix::fs::{Mode, OFlags, openat};
+        let directory = pin_partial_directory(path).map_err(io)?;
+        let name = path
+            .file_name()
+            .ok_or_else(|| io(std::io::ErrorKind::InvalidInput.into()))?;
+        openat(
+            &directory,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+            Mode::empty(),
+        )
+        .map_err(|e| io(e.into()))?
+        .into()
+    };
+    #[cfg(not(unix))]
+    let file = std::fs::File::open(path).map_err(io)?;
+    observe_file(file, path, needs)
+}
+
+fn observe_file(
+    mut file: std::fs::File,
+    path: &Path,
+    needs: Needs,
+) -> Result<Observed, DownloadError> {
     use sha1::Digest as _;
     let io = |error: std::io::Error| {
         DownloadError::new(
@@ -673,8 +824,16 @@ fn observe(path: &Path, needs: Needs) -> Result<Observed, DownloadError> {
             format!("cannot read {}: {error}", path.display()),
         )
     };
-    let length = path.metadata().map_err(io)?.len();
-    let mut file = std::fs::File::open(path).map_err(io)?;
+    let metadata = file.metadata().map_err(io)?;
+    if !metadata.is_file() {
+        return Err(io(std::io::ErrorKind::InvalidInput.into()));
+    }
+    let length = metadata.len();
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        Some((metadata.dev(), metadata.ino()))
+    };
     let mut blake3 = needs.blake3.then(blake3::Hasher::new);
     let mut sha256 = needs.sha256.then(sha2::Sha256::new);
     let mut git_sha1 = needs.git_sha1.then(|| {
@@ -701,6 +860,8 @@ fn observe(path: &Path, needs: Needs) -> Result<Observed, DownloadError> {
         }
     }
     Ok(Observed {
+        #[cfg(unix)]
+        identity,
         bytes,
         blake3: blake3.map(|hasher| hasher.finalize().to_hex().to_string()),
         sha256: sha256.map(|hasher| format!("{:x}", hasher.finalize())),
@@ -708,19 +869,37 @@ fn observe(path: &Path, needs: Needs) -> Result<Observed, DownloadError> {
     })
 }
 
-/// Large weights take seconds to hash. Keep the server's event loop available
-/// for Pause, progress and other model-manager requests while that disk work
-/// runs. The synchronous preflight uses `observe` inside its own blocking task.
-async fn observe_async(path: &Path, needs: Needs) -> Result<Observed, DownloadError> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || observe(&path, needs))
+/// Hash the already opened descriptor off the event loop so cancellation and
+/// progress requests stay responsive during multi-gigabyte verification.
+async fn observe_location(
+    location: &Location,
+    partial: bool,
+    needs: Needs,
+) -> Result<Observed, DownloadError> {
+    location.ensure_current().map_err(|e| {
+        DownloadError::new(
+            FailureKind::Conflict,
+            format!("download destination changed: {e}"),
+        )
+    })?;
+    let file = location.read(partial).map_err(|e| {
+        DownloadError::new(FailureKind::Io, format!("cannot open anchored file: {e}"))
+    })?;
+    let path = if partial {
+        location.part.clone()
+    } else {
+        location.path.clone()
+    };
+    let observed = tokio::task::spawn_blocking(move || observe_file(file, &path, needs))
         .await
-        .map_err(|error| {
-            DownloadError::new(
-                FailureKind::Io,
-                format!("download verification stopped unexpectedly: {error}"),
-            )
-        })?
+        .map_err(|e| DownloadError::new(FailureKind::Io, e.to_string()))??;
+    location.ensure_current().map_err(|e| {
+        DownloadError::new(
+            FailureKind::Conflict,
+            format!("download destination changed during verification: {e}"),
+        )
+    })?;
+    Ok(observed)
 }
 
 /// A download as the app follows it. The server holds one per download and
@@ -823,4 +1002,37 @@ impl DownloadState {
 /// markup from a response.
 fn catalog_revision(revision: &str) -> bool {
     crate::catalog::is_revision(revision)
+}
+
+#[cfg(all(test, unix))]
+mod publication_identity_tests {
+    use super::*;
+
+    #[test]
+    fn replacing_a_hashed_partial_is_not_reported_as_verified() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("model.bin");
+        let part = part_path(&destination);
+        let bytes = b"model bytes";
+        let file = PlannedFile {
+            file: "model.bin".into(),
+            url: String::new(),
+            destination,
+            expected_bytes: bytes.len() as u64,
+            blake3: Some(blake3::hash(bytes).to_hex().to_string()),
+            sha256: None,
+            git_sha1: None,
+        };
+        std::fs::write(&part, bytes).unwrap();
+        let observed = observe(&part, file.needs()).unwrap();
+        std::fs::rename(&part, root.path().join("original")).unwrap();
+        std::fs::write(&part, b"bad payload").unwrap();
+        let location = Root::new(root.path())
+            .unwrap()
+            .location(&file.destination)
+            .unwrap();
+        let error = finish(&file, &location, observed, "downloaded").unwrap_err();
+        assert_eq!(error.kind, FailureKind::Verification);
+        assert_eq!(std::fs::read(root.path().join("original")).unwrap(), bytes);
+    }
 }

@@ -763,6 +763,23 @@ fn artifact_registry_pins_hub_revisions_and_platforms() {
         plan.files[0].destination,
         "/models/mlx-community/Qwen-Coder/model.safetensors"
     );
+    for repository in [
+        "../../outside",
+        "/outside/model",
+        "owner\\..\\outside",
+        "owner/name/extra",
+    ] {
+        let mut escaping = artifact.clone();
+        escaping.source = ArtifactSource::HuggingFace {
+            repository: repository.into(),
+            revision: "0123456789abcdef0123456789abcdef01234567".into(),
+            files: vec!["model.safetensors".into()],
+        };
+        assert!(
+            escaping.validate().is_err(),
+            "accepted repository {repository:?}"
+        );
+    }
     let mut moving = artifact;
     moving.source = ArtifactSource::HuggingFace {
         repository: "mlx-community/Qwen-Coder".into(),
@@ -828,7 +845,7 @@ fn huggingface_artifacts_refuse_unsafe_file_paths() {
         source: ArtifactSource::HuggingFace {
             repository: "mlx-community/Qwen-Coder".into(),
             revision: "0123456789abcdef0123456789abcdef01234567".into(),
-            files: vec!["../model.safetensors".into()],
+            files: vec!["..\\model.safetensors".into()],
         },
         format: ArtifactFormat::Mlx,
         quantization: Some("4bit".into()),

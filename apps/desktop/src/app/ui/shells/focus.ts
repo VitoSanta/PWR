@@ -146,8 +146,10 @@ const NATIVE_MENU =
         <pa-run-controls [anchor]="anchor" (closed)="ui.runControls.set(null)" />
       }
 
-      @if (open()) {
-        <pa-inspector class="focus-workbench" />
+      @defer (when open()) {
+        @if (open()) {
+          <pa-inspector class="focus-workbench" />
+        }
       }
 
       <!-- A right click: the tools as a wheel around where it landed. After the

@@ -833,10 +833,7 @@ impl MlxProvider {
                     sidecar.loaded = Some(dir.to_path_buf());
                     sidecar.loaded_rope = rope;
                     sidecar.loaded_assistant = assistant.filter(|_| {
-                        event
-                            .get("assistant")
-                            .and_then(serde_json::Value::as_bool)
-                            != Some(false)
+                        event.get("assistant").and_then(serde_json::Value::as_bool) != Some(false)
                     });
                     return Ok(());
                 }

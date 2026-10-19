@@ -644,7 +644,10 @@ mod model_history_tests {
         // After the snapshot: part of a turn the restored messages do not show.
         record_file_diff(&store, id, &diff(Some("two"), "three")).unwrap();
         let restored = restore(&store, id).unwrap().unwrap();
-        assert_eq!(restored.diffs, [diff(None, "one"), diff(Some("one"), "two")]);
+        assert_eq!(
+            restored.diffs,
+            [diff(None, "one"), diff(Some("one"), "two")]
+        );
     }
 
     #[test]

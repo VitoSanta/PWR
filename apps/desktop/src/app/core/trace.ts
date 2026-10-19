@@ -349,7 +349,7 @@ export interface RunOutcome {
   acceptanceChanges?: string[];
 }
 
-export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
+export function runOutcome(reply: any, cancelled: boolean, workspaceTask = false): RunOutcome {
   const meta = reply?._meta?.pwr ?? {};
   const goal = meta.goal;
   const actions: number = meta.totalActions ?? meta.actions ?? 0;
@@ -393,6 +393,7 @@ export function runOutcome(reply: any, cancelled: boolean): RunOutcome {
         return { ...base, text: 'Technical checks passed; no acceptance contract was declared, so the goal is not verified.', action: null, tone: 'paused' };
       if (goal?.enabled)
         return { ...base, text: `Goal ended after ${plural(actions)} without a verified completion.`, detail: goal.verification ?? detail, action: 'continue', tone: 'paused' };
+      if (workspaceTask && actions === 0) return { ...base, text: 'Reply ended without executing workspace actions; no work was verified.', action: null, tone: 'paused' };
       return { ...base, text: `Finished after ${plural(actions)}.`, action: null, tone: 'done' };
   }
 }
@@ -498,4 +499,15 @@ export function rate(value: number | null): string {
   if (value === null) return '—';
   // Grouped like every other count in the app: 11,079 rather than 11079.
   return value >= 100 ? Math.round(value).toLocaleString('en-US') : value.toFixed(1);
+}
+
+/** Only explicit engine events establish recovery; later successful tools do not. */
+export function retryPresentation(entries: readonly Entry[], live: boolean): { text: string; tone: 'ok' | 'warn' | 'bad' } | null {
+  const event = [...entries].reverse().find(entry => entry.kind === 'retry' || entry.kind === 'recovery');
+  if (!event) return null;
+  if (event.kind === 'recovery') return { text: recoveredLabel(Number(event.data?.['retries'] ?? 1)), tone: 'ok' };
+  if (event.status === 'failed') return { text: 'Automatic retries exhausted', tone: 'bad' };
+  if (event.status === 'running' && !live) return { text: 'Retry ended without confirmed recovery', tone: 'bad' };
+  if (event.status === 'running' && live) return { text: retryLabel(String(event.data?.['cause'] ?? '')), tone: 'warn' };
+  return null;
 }

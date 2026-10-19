@@ -1,0 +1,5 @@
+# Managed Apple-silicon engine: direct pins already used by PWR.
+mlx==0.32.3
+mlx-lm==0.32.0
+mlx-embeddings==0.1.0
+mlx-vlm==0.7.8

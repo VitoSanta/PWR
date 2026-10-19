@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "python": "3.14.8",
+  "platform": "aarch64-apple-darwin",
+  "resolver_minimum_macos": "14.0",
+  "packages": 76,
+  "requirements_sha256": "947cb130de46135ac0464bc80f6a7630f997215f9baaf4ebdc9085da77963ba4",
+  "provenance": "Versions constrained to the installed development engine; no package version changes. Hashes resolved from PyPI using uv 0.13.1. This does not qualify macOS 14 hardware."
+}

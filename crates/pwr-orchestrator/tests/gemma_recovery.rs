@@ -347,3 +347,51 @@ async fn empty_search_spellings_share_the_conversation_progress_guard() {
     assert!(report.actions <= 24, "{} actions", report.actions);
     assert!(requests.len() <= 24);
 }
+
+#[tokio::test]
+async fn identical_refused_writes_cannot_hide_behind_successful_reads() {
+    let mut replies = vec![read()];
+    for _ in 0..20 {
+        replies.push(calls(vec![call(
+            "write_file",
+            serde_json::json!({"path":"kept.txt","content":"before"}),
+        )]));
+        replies.push(read());
+    }
+    replies.push(complete());
+    let (report, _, requests, _, _, root) = run(replies, Default::default()).await;
+    assert_eq!(report.stopped, Some(converse::StopReason::NoProgress));
+    assert!(!report.completed);
+    assert!(requests.len() <= 20, "{} generations", requests.len());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("kept.txt")).unwrap(),
+        "before"
+    );
+}
+
+#[tokio::test]
+async fn a_real_file_change_allows_a_fresh_recovery_after_a_refusal_warning() {
+    let write = |text: &str| {
+        calls(vec![call(
+            "write_file",
+            serde_json::json!({"path":"kept.txt","content":text}),
+        )])
+    };
+    let mut replies = vec![read()];
+    for phase in 0..2 {
+        for _ in 0..4 {
+            replies.push(write("before"));
+            replies.push(read());
+        }
+        if phase == 0 {
+            replies.extend([write("after"), read(), write("before"), read()]);
+        }
+    }
+    replies.push(complete());
+    let (report, _, _, _, _, root) = run(replies, Default::default()).await;
+    assert!(report.completed, "{:?}", report.stopped);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("kept.txt")).unwrap(),
+        "before"
+    );
+}

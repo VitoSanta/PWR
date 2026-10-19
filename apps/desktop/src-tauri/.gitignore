@@ -5,3 +5,9 @@
 
 # The uv binary scripts/bundle-uv.sh copies in at build time.
 /resources/uv
+
+# Generated attribution texts; retain the tracked explanatory entry.
+/resources/notices/*
+!/resources/notices/README.txt
+/resources/notices.stage-*
+/resources/notices.previous-*

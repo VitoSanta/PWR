@@ -352,7 +352,20 @@ pub enum ActionProposal {
 impl ActionProposal {
     pub fn validate(&self) -> Result<(), ToolError> {
         match self {
-            Self::WorkspaceInteract { target, operation, arguments } if !["editor","terminal","browser"].contains(&target.as_str()) || operation.len()>40 || operation.is_empty() || (!arguments.is_null() && !arguments.is_object()) || arguments.to_string().len()>65536 => Err(ToolError::Denied("Invalid or oversized workspace interaction.".into())),
+            Self::WorkspaceInteract {
+                target,
+                operation,
+                arguments,
+            } if !["editor", "terminal", "browser"].contains(&target.as_str())
+                || operation.len() > 40
+                || operation.is_empty()
+                || (!arguments.is_null() && !arguments.is_object())
+                || arguments.to_string().len() > 65536 =>
+            {
+                Err(ToolError::Denied(
+                    "Invalid or oversized workspace interaction.".into(),
+                ))
+            }
             Self::Decline { rationale } if rationale.trim().is_empty() => {
                 // A refusal without a reason is indistinguishable from a
                 // deployment giving up, and the two need different answers.
@@ -1922,6 +1935,21 @@ fn unconfined_allowed() -> bool {
 }
 
 impl ToolPolicy {
+    pub fn for_persistent_process(&self) -> Self {
+        let mut policy = self.clone();
+        policy.protected.extend(
+            [
+                ".git/config",
+                ".git/config.lock",
+                ".git/config.worktree",
+                ".git/config.worktree.lock",
+                ".git/hooks",
+            ]
+            .map(PathBuf::from),
+        );
+        policy
+    }
+
     /// Why a path outside the workspace was refused, and what was probably
     /// meant. Seen 2026-09-19 (catalogue, Nemotron 3.5 on suite A4): a model
     /// writing `/slugify.py` for the workspace's `slugify.py` was told only
@@ -3618,7 +3646,7 @@ fn binary_reason(prefix: &[u8]) -> Option<String> {
 /// prerequisite the caller can report.
 fn deny_binary(relative: &Path, reason: &str, verb: &str) -> ToolError {
     let way_out = if verb == "read as text" {
-        "Use extract_document on it to recover its text, or report the prerequisite if that refuses too"
+        "Use extract_document if it is offered in this session; otherwise ask the engineer to attach the PDF to the conversation for text extraction. Report the prerequisite if extraction fails"
     } else {
         "Nothing in this run edits it; report the prerequisite"
     };
@@ -4717,8 +4745,12 @@ pub const PAGE_STEPS: usize = 12;
 /// after the look; it is started without the same-origin rule so this page
 /// can reach into the one it frames.
 fn steps_page(url: &str, steps: &[PageStep]) -> String {
-    let url = serde_json::to_string(url).unwrap_or_default();
-    let steps = serde_json::to_string(steps).unwrap_or_default();
+    let url = serde_json::to_string(url)
+        .unwrap_or_default()
+        .replace('<', "\\u003c");
+    let steps = serde_json::to_string(steps)
+        .unwrap_or_default()
+        .replace('<', "\\u003c");
     format!(
         r#"<!doctype html><meta charset="utf-8"><title>PWR</title>
 <style>html,body{{margin:0;height:100%}}iframe{{border:0;width:100%;height:100%;display:block}}</style>
@@ -4910,8 +4942,12 @@ pub async fn look_at_after(
         .root
         .canonicalize()
         .unwrap_or_else(|_| policy.root.clone());
-    let scratch = root.join(SCRATCH_DIRECTORY).join("look");
-    std::fs::create_dir_all(&scratch)?;
+    let captures = root.join(SCRATCH_DIRECTORY).join("look");
+    std::fs::create_dir_all(&captures)?;
+    let capture = tempfile::Builder::new()
+        .prefix("capture-")
+        .tempdir_in(&captures)?;
+    let scratch = capture.path();
     let shot = scratch.join(format!(
         "shot-{}.png",
         std::time::SystemTime::now()
@@ -4985,22 +5021,18 @@ pub async fn look_at_after(
         }
     }
     let browser_path = browser.to_string_lossy().into_owned();
-    let temporary = Path::new(BROWSER_SCRATCH).join(format!(
-        "{:08x}",
-        std::process::id()
-            ^ (std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.subsec_nanos())
-                .unwrap_or_default())
-    ));
-    std::fs::create_dir_all(&temporary)?;
+    std::fs::create_dir_all(BROWSER_SCRATCH)?;
+    let sockets = tempfile::Builder::new()
+        .prefix("look-")
+        .tempdir_in(BROWSER_SCRATCH)?;
+    let temporary = sockets.path();
     let mut command = browsing.prepare_command(&browser_path, &args)?;
     // Chromium asks CoreFoundation for the user's application-support path
     // before --user-data-dir is applied. On hosted macOS the real home is not
     // readable in PWR's sandbox; HOME alone does not change NSHomeDirectory.
     command.env("CFFIXED_USER_HOME", root.join(SCRATCH_DIRECTORY));
     // Chromium on macOS takes its temporary directory from here, not TMPDIR.
-    command.env("MAC_CHROMIUM_TMPDIR", &temporary);
+    command.env("MAC_CHROMIUM_TMPDIR", temporary);
     let browser_log = std::fs::File::create(scratch.join("browser-stderr.log"))?;
     let dom_file = scratch.join("dom.html");
     let dom = std::fs::File::create(&dom_file)?;
@@ -5048,7 +5080,6 @@ pub async fn look_at_after(
     group.terminate();
     let _ = child.kill().await;
     let _ = child.wait().await;
-    let _ = std::fs::remove_dir_all(&temporary);
     if !taken {
         let _ = std::fs::remove_file(&shot);
         let diagnostic =
@@ -7389,6 +7420,39 @@ pub async fn run_command_in(
             Some(resolved)
         }
     };
+    // A joined argv element names one file, not a script plus its options.
+    // Never split it silently, and preserve real filenames containing spaces.
+    if matches!(
+        program_name(executable).as_str(),
+        "python" | "python3" | "node"
+    ) && let Some(first) = args.first()
+        && first.contains(char::is_whitespace)
+        && !first.contains(['\'', '"', '\\'])
+    {
+        let work_dir = cwd.as_deref().unwrap_or(&policy.root);
+        let words: Vec<_> = first.split_whitespace().collect();
+        if !work_dir.join(first).is_file()
+            && let Some(script) = words.first()
+            && (script.ends_with(".py") || script.ends_with(".js"))
+            && work_dir.join(script).canonicalize().is_ok_and(|path| {
+                policy
+                    .root
+                    .canonicalize()
+                    .is_ok_and(|root| path.starts_with(root))
+                    && path.is_file()
+            })
+        {
+            let separated: Vec<_> = words
+                .iter()
+                .copied()
+                .chain(args[1..].iter().map(String::as_str))
+                .collect();
+            return Err(ToolError::Denied(format!(
+                "args contains a script and its arguments in one string: {first:?}. Each argv element is literal; no shell splits it. Resubmit an explicit argument list, for example {}. Nothing was executed.",
+                serde_json::json!({"executable":executable,"args":separated})
+            )));
+        }
+    }
     // Unless it names an existing file, whitespace indicates a whole command line
     // put where the executable belongs. Left to run, it reaches exec as one
     // filename and comes back as `execvp() of 'ls -la' failed: No such file or
@@ -7576,6 +7640,17 @@ fn looks_like_a_server(executable: &str, args: &[String], printed: &str) -> bool
     said_so || named_so
 }
 
+#[derive(Default)]
+struct CommandIoTasks(Vec<tokio::task::AbortHandle>);
+
+impl Drop for CommandIoTasks {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.abort();
+        }
+    }
+}
+
 async fn run_command_once(
     policy: &ToolPolicy,
     executable: &str,
@@ -7600,13 +7675,15 @@ async fn run_command_once(
     let git_config = GitConfigGuard::take(&policy.root);
     let mut child = command.spawn()?;
     let mut process_group = ProcessGroupGuard::new(child.id());
+    let mut io_tasks = CommandIoTasks::default();
     if let Some(mut pipe) = child.stdin.take() {
         use tokio::io::AsyncWriteExt as _;
         let input = stdin.unwrap_or_default().as_bytes().to_vec();
-        tokio::spawn(async move {
+        let input_task = tokio::spawn(async move {
             let _ = pipe.write_all(&input).await;
             let _ = pipe.shutdown().await;
         });
+        io_tasks.0.push(input_task.abort_handle());
     }
     let stream_limit = policy.output_limit.min(COMMAND_STREAM_BYTES);
     let stdout_task = tokio::spawn(read_bounded_pipe(
@@ -7623,6 +7700,9 @@ async fn run_command_once(
             .ok_or_else(|| ToolError::Io(std::io::Error::other("child stderr was not piped")))?,
         stream_limit,
     ));
+    io_tasks
+        .0
+        .extend([stdout_task.abort_handle(), stderr_task.abort_handle()]);
     let status = match timeout(policy.timeout, child.wait()).await {
         Ok(status) => status?,
         Err(_) => {
@@ -7676,12 +7756,11 @@ async fn run_command_once(
     // background process holding them open made that wait forever.
     process_group.terminate();
     let removed = git_config.settle();
-    let stdout_capture = stdout_task
-        .await
-        .map_err(|_| ToolError::Io(std::io::Error::other("stdout reader failed")))??;
-    let stderr_capture = stderr_task
-        .await
-        .map_err(|_| ToolError::Io(std::io::Error::other("stderr reader failed")))??;
+    let (stdout_capture, stderr_capture) = timeout(policy.timeout.saturating_sub(started.elapsed()), async {
+        let stdout = stdout_task.await.map_err(|_| ToolError::Io(std::io::Error::other("stdout reader failed")))??;
+        let stderr = stderr_task.await.map_err(|_| ToolError::Io(std::io::Error::other("stderr reader failed")))??;
+        Ok::<_, ToolError>((stdout, stderr))
+    }).await.map_err(|_| ToolError::CommandTimedOut("The command exited, but its output streams did not close before the deadline. A descendant may still hold them open; the result is incomplete.".into()))??;
     let (stdout, a) = policy.redact(&String::from_utf8_lossy(&stdout_capture.retained));
     let (mut stderr, b) = policy.redact(&String::from_utf8_lossy(&stderr_capture.retained));
     if !removed.is_empty() {
@@ -8070,6 +8149,27 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn steps_payload_cannot_close_the_html_script() {
+        let payload = "</script><script>unexpected()</script>";
+        let steps = vec![super::PageStep {
+            click: None,
+            type_text: Some(payload.into()),
+            into: Some("input".into()),
+            press: None,
+        }];
+        let page = super::steps_page("http://localhost/?q=</script>", &steps);
+        assert_eq!(page.matches("</script>").count(), 1);
+        let encoded = page
+            .split("const steps = ")
+            .nth(1)
+            .unwrap()
+            .split(";\n")
+            .next()
+            .unwrap();
+        let decoded: serde_json::Value = serde_json::from_str(encoded).unwrap();
+        assert_eq!(decoded[0]["type"], payload);
+    }
     #[cfg(target_os = "macos")]
     #[test]
     fn headless_browser_selection_uses_the_newest_runnable_installation() {

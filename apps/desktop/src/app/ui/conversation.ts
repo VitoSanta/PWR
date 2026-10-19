@@ -143,6 +143,7 @@ type Item =
                      start time are said only in Raw Trace. -->
                 <pa-brand-mark class="turn-avatar" [active]="item.live" />
                 <div class="turn-body">
+                  @defer (on immediate) {
                   @switch (store.traceVisibility()) {
                     @case ('compact') {
                       <pa-trace-compact [entries]="item.entries" [live]="item.live" />
@@ -153,6 +154,7 @@ type Item =
                     @case ('raw') {
                       <pa-trace-raw [entries]="item.entries" [startedAt]="item.startedAt" [endedAt]="item.endedAt" [live]="item.live" />
                     }
+                  }
                   }
                   @if (!item.live && answer(item.entries); as text) {
                     <div class="message-actions turn-actions">
@@ -173,7 +175,7 @@ type Item =
                       }
                     </div>
                   } @else {
-                    <time class="turn-finished num" [attr.datetime]="iso(item.endedAt)">Finished {{ clock(item.endedAt) }} @if (duration(item); as elapsed) { · {{ item.fromRequest ? 'since request' : 'took' }} {{ elapsed }} }</time>
+                    <time class="turn-finished num" [attr.datetime]="iso(item.endedAt)">Run ended {{ clock(item.endedAt) }} @if (duration(item); as elapsed) { · {{ item.fromRequest ? 'since request' : 'took' }} {{ elapsed }} }</time>
                   }
                 </div>
               </article>

@@ -312,7 +312,7 @@ impl ModelArtifact {
                 repository,
                 revision,
                 files,
-            } if (!repository.contains('/')
+            } if (!safe_huggingface_repository(repository)
                 || revision.len() != 40
                 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit())
                 || files.is_empty()
@@ -410,9 +410,31 @@ impl ModelArtifact {
 fn safe_relative_artifact_file(file: &str) -> bool {
     let path = Path::new(file);
     !path.is_absolute()
+        && !file.contains('\\')
         && path
             .components()
             .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+}
+
+/// Hugging Face repositories have exactly two path segments: owner and name.
+/// Validate both separators explicitly because artifact registries are shared
+/// across Unix and Windows, where `Path` treats backslashes differently.
+fn safe_huggingface_repository(repository: &str) -> bool {
+    let mut parts = repository.split(['/', '\\']);
+    let Some(owner) = parts.next() else {
+        return false;
+    };
+    let Some(name) = parts.next() else {
+        return false;
+    };
+    parts.next().is_none()
+        && [owner, name].iter().all(|part| {
+            !part.is_empty()
+                && *part != "."
+                && *part != ".."
+                && !part.contains(':')
+                && !part.chars().any(char::is_control)
+        })
 }
 
 impl ArtifactRegistry {

@@ -16,6 +16,7 @@ export const ICONS = {
   'chevron-down': 'expand_more',
   'chevron-up': 'expand_less',
   'chevron-right': 'chevron_right',
+  'chevron-left': 'chevron_right',
   'arrow-up': 'arrow_upward',
   'arrow-right': 'arrow_forward',
   'corner-down-right': 'subdirectory_arrow_right',
@@ -93,6 +94,7 @@ const FILLED: ReadonlySet<IconName> = new Set<IconName>(['stop', 'circle-dot', '
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'icon',
+    '[class.icon-reversed]': "name() === 'chevron-left'",
     '[style.width.px]': 'size()',
     '[style.height.px]': 'size()',
     '[style.--icon-size.px]': 'size()',

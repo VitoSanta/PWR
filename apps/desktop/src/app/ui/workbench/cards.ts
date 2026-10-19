@@ -273,7 +273,7 @@ export { FilesCard } from './editor';
         <pa-tool-tab
           animate.leave="tool-out"
           icon="terminal"
-          [label]="(session.modelOwned ? 'PWR process' : 'Terminal') + ' ' + session.key"
+          [label]="terminal.label(session)"
           [note]="session.state() === 'exited' ? 'ended' : ''"
           [active]="terminal.activeId() === session.key"
           (keydown)="tabKey($event, session.key)"

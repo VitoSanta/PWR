@@ -57,6 +57,9 @@ context preparation failures; no I/O or model-output error becomes success.
 
 ## Model tiers
 
+Scope amended by owner decision D-2026-10-18-2; historical multi-family
+requirements are superseded for product deployments only.
+
 Tier assignment uses resident memory, KV requirements and active parameters
 on this machine, not total parameter count alone. The examples below are
 **HYPOTHESIS** classifications until the installed artifacts are measured.
@@ -68,8 +71,11 @@ on this machine, not total parameter count alone. The examples below are
 | L | MoE 20–50B total with few active B; dense 20–32B | Candidate daily-use sweet spot |
 | XL | Dense about 70B; Q4 weights roughly 40 GB before KV/overhead | Correct, predictable work even when slower |
 
-Select at least two current families per tier after verifying availability
-and actual fit. Do not infer memory fit from the approximate XL weight size.
+Product scope is Gemma 4 only (D-2026-10-18-2). Qualify installed Gemma 4
+artifacts per measured tier after verifying availability and actual fit. Other
+model families are external benchmarks only, never a second product family.
+Report a tier as unsupported or unqualified when no Gemma 4 artifact fits; do
+not silently substitute another family or waive its gate. Do not infer memory fit from the approximate XL weight size.
 Measure effective usable context, not just the advertised maximum. Any tier
 adaptation of prompt, offered tools, edit format, context or reasoning budget
 is declarative and must earn its cost in a controlled comparison.

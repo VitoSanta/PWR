@@ -12,14 +12,35 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
-mod engine;
-mod terminal;
 mod browser;
+mod drafts;
+mod engine;
+mod engine_install;
+mod terminal;
 #[cfg(target_os = "macos")]
 mod titlebar;
+mod updater;
 
 #[derive(Default)]
 struct Core(Mutex<Option<Running>>);
+
+#[derive(Default)]
+struct Closing(std::sync::atomic::AtomicBool);
+
+#[tauri::command]
+fn app_close_confirmed(app: AppHandle, closing: State<'_, Closing>) -> Result<(), String> {
+    let updates = app.state::<updater::Updates>();
+    let _activity = updates
+        .activity
+        .try_lock()
+        .map_err(|_| "Wait for the current native operation to finish.")?;
+    if updates.installing() {
+        return Err("Wait for update installation to finish.".into());
+    }
+    closing.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    app.exit(0);
+    Ok(())
+}
 
 /// Which start of the core an event belongs to. Opening another workspace
 /// stops the old core, and its exit arriving after the new one started was
@@ -38,9 +59,30 @@ struct Running {
 
 impl Running {
     fn stop(mut self) {
-        // Closing its input is how the core is told to finish; the kill is for
-        // one that does not.
+        let pid = self.child.id();
         drop(self.stdin);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while matches!(self.child.try_wait(), Ok(None)) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        #[cfg(unix)]
+        {
+            let _ = Command::new("/bin/kill")
+                .args(["-KILL", &format!("-{pid}")])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+        #[cfg(windows)]
+        {
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
         #[cfg(debug_assertions)]
@@ -61,7 +103,9 @@ struct Started {
 fn repository() -> Option<PathBuf> {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.parent()?.parent()?.parent()?;
-    root.join("Cargo.toml").is_file().then(|| root.to_path_buf())
+    root.join("Cargo.toml")
+        .is_file()
+        .then(|| root.to_path_buf())
 }
 
 /// A file shipped in the app's resources, if this copy of the app has it.
@@ -184,8 +228,8 @@ fn read_trusted_workspaces(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
     let Ok(bytes) = std::fs::read(&file) else {
         return Ok(Vec::new());
     };
-    let paths: Vec<String> = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("{}: {error}", file.display()))?;
+    let paths: Vec<String> =
+        serde_json::from_slice(&bytes).map_err(|error| format!("{}: {error}", file.display()))?;
     Ok(paths.into_iter().map(PathBuf::from).collect())
 }
 
@@ -203,7 +247,9 @@ fn is_workspace_trusted(app: &AppHandle, workspace: &Path) -> Result<bool, Strin
     if chat_home().is_ok_and(|home| home == workspace) {
         return Ok(true);
     }
-    Ok(read_trusted_workspaces(app)?.iter().any(|path| path == workspace))
+    Ok(read_trusted_workspaces(app)?
+        .iter()
+        .any(|path| path == workspace))
 }
 
 #[tauri::command]
@@ -237,7 +283,8 @@ async fn trust_workspace(app: AppHandle, workspace: String) -> Result<(), String
         paths.push(path);
         let file = trusted_workspaces_file(&app)?;
         let parent = file.parent().ok_or("app config directory has no parent")?;
-        std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("{}: {error}", parent.display()))?;
         let bytes = serde_json::to_vec_pretty(&paths).map_err(|error| error.to_string())?;
         let temporary = file.with_extension("json.tmp");
         std::fs::write(&temporary, bytes)
@@ -277,17 +324,30 @@ async fn default_workspace(app: AppHandle) -> String {
 #[tauri::command]
 async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let updates = app.state::<updater::Updates>();
+        let _activity = updates
+            .activity
+            .lock()
+            .map_err(|_| "Activity state unavailable")?;
+        updates.allow_activity()?;
         let core = app.state::<Core>();
         let workspace = canonical_workspace(&workspace)?;
         if !is_workspace_trusted(&app, &workspace)? {
-            return Err(format!("Workspace has not been trusted: {}", workspace.display()));
+            return Err(format!(
+                "Workspace has not been trusted: {}",
+                workspace.display()
+            ));
         }
         let program = core_path(&app);
         let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         // On a Mac the app runs MLX only; llama.cpp arrives with Windows. A
         // development build still honours `PWR_BACKEND` so the GGUF path can be
         // worked on; a release build never switches engine from the environment.
-        let default_backend = if cfg!(target_os = "macos") { "mlx" } else { "llama" };
+        let default_backend = if cfg!(target_os = "macos") {
+            "mlx"
+        } else {
+            "llama"
+        };
         let backend = if cfg!(debug_assertions) {
             std::env::var("PWR_BACKEND").unwrap_or_else(|_| default_backend.into())
         } else {
@@ -321,8 +381,10 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_err(|error| error.to_string())?
                     .as_nanos();
-                let path =
-                    directory.join(format!("core-{}-{generation}-{nonce}.jsonl", std::process::id()));
+                let path = directory.join(format!(
+                    "core-{}-{generation}-{nonce}.jsonl",
+                    std::process::id()
+                ));
                 let mut options = std::fs::OpenOptions::new();
                 options.write(true).create_new(true);
                 #[cfg(unix)]
@@ -363,6 +425,14 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
                 command.env("PWR_LLAMA_SERVER", path);
             }
         }
+        if let Some(previous) = core.0.lock().map_err(|_| "core state poisoned")?.take() {
+            previous.stop();
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         let mut child = command
             .spawn()
             .map_err(|error| format!("could not start {}: {error}", program.display()))?;
@@ -370,14 +440,19 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
         let stdout = child.stdout.take().ok_or("the core has no output")?;
         let stderr = child.stderr.take().ok_or("the core has no error output")?;
 
-        if let Some(previous) = core.0.lock().map_err(|_| "core state poisoned")?.replace(Running {
-            child,
-            stdin,
-            #[cfg(debug_assertions)]
-            trace_path,
-            #[cfg(debug_assertions)]
-            trace_owned,
-        }) {
+        if let Some(previous) = core
+            .0
+            .lock()
+            .map_err(|_| "core state poisoned")?
+            .replace(Running {
+                child,
+                stdin,
+                #[cfg(debug_assertions)]
+                trace_path,
+                #[cfg(debug_assertions)]
+                trace_owned,
+            })
+        {
             // Stop the old core on a background thread so starting the new one never waits.
             std::thread::spawn(move || previous.stop());
         }
@@ -388,10 +463,16 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
                 let Ok(line) = line else { break };
                 match serde_json::from_str::<serde_json::Value>(&line) {
                     Ok(message) => {
-                        let _ = events.emit("acp", message);
+                        let _ = events.emit(
+                            "acp",
+                            serde_json::json!({"generation": generation, "message": message}),
+                        );
                     }
                     Err(_) => {
-                        let _ = events.emit("core-log", line);
+                        let _ = events.emit(
+                            "core-log",
+                            serde_json::json!({"generation": generation, "line": line}),
+                        );
                     }
                 }
             }
@@ -400,7 +481,10 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
         let logs = app.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                let _ = logs.emit("core-log", line);
+                let _ = logs.emit(
+                    "core-log",
+                    serde_json::json!({"generation": generation, "line": line}),
+                );
             }
         });
         // Remembered only once the core has started there, so a folder that
@@ -442,8 +526,11 @@ fn core_send(core: State<'_, Core>, message: serde_json::Value) -> Result<(), St
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
     let parsed = url.trim();
-    let scheme = parsed.split_once("://").map(|(scheme, _)| scheme.to_ascii_lowercase());
-    if !matches!(scheme.as_deref(), Some("http" | "https")) || parsed.chars().any(char::is_control) {
+    let scheme = parsed
+        .split_once("://")
+        .map(|(scheme, _)| scheme.to_ascii_lowercase());
+    if !matches!(scheme.as_deref(), Some("http" | "https")) || parsed.chars().any(char::is_control)
+    {
         return Err(format!("Not a web address: {parsed}"));
     }
     #[cfg(target_os = "macos")]
@@ -545,7 +632,38 @@ fn trace_records_in_window(
 
 #[cfg(all(test, debug_assertions))]
 mod diagnostic_tests {
-    use super::trace_records_in_window;
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn core_shutdown_allows_eof_cleanup_before_escalation() {
+        use std::os::unix::process::CommandExt;
+        let path = std::env::temp_dir().join(format!(
+            "pwr-shutdown-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "cat >/dev/null; printf cleaned > \"$1\"", "fixture"])
+            .arg(&path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        Running {
+            child,
+            stdin,
+            trace_path: path.clone(),
+            trace_owned: false,
+        }
+        .stop();
+        let actual = std::fs::read_to_string(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(actual.unwrap(), "cleaned");
+    }
 
     #[test]
     fn raw_model_output_is_scoped_to_the_exported_chat() {
@@ -566,28 +684,96 @@ fn main_only(
 ) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     move |invoke| {
         if invoke.message.webview().label() != "main" {
-            invoke.resolver.reject("Remote browser pages cannot invoke PWR host commands.");
+            invoke
+                .resolver
+                .reject("Remote browser pages cannot invoke PWR host commands.");
             true
-        } else { handler(invoke) }
+        } else {
+            handler(invoke)
+        }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn guarded_quit_menu(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+    let menu = Menu::default(app)?;
+    // Tauri 2.11's first submenu is the application menu, ending in its
+    // predefined Quit. That native item invokes NSApp terminate directly,
+    // bypassing the asynchronous unsaved-buffer confirmation.
+    if let Some(MenuItemKind::Submenu(application)) = menu.items()?.first() {
+        let items = application.items()?;
+        if let Some(MenuItemKind::Predefined(quit)) = items.last() {
+            let title = quit.text()?;
+            if title.starts_with("Quit ") || title == "Quit" {
+                application.remove(quit)?;
+                application.append(&MenuItem::with_id(
+                    app,
+                    "pwr-guarded-quit",
+                    title,
+                    true,
+                    Some("CmdOrCtrl+Q"),
+                )?)?;
+            } else {
+                return Err(std::io::Error::other(
+                    "Unexpected application menu: Quit guard not installed",
+                )
+                .into());
+            }
+        } else {
+            return Err(std::io::Error::other("Application menu has no Quit item to guard").into());
+        }
+    } else {
+        return Err(std::io::Error::other("Application menu missing").into());
+    }
+    app.set_menu(menu)?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main"
+                    && !window
+                        .state::<Closing>()
+                        .0
+                        .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    api.prevent_close();
+                    let _ = window.emit("app-close-requested", ());
+                }
+            }
+        })
         .on_page_load(|webview, payload| {
             // A frontend reload must not leave a browser page alive
             // after component disposal is skipped.
-            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Started {
-                if let Some(browser)=webview.app_handle().try_state::<browser::Browser>() { browser.close_all(webview.app_handle()); }
+            if webview.label() == "main"
+                && payload.event() == tauri::webview::PageLoadEvent::Started
+            {
+                if let Some(browser) = webview.app_handle().try_state::<browser::Browser>() {
+                    browser.close_all(webview.app_handle());
+                }
             }
         })
         .manage(Core::default())
+        .manage(updater::Updates::default())
+        .manage(drafts::Drafts::default())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(Closing::default())
         .manage(engine::Setup::default())
         .manage(terminal::Terminals::default())
         .manage(browser::Browser::default())
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "pwr-guarded-quit" {
+                let _ = app.emit_to("main", "app-close-requested", ());
+            }
+        })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            guarded_quit_menu(app.handle())?;
             // Warm up login PATH on a background thread so the first core launch never waits.
             std::thread::spawn(|| {
                 let _ = login_path();
@@ -597,7 +783,10 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let watched = window.clone();
                 window.on_window_event(move |event| {
-                    if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(true)) {
+                    if matches!(
+                        event,
+                        tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(true)
+                    ) {
                         titlebar::follow(&watched);
                     }
                 });
@@ -613,27 +802,81 @@ pub fn run() {
         });
     #[cfg(debug_assertions)]
     let builder = builder.invoke_handler(main_only(tauri::generate_handler![
-        default_workspace, chat_home_path, workspace_is_trusted, trust_workspace,
-        core_start, core_send, core_stop, open_external,
-        engine::engine_status, engine::engine_install, engine::engine_cancel,
-        terminal::term_open, terminal::term_write, terminal::term_resize, terminal::term_close,
-       
-        browser::browser_open, browser::browser_sync, browser::browser_action, browser::browser_close,
+        drafts::drafts_read,
+        drafts::drafts_write,
+        updater::update_status,
+        updater::update_check,
+        updater::update_download,
+        updater::update_install,
+        updater::update_restart,
+        default_workspace,
+        chat_home_path,
+        workspace_is_trusted,
+        trust_workspace,
+        core_start,
+        core_send,
+        core_stop,
+        open_external,
+        app_close_confirmed,
+        engine::engine_status,
+        engine::engine_install,
+        engine::engine_cancel,
+        terminal::term_open,
+        terminal::term_ack,
+        terminal::term_write,
+        terminal::term_resize,
+        terminal::term_close,
+        browser::browser_open,
+        browser::browser_sync,
+        browser::browser_action,
+        browser::browser_close,
         debug_export_chat,
     ]));
     #[cfg(not(debug_assertions))]
     let builder = builder.invoke_handler(main_only(tauri::generate_handler![
-        default_workspace, chat_home_path, workspace_is_trusted, trust_workspace,
-        core_start, core_send, core_stop, open_external,
-        engine::engine_status, engine::engine_install, engine::engine_cancel,
-        terminal::term_open, terminal::term_write, terminal::term_resize, terminal::term_close,
-       
-        browser::browser_open, browser::browser_sync, browser::browser_action, browser::browser_close,
+        drafts::drafts_read,
+        drafts::drafts_write,
+        updater::update_status,
+        updater::update_check,
+        updater::update_download,
+        updater::update_install,
+        updater::update_restart,
+        default_workspace,
+        chat_home_path,
+        workspace_is_trusted,
+        trust_workspace,
+        core_start,
+        core_send,
+        core_stop,
+        open_external,
+        app_close_confirmed,
+        engine::engine_status,
+        engine::engine_install,
+        engine::engine_cancel,
+        terminal::term_open,
+        terminal::term_ack,
+        terminal::term_write,
+        terminal::term_resize,
+        terminal::term_close,
+        browser::browser_open,
+        browser::browser_sync,
+        browser::browser_action,
+        browser::browser_close,
     ]));
     builder
         .build(tauri::generate_context!())
         .expect("error while building the PWR app")
         .run(|app, event| {
+            if let RunEvent::ExitRequested { api, .. } = &event {
+                if !app
+                    .state::<Closing>()
+                    .0
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    api.prevent_exit();
+                    let _ = app.emit_to("main", "app-close-requested", ());
+                }
+            }
             // The core must not outlive the window: it holds a model.
             if let RunEvent::Exit = event {
                 app.state::<browser::Browser>().close_all(app);

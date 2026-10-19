@@ -181,6 +181,35 @@ fn a_part_file_is_resumed_and_a_wrong_file_is_never_overwritten() {
     assert!(download::preflight(&plan, u64::MAX).is_err());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_partial_download_symlink_is_refused_without_touching_its_target() {
+    use std::os::unix::fs::symlink;
+
+    let destination = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("valuable.bin");
+    std::fs::write(&target, b"keep these bytes unchanged").unwrap();
+    let expected = b"model bytes";
+    let plan = plan_of(
+        destination.path(),
+        vec![("model.gguf", expected, "http://127.0.0.1:9/x".into(), true)],
+    );
+    symlink(
+        &target,
+        download::part_path(&destination.path().join("model.gguf")),
+    )
+    .unwrap();
+
+    let (result, _) = run(&plan);
+    let error = result.unwrap_err();
+    assert_eq!(error.kind, FailureKind::Conflict);
+    assert_eq!(
+        std::fs::read(&target).unwrap(),
+        b"keep these bytes unchanged"
+    );
+}
+
 /// Like `serve`, but the first response promises the whole payload and
 /// hangs up after `cut` bytes: a connection dropped in the middle of a file.
 fn serve_dropping_once(payload: Vec<u8>, cut: usize) -> String {
@@ -316,4 +345,201 @@ fn a_finished_download_state_cannot_be_revived_by_a_late_report() {
         .on(&progress(Phase::Verifying, 100))
         .on(&DownloadEvent::Finished);
     assert_eq!(done, DownloadState::Completed { total: 100 });
+}
+
+#[cfg(unix)]
+#[test]
+fn replacing_a_partial_with_a_symlink_during_http_cannot_truncate_its_target() {
+    late_partial_link_attack(false);
+    late_partial_link_attack(true);
+}
+
+#[cfg(unix)]
+fn late_partial_link_attack(hard_link: bool) {
+    let destination = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("valuable.bin");
+    std::fs::write(&target, b"keep these bytes unchanged").unwrap();
+    let partial = download::part_path(&destination.path().join("model.gguf"));
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let linked_target = target.clone();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 4096];
+        assert!(stream.read(&mut request).unwrap() > 0);
+        if hard_link {
+            std::fs::hard_link(linked_target, partial).unwrap();
+        } else {
+            std::os::unix::fs::symlink(linked_target, partial).unwrap();
+        }
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-length: 11\r\nconnection: close\r\n\r\nmodel bytes",
+            )
+            .unwrap();
+    });
+    let plan = plan_of(
+        destination.path(),
+        vec![(
+            "model.gguf",
+            b"model bytes",
+            format!("http://{address}/file"),
+            true,
+        )],
+    );
+    let (result, _) = run(&plan);
+    server.join().unwrap();
+    assert!(result.is_err());
+    assert_eq!(
+        std::fs::read(target).unwrap(),
+        b"keep these bytes unchanged"
+    );
+}
+
+#[test]
+fn a_destination_created_during_http_is_never_overwritten() {
+    let destination = tempfile::tempdir().unwrap();
+    let target = destination.path().join("model.gguf");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let created_target = target.clone();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 4096];
+        assert!(stream.read(&mut request).unwrap() > 0);
+        std::fs::write(created_target, b"a concurrently installed file").unwrap();
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-length: 11\r\nconnection: close\r\n\r\nmodel bytes",
+            )
+            .unwrap();
+    });
+    let plan = plan_of(
+        destination.path(),
+        vec![(
+            "model.gguf",
+            b"model bytes",
+            format!("http://{address}/file"),
+            true,
+        )],
+    );
+    let (result, _) = run(&plan);
+    server.join().unwrap();
+    assert!(result.is_err());
+    assert_eq!(
+        std::fs::read(target).unwrap(),
+        b"a concurrently installed file"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_revision_marker_symlink_never_changes_its_external_target() {
+    let destination = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("valuable.txt");
+    std::fs::write(&target, b"keep these bytes unchanged").unwrap();
+    std::os::unix::fs::symlink(&target, destination.path().join(download::REVISION_FILE)).unwrap();
+    let mut plan = plan_of(
+        destination.path(),
+        vec![(
+            "model.gguf",
+            b"model bytes",
+            serve(b"model bytes".to_vec(), 1),
+            true,
+        )],
+    );
+    plan.revision = Some("1234567890123456789012345678901234567890".into());
+    assert!(run(&plan).0.is_ok());
+    assert_eq!(
+        std::fs::read(target).unwrap(),
+        b"keep these bytes unchanged"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn replacing_the_download_root_during_http_cannot_publish_outside_it() {
+    let sandbox = tempfile::tempdir().unwrap();
+    let destination = sandbox.path().join("models");
+    let old = sandbox.path().join("original");
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir(&destination).unwrap();
+    let external_part = outside.path().join("model.gguf.part");
+    std::fs::write(&external_part, b"model bytes").unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let redirect = outside.path().to_path_buf();
+    let replaced = destination.clone();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 4096];
+        assert!(stream.read(&mut request).unwrap() > 0);
+        std::fs::rename(&replaced, old).unwrap();
+        std::os::unix::fs::symlink(redirect, replaced).unwrap();
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-length: 11\r\nconnection: close\r\n\r\nmodel bytes",
+            )
+            .unwrap();
+    });
+    let plan = plan_of(
+        &destination,
+        vec![(
+            "model.gguf",
+            b"model bytes",
+            format!("http://{address}/file"),
+            true,
+        )],
+    );
+    let result = run(&plan).0;
+    server.join().unwrap();
+    assert!(
+        result.is_err(),
+        "a renamed root must not be reported as a named installed artifact"
+    );
+    assert!(!outside.path().join("model.gguf").exists());
+    assert_eq!(std::fs::read(external_part).unwrap(), b"model bytes");
+}
+
+#[cfg(unix)]
+#[test]
+fn nested_download_directories_cannot_escape_through_symlinks() {
+    let destination = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(outside.path(), destination.path().join("nested")).unwrap();
+    let plan = plan_of(
+        destination.path(),
+        vec![(
+            "nested/model.gguf",
+            b"model bytes",
+            "http://127.0.0.1:9/file".into(),
+            true,
+        )],
+    );
+    let error = run(&plan).0.unwrap_err();
+    assert_eq!(error.kind, FailureKind::Conflict);
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn a_download_destination_must_be_beneath_its_declared_root() {
+    let destination = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let mut plan = plan_of(
+        destination.path(),
+        vec![(
+            "model.gguf",
+            b"model bytes",
+            "http://127.0.0.1:9/file".into(),
+            true,
+        )],
+    );
+    plan.files[0].destination = outside.path().join("model.gguf");
+    let error = run(&plan).0.unwrap_err();
+    assert_eq!(error.kind, FailureKind::Conflict);
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+    plan.files[0].destination = destination.path().join("../model.gguf");
+    assert_eq!(run(&plan).0.unwrap_err().kind, FailureKind::Conflict);
 }

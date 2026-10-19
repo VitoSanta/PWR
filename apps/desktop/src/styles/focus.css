@@ -37,9 +37,11 @@
 }
 
 .mm-line {
-  flex: none;
+  flex: 1 1 auto;
+  min-height: 0;
   margin-block: var(--space-3) var(--space-4);
-  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .mm-line .local-model {
@@ -404,6 +406,7 @@ html[data-wb-exit='plan']::view-transition-new(wb-plan) {
 }
 
 .focus-run-option {
+  min-height: 88px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -579,6 +582,13 @@ html[data-wb-exit='plan']::view-transition-new(wb-plan) {
   display: none;
 }
 
+/* Tools cover conversation chrome without reserving an empty strip. */
+.shell-focus.is-fullscreen.tool-full .focus-nav,
+.shell-focus.is-fullscreen.tool-page .focus-nav {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .shell-focus.tool-full > pa-inspector.focus-workbench {
   flex: 1 1 auto;
   width: auto;
@@ -587,7 +597,7 @@ html[data-wb-exit='plan']::view-transition-new(wb-plan) {
 
 .shell-focus.is-native.is-mac:not(.is-fullscreen).tool-full > pa-inspector.focus-workbench,
 .shell-focus.is-native.is-mac:not(.is-fullscreen).tool-page > pa-inspector.focus-workbench {
-  margin-top: 44px;
+  margin-top: 36px;
 }
 
 .focus-workbench .wb-card-title.is-static {
@@ -664,7 +674,7 @@ html[data-wb-exit='plan']::view-transition-new(wb-plan) {
   }
 
   .shell-focus.is-native.is-mac:not(.is-fullscreen).has-tool > pa-inspector.focus-workbench {
-    margin-top: 44px;
+    margin-top: 36px;
   }
 
   .shell-focus .focus-workbench .wb-card,
@@ -1052,4 +1062,12 @@ html[data-wb-exit='plan']::view-transition-new(wb-plan) {
   .shell-focus .composer-dock .composer-beacon {
     transition: none !important;
   }
+}
+
+/* In a Mac window the conversation button shares the native titlebar row. */
+.shell-focus.is-native.is-mac:not(.is-fullscreen) .focus-nav .icon-btn,
+.shell-focus.is-native.is-mac:not(.is-fullscreen) .focus-nav .switcher-trigger.is-icon {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
 }

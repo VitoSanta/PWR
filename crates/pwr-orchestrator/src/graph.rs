@@ -829,6 +829,7 @@ mod tests {
             tests: pwr_repo::test_subject(path),
             terms: Vec::new(),
             mtime_ns: 0,
+            change_stamp: None,
         }
     }
 

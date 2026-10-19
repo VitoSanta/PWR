@@ -603,10 +603,18 @@ class Chat(unittest.TestCase):
             seen["stream"] = kwargs
             yield FakeResponse("ok", "stop")
 
-        done, _, _, _ = self.chat(
-            generate, temperature=1.0, top_p=0.95, top_k=20,
-            min_p=0.1, presence_penalty=0.2, repetition_penalty=1.05,
-        )
+        from unittest.mock import patch
+        records = []
+        with patch("pwr_mlx.trace", side_effect=records.append):
+            done, _, _, _ = self.chat(
+                generate, temperature=1.0, top_p=0.95, top_k=20,
+                min_p=0.1, presence_penalty=0.2, repetition_penalty=1.05,
+            )
+        provenance = next(r for r in records if r.get("event") == "generation_parameters")
+        self.assertEqual(provenance["sampler"], seen["sampler"])
+        self.assertEqual(provenance["logits_processors"], seen["processors"])
+        self.assertIsNone(provenance["seed_requested"])
+        self.assertGreater(provenance["max_tokens"], 0)
         self.assertEqual(done["finish_reason"], "stop")
         self.assertEqual(seen["sampler"], {
             "temp": 1.0, "top_p": 0.95, "top_k": 20, "min_p": 0.1,

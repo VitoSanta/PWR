@@ -156,8 +156,7 @@ workspace with `.gitignore` semantics (whether or not it is a Git checkout),
 excluding `.git`, `target`, `node_modules`, `.venv`, `.pwr`, `.pwr-scratch`,
 and stores per file: content hash, size, shallow symbols (declaration
 keywords), imports, test subject by naming convention, and terms. It is cached
-in SQLite under `.pwr/indexes/` keyed on **mtime and size** — fast, and not a
-proof that content is unchanged.
+in SQLite under `.pwr/indexes/`. Cache reuse checks **mtime, size and the Unix device/inode/change-time stamp**. Restoring mtime after a same-size edit invalidates the record through the OS-owned change time (HI-34). Older cache records without that stamp are refreshed. Platforms without a supported stamp re-read files rather than rely on mtime and size alone; no adversarial filesystem or concurrent-write guarantee is claimed.
 
 Files over 1 MB (`MAX_INDEXED_BYTES`) and binary files are left out of the
 index entirely — the constant's comment says they are "inventory entries

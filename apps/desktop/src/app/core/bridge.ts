@@ -16,6 +16,14 @@ export const inTauri = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export const bridge = {
+  draftsRead: (workspace: string) => invoke<import('./draft-recovery').DraftSnapshot | null>('drafts_read', { workspace }),
+  draftsWrite: (workspace: string, snapshot: import('./draft-recovery').DraftSnapshot | null) => invoke<void>('drafts_write', { workspace, snapshot }),
+  updateStatus: () => invoke<{configured: boolean; currentVersion: string; channel: string}>('update_status'),
+  updateCheck: () => invoke<{version: string; notes: string} | null>('update_check'),
+  updateDownload: () => invoke<void>('update_download'),
+  updateInstall: () => invoke<void>('update_install'),
+  updateRestart: () => invoke<void>('update_restart'),
+  onUpdateProgress: (handler: (event: {received: number; total: number | null}) => void) => listen<{received: number; total: number | null}>('update-progress', event => handler(event.payload)),
   defaultWorkspace: () => invoke<string>('default_workspace'),
   chatHome: () => invoke<string>('chat_home_path'),
   workspaceIsTrusted: (workspace: string) => invoke<boolean>('workspace_is_trusted', { workspace }),
@@ -23,6 +31,9 @@ export const bridge = {
   start: (workspace: string) => invoke<Started>('core_start', { workspace }),
   send: (message: unknown) => invoke<void>('core_send', { message }),
   stop: () => invoke<void>('core_stop'),
+  confirmClose: () => invoke<void>('app_close_confirmed'),
+  onCloseRequested: (handler: () => void): Promise<UnlistenFn> =>
+    listen('app-close-requested', () => handler()),
   openExternal: (url: string) => invoke<void>('open_external', { url }),
   engineStatus: () => invoke<EngineStatus>('engine_status'),
   engineInstall: () => invoke<void>('engine_install'),
@@ -39,10 +50,10 @@ export const bridge = {
   },
   onEngineSetup: (handler: (progress: EngineProgress) => void): Promise<UnlistenFn> =>
     listen<EngineProgress>('engine-setup', (event) => handler(event.payload)),
-  onMessage: (handler: (message: any) => void): Promise<UnlistenFn> =>
-    listen<any>('acp', (event) => handler(event.payload)),
-  onLog: (handler: (line: string) => void): Promise<UnlistenFn> =>
-    listen<string>('core-log', (event) => handler(event.payload)),
+  onMessage: (handler: (message: any, generation: number) => void): Promise<UnlistenFn> =>
+    listen<{ message: any; generation: number }>('acp', (event) => handler(event.payload.message, event.payload.generation)),
+  onLog: (handler: (line: string, generation: number) => void): Promise<UnlistenFn> =>
+    listen<{ line: string; generation: number }>('core-log', (event) => handler(event.payload.line, event.payload.generation)),
   onExit: (handler: (generation: number) => void): Promise<UnlistenFn> =>
     listen<number>('core-exit', (event) => handler(event.payload)),
   pickFiles: async (): Promise<string[]> => {
@@ -61,11 +72,12 @@ export const bridge = {
   onBrowserLoaded: (handler: (event: { id: string; url: string; finished: boolean }) => void) => listen<{id:string;url:string;finished:boolean}>('browser-loaded', event => handler(event.payload)),
   onBrowserTitle: (handler: (event: { id: string; title: string }) => void) => listen<{id:string;title:string}>('browser-title', event => handler(event.payload)),
   termOpen: (cwd: string, cols: number, rows: number, launch?: unknown) => invoke<number>('term_open', { cwd, cols, rows, launch }),
+  termAck: (id: number, sequence: number) => invoke<void>('term_ack', { id, sequence }),
   termWrite: (id: number, data: string) => invoke<void>('term_write', { id, data }),
   termResize: (id: number, cols: number, rows: number) => invoke<void>('term_resize', { id, cols, rows }),
   termClose: (id: number) => invoke<void>('term_close', { id }),
-  onTermOutput: (handler: (output: { id: number; data: string }) => void): Promise<UnlistenFn> =>
-    listen<{ id: number; data: string }>('term-output', (event) => handler(event.payload)),
+  onTermOutput: (handler: (output: { id: number; data: string; sequence: number }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; data: string; sequence: number }>('term-output', (event) => handler(event.payload)),
   onTermExit: (handler: (id: number) => void): Promise<UnlistenFn> =>
     listen<number>('term-exit', (event) => handler(event.payload)),
   pickFolder: async (title: string): Promise<string | null> => {

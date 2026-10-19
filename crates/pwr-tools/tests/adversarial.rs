@@ -21,6 +21,44 @@ fn policy(root: &Path) -> ToolPolicy {
     }
 }
 
+#[tokio::test]
+async fn joined_script_arguments_are_refused_without_breaking_filenames_with_spaces() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    policy.allow_commands.push(python.into());
+    fs::write(
+        root.path().join("checker.py"),
+        "from pathlib import Path\nPath('executed').touch()\n",
+    )
+    .unwrap();
+    let error = run_command(&policy, python, &["checker.py .".into()])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("script and its arguments in one string"),
+        "{error}"
+    );
+    assert!(error.contains(r#"["checker.py","."]"#), "{error}");
+    assert!(!root.path().join("executed").exists());
+
+    fs::write(root.path().join("checker with spaces.py"), "print('ok')\n").unwrap();
+    let result = run_command(
+        &policy,
+        python,
+        &["checker with spaces.py".into(), "hello world".into()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.exit_code, Some(0), "{}", result.stderr);
+    let result = run_command(&policy, python, &["checker.py".into(), ".".into()])
+        .await
+        .unwrap();
+    assert_eq!(result.exit_code, Some(0));
+    assert!(root.path().join("executed").is_file());
+}
+
 // ---------------------------------------------------------------- path escape
 
 #[test]

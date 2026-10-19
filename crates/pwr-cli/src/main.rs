@@ -451,6 +451,21 @@ async fn prepare_chat_window(
     Ok(granted)
 }
 
+fn configured_kv_bits() -> u32 {
+    if std::env::var("PWR_MLX_KV_BITS").as_deref() == Ok("8") {
+        8
+    } else {
+        16
+    }
+}
+
+fn admitted_context(wanted: u32, held: Option<u32>) -> Result<u32, SafeError> {
+    if held.is_some_and(|tokens| tokens < 2_048) {
+        return Err(SafeError { category: "invalid_input", context: "This pack does not fit the configured memory budget, even at the minimum context. Choose a smaller pack.".into() });
+    }
+    Ok(held.map_or(wanted, |held| held.min(wanted)).max(2_048))
+}
+
 async fn compute_context(
     runtime: &RuntimeFactory,
     config: &mut ChatConfig,
@@ -471,16 +486,12 @@ async fn compute_context(
     // global layers' cache at the bits the engine keeps it, the sliding
     // layers, a prefill step's scores, the engine and the reserve
     // (`pwr_domain::gemma::memory_for`).
-    let kv_bits = if std::env::var("PWR_MLX_KV_BITS").as_deref() == Ok("8") {
-        8
-    } else {
-        16
-    };
+    let kv_bits = configured_kv_bits();
     let full = pack.context_tokens;
     let wanted = config.context_setting.unwrap_or(full).min(full);
     let memory = probe_hardware().await.total_memory_bytes;
     let held = memory.map(|memory| pwr_domain::gemma::window(pack, memory, kv_bits));
-    let tokens = held.map_or(wanted, |held| held.min(wanted)).max(2_048);
+    let tokens = admitted_context(wanted, held)?;
     let bound_by = match held {
         Some(held) if held < wanted => Some("memory".to_owned()),
         _ if wanted < full => Some("setting".to_owned()),
@@ -1129,9 +1140,10 @@ fn save_chat_config(root: &Path, config: &ChatConfig) -> Result<(), SafeError> {
         category: "internal",
         context: format!("could not create {}: {error}", parent.display()),
     })?;
-    fs::write(
+    pwr_tools::atomic::write_atomic(
         &path,
-        serde_json::to_vec_pretty(config).expect("serializable"),
+        &serde_json::to_vec_pretty(config).expect("serializable"),
+        pwr_tools::atomic::Expect::Anything,
     )
     .map_err(|error| SafeError {
         category: "internal",
@@ -2982,7 +2994,8 @@ impl serve::TurnRunner for ConsoleTurns {
             .map(|pack| {
                 let here = found(pack.model_ref);
                 let assistant_here = found(pack.assistant);
-                let window = memory.map(|memory| pwr_domain::gemma::window(pack, memory, 16));
+                let kv_bits = configured_kv_bits();
+                let window = (format == Format::Mlx).then(|| memory.map(|memory| pwr_domain::gemma::window(pack, memory, kv_bits))).flatten();
                 let artifact_for = |repo: &str| {
                     registry
                         .artifacts
@@ -2992,25 +3005,28 @@ impl serve::TurnRunner for ConsoleTurns {
                         .map(|artifact| artifact.id.clone())
                 };
                 serde_json::json!({
-                    "model": pack.model_ref,
+                    "model": here.map(|model| model.model_ref.as_str()).unwrap_or(pack.model_ref),
+                    "format": format,
                     "label": pack.label,
                     "tier": pack.tier,
                     "tierMemoryGib": pack.tier.memory_gib(),
                     "weightsBytes": pack.weights_bytes,
-                    "artifact": artifact_for(pack.model_ref),
+                    "artifact": (format == Format::Mlx).then(|| artifact_for(pack.model_ref)).flatten(),
                     "installed": here.is_some_and(|model| !model.partial),
                     "partial": here.is_some_and(|model| model.partial),
                     "bytesOnDisk": here.map_or(0, |model| model.bytes),
-                    "inUse": config.model.as_deref() == Some(pack.model_ref),
+                    "inUse": here.is_some_and(|model| config.model.as_deref() == Some(model.model_ref.as_str())),
                     // The context this machine holds for it; the full
                     // context is the line's requirement.
                     "windowTokens": window,
                     "maxContextTokens": pack.context_tokens,
                     "fullContext": window == Some(pack.context_tokens),
-                    "neededBytes": pwr_domain::gemma::memory_for(pack, pack.context_tokens, 16),
+                    "neededBytes": pwr_domain::gemma::memory_for(pack, pack.context_tokens, kv_bits),
+                    "kvBits": kv_bits,
                     "assistant": {
-                        "model": pack.assistant,
-                        "artifact": artifact_for(pack.assistant),
+                        "model": assistant_here.map(|model| model.model_ref.as_str()).unwrap_or(pack.assistant),
+                        "format": format,
+                        "artifact": (format == Format::Mlx).then(|| artifact_for(pack.assistant)).flatten(),
                         "weightsBytes": pack.assistant_bytes(),
                         "installed": assistant_here.is_some_and(|model| !model.partial),
                         "partial": assistant_here.is_some_and(|model| model.partial),
@@ -4628,7 +4644,9 @@ async fn chat_turn(
     };
     let catalog = if !chat_only && !minimal && approvals.controls_workspace() {
         converse::with_workspace_engine(catalog, continuity.search_engine.as_ref())
-    } else { catalog };
+    } else {
+        catalog
+    };
     let catalog = if continuity.plan.is_some() {
         converse::with_plan(catalog)
     } else {
@@ -7200,6 +7218,23 @@ async fn probe_hardware() -> HardwareProfile {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn context_admission_does_not_promote_an_insufficient_budget() {
+        assert!(super::admitted_context(262_144, Some(0)).is_err());
+        assert!(super::admitted_context(262_144, Some(1_024)).is_err());
+        assert_eq!(
+            super::admitted_context(262_144, Some(4_096))
+                .map_err(|error| error.context)
+                .unwrap(),
+            4_096
+        );
+        assert_eq!(
+            super::admitted_context(8_192, None)
+                .map_err(|error| error.context)
+                .unwrap(),
+            8_192
+        );
+    }
     use super::*;
     use pwr_domain::ModelChunk;
     use pwr_domain::now;

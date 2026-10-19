@@ -25,7 +25,25 @@ fn policy(root: &Path, approvals: Vec<Approval>) -> ToolPolicy {
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    tokio::runtime::Runtime::new().unwrap().block_on(future)
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| tokio::runtime::Runtime::new().unwrap())
+        .block_on(future)
+}
+
+#[test]
+fn a_verbose_service_is_drained_before_readiness() {
+    let root = tempfile::tempdir().unwrap();
+    let port = ServiceSupervisor::reserve_port().unwrap();
+    let mut supervisor = ServiceSupervisor::new();
+    let handle = block_on(supervisor.start(&policy(root.path(), vec![Approval::LocalService]), "python3", &[
+        "-u".into(), "-c".into(), format!("import sys,http.server; print('x'*300000,flush=True); http.server.HTTPServer(('127.0.0.1',{port}),http.server.SimpleHTTPRequestHandler).serve_forever()")
+    ], Some(port))).unwrap();
+    let ready = block_on(supervisor.wait_until_ready(handle.id, port, Duration::from_secs(5)));
+    let output = block_on(supervisor.stop(handle.id, 8192)).unwrap();
+    assert!(ready.is_ok(), "{ready:?}");
+    assert!(output.truncated);
+    assert!(output.stdout.len() <= 8192);
 }
 
 fn listening(port: u16) -> bool {
@@ -34,6 +52,34 @@ fn listening(port: u16) -> bool {
         Duration::from_millis(200),
     )
     .is_ok()
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn persistent_process_cannot_rewrite_git_configuration() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join(".git")).unwrap();
+    let config = root.path().join(".git/config");
+    std::fs::write(&config, "[core]\n").unwrap();
+    let mut policy = policy(root.path(), vec![Approval::LocalService]);
+    policy.sandbox = SandboxPolicy::Required;
+    let port = ServiceSupervisor::reserve_port().unwrap();
+    let mut supervisor = ServiceSupervisor::new();
+    let handle = supervisor
+        .start(
+            &policy,
+            "sh",
+            &["-c".into(), "printf altered > .git/config".into()],
+            Some(port),
+        )
+        .await
+        .unwrap();
+    let ready = supervisor
+        .wait_until_ready(handle.id, port, Duration::from_secs(3))
+        .await;
+    let _ = supervisor.stop(handle.id, 8192).await.unwrap();
+    assert!(ready.is_err());
+    assert_eq!(std::fs::read_to_string(config).unwrap(), "[core]\n");
 }
 
 /// A process that outlives the action that started it needs the grant that

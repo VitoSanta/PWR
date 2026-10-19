@@ -109,11 +109,19 @@ export class BrowserStore {
         this.activeId.set(tab.id);
         // Allow Angular and the native surface to reveal the selected tab.
         await new Promise(resolve => setTimeout(resolve, 150));
-        if (epoch !== this.agent.workspaceEpoch() || tab.controller !== this.active()?.controller || this.active()?.id !== tab.id) throw new Error('Browser control changed.');
+        const requireControl = () => {
+          const current = this.tabs().find(item => item.id === tab.id);
+          if (epoch !== this.agent.workspaceEpoch() || requestedSession !== this.agent.sessionId()
+              || requestedWorkspace !== this.agent.workspace() || !this.agent.turnActive()
+              || this.activeId() !== tab.id || current?.controller !== 'model'
+              || current.conversationId !== requestedSession) throw new Error('Browser control changed.');
+        };
+        requireControl();
         if (operation === 'close') { await this.close(tab.id); return { closed: true }; }
         // The page's view appears a moment after the tab is chosen: ask again rather than fail on the first look.
         for (let attempt = 0; ; attempt++) {
-          try { return await this.action(operation, args, attempt < 4); }
+          requireControl();
+          try { return await this.action(operation, args, attempt < 4, tab.id); }
           catch (error) {
             if (attempt >= 4 || !/must be visible/.test(String(error))) { this.error.set(String(error)); throw error; }
             await new Promise(resolve => setTimeout(resolve, 300));
@@ -127,7 +135,8 @@ export class BrowserStore {
   }
   async open(raw: string, controller: 'user' | 'model' = 'user', waitForLoad = false): Promise<BrowserTab> {
     const url = browserAddress(raw), cwd = this.cwd;
-    if (controller === 'model') this.choosing.set(false);
+    // An explicit address does not require choosing a search provider.
+    this.choosing.set(false);
     if (this.tabs().length >= 12) throw new Error('Close a tab before opening another.');
     const tab: BrowserTab = { id: crypto.randomUUID(), url, title: new URL(url).hostname, controller,
       conversationId: controller === 'model' ? this.agent.sessionId() : null };
@@ -150,7 +159,9 @@ export class BrowserStore {
   }
   async navigate(raw: string): Promise<void> {
     const tab = this.active(); if (!tab) { await this.open(raw); return; }
-    const url = browserAddress(raw); await bridge.browserOpen(tab.id, url);
+    const url = browserAddress(raw), cwd = this.cwd; await bridge.browserOpen(tab.id, url);
+    if (cwd !== this.cwd) { await bridge.browserClose(tab.id); throw new Error('The workspace changed.'); }
+    this.choosing.set(false);
     this.tabs.update(tabs => tabs.map(item => item.id === tab.id ? { ...item, url } : item)); this.remember(url);
   }
   /** A link the person followed: its page in the Browser, the tab it already has if it has one. Throws for an address the Browser refuses. */
@@ -189,8 +200,8 @@ export class BrowserStore {
   control(controller: 'user' | 'model'): void {
     const id = this.activeId(); this.tabs.update(tabs => tabs.map(tab => tab.id === id ? { ...tab, controller, conversationId: controller === 'model' ? this.agent.sessionId() : null } : tab));
   }
-  async action(operation: string, args: any = {}, quiet = false): Promise<any> {
-    const tab = this.active(); if (!tab) return;
+  async action(operation: string, args: any = {}, quiet = false, tabId = this.activeId()): Promise<any> {
+    const tab = this.tabs().find(item => item.id === tabId); if (!tab) return;
     this.busy.set(true); this.error.set('');
     try {
       const result = await bridge.browserAction(tab.id, operation, args);

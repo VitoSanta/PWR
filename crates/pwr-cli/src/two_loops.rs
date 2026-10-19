@@ -6132,3 +6132,67 @@ fn a_tool_offered_to_this_model_is_not_refused_as_unknown() {
         );
     }
 }
+
+/// A warning is an opportunity to recover, not a fresh allowance to ask the
+/// same denied action forever (product verification 2026-10-18).
+#[test]
+fn repeated_denials_after_feedback_stop_without_executing_or_completing() {
+    let dir = workspace();
+    let denied = || {
+        calls(
+            "replace_text",
+            serde_json::json!({"path":"code.rs","expected_hash":"stale","find":"one","replace":"two"}),
+        )
+    };
+    let outcome = drive_chat(dir.path(), (0..12).map(|_| denied()).collect());
+    assert_eq!(
+        outcome.report.stopped,
+        Some(converse::StopReason::NoProgress)
+    );
+    assert!(!outcome.report.completed);
+    assert!(
+        outcome.requests.len() <= 8,
+        "{} requests spent on the same denial",
+        outcome.requests.len()
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "one\n"
+    );
+}
+
+#[test]
+fn repeated_permission_denials_stop_without_reasking_forever() {
+    let dir = workspace();
+    let mut policy = policy_for(dir.path());
+    policy.approvals.clear();
+    let script = (0..12)
+        .map(|_| {
+            calls(
+                "run_command",
+                serde_json::json!({"executable":"not-a-workspace-program","args":[]}),
+            )
+        })
+        .collect();
+    let outcome = drive_chat_under(
+        policy,
+        Scripted::new(script),
+        &[],
+        &std::sync::atomic::AtomicBool::new(false),
+    );
+    assert_eq!(
+        outcome.report.stopped,
+        Some(converse::StopReason::NoProgress)
+    );
+    assert!(!outcome.report.completed);
+    assert!(outcome.requests.len() <= 8);
+    let approvals = outcome
+        .events
+        .iter()
+        .filter(|event| event.event_type == "approval.decision")
+        .count();
+    assert!(
+        approvals <= 6,
+        "asked {approvals} times for the same denied permission"
+    );
+}

@@ -1978,3 +1978,45 @@ pa-memory-proposals:empty {
   text-underline-offset: 2px;
   cursor: pointer;
 }
+
+/* Model families lead; precision and format belong to their variants. */
+.model-family[aria-current='true'] {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.model-back {
+  margin-bottom: var(--space-2);
+  color: var(--accent-text);
+}
+
+.model-pack-group {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.model-pack-group > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  color: var(--text-primary);
+  list-style: none;
+}
+
+.model-pack-group > summary::before {
+  content: '›';
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.model-pack-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.model-pack-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.model-pack-group > .local-model {
+  margin-left: var(--space-4);
+}

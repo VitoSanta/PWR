@@ -106,9 +106,9 @@ impl std::fmt::Display for ExtractionFailure {
             ),
             Self::Undecodable => write!(
                 f,
-                "encodes its text as font glyph ids without a ToUnicode map, so recovering \
-                 characters from it would be guesswork. What came out did not look like text \
-                 and has been discarded rather than returned"
+                "uses font encodings this extractor cannot reliably decode. A ToUnicode map \
+                 may be present but is not supported by this extractor. The recovered text \
+                 failed validation and was discarded rather than returned"
             ),
             Self::Malformed(detail) => write!(f, "could not be parsed: {detail}"),
         }
@@ -201,23 +201,53 @@ fn streams(bytes: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
             Some(b'\n') => after_keyword + 1,
             _ => after_keyword,
         };
-        let Some(end) = find(bytes, b"endstream", data_start) else {
-            break;
-        };
-        let mut data_end = end;
-        while data_end > data_start && matches!(bytes[data_end - 1], b'\n' | b'\r') {
-            data_end -= 1;
-        }
         let dictionary_start = start.saturating_sub(2048);
         let dictionary = bytes[dictionary_start..start]
             .rsplit(|byte| *byte == b'<')
             .next()
             .map(<[u8]>::to_vec)
             .unwrap_or_default();
+        let Some(end) = stream_end(bytes, data_start, &dictionary) else {
+            break;
+        };
+        let mut data_end = end;
+        while data_end > data_start && matches!(bytes[data_end - 1], b'\n' | b'\r') {
+            data_end -= 1;
+        }
         found.push((dictionary, bytes[data_start..data_end].to_vec()));
         at = end + b"endstream".len();
     }
     found
+}
+
+/// Finds the end of a stream, using a direct `/Length` when the dictionary
+/// provides one. `endstream` is ordinary data until that many bytes have been
+/// read; searching for the word in the payload truncates valid text streams
+/// that happen to contain it.
+fn stream_end(bytes: &[u8], data_start: usize, dictionary: &[u8]) -> Option<usize> {
+    let declared = String::from_utf8_lossy(dictionary);
+    let direct_length = declared.split("/Length").nth(1).and_then(|rest| {
+        rest.trim_start()
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse::<usize>()
+            .ok()
+    });
+    if let Some(data_end) = direct_length.and_then(|length| data_start.checked_add(length)) {
+        let mut marker = data_end;
+        if bytes.get(marker..marker.saturating_add(2)) == Some(b"\r\n") {
+            marker += 2;
+        } else if bytes.get(marker) == Some(&b'\n') || bytes.get(marker) == Some(&b'\r') {
+            marker += 1;
+        }
+        if bytes.get(marker..marker.saturating_add(b"endstream".len())) == Some(b"endstream") {
+            return Some(marker);
+        }
+    }
+    // Indirect lengths and malformed length entries are outside this
+    // extractor's parser. Keep the bounded marker fallback for those PDFs.
+    find(bytes, b"endstream", data_start)
 }
 
 /// Decodes a stream according to the filters its dictionary declares.
@@ -718,6 +748,20 @@ mod tests {
         pdf.extend_from_slice(b"\nendstream\nendobj\n");
         let extracted = extract(&pdf).unwrap();
         assert_eq!(extracted.text, "Example Developer\nSoftware Engineer");
+    }
+
+    #[test]
+    fn a_stream_uses_its_declared_length_when_text_contains_endstream() {
+        let content = b"BT (before endstream after) Tj ET";
+        let mut pdf = format!(
+            "%PDF-1.4\n1 0 obj\n<< /Length {} >>\nstream\n",
+            content.len()
+        )
+        .into_bytes();
+        pdf.extend_from_slice(content);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+
+        assert_eq!(extract(&pdf).unwrap().text, "before endstream after");
     }
 
     /// The gate that keeps a CID-keyed document from arriving as fluent rubbish.

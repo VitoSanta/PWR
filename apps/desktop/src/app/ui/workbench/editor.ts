@@ -8,6 +8,7 @@ import { ConfirmService } from '../../core/ui';
 import { Diff } from '../diff';
 import { Icon } from '../kit/icon';
 import { Action, EmptyState, SearchField, ToolBar, ToolTab } from '../kit/tool';
+import { loadEditorStyles } from '../../core/editor-styles';
 import type * as Monaco from 'monaco-editor/editor/editor.api.js';
 
 @Component({
@@ -27,6 +28,9 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
   private models = new Map<string, Monaco.editor.ITextModel>();
   private listeners: Monaco.IDisposable[] = [];
   private updating = false;
+  private appliedTheme = '';
+  private viewStates = new Map<string, Monaco.editor.ICodeEditorViewState>();
+  private shownPath = '';
   constructor() {
     effect(() => {
       const doc = this.store.active();
@@ -40,12 +44,14 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
   async ngAfterViewInit(): Promise<void> {
     try {
       (globalThis as any).MonacoEnvironment = { getWorker: () => new Worker(new URL('./editor.worker', import.meta.url), { type: 'module' }) };
+      await loadEditorStyles();
+      if (this.disposed) return;
       const monaco = await import('monaco-editor/editor/editor.api.js');
       await import('monaco-editor/basic-languages/monaco.contribution.js');
       if (this.disposed) return;
       this.monaco = monaco;
       const editor = monaco.editor.create(this.surface().nativeElement, { automaticLayout: true, minimap: { enabled: false }, fontSize: 13,
-        fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--mono').trim(), lineHeight: 22,
+        fontFamily: '"SF Mono", Menlo, Monaco, Consolas, monospace', fontLigatures: false, lineHeight: 22,
         padding: { top: 10, bottom: 10 }, renderLineHighlight: 'line', bracketPairColorization: { enabled: true },
         scrollBeyondLastLine: false, tabSize: 2, wordWrap: 'off', accessibilitySupport: 'auto', ariaLabel: 'Source code editor' });
       this.editor = editor;
@@ -60,6 +66,9 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
       }));
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void this.store.save());
       this.ready.set(true);
+      void document.fonts.ready.then(() => {
+        if (!this.disposed) { monaco.editor.remeasureFonts(); editor.layout(); }
+      });
     } catch (error) { this.error.set(`The editor could not load: ${String(error)}`); }
   }
   private show(doc: EditorDocument | null, docs: EditorDocument[], theme: string, palette: string): void {
@@ -72,19 +81,30 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
           : theme === 'dark'
             ? 'vs-dark'
             : 'vs';
-    this.monaco.editor.setTheme(monacoTheme);
+    if (this.appliedTheme !== monacoTheme) {
+      this.monaco.editor.setTheme(monacoTheme);
+      this.appliedTheme = monacoTheme;
+    }
     this.updating = true;
     try {
       for (const [path, model] of this.models) if (!docs.some(item => item.path === path)) { model.dispose(); this.models.delete(path); }
       if (!doc) { this.editor.setModel(null); return; }
       let model = this.models.get(doc.path);
       if (!model) {
-        const extension = doc.path.split('.').pop() ?? '';
-        const language = ({ ts: 'typescript', js: 'javascript', rs: 'rust', py: 'python', html: 'html', css: 'css', json: 'json', md: 'markdown', sh: 'shell', yml: 'yaml', yaml: 'yaml' } as Record<string,string>)[extension] ?? 'plaintext';
+        const extension = doc.path.split('.').pop()?.toLowerCase() ?? '';
+        const language = ({ ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', rs: 'rust', py: 'python', html: 'html', css: 'css', json: 'json', md: 'markdown', sh: 'shell', yml: 'yaml', yaml: 'yaml' } as Record<string,string>)[extension] ?? 'plaintext';
         model = this.monaco.editor.createModel(doc.text, language);
         this.models.set(doc.path, model);
       } else if (model.getValue() !== doc.text) model.setValue(doc.text);
-      if (this.editor.getModel() !== model) this.editor.setModel(model);
+      if (this.editor.getModel() !== model) {
+        const state = this.editor.saveViewState();
+        if (state && this.shownPath) this.viewStates.set(this.shownPath, state);
+        this.editor.setModel(model);
+        this.shownPath = doc.path;
+        const previous = this.viewStates.get(doc.path);
+        if (previous) this.editor.restoreViewState(previous);
+      }
+      requestAnimationFrame(() => { if (!this.disposed) this.editor?.layout(); });
       this.editor.updateOptions({ readOnly: !!doc.readonly });
     } finally { this.updating = false; }
   }
@@ -108,6 +128,8 @@ export class CodeEditor implements AfterViewInit, OnDestroy {
         <button matButton class="btn btn-sm" type="button" (click)="operation.set('')">Cancel</button>
       </form>
     }
+    @if (store.recovery.error()) { <p class="banner banner-danger tool-banner" role="alert">{{ store.recovery.error() }}</p> }
+    @if (store.recoveryMessage()) { <p class="banner tool-banner" role="status">{{ store.recoveryMessage() }}</p> }
     @if (store.error()) { <p class="banner banner-danger tool-banner" role="alert"><pa-icon name="alert" [size]="16" />{{ store.error() }}</p> }
     <div class="editor-workspace">
       <nav class="editor-tree" aria-label="Project files">
@@ -192,11 +214,6 @@ export class FilesCard {
   protected begin(operation: string, path = ''): void { this.operation.set(operation); this.original = path; this.path = path; }
   protected async apply(): Promise<void> {
     try {
-      if (this.operation() === 'rename' && this.original && !this.store.documents().some(doc => doc.path === this.original)) {
-        // Load the version before renaming a file; directories need no hash.
-        const entry = this.store.entries().find(item => item.path === this.original);
-        if (entry && !entry.dir) await this.store.open(this.original);
-      }
       await this.store.mutate(this.operation(), this.operation() === 'rename' ? this.original : this.path, this.path);
       this.operation.set(''); this.store.error.set('');
     } catch (error) { this.store.error.set(String(error)); }

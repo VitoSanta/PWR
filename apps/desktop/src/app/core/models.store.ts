@@ -69,6 +69,7 @@ export class ModelsStore {
     const assistant = pack.assistant;
     return {
       model: assistant.model,
+      format: assistant.format ?? pack.format,
       label: `${pack.label} assistant`,
       artifact: assistant.artifact,
       weightsBytes: assistant.weightsBytes,
@@ -88,7 +89,7 @@ export class ModelsStore {
     this.put(pack.model, {
       downloadId,
       modelRef: pack.model,
-      format: 'mlx',
+      format: pack.format ?? 'mlx',
       totalBytes: pack.weightsBytes,
       state: { state: 'preparing' },
     });
@@ -146,7 +147,7 @@ export class ModelsStore {
       await this.agent.call('_pwr/model_delete', {
         cwd: this.agent.workspace(),
         modelRef: target.model,
-        format: 'mlx',
+        format: target.format ?? 'mlx',
       });
       this.pendingDelete.set(null);
       this.downloads.update((all) => Object.fromEntries(Object.entries(all).filter(([model]) => model !== target.model)));

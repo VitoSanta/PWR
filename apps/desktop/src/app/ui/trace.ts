@@ -15,6 +15,7 @@ import {
   isMalformed,
   recoveredLabel,
   retryLabel,
+  retryPresentation,
   summarizePhase,
   toolCategory,
 } from '../core/trace';
@@ -78,24 +79,21 @@ abstract class Foldable {
             <span class="actions-icon">
               @if (busy(step.entries)) {
                 <span class="spinner spinner-sm"></span>
-              } @else if (refused(step.entries)) {
-                <pa-icon name="alert" [size]="14" />
               } @else {
                 <pa-icon class="chevron" [class.open]="isOpen(step.key, step.last)" name="chevron-right" [size]="14" />
               }
             </span>
             <span class="actions-summary">{{ summary(step.entries) }}</span>
-            @if (retried(step.entries); as retried) {
-              <span class="badge">{{ retried }} retried</span>
-            }
-            @if (unsuccessful(step.entries); as runs) {
-              <span class="badge">{{ runs }} failed</span>
-            }
-            @if (refused(step.entries); as failed) {
-              <span class="badge badge-danger">{{ failed }} refused</span>
+            @if (retryState(step.entries); as retry) {
+              <span class="badge" [class.badge-danger]="retry.tone === 'bad'">{{ retry.text }}</span>
             }
           </button>
           @if (isOpen(step.key, step.last)) {
+            <p class="action-attempts muted">Attempt history
+              @if (refused(step.entries); as blocked) { · {{ blocked }} calls not executed }
+              @if (unsuccessful(step.entries); as failed) { · {{ failed }} commands returned errors }
+              @if (retried(step.entries); as retries) { · {{ retries }} automatic retries }
+            </p>
             <ul class="action-list">
               @for (entry of step.entries; track entry.key) {
                 @if (entry.kind === 'retry' || entry.kind === 'recovery') {
@@ -222,6 +220,9 @@ export class TraceSteps extends Foldable {
   }
 
   protected readonly ranFailed = ranAndFailed;
+  protected retryState(entries: Entry[]) {
+    return retryPresentation(entries, this.store.turnActive());
+  }
 
   /** Turned down by a guard or the policy: not calls that failed to decode,
    *  and not commands that ran and reported failure. */
@@ -273,7 +274,7 @@ export class TraceSteps extends Foldable {
   }
 
   protected label(entry: Entry): string {
-    return { pending: 'Planned', running: 'Running', done: 'Done', failed: 'Refused' }[entry.status as string] ?? entry.status;
+    return { pending: 'Planned', running: 'Running', done: 'Done', failed: entry.data?.['outcome'] === 'turned_down' ? 'Blocked by a guard or permission policy' : 'Attempt did not complete' }[entry.status as string] ?? entry.status;
   }
 
   protected stats(entry: Entry): { added: number; removed: number } {
@@ -360,7 +361,6 @@ export class TraceCompact extends Foldable {
 
   protected readonly view = computed(() => {
     const turn = compactTurn(this.entries(), this.live());
-    const stopped = this.entries().some((entry) => entry.kind === 'stop');
     return {
       result: turn.result,
       phases: turn.phases.map((phase) => {
@@ -370,17 +370,8 @@ export class TraceCompact extends Foldable {
         if (summary.edited) parts.push(`${summary.edited} edited`);
         if (summary.commands) parts.push(`${summary.commands} command${summary.commands === 1 ? '' : 's'}`);
         if (summary.checks) parts.push(`${summary.checks} check${summary.checks === 1 ? '' : 's'}`);
-        if (summary.refused) parts.push(`${summary.refused} refused`);
         if (!parts.length && summary.reasoned) parts.push('thinking');
-        const lastRetry = summary.retries[summary.retries.length - 1];
-        let retry: { text: string; tone: 'ok' | 'warn' | 'bad' } | null = null;
-        if (lastRetry?.status === 'running' && this.live()) {
-          retry = { text: retryLabel(String(lastRetry.data?.['cause'] ?? '')), tone: 'warn' };
-        } else if (lastRetry?.status === 'failed' || (lastRetry?.status === 'running' && stopped)) {
-          retry = { text: 'Automatic retries exhausted', tone: 'bad' };
-        } else if (summary.recovered) {
-          retry = { text: recoveredLabel(summary.recovered), tone: 'ok' };
-        }
+        const retry = retryPresentation(phase.entries, this.live());
         const span = phase.endedAt - phase.startedAt;
         return {
           ...phase,
