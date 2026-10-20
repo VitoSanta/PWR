@@ -3773,6 +3773,10 @@ async fn take_turn_inner<P: ModelProvider>(
                     phase: ToolPhase::Refused("not run again".into()),
                     diff: None,
                 }));
+                let why = match fold_repeated_refusals(messages, call) {
+                    Some(note) => format!("{why} {note}"),
+                    None => why,
+                };
                 messages.push(tool_message(call, serde_json::json!({"not_run": why})));
                 // Told once that nothing more will be run, and asking again:
                 // the turn ends, where it used to answer "not run" for as
@@ -5145,6 +5149,59 @@ pub fn command_failure_output(value: &serde_json::Value, saved: Option<&str>) ->
 /// declared difference between the modes. The envelope is not -- it was a
 /// difference nobody chose, and a deployment answering both loops was reading
 /// two protocols.
+/// A call refused again and again must not fill the history with itself.
+///
+/// Measured 2026-10-20 (site study, Gemma 12B): `run_command` with an
+/// invented program name, a hundred and ninety-two times in ten minutes. Each
+/// "not run again" pair added about two hundred tokens -- the prompt went from
+/// 6,000 to 45,000 -- and a model that copies the pattern in front of it was
+/// shown a hundred copies of its own mistake. The pairs answered by a refusal
+/// are folded away, keeping the real failure and the newest refusal, and the
+/// note the real failure carried (`[PWR] ...`: what the program name must be,
+/// and this project's own commands) is returned to be said again with it.
+fn fold_repeated_refusals(
+    messages: &mut Vec<ChatMessage>,
+    call: &pwr_domain::ToolCall,
+) -> Option<String> {
+    let same =
+        |other: &pwr_domain::ToolCall| other.name == call.name && other.arguments == call.arguments;
+    let mut note = None;
+    let mut fold: Vec<usize> = Vec::new();
+    for (index, message) in messages.iter().enumerate() {
+        if message.role != "assistant" || message.tool_calls.len() != 1 {
+            continue;
+        }
+        let proposed = &message.tool_calls[0];
+        if !same(proposed) || proposed.id == call.id {
+            continue;
+        }
+        let Some(answer) = messages.iter().position(|reply| {
+            reply.role == "tool"
+                && reply.tool_call_id.is_some()
+                && reply.tool_call_id == proposed.id
+        }) else {
+            continue;
+        };
+        let content = &messages[answer].content;
+        if content.contains("\"not_run\"") {
+            fold.push(index);
+            fold.push(answer);
+        } else if note.is_none()
+            && let Some(at) = content.find("[PWR]")
+        {
+            // The result's stderr travels after the envelope, in its own block.
+            let tail = &content[at..];
+            let end = tail.find("\n</").unwrap_or(tail.len());
+            note = Some(tail[..end].trim().to_owned());
+        }
+    }
+    fold.sort_unstable();
+    for index in fold.into_iter().rev() {
+        messages.remove(index);
+    }
+    note
+}
+
 fn tool_message(call: &pwr_domain::ToolCall, outcome: serde_json::Value) -> ChatMessage {
     crate::tool_result_message(outcome, None, call.id.clone())
 }
@@ -5152,6 +5209,64 @@ fn tool_message(call: &pwr_domain::ToolCall, outcome: serde_json::Value) -> Chat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_refusals_fold_into_one_pair_and_the_first_failures_note_is_kept() {
+        let proposal = |id: &str| pwr_domain::ToolCall {
+            name: "run_command".into(),
+            arguments: serde_json::json!({"executable": "npm_install_check_mock", "args": []}),
+            id: Some(id.into()),
+        };
+        let assistant = |id: &str| ChatMessage {
+            role: "assistant".into(),
+            tool_calls: vec![proposal(id)],
+            ..Default::default()
+        };
+        let result = |id: &str, outcome: serde_json::Value| {
+            let mut message = tool_message(&proposal(id), outcome);
+            message.tool_call_id = Some(id.into());
+            message
+        };
+        let mut messages = vec![
+            ChatMessage::text("user", "build it"),
+            assistant("a"),
+            result(
+                "a",
+                serde_json::json!({"exit_code": 71, "stderr": "execvp() of 'x' failed\n[PWR] `x` is not a program. Use npm."}),
+            ),
+        ];
+        for id in ["b", "c", "d"] {
+            messages.push(assistant(id));
+            messages.push(result(
+                id,
+                serde_json::json!({"not_run": "Not run: failed 2 times"}),
+            ));
+        }
+        // The fourth proposal, "e", is the one being refused now.
+        messages.push(assistant("e"));
+        let note = fold_repeated_refusals(&mut messages, &proposal("e"));
+        assert_eq!(
+            note.as_deref(),
+            Some("[PWR] `x` is not a program. Use npm.")
+        );
+        // The user's request, the real failure with its answer, and the proposal now being answered.
+        assert_eq!(messages.len(), 4, "{messages:#?}");
+        assert!(
+            messages
+                .iter()
+                .all(|m| m.role != "tool" || !m.content.contains("not_run"))
+        );
+        // A different call is never folded.
+        let mut other = vec![ChatMessage::text("user", "x"), assistant("a")];
+        other.push(result("a", serde_json::json!({"not_run": "n"})));
+        let different = pwr_domain::ToolCall {
+            name: "read_file".into(),
+            arguments: serde_json::json!({"path": "a"}),
+            id: Some("z".into()),
+        };
+        assert!(fold_repeated_refusals(&mut other, &different).is_none());
+        assert_eq!(other.len(), 3);
+    }
 
     #[test]
     fn shared_stop_does_not_invent_a_human_request() {

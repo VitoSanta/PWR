@@ -1286,6 +1286,34 @@ class PrefillCancellation(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
+class ReasoningOffKeepsTheHistoryStable(unittest.TestCase):
+    """A prompt must be a prefix of the next one, or the cache is read again."""
+
+    def test_a_check_in_after_a_reasoned_step_does_not_rewrite_the_history(self):
+        import pwr_mlx
+        from mlx_lm.utils import load_tokenizer
+        path = pathlib.Path.home() / ".pwr/models/mlx-community/gemma-4-e4b-it-4bit"
+        if not (path / "config.json").is_file():
+            self.skipTest("gemma-4-e4b-it-4bit is not downloaded")
+        engine = pwr_mlx.Engine()
+        engine.tokenizer = load_tokenizer(path)
+        engine.template = pwr_mlx.model_template(path, json.loads((path / "config.json").read_text()))
+        step = {"role": "assistant", "content": "", "reasoning_content": "The user wants a site; I will read the paper first.",
+                "tool_calls": [{"id": "c1", "type": "function",
+                                "function": {"name": "read_file", "arguments": {"path": "guide.md"}}}]}
+        result = {"role": "tool", "tool_call_id": "c1", "content": "text"}
+        first = [{"role": "user", "content": "Build it."}, step, result]
+        later = first + [{"role": "user", "content": "Continue the same goal."}]
+        decode = engine.tokenizer.decode
+        before = decode(engine.render(first, None, False, False)[0])
+        after = decode(engine.render(later, None, False, False)[0])
+        self.assertTrue(after.startswith(before), "the later prompt rewrote the earlier history")
+        self.assertNotIn("The user wants a site", after)
+        # With reasoning on, the template's own rule stands.
+        shown = decode(engine.render(first, None, True, False)[0])
+        self.assertIn("The user wants a site", shown)
+
+
 class EdgeNativeTemplate(unittest.TestCase):
     def test_edge_off_uses_the_checkpoint_template_without_an_empty_thought(self):
         import pwr_mlx

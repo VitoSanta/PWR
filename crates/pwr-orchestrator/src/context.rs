@@ -389,9 +389,23 @@ pub fn workspace_topology(root: &Path) -> String {
         .filter(|path| root.join(path).is_file())
         .unwrap_or_else(|| "src/app/app.routes.ts".into());
 
+    // The starter of a generated project ships without `node_modules`, and
+    // every build, test and `ng` command fails until `npm install` has run:
+    // `ng: command not found`. Measured 2026-10-20 (site study, Gemma E4B):
+    // fifteen minutes, two `ng serve` and no install. It is a fact about the
+    // workspace the model cannot read from a file, so it is said.
+    let dependencies = if root.join("package.json").is_file() && !root.join("node_modules").is_dir()
+    {
+        "- Dependencies: not installed (`node_modules` is missing). Run `npm install` first, as \
+         `{\"executable\":\"npm\",\"args\":[\"install\"]}`; until then `npm run build`, \
+         `npm test` and `ng` fail with `ng: command not found`.\n"
+    } else {
+        ""
+    };
     format!(
         "Workspace topology (deterministic preflight, not lexical retrieval):\n\
          - Framework: Angular standalone application.\n\
+         {dependencies}\
          - Bootstrap entry: `src/main.ts`.\n\
          - Active root component: `{root_component}`.\n\
          - Active root template: `{root_template}`.\n\
@@ -738,6 +752,35 @@ fn floor_char_boundary(text: &str, at: usize) -> usize {
         at -= 1;
     }
     at
+}
+
+#[cfg(test)]
+mod topology_dependency_tests {
+    use super::*;
+
+    #[test]
+    fn a_project_without_node_modules_is_told_to_install_before_anything_else() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("angular.json"), "{}").unwrap();
+        std::fs::write(
+            root.path().join("package.json"),
+            r#"{"dependencies":{"@angular/core":"1"}}"#,
+        )
+        .unwrap();
+        let said = workspace_topology(root.path());
+        assert!(said.contains("Dependencies: not installed"), "{said}");
+        assert!(
+            said.contains(r#"{"executable":"npm","args":["install"]}"#),
+            "{said}"
+        );
+        std::fs::create_dir(root.path().join("node_modules")).unwrap();
+        let installed = workspace_topology(root.path());
+        assert!(!installed.contains("Dependencies:"), "{installed}");
+        assert!(
+            installed.contains("Framework: Angular standalone"),
+            "{installed}"
+        );
+    }
 }
 
 #[cfg(test)]

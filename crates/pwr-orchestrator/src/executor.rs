@@ -619,11 +619,21 @@ impl GoalBudget {
     }
 }
 
+/// Readings of the checks a goal may take to tell its model where they stand,
+/// apart from the verifications its completions use.
+const GOAL_EVIDENCE_RUNS: usize = 40;
+
+/// Actions between two readings of the checks for a goal that keeps working.
+const GOAL_PROGRESS_CHECK_EVERY: usize = 30;
+
+/// Times a goal tries a turn again after its replies were unusable.
+const GOAL_UNUSABLE_RETRIES: usize = 3;
+
 /// Check-ins in a row that took no action before a goal pauses as stalled.
 /// Measured 2026-09-26: a model that could not run its toolchain answered in
 /// prose, and the goal re-prompted it 57 times in 23 minutes, the action count
 /// standing still at 20 -- far below [`GOAL_MAX_ACTIONS`], so nothing stopped it.
-pub const GOAL_IDLE_LIMIT: usize = 3;
+pub const GOAL_IDLE_LIMIT: usize = 5;
 /// Completions in a row that verification refuses with the same failing checks
 /// before a goal stops as blocked: the same wall three times is the
 /// environment or the task, not a step the next attempt will take.
@@ -1139,6 +1149,21 @@ async fn drive<H: SessionHost + ?Sized>(
             verified
         }};
     }
+    let mut evidence_runs = 0usize;
+    // A reading of the checks taken to tell the model where they stand -- not a
+    // verification of a completion. It has its own allowance
+    // ([`GOAL_EVIDENCE_RUNS`]) so that the goal's closing verifications are not
+    // spent on it: measured 2026-10-20 (site study, Gemma E4B), nine
+    // verification runs gone on nudges and the goal paused with the model one
+    // fix from a green build.
+    macro_rules! evidence_verify {
+        () => {{
+            evidence_runs += 1;
+            let reading = verify!();
+            budget.verifications = budget.verifications.saturating_sub(1);
+            reading
+        }};
+    }
     let mut total_actions = 0usize;
     // Each turn numbers its calls from one, and a goal runs several turns
     // under one prompt: without an offset the second turn's first call
@@ -1147,6 +1172,10 @@ async fn drive<H: SessionHost + ?Sized>(
     // The checks already failing when the goal starts, so the goal is
     // neither sent to repair them nor held open by them.
     let mut already_failing: Vec<String> = Vec::new();
+    // Whether the dependencies were there when the baseline was taken: a check
+    // that failed for want of them did not fail "before the goal" in the sense
+    // that excuses it.
+    let had_dependencies_at_start = root.join("node_modules").is_dir();
     let baseline_started = tokio::time::Instant::now();
     let baseline = if goal_mode {
         verify!().ok().map(|(baseline, _)| baseline)
@@ -1536,6 +1565,10 @@ async fn drive<H: SessionHost + ?Sized>(
         }
     }
     let mut idle_rounds = 0usize;
+    let mut declined_over_dependencies = false;
+    let mut next_progress_check = GOAL_PROGRESS_CHECK_EVERY;
+    let mut unusable_retries = 0usize;
+    let mut stall_evidence_rounds = 0usize;
     let mut same_failure: (Vec<String>, usize) = (Vec::new(), 0);
     let mut noticed_at: Option<usize> = None;
     // The verification that passed before the review round, kept so a
@@ -1645,6 +1678,155 @@ async fn drive<H: SessionHost + ?Sized>(
         messages = next_messages;
         host.keep_messages(&messages);
 
+        // The checks passed, a review round was run, and the turn sent to act on
+        // it went nowhere: it changed nothing and was stopped as a loop or out of
+        // recovery. Measured 2026-10-20 (site study, Gemma 12B): the site built
+        // and its tests passed, the review sent the model back, six identical
+        // `replace_text` calls matched nothing, and the goal ended "stopped" with
+        // the passing verification thrown away. What stands is what was
+        // verified: the work as it is, the checks that passed, the review not
+        // applied -- and, as always, not verified without an acceptance check.
+        if goal_mode
+            && reviewed.is_some()
+            && !report.edited
+            && !report.declined
+            && matches!(
+                report.stopped,
+                Some(
+                    converse::StopReason::NoProgress
+                        | converse::StopReason::RecoveryExhausted
+                        | converse::StopReason::Unparseable
+                )
+            )
+            && let Some(verification) = reviewed.take()
+        {
+            host.say(
+                "The checks pass. The review round could not be acted on and changed nothing, so the work is taken as it stands.",
+            );
+            if let Some(note) = not_verified_note(&verification) {
+                host.say(&note);
+            }
+            report.stopped = None;
+            report.completed = true;
+            return SessionEnd::Reply {
+                report,
+                total_actions,
+                goal: true,
+                verification: Some(verification),
+            };
+        }
+        // A turn that ended because its replies were unusable -- a call the
+        // backend could not read, silence, calls written inside the reasoning --
+        // is tried again from the saved workspace, three times at most in a
+        // goal. Measured 2026-10-20 (site study, Gemma 26B): the same model and
+        // task ran eighty-nine actions to a building site, then eight actions
+        // and "three unusable replies" (one a call whose string ended in a
+        // backtick) -- sampling, not the task. `RecoveryExhausted` is the other
+        // thing: the turn's own recovery allowance, which ends a goal by design.
+        // A goal is meant to persist; the person had been typing "Retry the last step and continue" by hand.
+        if goal_mode
+            && !report.declined
+            && unusable_retries < GOAL_UNUSABLE_RETRIES
+            && matches!(
+                report.stopped,
+                Some(
+                    converse::StopReason::Unparseable
+                        | converse::StopReason::Silent
+                        | converse::StopReason::ToolCallInReasoning
+                        | converse::StopReason::ReasoningUnfinished
+                )
+            )
+        {
+            unusable_retries += 1;
+            host.say(&format!(
+                "The model's last replies could not be used. Trying again from the saved workspace ({unusable_retries} of {GOAL_UNUSABLE_RETRIES})."
+            ));
+            messages.push(goal_guidance(
+                "Your last replies could not be used (a tool call that could not be read, or no call at all). Nothing was lost: continue the same goal from the saved workspace. Reply with exactly one tool call, written the way the tool schema shows it, with every string closed by its own quote."
+                    .to_owned(),
+            ));
+            host.keep_messages(&messages);
+            continuity.operator_spoke();
+            continue;
+        }
+        // A turn stopped because it repeated itself, over checks that fail, is
+        // sent back with what the checks say instead of ending the goal. Measured
+        // 2026-10-20 (site study, Gemma 26B): `app.ts` rewritten with identical
+        // content six times while the build named `title` missing in `app.html`;
+        // the stop ended a goal whose model had never been shown the error again.
+        // Twice at most, each with fresh evidence, and the window count is
+        // cleared so the new turn is judged on what it does.
+        if goal_mode
+            && report.stopped == Some(converse::StopReason::NoProgress)
+            && !report.declined
+            && stall_evidence_rounds < 2
+            && evidence_runs < GOAL_EVIDENCE_RUNS
+        {
+            stall_evidence_rounds += 1;
+            match evidence_verify!() {
+                // The checks pass: nothing to send back. The turn that repeated
+                // itself repeated work that is done. Measured 2026-10-20 (site
+                // study, Gemma 26B): build and tests green, 107 actions, 63 writes
+                // of files that were already right, and a goal that ended as
+                // `recovery`. Taken as it stands, not verified without an
+                // acceptance check, and never as a failure.
+                Ok((verification, _))
+                    if goal_edited && (verification.passed || verification.technical_passed) =>
+                {
+                    host.say("The checks pass. The last turn repeated itself and changed nothing, so the work is taken as it stands.");
+                    if let Some(note) = not_verified_note(&verification) {
+                        host.say(&note);
+                    }
+                    report.stopped = None;
+                    report.completed = true;
+                    return SessionEnd::Reply {
+                        report,
+                        total_actions,
+                        goal: true,
+                        verification: Some(verification),
+                    };
+                }
+                Ok((verification, _))
+                    if !verification.passed && !verification.failing.is_empty() =>
+                {
+                    host.say("The last turn repeated itself and changed nothing while the project's checks fail: sent back with what they say.");
+                    messages.push(goal_guidance(format!(
+                        "You repeated the same actions and changed nothing, and the project's own checks still fail. The failure is what to change -- not the file you keep rewriting. Read the error below, open the file it names or the one where the failing name is used, change that, and run the check again. Evidence:\n{}",
+                        verification.summary
+                    )));
+                    host.keep_messages(&messages);
+                    continuity.operator_spoke();
+                    continue;
+                }
+                Err(VerifyError::NoSuchSession) => {
+                    return SessionEnd::Error {
+                        code: -32602,
+                        message: "no such session".into(),
+                    };
+                }
+                _ => {}
+            }
+        }
+        // A decline over a failure that has a fix within reach is not accepted
+        // the first time. Measured 2026-10-20 (site study, Gemma E2B): after
+        // eighty seconds the model declared the task impossible because the
+        // build could not find its builder -- `node_modules` was missing, and
+        // `npm install` was one call away. Once: a model that declines again
+        // after being told what the fix is has made its decision.
+        if goal_mode
+            && report.declined
+            && !declined_over_dependencies
+            && dependencies_missing(&root)
+        {
+            declined_over_dependencies = true;
+            host.say("The project's dependencies are not installed, which is why its checks fail. That is not a reason to decline.");
+            messages.push(goal_guidance(
+                "Do not decline. The build and tests fail only because the dependencies are not installed (there is no `node_modules`). Run `npm install` -- {\"executable\":\"npm\",\"args\":[\"install\"]} -- then build again and carry on with the task."
+                    .to_owned(),
+            ));
+            host.keep_messages(&messages);
+            continue;
+        }
         if !goal_mode
             || report.declined
             || report.stopped.is_some()
@@ -1709,7 +1891,39 @@ async fn drive<H: SessionHost + ?Sized>(
                  it stands ({confirmed}): taken as the work being declared done."
             ));
         }
-        if report.completed || closed_in_words || stopped_on_a_confirmation {
+        // A model that changed the work, then stopped acting for two check-ins in
+        // a row, over checks that pass: its silence is the closing statement it
+        // never made as a call. Measured 2026-10-20 (site study, Gemma E2B): five
+        // components written, the build green, then three check-ins of nothing and
+        // a goal "paused as stalled". Taken as `complete`: the same verification
+        // and the same review follow, and the verdict stays "not verified"
+        // without an acceptance check.
+        let mut idle_closing = false;
+        if goal_mode
+            && goal_edited
+            && idle_rounds >= 2
+            && report.actions == 0
+            && !report.completed
+            && !closed_in_words
+            && report.stopped.is_none()
+            && !report.declined
+            && evidence_runs < GOAL_EVIDENCE_RUNS
+        {
+            match evidence_verify!() {
+                Ok((verification, _)) if verification.passed || verification.technical_passed => {
+                    idle_closing = true;
+                    host.say("The checks pass and the model has stopped acting after changing the work: taken as the work being declared done.");
+                }
+                Err(VerifyError::NoSuchSession) => {
+                    return SessionEnd::Error {
+                        code: -32602,
+                        message: "no such session".into(),
+                    };
+                }
+                _ => {}
+            }
+        }
+        if report.completed || closed_in_words || stopped_on_a_confirmation || idle_closing {
             if let Some(verification) = reviewed.take() {
                 if let Some(note) = not_verified_note(&verification) {
                     host.say(&note);
@@ -1839,6 +2053,7 @@ async fn drive<H: SessionHost + ?Sized>(
             } else if !verification.technical_passed
                 && !verification.failing.is_empty()
                 && verification.failing_acceptance.is_empty()
+                && !dependencies_installed_since(&root, had_dependencies_at_start)
                 && baseline
                     .as_ref()
                     .is_some_and(|before| newly_failing(before, &verification).is_empty())
@@ -1935,13 +2150,92 @@ async fn drive<H: SessionHost + ?Sized>(
             let handed_over = last_report
                 .as_ref()
                 .is_some_and(|report| report.stopped == Some(converse::StopReason::HandedOver));
-            messages.push(goal_guidance(if handed_over {
-                "The last turn was stopped: its commands had failed several times in a row and it kept asking for more. Commands run again now. Before running one, find out how this project runs what you need -- read the runner's own file or usage, or the project's instructions -- and run that; do not repeat a command that failed. Then continue the same goal: make the next necessary change, or call complete when the full objective is ready for verification."
+            // A check-in that took no action over a workspace the goal has
+            // changed is told what the project's own checks say right now,
+            // rather than to carry on. Measured 2026-10-20 (site study, Gemma
+            // E2B): six components written, `app.routes.ts` naming two classes
+            // it never imported, then three check-ins of prose and the goal
+            // paused -- the model never called `complete`, so the build that
+            // would have named the error never ran. The evidence is the same
+            // the refused completion carries, from the same verification, and
+            // counts against the same run budget.
+            let mut evidence: Option<String> = None;
+            // And a model that keeps working is told, every thirty actions, where
+            // the checks stand. Measured 2026-10-20 (site study, Gemma 26B):
+            // build and tests green, 149 actions, the same page written 79 times
+            // and `complete` never called, so the goal ended on its budget with
+            // one verification run behind it. Told red, it has the error; told
+            // green, it has the way out. Never a refusal to go on.
+            let periodic = goal_edited
+                && !handed_over
+                && total_actions >= next_progress_check
+                && evidence_runs < GOAL_EVIDENCE_RUNS;
+            if periodic {
+                next_progress_check = total_actions + GOAL_PROGRESS_CHECK_EVERY;
+            }
+            if (idle_rounds > 0 || periodic)
+                && goal_edited
+                && !handed_over
+                && evidence_runs < GOAL_EVIDENCE_RUNS
+            {
+                match evidence_verify!() {
+                    Ok((verification, _))
+                        if periodic
+                            && idle_rounds == 0
+                            && (verification.passed || verification.technical_passed) =>
+                    {
+                        evidence = Some(format!(
+                            "The project's own checks pass right now. If the request is fully met, call `complete` now with a short summary of what was built. If something specific is missing, name it and change only that: do not rewrite files that already do their job. Evidence:\n{}",
+                            verification.summary
+                        ));
+                    }
+                    Ok((verification, _))
+                        if !verification.passed && !verification.failing.is_empty() =>
+                    {
+                        evidence = Some(format!(
+                            "You stopped acting, but the project's own checks fail right now, so the work is not done. Read the failure, change the file it names, and run the check again. Evidence:\n{}",
+                            verification.summary
+                        ));
+                    }
+                    Err(VerifyError::NoSuchSession) => {
+                        return SessionEnd::Error {
+                            code: -32602,
+                            message: "no such session".into(),
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            messages.push(goal_guidance(if let Some(evidence) = evidence {
+                evidence
+            } else if !goal_edited && idle_rounds > 0 {
+                // Nothing written yet, and the reply was a plan or a question.
+                // Measured 2026-10-20 (site study, Gemma E2B): installed the
+                // dependencies, then asked the person "please provide the
+                // specific content" three times. Nobody answers in a goal.
+                "You have not written or changed any file yet. Do not describe a plan and do not ask anyone anything: nobody will answer. The paper and the repository are all the information there is. Your next reply must be one tool call that writes or edits a file of the work -- for example write_file for the first page or component the request needs -- and then carry on file by file."
+                    .to_owned()
+            } else if handed_over {
+                "The last turn was stopped: its commands had failed several times in a row and it kept asking for more. Commands run again now. Before running one, find out how this project runs what you need -- read the runner's own file or usage, or the project's instructions -- and run that; do not repeat a command that failed. Then continue the same goal: make the next necessary change, or call complete when the full objective is ready for verification.".to_owned()
             } else {
-                "Continue the same goal from the saved workspace state. Do not stop with prose: either make the next necessary change, investigate an unmet requirement, or call complete only when the full objective is ready for verification."
+                "Continue the same goal from the saved workspace state. Do not stop with prose: either make the next necessary change, investigate an unmet requirement, or call complete only when the full objective is ready for verification.".to_owned()
             }));
         }
     }
+}
+
+/// A package project whose dependencies were never installed.
+fn dependencies_missing(root: &Path) -> bool {
+    root.join("package.json").is_file() && !root.join("node_modules").is_dir()
+}
+
+/// A project that gained its dependencies during the goal: the baseline's
+/// failures were an environment that was not prepared, not breakage the goal
+/// may leave alone. Measured 2026-10-20 (site study, Gemma E4B): `npm run
+/// build` "already failing" for want of `node_modules`, so a goal that never
+/// installed them ended with the failing build excused.
+fn dependencies_installed_since(root: &Path, had_at_start: bool) -> bool {
+    root.join("package.json").is_file() && !had_at_start && root.join("node_modules").is_dir()
 }
 
 /// What a goal says when the technical checks pass and there is nothing to
@@ -2801,6 +3095,391 @@ mod tests {
 
     /// With no acceptance check declared the goal is never "verified", but the
     /// work is still read against the request once before it is handed over.
+    #[test]
+    fn a_check_in_that_took_no_action_over_a_changed_workspace_is_told_what_the_checks_say() {
+        let mut edited = report(2, false);
+        edited.edited = true;
+        let host = Fake::new(
+            // One turn that changed files, then turns that only talk.
+            vec![edited, report(0, false)],
+            vec![
+                Ok(GoalVerification::default()),
+                Ok(refused("TS2304: Cannot find name 'App' (app.routes.ts:4)")),
+            ],
+        );
+        let result = run(&host, Policy::Goal, GoalLimits::default());
+        // Still bounded: idle check-ins end the goal as stalled.
+        assert!(
+            matches!(
+                result.end,
+                SessionEnd::Stopped {
+                    terminal: "stalled",
+                    ..
+                }
+            ),
+            "{:?}",
+            std::mem::discriminant(&result.end)
+        );
+        let seen = host.seen.lock().unwrap();
+        let guidance: Vec<&str> = seen
+            .iter()
+            .filter(|m| m.purpose == Some(pwr_domain::MessagePurpose::GoalGuidance))
+            .map(|m| m.content.as_str())
+            .collect();
+        assert!(
+            guidance
+                .iter()
+                .any(|text| text.contains("checks fail right now")
+                    && text.contains("TS2304: Cannot find name 'App'")),
+            "{guidance:#?}"
+        );
+        // The readings that told the model where the checks stand are not the
+        // goal's closing verifications: only the baseline is spent.
+        assert_eq!(
+            result.budget.verifications, 1,
+            "{}",
+            result.budget.verifications
+        );
+    }
+
+    #[test]
+    fn a_check_in_with_nothing_changed_is_not_given_a_verification_it_did_not_need() {
+        let host = Fake::new(
+            vec![report(0, false)],
+            vec![Ok(GoalVerification::default()), Ok(refused("x"))],
+        );
+        let result = run(&host, Policy::Goal, GoalLimits::default());
+        // The baseline only: nothing was edited, so no check was run for the nudge.
+        assert_eq!(
+            result.budget.verifications, 1,
+            "{}",
+            result.budget.verifications
+        );
+        let seen = host.seen.lock().unwrap();
+        assert!(
+            seen.iter()
+                .all(|m| !m.content.contains("checks fail right now"))
+        );
+    }
+
+    #[test]
+    fn a_baseline_failure_is_not_excused_once_the_dependencies_it_lacked_were_installed() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("package.json"), "{}").unwrap();
+        // Nothing installed at the start, nothing since: the failure stays the baseline's.
+        assert!(!dependencies_installed_since(root.path(), false));
+        std::fs::create_dir(root.path().join("node_modules")).unwrap();
+        // Installed during the goal: whatever the baseline said is no excuse.
+        assert!(dependencies_installed_since(root.path(), false));
+        // Present from the start: the baseline already had them.
+        assert!(!dependencies_installed_since(root.path(), true));
+        // Not a package project at all.
+        let other = tempfile::tempdir().unwrap();
+        std::fs::create_dir(other.path().join("node_modules")).unwrap();
+        assert!(!dependencies_installed_since(other.path(), false));
+    }
+
+    #[test]
+    fn a_review_that_cannot_be_acted_on_leaves_the_passing_checks_standing() {
+        let technical = GoalVerification {
+            technical_passed: true,
+            acceptance_available: false,
+            summary: "2 of 2 checks passing".into(),
+            ..Default::default()
+        };
+        let mut edited = report(2, true);
+        edited.edited = true;
+        // After the review the model acts, changes nothing, and is stopped.
+        let mut looped = report(6, false);
+        looped.stopped = Some(converse::StopReason::NoProgress);
+        let host = Fake::new(
+            vec![edited, looped],
+            vec![Ok(GoalVerification::default()), Ok(technical)],
+        );
+        let SessionEnd::Reply {
+            report,
+            verification,
+            ..
+        } = run(&host, Policy::Goal, GoalLimits::default()).end
+        else {
+            panic!("the goal did not reply");
+        };
+        assert!(report.completed, "taken as it stands");
+        assert!(report.stopped.is_none(), "{:?}", report.stopped);
+        let verification = verification.expect("the passing verification is kept");
+        assert!(verification.technical_passed);
+        let said = host.said.lock().unwrap().join("\n");
+        assert!(said.contains("could not be acted on"), "{said}");
+        assert!(
+            said.contains("not verified because this workspace has no declared"),
+            "{said}"
+        );
+
+        // A loop with no review before it is still a loop.
+        let mut stuck = report_with_stop();
+        stuck.edited = false;
+        let host = Fake::new(vec![stuck], vec![Ok(GoalVerification::default())]);
+        let SessionEnd::Reply {
+            report,
+            verification,
+            ..
+        } = run(&host, Policy::Goal, GoalLimits::default()).end
+        else {
+            panic!("the goal did not reply");
+        };
+        assert_eq!(report.stopped, Some(converse::StopReason::NoProgress));
+        assert!(verification.is_none());
+    }
+
+    fn report_with_stop() -> TurnReport {
+        let mut stopped = report(6, false);
+        stopped.stopped = Some(converse::StopReason::NoProgress);
+        stopped
+    }
+
+    #[test]
+    fn a_decline_over_missing_dependencies_is_sent_back_once_and_then_stands() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("package.json"), "{}").unwrap();
+        let mut declined = report(1, false);
+        declined.declined = true;
+        let host = Fake::new(vec![declined], vec![Ok(GoalVerification::default())]);
+        let mut asked = request(Policy::Goal);
+        asked.root = folder.path().to_path_buf();
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(execute(&host, asked, GoalLimits::default()));
+        // Asked again once, then the second decline is the model's decision.
+        assert_eq!(host.ran.load(Ordering::Relaxed), 2);
+        let said = host.said.lock().unwrap().join("\n");
+        assert!(said.contains("not a reason to decline"), "{said}");
+        let seen = host.seen.lock().unwrap();
+        assert!(
+            seen.iter().any(|m| m.content.contains("Run `npm install`")),
+            "the second turn was told the fix"
+        );
+        assert!(matches!(result.end, SessionEnd::Reply { .. }));
+
+        // With the dependencies there, the first decline stands.
+        std::fs::create_dir(folder.path().join("node_modules")).unwrap();
+        let mut declined = report(1, false);
+        declined.declined = true;
+        let host = Fake::new(vec![declined], vec![Ok(GoalVerification::default())]);
+        let mut asked = request(Policy::Goal);
+        asked.root = folder.path().to_path_buf();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(execute(&host, asked, GoalLimits::default()));
+        assert_eq!(host.ran.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_turn_stopped_as_a_loop_over_failing_checks_is_sent_back_with_the_error_twice() {
+        let mut looped = report(6, false);
+        looped.stopped = Some(converse::StopReason::NoProgress);
+        let host = Fake::new(
+            vec![looped],
+            vec![
+                Ok(GoalVerification::default()),
+                Ok(refused(
+                    "TS2339: Property 'title' does not exist on type 'App'",
+                )),
+            ],
+        );
+        let result = run(&host, Policy::Goal, GoalLimits::default());
+        // The stop, then two more turns with the error, then the goal ends as before.
+        assert_eq!(host.ran.load(Ordering::Relaxed), 3);
+        match result.end {
+            SessionEnd::Reply { report, .. } => {
+                assert_eq!(report.stopped, Some(converse::StopReason::NoProgress));
+            }
+            _ => panic!("the goal should end as a stopped reply"),
+        }
+        let seen = host.seen.lock().unwrap();
+        assert!(
+            seen.iter().any(|m| m.content.contains("changed nothing")
+                && m.content.contains("Property 'title' does not exist")),
+            "the error was not sent back"
+        );
+        // Passing checks: nothing to send, the stop stands at once.
+        let mut looped = report(6, false);
+        looped.stopped = Some(converse::StopReason::NoProgress);
+        let host = Fake::new(vec![looped], vec![Ok(GoalVerification::default())]);
+        run(&host, Policy::Goal, GoalLimits::default());
+        assert_eq!(host.ran.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_goal_tries_again_after_unusable_replies_three_times_and_then_stops() {
+        let mut broken = report(0, false);
+        broken.stopped = Some(converse::StopReason::Unparseable);
+        let host = Fake::new(vec![broken], vec![Ok(GoalVerification::default())]);
+        let result = run(&host, Policy::Goal, GoalLimits::default());
+        // The first turn and three retries.
+        assert_eq!(host.ran.load(Ordering::Relaxed), 4);
+        let said = host.said.lock().unwrap().join("\n");
+        assert!(said.contains("3 of 3"), "{said}");
+        match result.end {
+            SessionEnd::Reply { report, .. } => {
+                assert_eq!(report.stopped, Some(converse::StopReason::Unparseable));
+            }
+            _ => panic!("expected a stopped reply"),
+        }
+        // A backend that fails is not the model's sampling: no retry.
+        let mut down = report(0, false);
+        down.stopped = Some(converse::StopReason::BackendFailing);
+        let host = Fake::new(vec![down], vec![Ok(GoalVerification::default())]);
+        run(&host, Policy::Goal, GoalLimits::default());
+        assert_eq!(host.ran.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_goal_that_has_written_nothing_and_only_talks_is_told_to_write_a_file() {
+        let host = Fake::new(
+            vec![report(0, false)],
+            vec![Ok(GoalVerification::default())],
+        );
+        run(&host, Policy::Goal, GoalLimits::default());
+        let seen = host.seen.lock().unwrap();
+        assert!(
+            seen.iter().any(
+                |m| m.content.contains("have not written or changed any file")
+                    && m.content.contains("nobody will answer")
+            ),
+            "the plan-or-question reply was not answered with an instruction to write"
+        );
+    }
+
+    #[test]
+    fn a_model_that_changed_the_work_and_then_went_quiet_over_passing_checks_is_taken_as_done() {
+        let technical = GoalVerification {
+            technical_passed: true,
+            acceptance_available: false,
+            summary: "2 of 2 checks passing".into(),
+            ..Default::default()
+        };
+        let mut edited = report(5, false);
+        edited.edited = true;
+        let host = Fake::new(
+            // Writes, then says nothing and takes no action.
+            vec![edited, report(0, false)],
+            vec![Ok(GoalVerification::default()), Ok(technical)],
+        );
+        let result = run(&host, Policy::Goal, GoalLimits::default());
+        match result.end {
+            SessionEnd::Reply { verification, .. } => {
+                assert!(verification.expect("verification kept").technical_passed);
+            }
+            _ => panic!("the quiet goal should end as a reply, not stall"),
+        }
+        let said = host.said.lock().unwrap().join("\n");
+        assert!(
+            said.contains("taken as the work being declared done"),
+            "{said}"
+        );
+        assert!(
+            said.contains("not verified because this workspace has no declared"),
+            "{said}"
+        );
+
+        // Never edited: quiet is stalled, as before.
+        let host = Fake::new(
+            vec![report(0, false)],
+            vec![Ok(GoalVerification::default())],
+        );
+        let result = run(&host, Policy::Goal, GoalLimits::default());
+        assert!(matches!(
+            result.end,
+            SessionEnd::Stopped {
+                terminal: "stalled",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_goal_that_keeps_working_is_told_every_thirty_actions_where_the_checks_stand() {
+        let technical = GoalVerification {
+            technical_passed: true,
+            acceptance_available: false,
+            summary: "2 of 2 checks passing".into(),
+            ..Default::default()
+        };
+        let mut working = report(35, false);
+        working.edited = true;
+        let host = Fake::new(
+            vec![working],
+            vec![Ok(GoalVerification::default()), Ok(technical)],
+        );
+        run(&host, Policy::Goal, GoalLimits::default());
+        let seen = host.seen.lock().unwrap();
+        assert!(
+            seen.iter()
+                .any(|m| m.content.contains("checks pass right now")
+                    && m.content.contains("call `complete` now")),
+            "a green reading was not given to a model that kept working"
+        );
+        drop(seen);
+
+        // Red: the evidence, not an invitation to finish.
+        let mut working = report(35, false);
+        working.edited = true;
+        let host = Fake::new(
+            vec![working],
+            vec![
+                Ok(GoalVerification::default()),
+                Ok(refused("TS2304: Cannot find name 'X'")),
+            ],
+        );
+        run(&host, Policy::Goal, GoalLimits::default());
+        let seen = host.seen.lock().unwrap();
+        assert!(
+            seen.iter()
+                .any(|m| m.content.contains("TS2304: Cannot find name 'X'"))
+        );
+        assert!(
+            seen.iter()
+                .all(|m| !m.content.contains("call `complete` now"))
+        );
+    }
+
+    #[test]
+    fn a_loop_over_passing_checks_after_real_work_is_taken_as_it_stands_not_as_a_failure() {
+        let technical = GoalVerification {
+            technical_passed: true,
+            acceptance_available: false,
+            summary: "2 of 2 checks passing".into(),
+            ..Default::default()
+        };
+        let mut worked = report(5, false);
+        worked.edited = true;
+        let mut looped = report(6, false);
+        looped.stopped = Some(converse::StopReason::NoProgress);
+        let host = Fake::new(
+            vec![worked, looped],
+            vec![Ok(GoalVerification::default()), Ok(technical)],
+        );
+        let result = run(&host, Policy::Goal, GoalLimits::default());
+        match result.end {
+            SessionEnd::Reply {
+                report,
+                verification,
+                ..
+            } => {
+                assert!(report.completed);
+                assert!(report.stopped.is_none(), "{:?}", report.stopped);
+                assert!(verification.expect("kept").technical_passed);
+            }
+            _ => panic!("expected a reply"),
+        }
+        let said = host.said.lock().unwrap().join("\n");
+        assert!(said.contains("taken as it stands"), "{said}");
+    }
+
     #[test]
     fn the_time_a_goal_spends_in_its_review_is_in_its_budget() {
         let passing = GoalVerification {

@@ -6129,7 +6129,8 @@ mod tests {
             "failed"
         );
         assert!(says(&messages, "took no action"), "{messages:#?}");
-        assert_eq!(turns, 4);
+        // The turn that worked, then the idle check-ins the goal allows.
+        assert_eq!(turns, 1 + pwr_orchestrator::executor::GOAL_IDLE_LIMIT);
     }
 
     #[tokio::test]

@@ -1453,3 +1453,57 @@ async fn a_whole_command_line_in_one_arg_is_refused_with_the_argv_to_resubmit() 
         "{refusal:?}"
     );
 }
+
+/// Site study 2026-10-20: the starter's own 344-line `app.html` could not be
+/// replaced by a shorter page -- twenty-three refusals in one run. A file still
+/// exactly as committed holds no work and is replaced; one with uncommitted
+/// changes, or in no repository, keeps the guard.
+#[test]
+fn a_file_still_as_committed_can_be_replaced_by_a_shorter_one_and_work_in_progress_cannot() {
+    let git = |root: &Path, args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    let big: String = (0..40).map(|n| format!("<p>line {n}</p>\n")).collect();
+    let root = tempfile::tempdir().unwrap();
+    let repo = policy(root.path());
+    git(root.path(), &["init", "-q"]);
+    fs::write(root.path().join("page.html"), &big).unwrap();
+    git(root.path(), &["add", "-A"]);
+    git(root.path(), &["commit", "-qm", "start"]);
+
+    // As committed: the shorter page goes in.
+    let hash = pwr_domain::hash_bytes(big.as_bytes());
+    pwr_tools::apply_replace(&repo, Path::new("page.html"), &hash, "<p>new</p>\n")
+        .expect("a starter file nobody changed is replaceable");
+    assert_eq!(
+        fs::read_to_string(root.path().join("page.html")).unwrap(),
+        "<p>new</p>\n"
+    );
+
+    // Now it holds uncommitted work: a fragment may not replace it.
+    let work: String = (0..40).map(|n| format!("<p>work {n}</p>\n")).collect();
+    fs::write(root.path().join("page.html"), &work).unwrap();
+    let hash = pwr_domain::hash_bytes(work.as_bytes());
+    let refused = pwr_tools::apply_replace(&repo, Path::new("page.html"), &hash, "<p>x</p>\n")
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("replaces the whole file"), "{refused}");
+    assert!(refused.contains("not committed"), "{refused}");
+
+    // An untracked file, and a folder with no repository, keep the guard.
+    let loose = tempfile::tempdir().unwrap();
+    fs::write(loose.path().join("a.html"), &big).unwrap();
+    let hash = pwr_domain::hash_bytes(big.as_bytes());
+    assert!(
+        pwr_tools::apply_replace(&policy(loose.path()), Path::new("a.html"), &hash, "x\n").is_err()
+    );
+}

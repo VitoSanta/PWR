@@ -284,8 +284,26 @@ fn answer(mut stream: std::net::TcpStream, folder: &SiteRoot) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
-    let mut request = [0u8; 4096];
-    let read = stream.read(&mut request).unwrap_or(0);
+    // The whole header block, not the first segment of it: a client that writes
+    // its request in pieces (`write!` on an unbuffered socket does) was answered
+    // for a request cut short, or had the socket closed on unread bytes and got a
+    // reset -- one run in three of this crate's own tests under load.
+    let mut request = [0u8; 8192];
+    let mut read = 0;
+    while read < request.len() {
+        match stream.read(&mut request[read..]) {
+            Ok(0) | Err(_) => break,
+            Ok(more) => {
+                read += more;
+                if request[..read]
+                    .windows(4)
+                    .any(|window| window == b"\r\n\r\n")
+                {
+                    break;
+                }
+            }
+        }
+    }
     let line = String::from_utf8_lossy(&request[..read]);
     let asked = line
         .split_whitespace()
@@ -595,6 +613,29 @@ mod tests {
         stream.read_to_string(&mut response).unwrap();
         assert!(!response.contains("synthetic secret"), "{response}");
         assert!(response.ends_with("original public page"), "{response}");
+    }
+
+    #[test]
+    fn a_request_that_arrives_in_pieces_is_answered_for_the_whole_of_it() {
+        let site = tempfile::tempdir().unwrap();
+        std::fs::write(site.path().join("index.html"), "the page").unwrap();
+        std::fs::write(site.path().join("main.js"), "the script").unwrap();
+        let served = Served::start(site.path().to_path_buf()).unwrap();
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", served.port)).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        // The start of the request line, a pause, then the rest: two segments.
+        stream.write_all(b"GET ").unwrap();
+        stream.flush().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        stream
+            .write_all(b"/main.js HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).unwrap();
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(answer.ends_with("the script"), "{answer}");
     }
 
     #[test]

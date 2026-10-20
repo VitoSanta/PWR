@@ -1546,6 +1546,19 @@ class Engine:
         template = self.template
         images, messages = image_parts(messages, accept=self.processor is not None)
         messages = gemma_tool_results(messages)
+        if thinking is False:
+            # With reasoning off its text is not sent back. The templates show an
+            # assistant step's reasoning only while no user message follows it, so
+            # the same history rendered one request later -- after a goal's
+            # check-in -- lacked every block the earlier prompt had, the cache
+            # diverged at the first of them and the whole conversation was read
+            # again: nine times in one Gemma E4B run (2026-10-20), 48-51 s each at
+            # 49,000 tokens, and a model that had read 78% of its prompt from
+            # cache where E2B and 26B read 99%.
+            messages = [{key: value for key, value in message.items()
+                         if key not in ("reasoning", "reasoning_content")}
+                        if message.get("role") == "assistant" else message
+                        for message in messages]
         kwargs = {
             "add_generation_prompt": generation_prompt,
             "tokenize": not images,

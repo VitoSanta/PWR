@@ -5271,6 +5271,16 @@ fn repaired_list(text: &str) -> String {
     out
 }
 
+/// Whether a string is only words separated by spaces: nothing a shell would
+/// read as quoting, escaping, expansion, a pipe, a redirect or a list.
+fn plain_words(text: &str) -> bool {
+    text.split_whitespace().count() > 1
+        && !text.contains([
+            '\'', '"', '\\', '$', '`', '*', '?', '|', ';', '&', '<', '>', '(', ')', '{', '}', '[',
+            ']', '~', '#', '\n',
+        ])
+}
+
 fn coerce_string_lists(arguments: &mut serde_json::Value) -> Result<(), String> {
     let Some(object) = arguments.as_object_mut() else {
         return Ok(());
@@ -5299,6 +5309,20 @@ fn coerce_string_lists(arguments: &mut serde_json::Value) -> Result<(), String> 
                      ({error}): check its quotes and brackets and send it again as a list of \
                      strings"
                 ));
+            }
+            // `args: "run build"` for `["run", "build"]`. The refusal below cost a
+            // Gemma 12B two of the three unusable replies a turn is allowed
+            // (site study, 2026-10-20) for a call whose meaning was not in doubt.
+            // Plain words only: no quote, escape or shell syntax, which is
+            // where "one argument with a space" could be what was meant, and
+            // run_command never reaches a shell to interpret them anyway.
+            if field == "args" && plain_words(text) {
+                *value = serde_json::Value::Array(
+                    text.split_whitespace()
+                        .map(|word| serde_json::Value::String(word.to_owned()))
+                        .collect(),
+                );
+                continue;
             }
             if text.split_whitespace().count() > 1 {
                 return Err(format!(
@@ -5534,6 +5558,37 @@ pub fn action_from_tool_call_with_catalog(
     // `executable`: one reading, since the tool already refuses args that
     // repeat the program. Refused five times on 2026-09-18 (suite A1,
     // `recover-run-without-executable-*`), an action lost each time.
+    // The same call with the whole command line in the first argument:
+    // `{"args": ["npm install"]}`, no `executable`. Gemma E2B's usual shape
+    // (site study, 2026-10-20): refused for the missing field every time. When
+    // its first word is a program everyone knows and the line has no quote or
+    // escape, the line is the program and its words.
+    if call.name == "run_command"
+        && let Some(object) = arguments.as_object_mut()
+        && object
+            .get("executable")
+            .is_none_or(|value| value.as_str().is_some_and(|text| text.trim().is_empty()))
+        && let Some(serde_json::Value::Array(args)) = object.get_mut("args")
+        && let Some(serde_json::Value::String(line)) = args.first()
+        && line.split_whitespace().count() > 1
+        && !line.contains(['\'', '"', '\\', '|', ';', '&', '>', '<', '$', '`'])
+        && let Some(program) = line.split_whitespace().next()
+        && SHELL_WRAPPED_PROGRAMS.contains(&program)
+    {
+        let words: Vec<String> = line.split_whitespace().map(str::to_owned).collect();
+        args.remove(0);
+        let rest: Vec<serde_json::Value> = words[1..]
+            .iter()
+            .cloned()
+            .map(serde_json::Value::String)
+            .chain(args.drain(..))
+            .collect();
+        *args = rest;
+        object.insert(
+            "executable".into(),
+            serde_json::Value::String(words[0].clone()),
+        );
+    }
     if call.name == "run_command"
         && let Some(object) = arguments.as_object_mut()
         && object
@@ -6162,13 +6217,26 @@ pub(crate) fn closing_in_prose(narrative: &str) -> Option<pwr_domain::ToolCall> 
         _ => return None,
     };
     let rest = rest.trim_start().trim_start_matches(['*', '_']);
-    let rationale = rest
+    let named = rest
         .strip_prefix("Rationale")
-        .or_else(|| rest.strip_prefix("rationale"))?
-        .trim_start_matches(['*', '_'])
-        .strip_prefix(':')?
-        .trim_start_matches(['*', '_'])
-        .trim();
+        .or_else(|| rest.strip_prefix("rationale"))
+        .and_then(|after| {
+            after
+                .trim_start_matches(['*', '_'])
+                .strip_prefix(':')
+                .map(|reason| reason.trim_start_matches(['*', '_']).trim())
+        });
+    // `complete` alone on the first line, then what was done, with no label:
+    // the form Gemma 26B wrote three times at the end of a finished site
+    // (site study, 2026-10-20), each taken as prose, until the goal paused as
+    // stalled with a passing build. It is read as the call only for `complete`,
+    // which is verified by the core and never believed on its word; `decline`
+    // keeps needing its reason named.
+    let rationale = match named {
+        Some(reason) => reason,
+        None if name == "complete" && !rest.trim().is_empty() => rest.trim(),
+        None => return None,
+    };
     (!rationale.is_empty()).then(|| pwr_domain::ToolCall {
         name: name.to_owned(),
         arguments: serde_json::json!({ "rationale": rationale }),
@@ -7245,6 +7313,42 @@ mod tests {
     }
 
     #[test]
+    fn args_written_as_plain_words_are_a_list_but_quoted_or_shell_text_is_still_refused() {
+        let coerce = |args: serde_json::Value| {
+            let mut value = serde_json::json!({"executable": "npm", "args": args});
+            coerce_string_lists(&mut value).map(|()| value["args"].clone())
+        };
+        assert_eq!(
+            coerce(serde_json::json!("run build")).unwrap(),
+            serde_json::json!(["run", "build"])
+        );
+        assert_eq!(
+            coerce(serde_json::json!("test -- --watch=false")).unwrap(),
+            serde_json::json!(["test", "--", "--watch=false"])
+        );
+        assert_eq!(
+            coerce(serde_json::json!("install")).unwrap(),
+            serde_json::json!(["install"])
+        );
+        // One argument with a space, a quote, a pipe or an expansion: not guessed.
+        for risky in [
+            "commit -m \"two words\"",
+            "run build | tee log",
+            "echo $HOME now",
+            "-c print('a b')",
+        ] {
+            let refused = coerce(serde_json::json!(risky)).unwrap_err();
+            assert!(
+                refused.contains("could be one argument"),
+                "{risky}: {refused}"
+            );
+        }
+        // Another field is not touched by this reading.
+        let mut paths = serde_json::json!({"paths": "a b"});
+        assert!(coerce_string_lists(&mut paths).is_err());
+    }
+
+    #[test]
     fn an_operation_inside_arguments_is_read_beside_the_target() {
         let mut nested = serde_json::json!({
             "target": "terminal",
@@ -7352,6 +7456,22 @@ mod tests {
         // Prose that only mentions the words, or gives no reason, is prose.
         assert!(closing_in_prose("I decline to guess.\nRationale: none").is_none());
         assert!(closing_in_prose("Decline\n\nI cannot do this.").is_none());
+        // `complete` with an unlabelled summary is the call; a lone `Complete`
+        // and any `Decline` without its label are not.
+        let call = closing_in_prose("complete\nThe site is built and its tests pass.").unwrap();
+        assert_eq!(call.name, "complete");
+        assert_eq!(
+            call.arguments["rationale"],
+            "The site is built and its tests pass."
+        );
+        let call = closing_in_prose("**Complete**\n\n- built the hero\n- wrote the tests").unwrap();
+        assert!(
+            call.arguments["rationale"]
+                .as_str()
+                .unwrap()
+                .starts_with("- built the hero")
+        );
+        assert!(closing_in_prose("complete\n   ").is_none());
         assert!(closing_in_prose("Decline\n\nRationale:").is_none());
         assert!(closing_in_prose("Complete").is_none());
     }

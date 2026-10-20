@@ -521,22 +521,84 @@ fn a_lone_string_is_accepted_where_a_list_was_declared() {
 /// spent the rest of the run unable to work out why its build would not run.
 ///
 /// Two readings are available -- one argument containing a space, or two
-/// arguments -- and choosing silently is guessing. So it is refused, and the
-/// refusal carries the list that should have been sent, because a refusal that
-/// withholds what it already knows costs a turn to rediscover.
+/// arguments -- and choosing silently is guessing. So for text that could be
+/// either it is refused, and the refusal carries the list that should have been
+/// sent, because a refusal that withholds what it already knows costs a turn to
+/// rediscover.
+///
+/// Plain words are the exception (2026-10-20, site study): `"run build"` with
+/// nothing a shell would read in it has one reading, and the refusal cost Gemma
+/// 12B two of the three unusable replies a turn allows before it is stopped.
 #[test]
-fn a_string_of_several_words_is_refused_rather_than_guessed_at() {
-    let problem = pwr_orchestrator::action_from_tool_call(&pwr_domain::ToolCall {
+fn a_string_with_quotes_or_shell_text_is_refused_rather_than_guessed_at() {
+    for ambiguous in ["commit -m \"two words\"", "run build | tee log"] {
+        let problem = pwr_orchestrator::action_from_tool_call(&pwr_domain::ToolCall {
+            name: "run_command".into(),
+            arguments: serde_json::json!({"executable": "npm", "args": ambiguous}),
+            id: None,
+        })
+        .unwrap_err();
+        assert!(
+            problem.problem.contains("could be one argument"),
+            "{problem}"
+        );
+        // The kind is what a campaign aggregates; the message is what a person
+        // reads. Asserting on the kind is what stops a reworded message from
+        // silently changing a measurement.
+        assert_eq!(problem.kind, "argument_shape");
+    }
+}
+
+#[test]
+fn plain_words_in_args_arrive_as_the_list_they_plainly_are() {
+    let action = pwr_orchestrator::action_from_tool_call(&pwr_domain::ToolCall {
         name: "run_command".into(),
         arguments: serde_json::json!({"executable": "npm", "args": "run build"}),
         id: None,
     })
-    .unwrap_err();
-    assert!(problem.problem.contains(r#"["run", "build"]"#), "{problem}");
-    // The kind is what a campaign aggregates; the message is what a person
-    // reads. Asserting on the kind is what stops a reworded message from
-    // silently changing a measurement.
-    assert_eq!(problem.kind, "argument_shape");
+    .unwrap();
+    match action {
+        pwr_tools::ActionProposal::RunCommand { args, .. } => {
+            assert_eq!(args, ["run", "build"]);
+        }
+        other => panic!("wrong action: {other:?}"),
+    }
+}
+
+/// Gemma E2B's usual shape (site study, 2026-10-20): the whole command line as
+/// the first argument and no `executable`, refused for the missing field every
+/// time. A known program, a line with no quote or escape: the line is the call.
+#[test]
+fn a_command_line_in_args_without_an_executable_is_the_call_it_plainly_is() {
+    let call = |args: serde_json::Value| {
+        pwr_orchestrator::action_from_tool_call(&pwr_domain::ToolCall {
+            name: "run_command".into(),
+            arguments: serde_json::json!({ "args": args }),
+            id: None,
+        })
+    };
+    match call(serde_json::json!(["npm install"])).unwrap() {
+        pwr_tools::ActionProposal::RunCommand {
+            executable, args, ..
+        } => {
+            assert_eq!(executable, "npm");
+            assert_eq!(args, ["install"]);
+        }
+        other => panic!("wrong action: {other:?}"),
+    }
+    match call(serde_json::json!(["npm run build", "--silent"])).unwrap() {
+        pwr_tools::ActionProposal::RunCommand {
+            executable, args, ..
+        } => {
+            assert_eq!(executable, "npm");
+            assert_eq!(args, ["run", "build", "--silent"]);
+        }
+        other => panic!("wrong action: {other:?}"),
+    }
+    // Quoted, shell syntax, or a first word that is no known program: not guessed.
+    assert!(call(serde_json::json!(["git commit -m \"two words\""])).is_err());
+    assert!(call(serde_json::json!(["npm run build | tee log"])).is_err());
+    assert!(call(serde_json::json!(["frobnicate the thing"])).is_err());
 }
 
 /// A proper list is untouched.

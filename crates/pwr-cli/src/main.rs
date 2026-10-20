@@ -3419,6 +3419,10 @@ impl serve::TurnRunner for ConsoleTurns {
                 no_tests.join("; ")
             )
         };
+        let summary = match ready_import_fixes(&context.root, &report) {
+            Some(fixes) => format!("{summary}\n{fixes}"),
+            None => summary,
+        };
         let mut failing: Vec<String> = report
             .get("baseline")
             .and_then(|baseline| baseline.get("checks"))
@@ -4074,11 +4078,428 @@ fn serialized_check_succeeded(value: &serde_json::Value) -> bool {
         .is_ok_and(|check| check.succeeded())
 }
 
+/// The lines of a failed check's output that say what failed: the error lines,
+/// without terminal colour, each bounded, at most twelve; the last lines when
+/// none is named as an error.
+fn failure_excerpt(stdout: &str, stderr: &str) -> Option<String> {
+    fn plain(line: &str) -> String {
+        let mut out = String::new();
+        let mut chars = line.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' {
+                // `ESC [ ... letter`
+                if chars.peek() == Some(&'[') {
+                    for next in chars.by_ref() {
+                        if next.is_ascii_alphabetic() {
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+            out.push(c);
+        }
+        out.trim().to_owned()
+    }
+    let lines: Vec<String> = stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(plain)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let named = |line: &&String| {
+        let lower = line.to_lowercase();
+        lower.contains("error")
+            || line.contains('✘')
+            || lower.contains("failed")
+            || lower.contains("cannot find")
+    };
+    // An error line is followed by where it is: `src/app/home.ts:1:9:`. Without
+    // that line the model is told what is wrong and not in which file, and
+    // rewrites the one it knows (Gemma 12B, 2026-10-20: `app.ts` twenty-one
+    // times while the error sat in four component files).
+    let located = |line: &str| {
+        let head = line.split_whitespace().next().unwrap_or("");
+        let mut parts = head.trim_end_matches(':').rsplitn(3, ':');
+        let (col, row, file) = (parts.next(), parts.next(), parts.next());
+        matches!((col, row, file), (Some(c), Some(r), Some(f))
+            if !f.is_empty() && c.chars().all(|x| x.is_ascii_digit()) && !c.is_empty()
+                && r.chars().all(|x| x.is_ascii_digit()) && !r.is_empty())
+    };
+    let mut picked: Vec<&String> = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if picked.len() >= 12 {
+            break;
+        }
+        if named(&line) {
+            picked.push(line);
+            for next in lines.iter().skip(index + 1).take(2) {
+                if located(next) && picked.len() < 12 {
+                    picked.push(next);
+                }
+            }
+        }
+    }
+    picked.dedup();
+    if picked.is_empty() {
+        picked = lines.iter().rev().take(8).rev().collect();
+    }
+    if picked.is_empty() {
+        return None;
+    }
+    let mut text: Vec<String> = picked
+        .iter()
+        .map(|line| line.chars().take(220).collect())
+        .collect();
+    let mut hints: Vec<String> = Vec::new();
+    for line in &lines {
+        if let Some(hint) = compiler_error_remedy(line)
+            && !hints.contains(&hint)
+        {
+            hints.push(hint);
+        }
+    }
+    for hint in hints.into_iter().take(3) {
+        text.push(format!("-> {hint}"));
+    }
+    Some(text.join("\n"))
+}
+
+/// The remedy for a compiler error that has one, in a sentence a small model
+/// can act on. Measured 2026-10-20 (site study, Gemma E2B): the build said
+/// `NG2008: Could not find template file './community.component.html'` and the
+/// model, which wrote the component, declared the build "unresolvable". Only
+/// errors whose cause is read from the message itself; nothing is guessed.
+fn compiler_error_remedy(line: &str) -> Option<String> {
+    fn between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
+        let from = text.find(start)? + start.len();
+        let to = text[from..].find(end)? + from;
+        Some(&text[from..to])
+    }
+    if line.contains("builder's node package")
+        || line.contains("ng: command not found")
+        || line.contains("sh: ng:")
+        || line.contains("Cannot find package '@angular")
+    {
+        return Some("the project's dependencies are not installed (there is no `node_modules`): run `npm install` once, then run the build again. This is not a reason to stop.".to_owned());
+    }
+    if let Some(name) = between(line, "for import \"", "\"")
+        && line.contains("No matching export")
+    {
+        let from = between(line, "node_modules/", "/fesm").unwrap_or("that package");
+        let home = match name {
+            "Component"
+            | "Directive"
+            | "Injectable"
+            | "Input"
+            | "Output"
+            | "NgModule"
+            | "Pipe"
+            | "signal"
+            | "computed"
+            | "effect"
+            | "inject"
+            | "input"
+            | "output"
+            | "OnInit"
+            | "ChangeDetectionStrategy"
+            | "ViewChild"
+            | "HostListener"
+            | "EventEmitter" => Some("@angular/core"),
+            "Routes" | "RouterOutlet" | "RouterLink" | "RouterLinkActive" | "provideRouter"
+            | "ActivatedRoute" | "Router" => Some("@angular/router"),
+            "CommonModule" | "NgIf" | "NgFor" | "NgClass" | "NgStyle" | "AsyncPipe"
+            | "DatePipe" | "NgOptimizedImage" => Some("@angular/common"),
+            "FormsModule" | "ReactiveFormsModule" | "FormControl" | "FormGroup" => {
+                Some("@angular/forms")
+            }
+            _ => None,
+        };
+        return Some(match home {
+            Some(home) => format!(
+                "`{name}` is not exported by `{from}`: in the file named just below, import it from `'{home}'` instead."
+            ),
+            None => format!(
+                "`{name}` is not exported by `{from}`: in the file named just below, import it from the package that exports it."
+            ),
+        });
+    }
+    if line.contains(".spec.ts")
+        && (line.contains("failed") || line.contains("FAIL") || line.contains("Error"))
+        && let Some(spec) = line
+            .split(|c: char| c.is_whitespace() || c == '|' || c == '>' || c == '(')
+            .find(|word| word.ends_with(".spec.ts"))
+    {
+        return Some(format!(
+            "the test file `{spec}` fails. The generated tests describe the starter's page: if you replaced that page, open the spec and change it to check what is on your page now (for example the text of your own `<h1>`), or delete the obsolete test. A failing starter test is not a reason to stop."
+        ));
+    }
+    if let Some(name) = between(line, "Duplicate identifier '", "'") {
+        return Some(format!(
+            "`{name}` is declared or imported twice in that file: open it at the position shown just below and delete the second one (usually a repeated `import {{ {name} }}` line). Keep exactly one."
+        ));
+    }
+    if let Some(tag) = between(line, "Unexpected closing tag \"", "\"") {
+        return Some(format!(
+            "a `</{tag}>` closes an element that is not open there (it was closed earlier, or never opened). Read the template at the position shown just below, count the `<{tag}` openings and `</{tag}>` closings around it, and remove or move that one closing tag. Do not rewrite the whole template."
+        ));
+    }
+    if line.contains("is not closed") && line.contains("NG5") {
+        return Some("an element is opened and never closed: read the template at the position shown just below and add the missing closing tag there.".to_owned());
+    }
+    if let Some(file) = between(line, "Could not find template file '", "'") {
+        return Some(format!(
+            "a component names the template `{file}` and it does not exist: create that file next to the component, or replace `templateUrl` with an inline `template`."
+        ));
+    }
+    if let Some(file) = between(line, "Could not find stylesheet file '", "'") {
+        return Some(format!(
+            "a component names the stylesheet `{file}` and it does not exist: create it, or remove it from `styleUrl`/`styleUrls`."
+        ));
+    }
+    if let Some(name) = between(line, "Cannot find name '", "'") {
+        return Some(format!(
+            "`{name}` is used in that file but not defined there: add `import {{ {name} }} from '...'` with the path of the file that exports it, or define it."
+        ));
+    }
+    if let Some(module) = between(line, "Cannot find module '", "'") {
+        return Some(format!(
+            "the import path `{module}` resolves to no file or package: fix the path, create the file, or install the package with `npm install`."
+        ));
+    }
+    if let Some(target) = between(line, "Could not resolve \"", "\"") {
+        return Some(format!(
+            "nothing resolves `{target}`: create the file, fix the path, or install the package with `npm install`."
+        ));
+    }
+    if let Some(element) = between(line, "NG8001: '", "'") {
+        return Some(format!(
+            "`{element}` is not a known element: import the component that declares it in the `imports` array of the component whose template uses it."
+        ));
+    }
+    if let Some(property) = between(line, "Can't bind to '", "'") {
+        return Some(format!(
+            "`{property}` is not a known property there: import the directive or module that provides it (for example `FormsModule`, `CommonModule`) in that component's `imports`."
+        ));
+    }
+    None
+}
+
+/// The edit that fixes `Cannot find name 'X'`, written out as a call a small
+/// model can copy: the file that uses `X`, the single file in the project that
+/// exports a class of that name, and the `replace_text` that adds the import
+/// after the file's first line. Only when the exporter is unique; the model
+/// still makes the call with its own tools. Measured 2026-10-20 (site study,
+/// Gemma E2B): told in words to add the import, five times, it answered in
+/// words five times.
+fn ready_import_fixes(root: &Path, report: &serde_json::Value) -> Option<String> {
+    let mut seen: Vec<(String, String)> = Vec::new();
+    for check in report
+        .get("baseline")
+        .and_then(|baseline| baseline.get("checks"))
+        .and_then(serde_json::Value::as_array)?
+    {
+        let text = format!(
+            "{}\n{}",
+            check["result"]["stdout"].as_str().unwrap_or(""),
+            check["result"]["stderr"].as_str().unwrap_or("")
+        );
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            let Some(from) = line.find("Cannot find name '") else {
+                continue;
+            };
+            let rest = &line[from + "Cannot find name '".len()..];
+            let Some(name) = rest.split('\'').next().filter(|name| !name.is_empty()) else {
+                continue;
+            };
+            let located = lines.iter().skip(index + 1).take(3).find_map(|next| {
+                let word = next.split_whitespace().next()?;
+                let at = word.find(".ts:")?;
+                Some(word[..at + 3].to_owned())
+            });
+            if let Some(file) = located
+                && !seen.iter().any(|(f, n)| *f == file && n == name)
+            {
+                seen.push((file, name.to_owned()));
+            }
+        }
+    }
+    let mut fixes: Vec<String> = Vec::new();
+    fixes.extend(ready_path_fixes(root, report));
+    for (file, name) in seen.into_iter().take(4) {
+        let Some(exporter) = single_exporter(root, &name, &file) else {
+            continue;
+        };
+        let Ok(source) = std::fs::read_to_string(root.join(&file)) else {
+            continue;
+        };
+        let Some(anchor) = source
+            .lines()
+            .find(|line| line.starts_with("import "))
+            .or_else(|| source.lines().next())
+        else {
+            continue;
+        };
+        let from_dir = Path::new(&file).parent().unwrap_or_else(|| Path::new(""));
+        let import = relative_import(from_dir, &exporter);
+        fixes.push(format!(
+            "Ready fix for `{name}` in `{file}`: call replace_text with path `{file}`, find the line\n{anchor}\nand replace it with these two lines\n{anchor}\nimport {{ {name} }} from '{import}';"
+        ));
+    }
+    (!fixes.is_empty()).then(|| fixes.join("\n"))
+}
+
+/// `Could not resolve "../../../src/app/home/home.component"`: a relative import
+/// whose tail names a file the project has once. The edit that puts the right
+/// path in its place, as a call to copy: the model still makes it.
+fn ready_path_fixes(root: &Path, report: &serde_json::Value) -> Vec<String> {
+    let mut fixes = Vec::new();
+    let Some(checks) = report
+        .get("baseline")
+        .and_then(|baseline| baseline.get("checks"))
+        .and_then(serde_json::Value::as_array)
+    else {
+        return fixes;
+    };
+    for check in checks {
+        let text = format!(
+            "{}\n{}",
+            check["result"]["stdout"].as_str().unwrap_or(""),
+            check["result"]["stderr"].as_str().unwrap_or("")
+        );
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            let Some(from) = line.find("Could not resolve \"") else {
+                continue;
+            };
+            let rest = &line[from + "Could not resolve \"".len()..];
+            let Some(bad) = rest.split('"').next().filter(|bad| bad.starts_with('.')) else {
+                continue;
+            };
+            let located = lines.iter().skip(index + 1).take(3).find_map(|next| {
+                let word = next.split_whitespace().next()?;
+                let at = word.find(".ts:")?;
+                Some(word[..at + 3].to_owned())
+            });
+            let Some(file) = located else { continue };
+            let tail = bad.trim_start_matches("../").trim_start_matches("./");
+            if tail.is_empty() || tail.contains("..") {
+                continue;
+            }
+            let wanted = format!("{tail}.ts");
+            let target = if root.join(&wanted).is_file() {
+                Some(wanted)
+            } else {
+                single_file_ending_with(root, &wanted)
+            };
+            let Some(target) = target else { continue };
+            let from_dir = Path::new(&file).parent().unwrap_or_else(|| Path::new(""));
+            let right = relative_import(from_dir, &target);
+            if right != bad {
+                fixes.push(format!(
+                    "Ready fix for the import path in `{file}`: call replace_text with path `{file}`, find `{bad}` and replace it with `{right}`."
+                ));
+            }
+        }
+    }
+    fixes.dedup();
+    fixes.truncate(4);
+    fixes
+}
+
+/// The one `.ts` file under `src` whose path ends with `suffix`.
+fn single_file_ending_with(root: &Path, suffix: &str) -> Option<String> {
+    fn walk(dir: &Path, root: &Path, suffix: &str, found: &mut Vec<String>, visited: &mut usize) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if *visited > 3000 {
+                return;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, root, suffix, found, visited);
+            } else if let Ok(relative) = path.strip_prefix(root) {
+                *visited += 1;
+                let relative = relative.to_string_lossy().replace('\\', "/");
+                if relative.ends_with(suffix) {
+                    found.push(relative);
+                }
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(&root.join("src"), root, suffix, &mut found, &mut 0);
+    (found.len() == 1).then(|| found.remove(0))
+}
+
+/// The one `.ts` file (not a spec, not `node_modules`) under `src` that exports
+/// a class called `name`, other than `except`.
+fn single_exporter(root: &Path, name: &str, except: &str) -> Option<String> {
+    fn walk(dir: &Path, root: &Path, name: &str, found: &mut Vec<String>, visited: &mut usize) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if *visited > 3000 {
+                return;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, root, name, found, visited);
+            } else if path.extension().is_some_and(|ext| ext == "ts")
+                && !path.to_string_lossy().ends_with(".spec.ts")
+            {
+                *visited += 1;
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let needle = format!("export class {name}");
+                let exports = text.match_indices(&needle).any(|(at, _)| {
+                    !text[at + needle.len()..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                });
+                if exports && let Ok(relative) = path.strip_prefix(root) {
+                    found.push(relative.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(&root.join("src"), root, name, &mut found, &mut 0);
+    found.retain(|file| file != except);
+    (found.len() == 1).then(|| found.remove(0))
+}
+
+/// `./home/home.component` from `src/app` to `src/app/home/home.component.ts`.
+fn relative_import(from_dir: &Path, target: &str) -> String {
+    let target = target.trim_end_matches(".ts");
+    let from: Vec<&str> = from_dir
+        .iter()
+        .filter_map(|part| part.to_str())
+        .filter(|part| !part.is_empty())
+        .collect();
+    let to: Vec<&str> = target.split('/').collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let ups = from.len() - common;
+    let rest = to[common..].join("/");
+    if ups == 0 {
+        format!("./{rest}")
+    } else {
+        format!("{}{rest}", "../".repeat(ups))
+    }
+}
+
 fn summarise_verification(report: &serde_json::Value) -> String {
     let scope = report
         .get("scope")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("targeted");
+    let mut excerpts: Vec<Option<String>> = Vec::new();
     let checks: Vec<(String, bool)> = report
         .get("baseline")
         .and_then(|baseline| baseline.get("checks"))
@@ -4113,13 +4534,41 @@ fn summarise_verification(report: &serde_json::Value) -> String {
                 running it"
             .to_owned();
     }
+    // What each failing check printed, so the model that is sent back to fix it
+    // is told the error and not only that there was one. Measured 2026-10-20
+    // (site study, Gemma E2B): "0 of 2 checks passing: npm run build" three
+    // times, and the three-line import error that named the whole problem was
+    // never in the message.
+    excerpts.extend(
+        report
+            .get("baseline")
+            .and_then(|baseline| baseline.get("checks"))
+            .and_then(serde_json::Value::as_array)
+            .map(|records| {
+                records
+                    .iter()
+                    .map(|check| {
+                        failure_excerpt(
+                            check["result"]["stdout"].as_str().unwrap_or(""),
+                            check["result"]["stderr"].as_str().unwrap_or(""),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    );
     let passing = checks.iter().filter(|(_, passed)| *passed).count();
     let mut said = format!("{passing} of {} {scope} check(s) passing:", checks.len());
-    for (command, passed) in &checks {
+    for (index, (command, passed)) in checks.iter().enumerate() {
         said.push_str(&format!(
             "\n  {} {command}",
             if *passed { "·" } else { "✗" }
         ));
+        if !*passed && let Some(Some(excerpt)) = excerpts.get(index) {
+            for line in excerpt.lines() {
+                said.push_str(&format!("\n      {line}"));
+            }
+        }
     }
     if let Some(missing) = report["comparison"]["missing_checks"]
         .as_array()
@@ -7551,6 +8000,193 @@ mod tests {
         assert!(said.contains("1 of 2"), "{said}");
         assert!(said.contains("cargo test"), "{said}");
         assert!(said.contains("cargo fmt"), "{said}");
+    }
+
+    /// A model sent back to fix a failing build must be told the error, not
+    /// only that the build failed (site study, 2026-10-20).
+    #[test]
+    fn a_failing_check_shows_the_lines_that_name_the_error_and_a_passing_one_shows_none() {
+        let stderr = "\u{1b}[31m✘ [ERROR] TS2304: Cannot find name 'HomeComponent'. [plugin angular-compiler]\u{1b}[0m\n\n    src/app/app.routes.ts:4:25:\n      4 │   { path: '', component: HomeComponent },\n\nsome unrelated progress line";
+        let report = serde_json::json!({
+            "baseline": {"checks": [
+                {"command": "npm run build", "result": {"exit_code": 1, "stdout": "❯ Building...", "stderr": stderr}},
+                {"command": "npm run lint", "result": {"exit_code": 0, "stdout": "all fine error-free", "stderr": ""}},
+            ]},
+        });
+        let said = summarise_verification(&report);
+        assert!(said.contains("✗ npm run build"), "{said}");
+        assert!(
+            said.contains("TS2304: Cannot find name 'HomeComponent'"),
+            "{said}"
+        );
+        assert!(
+            !said.contains('\u{1b}'),
+            "colour codes must not reach the model: {said:?}"
+        );
+        assert!(!said.contains("all fine"), "{said}");
+        // Without any line that names an error, the end of the output is shown.
+        let quiet = serde_json::json!({"baseline":{"checks":[{"command":"make","result":{"exit_code":2,"stdout":"a\nb\nc","stderr":""}}]}});
+        assert!(summarise_verification(&quiet).contains("      c"));
+    }
+
+    #[test]
+    fn the_common_compiler_errors_come_with_the_remedy_their_message_implies() {
+        let stderr = "✘ [ERROR] NG2008: Could not find template file './community.component.html'. [plugin angular-compiler]\n✘ [ERROR] TS2304: Cannot find name 'HomeComponent'.\n✘ [ERROR] Could not resolve \"./missing\"\nunrelated";
+        let report = serde_json::json!({"baseline":{"checks":[{"command":"npm run build","result":{"exit_code":1,"stdout":"","stderr":stderr}}]}});
+        let said = summarise_verification(&report);
+        assert!(
+            said.contains("create that file next to the component"),
+            "{said}"
+        );
+        assert!(
+            said.contains("add `import { HomeComponent } from '...'`"),
+            "{said}"
+        );
+        assert!(said.contains("nothing resolves `./missing`"), "{said}");
+        let deps = serde_json::json!({"baseline":{"checks":[{"command":"npm run build","result":{"exit_code":1,"stdout":"","stderr":"Could not find the '@angular/build:application' builder's node package."}}]}});
+        assert!(
+            summarise_verification(&deps).contains("run `npm install` once"),
+            "{}",
+            summarise_verification(&deps)
+        );
+        // An error with no known remedy gets none, and a clean pass gets no excerpt.
+        let other = serde_json::json!({"baseline":{"checks":[{"command":"make","result":{"exit_code":2,"stdout":"error: weird","stderr":""}}]}});
+        assert!(
+            !summarise_verification(&other).contains("->"),
+            "{}",
+            summarise_verification(&other)
+        );
+    }
+
+    #[test]
+    fn a_missing_component_import_comes_with_the_edit_that_adds_it() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("src/app/home")).unwrap();
+        std::fs::write(
+            root.path().join("src/app/app.routes.ts"),
+            "import { Routes } from '@angular/router';\n\nexport const routes: Routes = [{ path: '', component: HomeComponent }];\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("src/app/home/home.component.ts"),
+            "export class HomeComponent {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("src/app/home/home.component.spec.ts"),
+            "export class HomeComponent {}\n",
+        )
+        .unwrap();
+        let stderr = "✘ [ERROR] TS2304: Cannot find name 'HomeComponent'. [plugin angular-compiler]\n\n    src/app/app.routes.ts:3:59:\n      3 │ ...\n";
+        let report = serde_json::json!({"baseline":{"checks":[{"command":"npm run build","result":{"exit_code":1,"stdout":"","stderr":stderr}}]}});
+        let fixes = ready_import_fixes(root.path(), &report).expect("a ready fix");
+        assert!(
+            fixes.contains("call replace_text with path `src/app/app.routes.ts`"),
+            "{fixes}"
+        );
+        assert!(
+            fixes.contains("import { HomeComponent } from './home/home.component';"),
+            "{fixes}"
+        );
+        assert!(
+            fixes.contains("import { Routes } from '@angular/router';"),
+            "{fixes}"
+        );
+        // Two exporters, or none: nothing is guessed.
+        std::fs::write(
+            root.path().join("src/app/other.ts"),
+            "export class HomeComponent {}\n",
+        )
+        .unwrap();
+        assert!(ready_import_fixes(root.path(), &report).is_none());
+        let unknown = serde_json::json!({"baseline":{"checks":[{"command":"b","result":{"exit_code":1,"stdout":"","stderr":"✘ [ERROR] TS2304: Cannot find name 'Nope'.\n\n    src/app/app.routes.ts:3:1:\n"}}]}});
+        assert!(ready_import_fixes(root.path(), &unknown).is_none());
+        // Paths between folders.
+        assert_eq!(
+            relative_import(Path::new("src/app"), "src/app/home/home.component.ts"),
+            "./home/home.component"
+        );
+        assert_eq!(
+            relative_import(Path::new("src/app/pages"), "src/app/shared/x.ts"),
+            "../shared/x"
+        );
+    }
+
+    #[test]
+    fn an_invented_relative_path_comes_with_the_one_that_resolves() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("src/app/home")).unwrap();
+        std::fs::write(
+            root.path().join("src/app/home/home.component.ts"),
+            "export class HomeComponent {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("src/app/app.routes.ts"),
+            "import { HomeComponent } from '../../../../src/app/home/home.component';\n",
+        )
+        .unwrap();
+        let stderr = "✘ [ERROR] Could not resolve \"../../../../src/app/home/home.component\"\n\n    src/app/app.routes.ts:1:28:\n      1 │ import\n";
+        let report = serde_json::json!({"baseline":{"checks":[{"command":"npm run build","result":{"exit_code":1,"stdout":"","stderr":stderr}}]}});
+        let fixes = ready_import_fixes(root.path(), &report).expect("a ready fix");
+        assert!(fixes.contains("call replace_text with path `src/app/app.routes.ts`, find `../../../../src/app/home/home.component` and replace it with `./home/home.component`"), "{fixes}");
+        // A path with no such file anywhere is not guessed.
+        let nothing = serde_json::json!({"baseline":{"checks":[{"command":"b","result":{"exit_code":1,"stdout":"","stderr":"✘ [ERROR] Could not resolve \"./nope\"\n\n    src/app/app.routes.ts:1:1:\n"}}]}});
+        assert!(ready_import_fixes(root.path(), &nothing).is_none());
+    }
+
+    #[test]
+    fn a_duplicate_identifier_is_told_to_keep_one() {
+        let stderr = "✘ [ERROR] TS2300: Duplicate identifier 'Routes'. [plugin angular-compiler]\n\n    src/app/app.routes.ts:2:10:\n";
+        let report = serde_json::json!({"baseline":{"checks":[{"command":"npm run build","result":{"exit_code":1,"stdout":"","stderr":stderr}}]}});
+        let said = summarise_verification(&report);
+        assert!(
+            said.contains("`Routes` is declared or imported twice"),
+            "{said}"
+        );
+        assert!(said.contains("Keep exactly one."), "{said}");
+    }
+
+    #[test]
+    fn an_unbalanced_template_is_told_where_to_look_and_what_to_do() {
+        let stderr = "✘ [ERROR] NG5002: Unexpected closing tag \"span\". It may happen when the tag has already been closed by another tag. [plugin angular-compiler]\n\n    src/app/home.component.ts:23:55:\n      23 │ </span></div>";
+        let report = serde_json::json!({"baseline":{"checks":[{"command":"npm run build","result":{"exit_code":1,"stdout":"","stderr":stderr}}]}});
+        let said = summarise_verification(&report);
+        assert!(said.contains("src/app/home.component.ts:23:55:"), "{said}");
+        assert!(
+            said.contains("a `</span>` closes an element that is not open there"),
+            "{said}"
+        );
+        assert!(said.contains("Do not rewrite the whole template"), "{said}");
+    }
+
+    #[test]
+    fn a_failing_starter_spec_is_told_to_follow_the_page_that_replaced_it() {
+        let stdout = " FAIL  project src/app/app.spec.ts > App > should render title\n AssertionError: expected 'Hello' to contain 'PWR'\n \u{276f} |project| src/app/app.spec.ts (2 tests | 1 failed) 49ms";
+        let report = serde_json::json!({"baseline":{"checks":[{"command":"npm test","result":{"exit_code":1,"stdout":stdout,"stderr":""}}]}});
+        let said = summarise_verification(&report);
+        assert!(
+            said.contains("the test file `src/app/app.spec.ts` fails"),
+            "{said}"
+        );
+        assert!(
+            said.contains("change it to check what is on your page now"),
+            "{said}"
+        );
+    }
+
+    #[test]
+    fn the_file_an_error_is_in_and_a_wrong_package_import_come_with_it() {
+        let stderr = "✘ [ERROR] No matching export in \"node_modules/@angular/common/fesm2022/common.mjs\" for import \"Component\"\n\n    src/app/home.component.ts:1:9:\n      1 │ import { Component } from '@angular/common';\n\n✘ [ERROR] Could not resolve \"./x\"\n\n    src/app/status.component.ts:2:21:\n";
+        let report = serde_json::json!({"baseline":{"checks":[{"command":"npm run build","result":{"exit_code":1,"stdout":"","stderr":stderr}}]}});
+        let said = summarise_verification(&report);
+        assert!(said.contains("src/app/home.component.ts:1:9:"), "{said}");
+        assert!(said.contains("src/app/status.component.ts:2:21:"), "{said}");
+        assert!(
+            said.contains("import it from `'@angular/core'` instead"),
+            "{said}"
+        );
+        assert!(said.contains("not exported by `@angular/common`"), "{said}");
     }
 
     #[test]

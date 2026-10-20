@@ -4139,6 +4139,33 @@ const WITHIN_READ_LIMIT: u64 = 4 * 1024 * 1024;
 /// the guard let through; the run recovered only through `restore_file`.
 const SHRINK_GUARD_MIN_LINES: usize = 10;
 
+/// Whether a tracked file is exactly what the last commit holds.
+///
+/// The shrink guard exists to keep a fragment from replacing work in progress.
+/// A file nobody has changed since it was committed -- the starter's own
+/// `app.html`, 344 lines of boilerplate a task is about to replace with its
+/// own page -- holds no work, and `git checkout` brings it back. Measured
+/// 2026-10-20 (site study, Gemma 26B): twenty-three refusals of the same
+/// rewrite of that file in one run, and the E4B apologising for the same
+/// refusal instead of acting. Anything that is not clearly "tracked and
+/// unmodified" -- no git, an untracked file, any difference -- keeps the guard.
+fn still_as_committed(root: &Path, relative: &Path) -> bool {
+    let run = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .arg("--")
+            .arg(relative)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    };
+    run(&["ls-files", "--error-unmatch"]) && run(&["diff", "--quiet", "HEAD"])
+}
+
 /// Replaces text only when the caller supplies the current content hash, preventing stale edits.
 pub fn apply_replace(
     policy: &ToolPolicy,
@@ -4206,13 +4233,16 @@ pub fn apply_replace(
     // 800-line one; each run spent the rest of its budget on the wreck.
     let old_lines = String::from_utf8_lossy(&existing).lines().count();
     let new_lines = replacement.lines().count();
-    if old_lines >= SHRINK_GUARD_MIN_LINES && new_lines.saturating_mul(2) < old_lines {
+    if old_lines >= SHRINK_GUARD_MIN_LINES
+        && new_lines.saturating_mul(2) < old_lines
+        && !still_as_committed(&policy.root, relative)
+    {
         return Err(ToolError::Denied(format!(
             "apply_replace replaces the whole file: {} has {old_lines} lines and this \
-             replacement has {new_lines}, so {} lines would be deleted. To change part of the \
-             file use replace_text with the exact lines to find. If the file really should \
-             become this, say so to the engineer: deleting it to write it again is refused \
-             in the same turn.",
+             replacement has {new_lines}, so {} lines would be deleted, and the file holds \
+             changes that are not committed. To change part of the file use replace_text \
+             with the exact lines to find, reading the file first. Deleting it to write it \
+             again is refused in the same turn.",
             relative.display(),
             old_lines - new_lines,
         )));
@@ -7348,6 +7378,41 @@ fn kills_by_name(executable: &str, args: &[String]) -> bool {
             .any(|pair| pair[0] == "-c" && word(&pair[1]))
 }
 
+/// `npm` and its arguments, for a package-manager verb sent as the executable
+/// in a folder that holds a `package.json`; nothing otherwise.
+fn package_verb_completed(
+    root: &Path,
+    executable: &str,
+    args: &[String],
+    cwd: Option<&str>,
+) -> Option<(String, Vec<String>)> {
+    let folder = match cwd
+        .map(str::trim)
+        .filter(|dir| !dir.is_empty() && *dir != ".")
+    {
+        Some(dir) if !dir.starts_with('/') && !dir.contains("..") => root.join(dir),
+        Some(_) => return None,
+        None => root.to_path_buf(),
+    };
+    if !folder.join("package.json").is_file() {
+        return None;
+    }
+    let mut rest: Vec<String> = match executable {
+        "install" | "ci" | "add" | "remove" | "update" | "test" | "start" => {
+            std::iter::once(executable.to_owned())
+                .chain(args.iter().cloned())
+                .collect()
+        }
+        "run" if !args.is_empty() => std::iter::once("run".to_owned())
+            .chain(args.iter().cloned())
+            .collect(),
+        "build" if args.is_empty() => vec!["run".to_owned(), "build".to_owned()],
+        _ => return None,
+    };
+    rest.shrink_to_fit();
+    Some(("npm".to_owned(), rest))
+}
+
 /// The same, run from a workspace-relative directory.
 pub async fn run_command_in(
     policy: &ToolPolicy,
@@ -7356,6 +7421,21 @@ pub async fn run_command_in(
     stdin: Option<&str>,
     cwd: Option<&str>,
 ) -> Result<ToolResult, ToolError> {
+    // The package manager's verb sent where the program belongs: in a project
+    // with a `package.json`, `install` is `npm install`. Measured 2026-10-20
+    // (site study, Gemma E2B): `run_command{args:["install"]}` with no
+    // `executable`, thirty times -- `install` is also a BSD utility that printed
+    // its usage, and `build` and `run` are no program at all. The note in the
+    // failure was repeated to the model eleven times and changed nothing.
+    if let Some((program, rest)) = package_verb_completed(&policy.root, executable, args, cwd) {
+        let said = format!(
+            "[PWR] The call named only `{executable}`: ran as `{program} {}`, this folder being an npm project. Send `executable` and `args` the same way next time.\n",
+            rest.join(" ")
+        );
+        let mut result = Box::pin(run_command_in(policy, &program, &rest, stdin, cwd)).await?;
+        result.stderr.insert_str(0, &said);
+        return Ok(result);
+    }
     if let Some(refusal) = shell_syntax_refusal(executable, args) {
         return Err(ToolError::Denied(refusal));
     }
@@ -7804,6 +7884,11 @@ async fn run_command_once(
             stderr.push_str("\n[PWR] Installed dependency trees are read-only without DependencyChange approval; dependency installs or rewrites require that grant. Protected task paths remain read-only even with it.\n");
         }
     }
+    if status.code() != Some(0)
+        && let Some(note) = missing_program_note(&stderr, &policy.root)
+    {
+        stderr.push_str(&note);
+    }
     if let Some(note) = npx_fetched_package(&stderr) {
         stderr.push_str(&note);
     }
@@ -7900,6 +7985,68 @@ const SANDBOX_REFUSAL_HINT: &str = "\n[PWR] This command ran in the sandbox and 
      reads like the sandbox refusing it (\"Operation not permitted\"): writes outside the \
      workspace, and some sockets, are refused there. If the project is not what failed, run it \
      again with outside_sandbox true -- the person is asked first.";
+
+/// What a failed command should be told when the program it named is not one.
+///
+/// `execvp() of 'npm_run_build_test_failed_on_first_try' failed: No such file
+/// or directory` is what the operating system says, and it taught nothing:
+/// measured 2026-10-20 (site study, Gemma 12B), the same invented name was
+/// sent eighty-six times in nine minutes. The note says that the name is not a
+/// program, that `executable` is the program alone, and gives the calls this
+/// project actually has -- its `package.json` scripts -- ready to resubmit.
+fn missing_program_note(stderr: &str, root: &Path) -> Option<String> {
+    let after = stderr.split("execvp() of '").nth(1)?;
+    let (name, rest) = after.split_once("' failed")?;
+    if !rest
+        .trim_start_matches(':')
+        .trim_start()
+        .starts_with("No such file")
+        || name.is_empty()
+    {
+        return None;
+    }
+    let mut note = format!(
+        "\n[PWR] `{name}` is not a program on this machine. `executable` is the program alone \
+         (`npm`, `node`, `ng`, `git`...) and everything after it goes in `args`; a name that \
+         describes a failure is not a program."
+    );
+    let known = [
+        "npm", "npx", "node", "ng", "cargo", "git", "python3", "pnpm", "yarn",
+    ];
+    if let Some(program) = known.iter().find(|program| {
+        name.starts_with(&format!("{program}_")) || name.starts_with(&format!("{program}-"))
+    }) {
+        note.push_str(&format!(
+            " It starts with `{program}`: that is the executable."
+        ));
+    }
+    if let Ok(text) = std::fs::read_to_string(root.join("package.json"))
+        && let Ok(package) = serde_json::from_str::<serde_json::Value>(&text)
+        && let Some(scripts) = package
+            .get("scripts")
+            .and_then(serde_json::Value::as_object)
+    {
+        let calls: Vec<String> = scripts
+            .keys()
+            .filter(|script| ["build", "test", "start", "lint"].contains(&script.as_str()))
+            .map(|script| {
+                let args: Vec<&str> = if script == "test" || script == "start" {
+                    vec![script.as_str()]
+                } else {
+                    vec!["run", script.as_str()]
+                };
+                serde_json::json!({"executable": "npm", "args": args}).to_string()
+            })
+            .collect();
+        if !calls.is_empty() {
+            note.push_str(&format!(
+                " This project's scripts, as calls: {}.",
+                calls.join(" ")
+            ));
+        }
+    }
+    Some(note)
+}
 
 /// Whether a failed command's output reads like the sandbox refusing it.
 /// macOS's sandbox refuses with EPERM, which programs print as "Operation
@@ -8171,6 +8318,76 @@ async fn read_bounded_pipe(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_package_verb_sent_as_the_program_completes_to_npm_only_in_an_npm_project() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("package.json"), "{}").unwrap();
+        let complete = |executable: &str, args: &[&str]| {
+            let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+            package_verb_completed(project.path(), executable, &args, None)
+        };
+        assert_eq!(
+            complete("install", &[]),
+            Some(("npm".into(), vec!["install".into()]))
+        );
+        assert_eq!(
+            complete("build", &[]),
+            Some(("npm".into(), vec!["run".into(), "build".into()]))
+        );
+        assert_eq!(
+            complete("run", &["build"]),
+            Some(("npm".into(), vec!["run".into(), "build".into()]))
+        );
+        assert_eq!(
+            complete("test", &["--watch=false"]),
+            Some(("npm".into(), vec!["test".into(), "--watch=false".into()]))
+        );
+        // Real programs, and verbs that mean nothing alone, are left as sent.
+        assert_eq!(complete("npm", &["install"]), None);
+        assert_eq!(complete("run", &[]), None);
+        assert_eq!(complete("build", &["--prod"]), None);
+        assert_eq!(complete("make", &[]), None);
+        // No package.json, no completion; and a cwd outside the workspace is not followed.
+        let bare = tempfile::tempdir().unwrap();
+        assert_eq!(
+            package_verb_completed(bare.path(), "install", &[], None),
+            None
+        );
+        assert_eq!(
+            package_verb_completed(project.path(), "install", &[], Some("../x")),
+            None
+        );
+    }
+
+    #[test]
+    fn a_program_that_does_not_exist_is_told_what_executable_means() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("package.json"),
+            r#"{"scripts":{"build":"ng build","test":"ng test","start":"ng serve","watch":"x"}}"#,
+        )
+        .unwrap();
+        let stderr = "sandbox-exec: execvp() of 'npm_run_build_test_failed_on_first_try' failed: No such file or directory";
+        let note = missing_program_note(stderr, root.path()).expect("a note");
+        assert!(note.contains("is not a program on this machine"), "{note}");
+        assert!(note.contains("It starts with `npm`"), "{note}");
+        assert!(
+            note.contains(r#"{"args":["run","build"],"executable":"npm"}"#),
+            "{note}"
+        );
+        assert!(
+            note.contains(r#"{"args":["test"],"executable":"npm"}"#),
+            "{note}"
+        );
+        assert!(!note.contains("watch"), "{note}");
+        // Other failures, and other messages about files, say nothing.
+        assert!(missing_program_note("npm error 404", root.path()).is_none());
+        assert!(
+            missing_program_note("execvp() of 'x' failed: Permission denied", root.path())
+                .is_none()
+        );
+    }
+
     #[test]
     fn steps_payload_cannot_close_the_html_script() {
         let payload = "</script><script>unexpected()</script>";
