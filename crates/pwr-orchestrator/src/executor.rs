@@ -2488,6 +2488,10 @@ mod tests {
         recipe: Mutex<Option<crate::test_recipe::Report>>,
         seen: Mutex<Vec<ChatMessage>>,
         recipe_records: Mutex<Vec<crate::test_recipe::Report>>,
+        /// How long the final review takes, on the test's own clock.
+        review_takes: Mutex<std::time::Duration>,
+        /// What verification reports as changed (the review reads these).
+        changed_files: Mutex<BTreeMap<String, String>>,
     }
 
     impl Fake {
@@ -2504,6 +2508,8 @@ mod tests {
                 recipe: Mutex::default(),
                 seen: Mutex::default(),
                 recipe_records: Mutex::default(),
+                review_takes: Mutex::default(),
+                changed_files: Mutex::default(),
             }
         }
     }
@@ -2552,10 +2558,13 @@ mod tests {
                     Err(VerifyError::Failed(why)) => Err(VerifyError::Failed(why.clone())),
                 }
             };
-            next.map(|verification| (verification, BTreeMap::new()))
+            let changed = self.changed_files.lock().unwrap().clone();
+            next.map(|verification| (verification, changed))
         }
 
         async fn review(&self, _: &Path, _: String) -> Result<String, String> {
+            let takes = *self.review_takes.lock().unwrap();
+            tokio::time::sleep(takes).await;
             Ok(String::new())
         }
 
@@ -2792,6 +2801,50 @@ mod tests {
 
     /// With no acceptance check declared the goal is never "verified", but the
     /// work is still read against the request once before it is handed over.
+    #[test]
+    fn the_time_a_goal_spends_in_its_review_is_in_its_budget() {
+        let passing = GoalVerification {
+            passed: true,
+            technical_passed: true,
+            acceptance_available: true,
+            summary: "1 of 1 checks passing".into(),
+            ..Default::default()
+        };
+        let mut edited = report(2, true);
+        edited.edited = true;
+        let host = Fake::new(
+            vec![edited, report(1, true)],
+            vec![Ok(passing.clone()), Ok(passing)],
+        );
+        *host.review_takes.lock().unwrap() = std::time::Duration::from_secs(90);
+        // The review reads changed source, so there must be some.
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(folder.path().join("src")).unwrap();
+        std::fs::write(folder.path().join("src/a.rs"), "pub fn a() {}\n").unwrap();
+        host.changed_files
+            .lock()
+            .unwrap()
+            .insert("src/a.rs".into(), "hash".into());
+        let mut asked = request(Policy::Goal);
+        asked.root = folder.path().to_path_buf();
+        // The 90 seconds pass on the test's clock, not on the wall.
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .start_paused(true)
+            .build()
+            .unwrap()
+            .block_on(execute(&host, asked, GoalLimits::default()));
+        assert_eq!(result.budget.reviews, 1);
+        assert!(
+            result.budget.review_time >= std::time::Duration::from_secs(90),
+            "{:?}",
+            result.budget.review_time
+        );
+        assert!(result.budget.verification_time < std::time::Duration::from_secs(5));
+        let spent = result.budget.snapshot();
+        assert!(spent["spent"]["review_seconds"].as_u64().unwrap() >= 90);
+    }
+
     #[test]
     fn a_goal_with_technical_checks_only_is_still_reviewed_once_and_ends_not_verified() {
         let technical = GoalVerification {

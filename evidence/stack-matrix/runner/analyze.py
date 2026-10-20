@@ -186,6 +186,23 @@ def final(result):
     return bool(result.get("passed"))
 
 
+# Terminals the core ends a turn on when it could not form a usable call or ran
+# out of ways forward. The external check may still pass on the files left
+# behind, so `passed` is not touched; but a trial that ended there is counted
+# apart and is never a clean pass (S03: these states stay failures in every
+# runner, whatever stop reason ACP reports beside them).
+FAILURE_TERMINALS = {"recovery", "protocol"}
+
+
+def ended_in_failure(result):
+    turns = result.get("turns") or []
+    return bool(turns) and turns[-1].get("terminal") in FAILURE_TERMINALS
+
+
+def clean_final(result):
+    return final(result) and not ended_in_failure(result)
+
+
 def per_task_rate(results, outcome):
     """Unbiased pass@1 per task: the share of its trials that passed."""
     by_task = {}
@@ -240,6 +257,8 @@ def summarise(name, results):
                   "pass_at_1": statistics.fmean(per_task_rate(results, final).values()) if trials else None,
                   "wilson_95": wilson(passed, trials) if single else None,
                   "between_trial_variance": between_trial_variance(results, final)},
+        "terminal_failures": sum(ended_in_failure(r) for r in results.values()),
+        "clean_final": {"passed": sum(clean_final(r) for r in results.values())},
         "harness_errors": sum("error" in r for r in results.values()),
         "nudges": sum(max(0, len(r.get("turns") or []) - 1) for r in results.values()),
         "minutes_median": statistics.median(minutes) if minutes else None,
@@ -307,6 +326,9 @@ def print_report(report):
                   + (f"  Wilson95 [{fmt(interval[0])}, {fmt(interval[1])}]" if interval else "")
                   + (f"  between-trial var {fmt(o['between_trial_variance'])}"
                      if o["between_trial_variance"] is not None else ""))
+        if arm["terminal_failures"]:
+            print(f"  ! {arm['terminal_failures']} trial(s) ended in recovery/protocol; "
+                  f"clean final {arm['clean_final']['passed']}/{arm['trials']}")
         varied = {k: v for k, v in arm["conditions"].items() if len(v) > 1}
         if varied:
             print(f"  ! conditions vary inside this arm: {varied}")

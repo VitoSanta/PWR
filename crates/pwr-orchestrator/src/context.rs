@@ -162,6 +162,30 @@ pub struct PromptOverhead {
 }
 
 impl PromptOverhead {
+    /// What a request is known to cost before any count exists: the tool
+    /// schemas, which ride in every request and in none of the messages. A
+    /// floor, not a measurement -- the chat template comes on top, and the
+    /// first count raises it -- but it is the part that was missing exactly
+    /// when it mattered: a first turn over a long history, or the first turn
+    /// after a resume, was judged as if the schemas were free (S03 preflight).
+    ///
+    /// Not applied to a window of 8,192 tokens or less, the smallest the
+    /// profiles allow: there the schemas alone take two fifths of the window
+    /// and the seed would decide every turn before the backend's count could;
+    /// that count stays the only correction, as it always was. Above it, capped
+    /// at a quarter of the window.
+    pub fn seeded_with_schema(schema: &serde_json::Value, context_tokens: u32) -> Self {
+        if context_tokens <= 8_192 {
+            return Self::default();
+        }
+        let quarter = usize::try_from(context_tokens / 4).unwrap_or(usize::MAX);
+        Self {
+            tokens: estimate_tokens(&schema.to_string())
+                .min(MAX_PROMPT_OVERHEAD)
+                .min(quarter),
+        }
+    }
+
     /// Learns from one turn the backend counted.
     pub fn observe(&mut self, estimated: usize, reported: u64) {
         let reported = usize::try_from(reported).unwrap_or(usize::MAX);
@@ -719,6 +743,37 @@ fn floor_char_boundary(text: &str, at: usize) -> usize {
 #[cfg(test)]
 mod prompt_overhead_tests {
     use super::*;
+
+    #[test]
+    fn the_first_turn_is_judged_with_the_cost_of_its_tool_schemas() {
+        let schema = serde_json::json!([{"name": "read_file", "description": "x".repeat(12_000)}]);
+        let seeded = PromptOverhead::seeded_with_schema(&schema, 32_768);
+        // Three thousand tokens the messages never show.
+        assert!(seeded.tokens() >= 3_000, "{}", seeded.tokens());
+        assert_eq!(seeded.predict(10_000), 10_000 + seeded.tokens());
+        // Never more than the correction may ever grow to.
+        let huge = serde_json::json!("y".repeat(400_000));
+        assert_eq!(
+            PromptOverhead::seeded_with_schema(&huge, 262_144).tokens(),
+            MAX_PROMPT_OVERHEAD
+        );
+        // Never more than a quarter of a window, and nothing in the smallest.
+        assert_eq!(
+            PromptOverhead::seeded_with_schema(&schema, 12_000).tokens(),
+            3_000
+        );
+        assert_eq!(
+            PromptOverhead::seeded_with_schema(&schema, 8_192).tokens(),
+            0
+        );
+        // A count that disagrees upward raises it; one that agrees leaves it.
+        let mut learned = PromptOverhead::seeded_with_schema(&schema, 32_768);
+        let floor = learned.tokens();
+        learned.observe(10_000, 10_000 + floor as u64 - 500);
+        assert_eq!(learned.tokens(), floor);
+        learned.observe(10_000, 10_000 + floor as u64 + 700);
+        assert_eq!(learned.tokens(), floor + 700);
+    }
 
     #[test]
     fn the_overhead_is_an_offset_and_not_a_factor() {

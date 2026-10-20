@@ -1983,7 +1983,8 @@ async fn take_turn_inner<P: ModelProvider>(
     // first reply, which is the only turn with nothing to measure.
     let mut measured_prompt: Option<u64> = None;
     // Schema/template costs remain when older messages are compacted away.
-    let mut prompt_overhead = crate::context::PromptOverhead::default();
+    let mut prompt_overhead =
+        crate::context::PromptOverhead::seeded_with_schema(&tools, context_tokens);
     // How much of the history the measured count covers, and what this
     // deployment's counts say a character estimate is worth. Without the tail,
     // a turn that read a large file was measured as the prompt before the read

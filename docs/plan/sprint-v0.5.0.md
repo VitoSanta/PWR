@@ -1,6 +1,6 @@
 # PWR — Sprint verso la 0.5.0 e il collaudo finale Windows
 
-Revisione: **2026-10-20**. Stato: **S00–S02 DONE, S03 DONE con residui; S04–S12 pianificati**.
+Revisione: **2026-10-20**. Stato: **S00–S02 DONE, S03 in misura finale; S04–S12 pianificati**.
 Target: completare sviluppo macOS, validare fixing/creazione/uso generale,
 qualificare Windows e preparare una possibile 0.5.0 pubblica. La 1.0 richiederà
 anche esperienza d'uso esterna. **Aggiornamento del proprietario 2026-10-19:**
@@ -59,7 +59,7 @@ Non si allentano sicurezza, integrità dei dati o onestà dei risultati.
 | S00 | Consolidamento, baseline e contratto 0.5 | Frontend concluso | DONE | Identità candidata, perimetro e backlog riconciliato |
 | S01 | Sicurezza, lifecycle e recupero | S00 | DONE | Difetti bloccanti riprodotti e chiusi |
 | S02 | Verifica indipendente e correttezza | S01 | DONE | Risultati ancorati a prove e copertura esplicita |
-| S03 | Controller, editing e contesto | S02 | DONE con residui | Meno loop e recuperi falliti, senza regressioni |
+| S03 | Controller, editing e contesto | S02 | IN_PROGRESS (misura in corso) | Meno loop e recuperi falliti, senza regressioni |
 | S04 | Gemma e prestazioni locali | S03 | PLANNED | Matrice pack/runtime e profili misurati |
 | S05 | Studio integrazioni agentiche | Baseline S04 | PLANNED | ADR e misure di fattibilità per ogni candidata |
 | S06 | Integrazione selezionata o ottimizzazione mirata | Decisioni S05 | PLANNED | Una sola modifica principale misurabile e reversibile |
@@ -196,28 +196,13 @@ universale. Qualsiasi nuova semantica UX viene prima definita con esempi.
 
 ## S03 — Controller, modifiche e contesto
 
-**Chiusura 2026-10-20: DONE con residui, per decisione del proprietario** (serve
-una build per i video del post). [Rapporto S03](../reviews/2026-10-20-S03-controller.md):
-classificate le cinque tracce del sito; chiuse quattro lacune con regressioni
-deterministiche (riga di comando intera in un solo argomento, `operation`
-annidata, `delete_path` dopo una riscrittura totale rifiutata, tempo di
-verifica/review nel budget). **Non chiusi e non dimostrati:** beneficio sul
-modello reale (nessuna inferenza), preflight del prompt effettivo, conservazione
-di requisiti e file in compaction/resume, limiti aggregati di turni/goal con
-Stop in review, misure prima/dopo. Tornano in S04 (profili e misure per pack) e
-S07 (suite dev). Nessun gate promosso.
-
-**Diagnostica CLI 2026-10-19:** [matrice fixing/creazione dei cinque modelli e
-candidato E2B thinking](../reviews/2026-10-19-cli-model-usability.md).
-Riprodotti errori argv, no-op ripetuti e stalli; corrette perdita delle evidenze
-ACP/consegna fra turni e deadline del runner. Restano recupero effettivo,
-costo della review e nuove prove sul binario aggiornato. Nessun default promosso.
-
-**Follow-up CLI:** corretto il reset dei rifiuti causato da letture estranee;
-replay no-op e controesempio con modifica reale riusciti. Feedback argv mirato
-per script Python/Node. Due nuove prove 26B: una fallita per protocollo prima
-delle azioni, una creazione completa con goal verificato. Dettagli e limiti
-nel rapporto collegato; S03/S04 non chiusi, affidabilità da replicare.
+**Stato 2026-10-20: implementato e provato con test; misura su modello reale
+in corso.** [Rapporto S03](../reviews/2026-10-20-S03-controller.md): sette ticket
+(riga di comando intera in un argomento, `operation` annidata, `delete_path`
+dopo riscrittura totale rifiutata, tempo di verifica/review nel budget, seme
+dei tool schema nel preflight, stati terminali nei runner, test dei cicli
+fix→rosso→fix). Lo sprint si chiude solo con la misura prima/dopo (§6 del
+rapporto). Nessun gate promosso.
 
 - [ ] Classificare dalle tracce loop, find obsoleti, rewrite rifiutati, no-op,
   errori schema e completamenti ripetuti. Riprodurre prima di cambiare prompt.

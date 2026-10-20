@@ -56,6 +56,31 @@ def write_result(root, run, task, attempt, turns, window=32768, split="dev"):
     (folder / "result.json").write_text(json.dumps(result))
 
 
+class TerminalFailures(unittest.TestCase):
+    def test_a_trial_ending_in_recovery_or_protocol_is_never_a_clean_pass(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            for task, terminal in {"t1": "completed", "t2": "recovery", "t3": "protocol", "t4": "budget"}.items():
+                write_result(root, "a", task, 1, [True])
+                path = root / "a" / task / "result.json"
+                result = json.loads(path.read_text())
+                result["turns"][-1]["terminal"] = terminal
+                path.write_text(json.dumps(result))
+            arm = analyze.compare([("A", root / "a")])["arms"][0]
+        # The external check passed everywhere and stays what it is...
+        self.assertEqual(arm["final"]["passed"], 4)
+        # ...but two trials ended where the core could not go on.
+        self.assertEqual(arm["terminal_failures"], 2)
+        self.assertEqual(arm["clean_final"]["passed"], 2)
+
+    def test_only_the_last_turn_decides(self):
+        recovered = {"turns": [{"passed": False, "terminal": "recovery"},
+                               {"passed": True, "terminal": "completed"}], "passed": True}
+        self.assertFalse(analyze.ended_in_failure(recovered))
+        self.assertTrue(analyze.clean_final(recovered))
+        self.assertFalse(analyze.ended_in_failure({"turns": []}))
+
+
 class Compare(unittest.TestCase):
     def test_first_cycle_and_nudged_outcomes_are_compared_apart(self):
         with tempfile.TemporaryDirectory() as folder:

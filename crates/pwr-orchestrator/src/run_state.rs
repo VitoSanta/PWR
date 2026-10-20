@@ -319,6 +319,57 @@ mod tests {
         assert_eq!(tracker.windows, 2);
         assert_eq!(tracker.historical_windows, 3);
     }
+    /// S03: stopping unproductive cycles must not stop the cycle a hard fix
+    /// needs -- change, run the test, still red, change again -- as long as each
+    /// change is a new state of the workspace.
+    #[test]
+    fn fix_red_test_fix_is_progress_but_the_same_two_states_in_a_circle_is_not() {
+        let mut tracker = ProgressTracker::default();
+        for round in 0..12 {
+            // Read the failure, change the file to something new, run the test
+            // (red again, same failing check): eight actions' worth per round.
+            for action in ["read:test-output", "read:source", "run:test"] {
+                tracker.observe(
+                    action.into(),
+                    crate::EffectSignature {
+                        workspace: format!("w{round}"),
+                        checks: "red".into(),
+                    },
+                );
+            }
+            tracker.observe(
+                format!("edit:{round}"),
+                crate::EffectSignature {
+                    workspace: format!("w{}", round + 1),
+                    checks: "red".into(),
+                },
+            );
+            assert_eq!(tracker.windows, 0, "round {round} was progress");
+        }
+        assert_eq!(tracker.historical_windows, 0);
+
+        // The same cycle, but the edit flips between two contents the run has
+        // already been in: nothing new happens, and it is named and ends.
+        let mut circle = ProgressTracker::default();
+        let mut stopped_at = None;
+        for round in 0..30 {
+            let state = if round % 2 == 0 { "a" } else { "b" };
+            for action in ["read:test-output", "run:test", "edit:flip"] {
+                circle.observe(
+                    action.into(),
+                    crate::EffectSignature {
+                        workspace: state.into(),
+                        checks: "red".into(),
+                    },
+                );
+            }
+            if circle.windows >= crate::stall::NO_PROGRESS_LIMIT {
+                stopped_at = Some(round);
+                break;
+            }
+        }
+        assert!(stopped_at.is_some_and(|round| round < 12), "{stopped_at:?}");
+    }
     #[test]
     fn a_batch_of_new_reads_is_investigation_but_repeating_it_stalls() {
         let mut tracker = ProgressTracker::default();

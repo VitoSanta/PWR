@@ -5362,7 +5362,9 @@ fn productive_compactions_exhaust_a_budget_without_claiming_a_loop() {
         ],
         16384,
         converse::Continuity {
-            compact_ceiling_tokens: Some(4096),
+            // Above the tool schemas' own cost (about 3,300 tokens, counted from
+            // the first turn), or the trigger is out of reach from the start.
+            compact_ceiling_tokens: Some(8192),
             ..Default::default()
         },
     );
