@@ -1,6 +1,6 @@
 # PWR — Sprint verso la 0.5.0 e il collaudo finale Windows
 
-Revisione: **2026-10-20**. Stato: **S00–S02 DONE, S03 in misura finale; S04–S12 pianificati**.
+Revisione: **2026-10-20**. Stato: **S00–S03 DONE; S04–S12 pianificati**.
 Target: completare sviluppo macOS, validare fixing/creazione/uso generale,
 qualificare Windows e preparare una possibile 0.5.0 pubblica. La 1.0 richiederà
 anche esperienza d'uso esterna. **Aggiornamento del proprietario 2026-10-19:**
@@ -59,7 +59,7 @@ Non si allentano sicurezza, integrità dei dati o onestà dei risultati.
 | S00 | Consolidamento, baseline e contratto 0.5 | Frontend concluso | DONE | Identità candidata, perimetro e backlog riconciliato |
 | S01 | Sicurezza, lifecycle e recupero | S00 | DONE | Difetti bloccanti riprodotti e chiusi |
 | S02 | Verifica indipendente e correttezza | S01 | DONE | Risultati ancorati a prove e copertura esplicita |
-| S03 | Controller, editing e contesto | S02 | IN_PROGRESS (misura in corso) | Meno loop e recuperi falliti, senza regressioni |
+| S03 | Controller, editing e contesto | S02 | DONE | Meno loop e recuperi falliti, senza regressioni |
 | S04 | Gemma e prestazioni locali | S03 | PLANNED | Matrice pack/runtime e profili misurati |
 | S05 | Studio integrazioni agentiche | Baseline S04 | PLANNED | ADR e misure di fattibilità per ogni candidata |
 | S06 | Integrazione selezionata o ottimizzazione mirata | Decisioni S05 | PLANNED | Una sola modifica principale misurabile e reversibile |
@@ -196,13 +196,15 @@ universale. Qualsiasi nuova semantica UX viene prima definita con esempi.
 
 ## S03 — Controller, modifiche e contesto
 
-**Stato 2026-10-20: implementato e provato con test; misura su modello reale
-in corso.** [Rapporto S03](../reviews/2026-10-20-S03-controller.md): sette ticket
-(riga di comando intera in un argomento, `operation` annidata, `delete_path`
-dopo riscrittura totale rifiutata, tempo di verifica/review nel budget, seme
-dei tool schema nel preflight, stati terminali nei runner, test dei cicli
-fix→rosso→fix). Lo sprint si chiude solo con la misura prima/dopo (§6 del
-rapporto). Nessun gate promosso.
+**Chiusura 2026-10-20: DONE.** [Rapporto S03](../reviews/2026-10-20-S03-controller.md):
+sette correzioni di contratto con regressione e controesempio (riga di comando
+intera in un argomento, `operation` annidata, `delete_path` dopo riscrittura
+totale rifiutata, tempo di verifica/review nel budget, seme dei tool schema nel
+preflight, stati terminali nei runner, test dei cicli fix→rosso→fix). Misura
+26B (2 ripetizioni, non seeded): fixing 2/2 e 2/2, creazione completa 0/2
+contro 1/2 con un fallimento di protocollo a zero azioni; **nessuna regressione
+mostrata, nessun beneficio dimostrato**. Forma delle chiamate (CLI-02) e
+profili per pack passano a S04. Nessun gate promosso.
 
 - [ ] Classificare dalle tracce loop, find obsoleti, rewrite rifiutati, no-op,
   errori schema e completamenti ripetuti. Riprodurre prima di cambiare prompt.

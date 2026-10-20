@@ -1,7 +1,8 @@
 # Rapporto sprint S03 — Controller, modifiche e contesto
 
-Collegato alla [scaletta 0.5](../plan/sprint-v0.5.0.md). Stato: **IN_PROGRESS — tutti i punti implementati e provati con test;
-resta la misura prima/dopo su modello reale** (2026-10-20). Nessuna inferenza eseguita in questa sessione; nessun gate
+Collegato alla [scaletta 0.5](../plan/sprint-v0.5.0.md). Stato: **DONE** (2026-10-20): tutti i punti implementati e provati con test;
+misura su modello reale eseguita, senza regressioni ma senza beneficio
+dimostrato (§6). Nessuna inferenza eseguita in questa sessione; nessun gate
 promosso; nessun default cambiato.
 
 - Baseline: working tree dopo S02 (commit `06726c26` più modifiche S01/S02 non
@@ -64,4 +65,37 @@ Opzione (b) approvata: dopo il rifiuto di una riscrittura totale, `delete_path` 
 
 ## 6. Misura prima/dopo
 
-Protocollo: 26B A4B 4-bit, fixing e creazione come in `cli-usability-20261019`, 2 ripetizioni per braccio e per task, bracci alternati, campionamento non seeded, 300 s per richiesta, checker esterno congelato. «Prima» = binario congelato `recovery-r1` (19 ottobre); «dopo» = core incluso nel pacchetto 0.4.1-alpha costruito dal commit di S03. La differenza è cumulativa S01–S03, non isolabile a S03; con 2 ripetizioni non è una stima di probabilità di successo. Esiti aggiunti qui sotto quando disponibili.
+Protocollo: 26B A4B 4-bit, fixing e creazione come in `cli-usability-20261019`
+(task piccoli, checker esterno congelato, README e almeno un test per la
+creazione), 2 ripetizioni per braccio e per task, bracci alternati,
+campionamento non seeded, 300 s per richiesta, goal mode, sandbox, thinking e
+assistant spenti. «Prima» = binario congelato `recovery-r1` (19 ottobre, SHA-256
+`aa66d809…`); «dopo» = core del pacchetto 0.4.1-alpha costruito dal commit
+`ceacb06d` (SHA-256 `4eb5f011…`). La differenza è cumulativa S01–S03, non
+isolabile a S03. Evidenza privata `cli-usability-20261019/s03-ab`.
+
+| Prova | Prima | Dopo |
+|---|---|---|
+| Fixing r1 | verde, 5 azioni, 81 s, goal non chiuso | verde, 5 azioni, 113 s, goal non chiuso |
+| Fixing r2 | verde, 4 azioni, 94 s, goal non chiuso | verde, 5 azioni, 71 s, goal non chiuso |
+| Creazione r1 | checker verde, mancano README e test; 13 azioni, 224 s | **protocollo fallito prima di ogni azione**, 17 s |
+| Creazione r2 | checker verde, README ma nessun test; 6 azioni, 171 s | checker verde, README e test presenti; 26 azioni, 8 fallite, **timeout a 300 s**, goal non chiuso |
+
+Lettura, senza andare oltre i dati:
+
+- **Fixing:** nessuna differenza (2/2 contro 2/2); in nessun caso il goal è stato chiuso come verificato.
+- **Creazione:** consegna completa (checker, README e test) 0/2 prima, 1/2 dopo; ma la prova «dopo» completa è scaduta al timeout e l'altra è un fallimento di protocollo a zero azioni, la classe CLI-02 già nota e non toccata da S03. Con 2 ripetizioni non campionate non è un miglioramento dimostrato né una regressione dimostrata.
+- Il fallimento di protocollo conferma che le correzioni S03 non coprono la forma delle chiamate a livello di modello: è lavoro di S04 (template e protocollo nativo per pack).
+
+## 7. Decisione di chiusura
+
+- **DONE.** Ogni modifica è una correzione di contratto con regressione e
+  controesempio (S03-01..07); il criterio di uscita «benefici misurati o
+  correzioni di contratto, senza regressioni» è soddisfatto sul secondo ramo.
+  Il beneficio sul modello reale **non è dimostrato**: 2 repliche, non
+  seeded, un fallimento di protocollo non attribuibile a S03.
+- Nessun default adattivo promosso. Nessun gate promosso.
+- Resta per S04: forma delle chiamate (CLI-02) e profili per pack; per S07: una
+  suite con più repliche per un beneficio replicato; tetto di tempo della review
+  da decidere con le misure di `review_seconds`.
+- Impatto Windows/release: nessuno nuovo.
