@@ -4211,10 +4211,10 @@ pub fn apply_replace(
             "apply_replace replaces the whole file: {} has {old_lines} lines and this \
              replacement has {new_lines}, so {} lines would be deleted. To change part of the \
              file use replace_text with the exact lines to find. If the file really should \
-             become this, delete_path it with expected_hash {} and write_file the new content.",
+             become this, say so to the engineer: deleting it to write it again is refused \
+             in the same turn.",
             relative.display(),
             old_lines - new_lines,
-            hash_bytes(&existing)
         )));
     }
     let previous_hash = hash_bytes(&existing);
@@ -7452,6 +7452,28 @@ pub async fn run_command_in(
                 serde_json::json!({"executable":executable,"args":separated})
             )));
         }
+    }
+    // The same slip for a subcommand CLI: the whole line written as the one
+    // element of args, program included -- `ng` with `["ng new site --style=scss"]`
+    // reaches the program as a single unknown argument (WEB-06, E4B). Only
+    // programs whose first argument is never free text, so `echo` and `grep`
+    // keep their data. Refused with the argv to resubmit, never split silently.
+    if matches!(
+        program_name(executable).as_str(),
+        "ng" | "npm" | "npx" | "pnpm" | "yarn" | "cargo" | "git" | "uv" | "pip" | "pip3"
+    ) && let [only] = args
+        && only.contains(char::is_whitespace)
+        && !only.contains(['\'', '"', '\\'])
+        && only
+            .split_whitespace()
+            .next()
+            .is_some_and(|word| word == executable || word == program_name(executable))
+    {
+        let separated: Vec<_> = only.split_whitespace().skip(1).collect();
+        return Err(ToolError::Denied(format!(
+            "args holds the whole command line in one string: {only:?}. Each argv element is literal; no shell splits it, and the program is already the executable. Resubmit {}. Nothing was executed.",
+            serde_json::json!({"executable":executable,"args":separated})
+        )));
     }
     // Unless it names an existing file, whitespace indicates a whole command line
     // put where the executable belongs. Left to run, it reaches exec as one

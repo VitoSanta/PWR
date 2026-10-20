@@ -15,7 +15,11 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 mod browser;
 mod drafts;
 mod engine;
+mod engine_generation;
 mod engine_install;
+#[cfg(target_os = "macos")]
+mod engine_maintenance;
+mod supervision;
 mod terminal;
 #[cfg(target_os = "macos")]
 mod titlebar;
@@ -51,6 +55,10 @@ static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::
 struct Running {
     child: Child,
     stdin: ChildStdin,
+    #[cfg(unix)]
+    _guardian: Option<supervision::Guardian>,
+    #[cfg(unix)]
+    _engine_usage: Option<std::fs::File>,
     #[cfg(debug_assertions)]
     trace_path: PathBuf,
     #[cfg(debug_assertions)]
@@ -329,7 +337,7 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
             .activity
             .lock()
             .map_err(|_| "Activity state unavailable")?;
-        updates.allow_activity()?;
+        updates.allow_activity(&app.state::<crate::Closing>())?;
         let core = app.state::<Core>();
         let workspace = canonical_workspace(&workspace)?;
         if !is_workspace_trusted(&app, &workspace)? {
@@ -400,6 +408,12 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
         command.env("PWR_MLX_TRACE", &trace_path);
         // The MLX interpreter: named by the environment, installed by this app on
         // first run, or (in development) the checkout's. See `engine`.
+        #[cfg(unix)]
+        let engine_usage = engine::usage(&app)?;
+        #[cfg(unix)]
+        if let Some(lease) = &engine_usage {
+            engine_generation::inherit(lease, &mut command);
+        }
         if let Some(python) = engine::python(&app) {
             command.env("PWR_MLX_PYTHON", python);
         }
@@ -436,6 +450,18 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
         let mut child = command
             .spawn()
             .map_err(|error| format!("could not start {}: {error}", program.display()))?;
+        #[cfg(unix)]
+        let guardian = match supervision::Guardian::group(child.id()) {
+            Ok(guardian) => guardian,
+            Err(error) => {
+                let _ = Command::new("/bin/kill")
+                    .args(["-KILL", &format!("-{}", child.id())])
+                    .output();
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Could not supervise the core: {error}"));
+            }
+        };
         let stdin = child.stdin.take().ok_or("the core has no input")?;
         let stdout = child.stdout.take().ok_or("the core has no output")?;
         let stderr = child.stderr.take().ok_or("the core has no error output")?;
@@ -447,6 +473,10 @@ async fn core_start(app: AppHandle, workspace: String) -> Result<Started, String
             .replace(Running {
                 child,
                 stdin,
+                #[cfg(unix)]
+                _guardian: Some(guardian),
+                #[cfg(unix)]
+                _engine_usage: engine_usage,
                 #[cfg(debug_assertions)]
                 trace_path,
                 #[cfg(debug_assertions)]
@@ -652,10 +682,13 @@ mod diagnostic_tests {
             .process_group(0)
             .spawn()
             .unwrap();
+        let guardian = supervision::Guardian::group(child.id()).unwrap();
         let stdin = child.stdin.take().unwrap();
         Running {
             child,
             stdin,
+            _guardian: Some(guardian),
+            _engine_usage: None,
             trace_path: path.clone(),
             trace_owned: false,
         }
@@ -663,6 +696,87 @@ mod diagnostic_tests {
         let actual = std::fs::read_to_string(&path);
         let _ = std::fs::remove_file(&path);
         assert_eq!(actual.unwrap(), "cleaned");
+    }
+
+    #[cfg(unix)]
+    fn assert_core_group_stops(script: &str, forced: bool) {
+        use std::os::unix::process::CommandExt;
+        let path = std::env::temp_dir().join(format!("pwr-core-worker-{}", uuid::Uuid::new_v4()));
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", script, "fixture"])
+            .arg(&path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let guardian = supervision::Guardian::group(child.id()).unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let running = Running {
+            child,
+            stdin,
+            _guardian: Some(guardian),
+            _engine_usage: None,
+            trace_path: path.clone(),
+            trace_owned: false,
+        };
+        let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !path.exists() && std::time::Instant::now() < ready_deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        // Always stop the owned group, including when fixture readiness fails.
+        let start = std::time::Instant::now();
+        running.stop();
+        let elapsed = start.elapsed();
+        let worker: u32 = std::fs::read_to_string(&path)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let _ = std::fs::remove_file(path);
+        assert!(worker > 1);
+        let gone_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let state = Command::new("ps")
+                .args(["-o", "stat=", "-p", &worker.to_string()])
+                .output()
+                .unwrap();
+            let state = String::from_utf8_lossy(&state.stdout);
+            if state.trim().is_empty() || state.trim().starts_with('Z') {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < gone_deadline,
+                "core worker survived shutdown: {state}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "shutdown exceeded its bound: {elapsed:?}"
+        );
+        if forced {
+            assert!(
+                elapsed >= std::time::Duration::from_secs(3),
+                "fixture did not require escalation"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn core_shutdown_removes_worker_left_after_cooperative_exit() {
+        assert_core_group_stops("sleep 60 & echo $! > \"$1\"; cat >/dev/null", false);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn core_shutdown_escalates_when_eof_is_ignored_and_removes_workers() {
+        assert_core_group_stops(
+            "trap '' TERM HUP; sleep 60 & echo $! > \"$1\"; while :; do sleep 1; done",
+            true,
+        );
     }
 
     #[test]
@@ -889,4 +1003,25 @@ pub fn run() {
                 }
             }
         });
+}
+
+/// Support-only offline maintenance, before initializing Tauri or starting a core.
+pub fn engine_maintenance_cli() -> Option<i32> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) != Some("--engine-maintenance") {
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    let result = engine_maintenance::cli(&args[1..]);
+    #[cfg(not(target_os = "macos"))]
+    let result: std::io::Result<()> = Err(std::io::Error::other(
+        "Managed MLX maintenance is supported on macOS only",
+    ));
+    Some(match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("Engine maintenance refused: {error}");
+            1
+        }
+    })
 }

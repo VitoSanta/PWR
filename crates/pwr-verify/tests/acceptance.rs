@@ -46,6 +46,7 @@ fn a_new_red_check_without_a_baseline_is_not_regression_free() {
         captured_at: pwr_domain::now(),
         checks: vec![],
         environment_hash: "environment".into(),
+        provenance: None,
     };
     let mut after = before.clone();
     after.id = pwr_domain::new_id();
@@ -66,6 +67,7 @@ fn read_only_status_comparison_does_not_waive_new_failures() {
             result: failure(),
         }],
         environment_hash: "environment".into(),
+        provenance: None,
     };
     let mut after = before.clone();
     after.checks[0]

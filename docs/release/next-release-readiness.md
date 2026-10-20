@@ -18,12 +18,25 @@ evidence for it. The manual native-app list was not run for v0.4.0-alpha.
 
 ## Current verification campaign
 
-The [2026-10-19 S00 baseline](../reviews/2026-10-19-S00-baseline.md) validates the
-updated frontend and current development sources locally: 182 frontend tests,
-1,601 reported Rust passes (6 ignored and an explicit Docker skip), 18 native
-tests, sidecar/runner/release checks and Clippy/build pass. Native visual
-qualification of the final frontend, clean freeze and hosted CI remain open.
+The [2026-10-20 S00 consolidation](../reviews/2026-10-20-S00-closeout.md)
+records current local checks: 192 frontend tests, 1,607 reported Rust passes
+(6 ignored and one explicit Docker early return), 18 native tests, successful
+sidecar/runner/release checks, Clippy and build. This is a dirty development
+baseline. Native visual qualification, clean release freeze and hosted CI
+remain open. S00 is DONE following the owner’s explicit scope approval on 2026-10-20;
+quantitative qualification and release decisions remain open.
 Apple membership/signing is explicitly deferred until after Windows.
+
+The [S01 final development audit](../reviews/2026-10-20-S01-closeout.md)
+records generation-based engine publication, cancellation ordering and independent
+process supervision. Native checks report 54 passes plus a separate real-venv
+check; the isolated-app crash/restart and normal-quit walk preserves the saved
+file and recovers the draft, with no recorded owned process left active. This
+is scoped development evidence. S01 development is DONE after implementing isolated legacy recovery, inherited
+use leases and explicit offline cleanup with a reviewed plan. The compiled
+maintenance command and real temporary venvs pass; original legacy backups and
+unknown folders are retained. Package setup, installed upgrade, Windows and
+power-loss qualification are not established.
 
 The [weekly 0.5.0 sprint plan](../plan/sprint-v0.5.0.md) places development and
 research before final macOS qualification, then Windows qualification. Version
@@ -179,3 +192,14 @@ semantic gaps despite declared checks passing; optimizer editor/context
 failures also limit interpretation. The 26B comparison is excluded for UI
 source changes during inference. A fresh run is deferred by the owner until
 UI work is finished; this research does not close a release or quality gate.
+
+
+The [S02 development closeout](../reviews/2026-10-20-S02-closeout.md) adds
+source-bound verification, independent semantic counterexamples and bounded
+Unicode PDF extraction. The final scoped Rust suite passes 1,280 tests with
+five explicit ignores (the original-PDF case separately executes and passes);
+194 frontend tests, build and all-target Clippy pass. Source identities are
+unchanged during the final suite. S00–S02 development is DONE. This does not
+qualify model reliability, table reading order, an installed package, Windows,
+release gates or licensing clearance. The pinned PDF dependency must be part
+of the next generated package attribution inventory in S08.

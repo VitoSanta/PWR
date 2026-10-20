@@ -79,6 +79,8 @@ struct Session {
     writer: mpsc::SyncSender<TerminalInput>,
     child: Box<dyn Child + Send + Sync>,
     output: Arc<OutputFlow>,
+    #[cfg(unix)]
+    guardian: Option<crate::supervision::Guardian>,
 }
 
 #[derive(Default)]
@@ -115,6 +117,31 @@ fn end(mut session: Session) {
         }
         if let Some(group) = session.master.process_group_leader() {
             groups.push(i64::from(group));
+        }
+        // Interactive shells put background jobs in their own process groups.
+        // Neither the shell's group nor tcgetpgrp (foreground only) includes
+        // them. Enumerate this owned PTY before killing its session leader,
+        // while background jobs still have their controlling terminal.
+        if let Some(tty) = session.master.tty_name() {
+            match std::process::Command::new("/bin/ps")
+                .arg("-t")
+                .arg(tty)
+                .args(["-o", "pgid="])
+                .output()
+            {
+                Ok(output) if output.status.success() => {
+                    groups.extend(
+                        String::from_utf8_lossy(&output.stdout)
+                            .split_whitespace()
+                            .filter_map(|group| group.parse::<i64>().ok()),
+                    );
+                }
+                Ok(output) if !output.stdout.is_empty() || !output.stderr.is_empty() => {
+                    log::warn!("Could not enumerate terminal background jobs");
+                }
+                Err(error) => log::warn!("Could not enumerate terminal background jobs: {error}"),
+                _ => {}
+            }
         }
         groups.sort_unstable();
         groups.dedup();
@@ -265,11 +292,7 @@ pub fn open_terminal(
     command.cwd(&cwd);
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
-    let child = pair
-        .slave
-        .spawn_command(command)
-        .map_err(|error| format!("could not start the shell: {error}"))?;
-    drop(pair.slave);
+    // Prepare fallible I/O before spawning: setup errors must not leak a shell.
     let mut reader = pair
         .master
         .try_clone_reader()
@@ -278,21 +301,40 @@ pub fn open_terminal(
         .master
         .take_writer()
         .map_err(|error| error.to_string())?;
+    let child = pair
+        .slave
+        .spawn_command(command)
+        .map_err(|error| format!("could not start the shell: {error}"))?;
+    drop(pair.slave);
     let id = terminals.next.fetch_add(1, Ordering::Relaxed) + 1;
     let output = Arc::new(OutputFlow::default());
-    terminals
-        .sessions
-        .lock()
-        .map_err(|_| "the terminals are unavailable")?
-        .insert(
-            id,
-            Session {
-                master: pair.master,
-                writer: input_queue(writer),
-                child,
-                output: output.clone(),
-            },
-        );
+    let session = Session {
+        master: pair.master,
+        writer: input_queue(writer),
+        child,
+        output: output.clone(),
+        #[cfg(unix)]
+        guardian: None,
+    };
+    #[cfg(unix)]
+    let mut session = session;
+    #[cfg(unix)]
+    match crate::supervision::Guardian::terminal(&*session.master) {
+        Ok(guardian) => session.guardian = Some(guardian),
+        Err(error) => {
+            end(session);
+            return Err(format!("Could not supervise the terminal: {error}"));
+        }
+    }
+    match terminals.sessions.lock() {
+        Ok(mut sessions) => {
+            sessions.insert(id, session);
+        }
+        Err(_) => {
+            end(session);
+            return Err("the terminals are unavailable".into());
+        }
+    }
     std::thread::spawn(move || {
         let mut buffer = [0u8; 16 * 1024];
         let mut pending: Vec<u8> = Vec::new();
@@ -456,6 +498,7 @@ mod tests {
             writer,
             child,
             output: Default::default(),
+            guardian: None,
         });
         let state = std::process::Command::new("ps")
             .args(["-o", "stat=", "-p", &worker.to_string()])
@@ -465,6 +508,121 @@ mod tests {
         assert!(
             state.trim().is_empty() || state.trim().starts_with('Z'),
             "worker remains active: {state}"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn closing_a_pty_terminates_background_job_control_groups() {
+        use std::io::BufRead as _;
+        struct Owned(Option<Session>);
+        impl Drop for Owned {
+            fn drop(&mut self) {
+                if let Some(session) = self.0.take() {
+                    end(session);
+                }
+            }
+        }
+        fn spawn(command: CommandBuilder) -> Owned {
+            let pair = native_pty_system()
+                .openpty(PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .unwrap();
+            let child = pair.slave.spawn_command(command).unwrap();
+            drop(pair.slave);
+            let writer = input_queue(pair.master.take_writer().unwrap());
+            Owned(Some(Session {
+                master: pair.master,
+                writer,
+                child,
+                output: Default::default(),
+                guardian: None,
+            }))
+        }
+        let mut command = CommandBuilder::new("/bin/zsh");
+        command.args([
+            "-f",
+            "-m",
+            "-c",
+            "trap '' HUP; /bin/sh -c 'trap \"\" HUP; echo $$; exec sleep 60' & wait",
+        ]);
+        let mut owned = spawn(command);
+        let session = owned.0.as_mut().unwrap();
+        let shell = session.child.process_id().unwrap();
+        let mut reader = std::io::BufReader::new(session.master.try_clone_reader().unwrap());
+        let (sent, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            let worker: u32 = loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                if let Ok(pid) = line.trim().parse() {
+                    break pid;
+                }
+            };
+            let _ = sent.send(worker);
+        });
+        let worker = received
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        struct Worker(u32);
+        impl Drop for Worker {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("/bin/kill")
+                    .args(["-KILL", &self.0.to_string()])
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+        }
+        let _cleanup = Worker(worker);
+        let group = std::process::Command::new("/bin/ps")
+            .args(["-o", "pgid=", "-p", &worker.to_string()])
+            .output()
+            .unwrap();
+        let group: u32 = String::from_utf8_lossy(&group.stdout)
+            .trim()
+            .parse()
+            .unwrap();
+        assert_ne!(
+            group, shell,
+            "fixture must exercise a separate background group"
+        );
+        // A separate terminal must not be affected by the first one's cleanup.
+        let mut command = CommandBuilder::new("/bin/sleep");
+        command.arg("60");
+        let mut other = spawn(command);
+        end(owned.0.take().unwrap());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let state = std::process::Command::new("/bin/ps")
+                .args(["-o", "stat=", "-p", &worker.to_string()])
+                .output()
+                .unwrap();
+            let state = String::from_utf8_lossy(&state.stdout).trim().to_owned();
+            if state.is_empty() || state.starts_with('Z') {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "background job survived terminal close: {state}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            other
+                .0
+                .as_mut()
+                .unwrap()
+                .child
+                .try_wait()
+                .unwrap()
+                .is_none(),
+            "another terminal was terminated"
         );
     }
 
@@ -533,6 +691,7 @@ mod tests {
             writer,
             child,
             output,
+            guardian: None,
         });
         worker.join().unwrap();
     }
@@ -631,6 +790,6 @@ pub fn term_open(
         .activity
         .lock()
         .map_err(|_| "Activity state unavailable")?;
-    updates.allow_activity()?;
+    updates.allow_activity(&app.state::<crate::Closing>())?;
     open_terminal(app.clone(), &terminals, cwd, cols, rows, launch)
 }

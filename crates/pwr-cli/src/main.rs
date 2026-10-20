@@ -3425,13 +3425,7 @@ impl serve::TurnRunner for ConsoleTurns {
             .and_then(serde_json::Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|check| {
-                check
-                    .get("result")
-                    .and_then(|result| result.get("exit_code"))
-                    .and_then(serde_json::Value::as_i64)
-                    != Some(0)
-            })
+            .filter(|check| !serialized_check_succeeded(check))
             .map(|check| {
                 check
                     .get("command")
@@ -3468,7 +3462,7 @@ impl serve::TurnRunner for ConsoleTurns {
             .and_then(serde_json::Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|check| check["result"]["exit_code"] != 0)
+            .filter(|check| !serialized_check_succeeded(check))
             .map(|check| {
                 format!(
                     "{}:{}",
@@ -3493,7 +3487,7 @@ impl serve::TurnRunner for ConsoleTurns {
             .and_then(serde_json::Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|check| check["result"]["exit_code"] != 0)
+            .filter(|check| !serialized_check_succeeded(check))
         {
             let stdout = check["result"]["stdout"].as_str().unwrap_or_default();
             let stderr = check["result"]["stderr"].as_str().unwrap_or_default();
@@ -4075,6 +4069,11 @@ fn summarise_diagnosis(report: &serde_json::Value) -> String {
 /// anything -- and cannot be asked when nothing has changed. This one can, and
 /// names the checks, because "the checks failed" sends an operator looking for
 /// a list the console was holding.
+fn serialized_check_succeeded(value: &serde_json::Value) -> bool {
+    serde_json::from_value::<pwr_verify::CheckRecord>(value.clone())
+        .is_ok_and(|check| check.succeeded())
+}
+
 fn summarise_verification(report: &serde_json::Value) -> String {
     let scope = report
         .get("scope")
@@ -4098,7 +4097,12 @@ fn summarise_verification(report: &serde_json::Value) -> String {
                             .get("result")
                             .and_then(|result| result.get("exit_code"))
                             .and_then(serde_json::Value::as_i64)
-                            == Some(0),
+                            == Some(0)
+                            && !pwr_verify::evidence::reported_test_failure(&format!(
+                                "{}\n{}",
+                                check["result"]["stdout"].as_str().unwrap_or(""),
+                                check["result"]["stderr"].as_str().unwrap_or("")
+                            )),
                     )
                 })
                 .collect()
@@ -4117,6 +4121,30 @@ fn summarise_verification(report: &serde_json::Value) -> String {
             if *passed { "·" } else { "✗" }
         ));
     }
+    if let Some(missing) = report["comparison"]["missing_checks"]
+        .as_array()
+        .filter(|missing| !missing.is_empty())
+    {
+        said.push_str(&format!(
+            "\nBaseline comparison incomplete; checks not rerun: {}",
+            missing
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if report["check_evidence"]["status"].as_str() == Some("ran_zero_tests") {
+        said.push_str("\nChecks exited successfully but ran zero tests; behavior is unverified.");
+    }
+    if let Some(why) = report["check_evidence"]["why"].as_str() {
+        said.push_str(&format!(
+            "\nVerification evidence unavailable: {why}; work remains unverified."
+        ));
+    }
+    said.push_str(
+        "\nPassing declared checks does not establish requirements outside their coverage.",
+    );
     said
 }
 
@@ -6990,7 +7018,7 @@ async fn verify_in(
             .as_ref()
             .is_none_or(|result| result.regression_free);
     Ok(
-        serde_json::json!({"verified":verified,"checks_passed":passed,"check_evidence":check_evidence,"scope":scope,"workspace_root":root,"baseline":baseline,"comparison":comparison,"note":"verified requires nonempty passing checks, no zero-test result and no baseline regressions when a prior baseline exists"}),
+        serde_json::json!({"verified":verified,"checks_passed":passed,"check_evidence":check_evidence,"scope":scope,"workspace_root":root,"baseline":baseline,"comparison":comparison,"note":"verified covers the declared checks on the recorded source scope only; requires nonempty passing checks, current evidence, no zero-test result and no baseline regressions when a prior baseline exists"}),
     )
 }
 fn provider_error(e: pwr_provider::ProviderError) -> SafeError {
@@ -7280,6 +7308,7 @@ mod tests {
             captured_at: now(),
             checks,
             environment_hash: "env".into(),
+            provenance: None,
         }
     }
 
@@ -7522,6 +7551,16 @@ mod tests {
         assert!(said.contains("1 of 2"), "{said}");
         assert!(said.contains("cargo test"), "{said}");
         assert!(said.contains("cargo fmt"), "{said}");
+    }
+
+    #[test]
+    fn verification_summary_keeps_wrapper_failures_and_missing_baselines_visible() {
+        let report = serde_json::json!({"baseline":{"checks":[{"command":"wrapped tests","result":{"exit_code":0,"stderr":"Ran 1 test in 0.001s\n\nFAILED (failures=1)"}}]},"comparison":{"missing_checks":["check B"]}});
+        let said = summarise_verification(&report);
+        assert!(said.contains("0 of 1"));
+        assert!(said.contains("not rerun: check B"));
+        let zero = serde_json::json!({"baseline":{"checks":[{"command":"tests","result":{"exit_code":0}}]},"check_evidence":{"status":"ran_zero_tests"}});
+        assert!(summarise_verification(&zero).contains("ran zero tests"));
     }
 
     /// A workspace with no checks is not a workspace that failed them, and the
@@ -8426,6 +8465,43 @@ mod tests {
         // the interactive selector before a turn is allowed to use it.
         config.model = Some("qwen/qwen3.5-9b@q4_k_m".into());
         assert!(chat_is_prepared(&config));
+    }
+
+    #[test]
+    #[ignore = "requires the owner's original PDF via PWR_TEST_PDF; no inference"]
+    fn original_project_pdf_reaches_the_prompt_without_modifying_its_bytes() {
+        let path = std::env::var("PWR_TEST_PDF").expect("set PWR_TEST_PDF to the original PDF");
+        let before = fs::read(&path).unwrap();
+        let extracted = pwr_tools::document::extract(&before).unwrap();
+        assert_eq!(extracted.pages, Some(17));
+        assert!(extracted.text.contains("PWR è un harness agentico"));
+        let workspace = tempfile::tempdir().unwrap();
+        let attached = attach_chat_bytes(workspace.path(), &path, before.clone())
+            .unwrap_or_else(|error| panic!("{}", error.context));
+        let prompt = serve::with_attachments("summarise".into(), &[attached.content]);
+        assert!(prompt.contains(&extracted.text));
+        assert!(!prompt.contains("begincmap"));
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn a_unicode_pdf_attachment_reaches_the_task_as_text_and_a_hashed_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let bytes = include_bytes!("../../pwr-tools/tests/fixtures/unicode-fonts.pdf");
+        let attachment = attach_chat_bytes(root.path(), "file:///unicode.pdf", bytes.to_vec())
+            .unwrap_or_else(|error| panic!("{}", error.context));
+        let task = task_with_tui_attachments("summarise".into(), &[attachment.content]);
+        assert!(task.contains("Caffè Ω 😀 12 fi\nZè"));
+        assert!(!task.contains("begincmap"));
+        assert_eq!(
+            fs::read_to_string(
+                root.path()
+                    .join(".pwr/chat-attachments")
+                    .join(format!("{}.txt", hash_bytes(bytes)))
+            )
+            .unwrap(),
+            "Caffè Ω 😀 12 fi\nZè"
+        );
     }
 
     #[test]

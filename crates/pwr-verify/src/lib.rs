@@ -2,6 +2,7 @@
 pub mod acceptance;
 pub mod evidence;
 pub mod failure;
+pub mod provenance;
 pub mod web;
 use pwr_domain::{hash_bytes, now};
 use pwr_tools::{ToolError, ToolPolicy, ToolResult, run_command};
@@ -12,17 +13,44 @@ pub struct VerificationBaseline {
     pub captured_at: chrono::DateTime<chrono::Utc>,
     pub checks: Vec<CheckRecord>,
     pub environment_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<provenance::Provenance>,
+}
+impl VerificationBaseline {
+    /// Historical records without provenance retain their historical meaning;
+    /// new baseline() calls always carry it. Only the current result is checked:
+    /// a before-baseline is expected to describe older source bytes.
+    pub fn integrity_error(&self) -> Option<String> {
+        self.provenance.as_ref().and_then(|proof| {
+            proof
+                .validate_current(std::path::Path::new(&proof.root))
+                .err()
+        })
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckRecord {
     pub command: String,
     pub result: ToolResult,
 }
+impl CheckRecord {
+    /// Preserve the process status, but do not treat a shell wrapper's zero as
+    /// proof of success when a recognized runner explicitly reported failure.
+    pub fn succeeded(&self) -> bool {
+        self.result.exit_code == Some(0)
+            && !evidence::reported_test_failure(&format!(
+                "{}\n{}",
+                self.result.stdout, self.result.stderr
+            ))
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BaselineComparison {
     pub previous_baseline_id: pwr_domain::Id,
     pub current_baseline_id: pwr_domain::Id,
     pub new_failures: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_checks: Vec<String>,
     pub regression_free: bool,
 }
 /// `PartialEq` because a classification that cannot be compared forces every
@@ -1095,6 +1123,7 @@ pub async fn baseline(
     policy: &ToolPolicy,
     checks: &[(String, Vec<String>)],
 ) -> Result<VerificationBaseline, ToolError> {
+    let source_before = provenance::snapshot(&policy.root, checks).map_err(ToolError::Denied)?;
     let mut records = Vec::new();
     for (cmd, args) in checks {
         let result = if cmd == web::WEB_ASSETS_CHECK {
@@ -1146,11 +1175,31 @@ pub async fn baseline(
         })
         .collect::<Vec<_>>();
     let h = hash_bytes(serde_json::to_vec(&stable_record).unwrap_or_default());
+    let executed_tests = records
+        .iter()
+        .map(|check| {
+            evidence::executed_tests(&format!("{}\n{}", check.result.stdout, check.result.stderr))
+        })
+        .collect();
     Ok(VerificationBaseline {
         id: pwr_domain::new_id(),
         captured_at: now(),
         checks: records,
         environment_hash: h,
+        provenance: Some(provenance::Provenance {
+            schema_version: 1,
+            root: policy.root.canonicalize()?.to_string_lossy().into_owned(),
+            scope: "non-ignored workspace files; excludes dependencies/build/cache/internal state; includes checks.json and direct local argv files".into(),
+            commands: checks.to_vec(),
+            executed_tests,
+            policy_hash: hash_bytes(serde_json::to_vec(&serde_json::json!({
+                "sandbox": format!("{:?}",policy.sandbox), "allow_commands":policy.allow_commands,
+                "timeout_ms":policy.timeout.as_millis(), "output_limit":policy.output_limit,
+                "extra_readable":policy.extra_readable, "protected":policy.protected, "approvals":policy.approvals,
+            })).unwrap_or_default()),
+            before: source_before,
+            after: provenance::snapshot(&policy.root, checks).map_err(ToolError::Denied)?,
+        }),
     })
 }
 /// The result of a check whose program could not be started, as a sandboxed
@@ -1242,26 +1291,60 @@ pub fn compare(
     previous: &VerificationBaseline,
     current: &VerificationBaseline,
 ) -> BaselineComparison {
-    let new_failures = current
+    let mut new_failures = current
         .checks
         .iter()
         .filter(|current_check| {
-            current_check.result.exit_code != Some(0)
+            !current_check.succeeded()
                 && previous
                     .checks
                     .iter()
                     .find(|prior| prior.command == current_check.command)
                     .is_none_or(|prior| {
-                        prior.result.exit_code == Some(0)
-                            || !same_failure(&prior.result, &current_check.result)
+                        prior.succeeded() || !same_failure(&prior.result, &current_check.result)
                     })
         })
         .map(|check| check.command.clone())
         .collect::<Vec<_>>();
+    if previous
+        .provenance
+        .as_ref()
+        .is_some_and(|proof| proof.before != proof.after)
+    {
+        new_failures.push("baseline evidence invalid: source changed during its checks".into());
+    }
+    if let Some(why) = current.integrity_error() {
+        new_failures.push(format!("evidence invalid: {why}"));
+    }
+    let mut missing_checks: Vec<String> = previous
+        .checks
+        .iter()
+        .filter(|prior| {
+            !current
+                .checks
+                .iter()
+                .any(|check| check.command == prior.command)
+        })
+        .map(|prior| prior.command.clone())
+        .collect();
+    if let (Some(before), Some(after)) = (&previous.provenance, &current.provenance) {
+        for command in &before.commands {
+            if !after.commands.contains(command) {
+                let label = format!(
+                    "argv {}",
+                    serde_json::to_string(command).unwrap_or_default()
+                );
+                if !missing_checks.contains(&label) {
+                    missing_checks.push(label);
+                }
+            }
+        }
+    }
     BaselineComparison {
         previous_baseline_id: previous.id,
         current_baseline_id: current.id,
-        regression_free: new_failures.is_empty(),
+        regression_free: new_failures.is_empty() && missing_checks.is_empty(),
+        missing_checks,
         new_failures,
     }
 }
@@ -1290,24 +1373,62 @@ pub fn compare_read_only_status(
     previous: &VerificationBaseline,
     current: &VerificationBaseline,
 ) -> BaselineComparison {
-    let new_failures: Vec<String> = current
+    let mut new_failures: Vec<String> = current
         .checks
         .iter()
         .filter(|check| {
-            check.result.exit_code != Some(0)
+            !check.succeeded()
                 && (check.result.exit_code.is_none()
+                    || check.result.exit_code == Some(0)
                     || previous
                         .checks
                         .iter()
                         .find(|prior| prior.command == check.command)
-                        .is_none_or(|prior| prior.result.exit_code != check.result.exit_code))
+                        .is_none_or(|prior| {
+                            prior.succeeded() || prior.result.exit_code != check.result.exit_code
+                        }))
         })
         .map(|check| check.command.clone())
         .collect();
+    if previous
+        .provenance
+        .as_ref()
+        .is_some_and(|proof| proof.before != proof.after)
+    {
+        new_failures.push("baseline evidence invalid: source changed during its checks".into());
+    }
+    if let Some(why) = current.integrity_error() {
+        new_failures.push(format!("evidence invalid: {why}"));
+    }
+    let mut missing_checks: Vec<String> = previous
+        .checks
+        .iter()
+        .filter(|prior| {
+            !current
+                .checks
+                .iter()
+                .any(|check| check.command == prior.command)
+        })
+        .map(|prior| prior.command.clone())
+        .collect();
+    if let (Some(before), Some(after)) = (&previous.provenance, &current.provenance) {
+        for command in &before.commands {
+            if !after.commands.contains(command) {
+                let label = format!(
+                    "argv {}",
+                    serde_json::to_string(command).unwrap_or_default()
+                );
+                if !missing_checks.contains(&label) {
+                    missing_checks.push(label);
+                }
+            }
+        }
+    }
     BaselineComparison {
         previous_baseline_id: previous.id,
         current_baseline_id: current.id,
-        regression_free: new_failures.is_empty(),
+        regression_free: new_failures.is_empty() && missing_checks.is_empty(),
+        missing_checks,
         new_failures,
     }
 }

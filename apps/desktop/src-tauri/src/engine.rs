@@ -123,9 +123,17 @@ fn find(app: &AppHandle) -> Option<(&'static str, PathBuf)> {
         }
     }
     if let Ok(root) = root(app) {
-        let python = venv_python(&root);
+        let prefix = match crate::engine_generation::selected(&root) {
+            Ok(Some(prefix)) => prefix,
+            Ok(None) => root,
+            Err(error) => {
+                log::warn!("Managed engine selection unavailable: {error}");
+                return None;
+            }
+        };
+        let python = venv_python(&prefix);
         if python.is_file()
-            && std::fs::read(root.join(MARKER)).is_ok_and(|marker| marker_current(&marker))
+            && std::fs::read(prefix.join(MARKER)).is_ok_and(|marker| marker_current(&marker))
         {
             return Some(("installed", python));
         }
@@ -169,6 +177,36 @@ fn marker_current(marker: &[u8]) -> bool {
         })
 }
 
+pub(super) fn current_marker() -> serde_json::Value {
+    serde_json::json!({
+        "python": PYTHON_VERSION,
+        "packages": PACKAGES,
+        "encoder": ENCODER,
+        "requirementsSha256": requirements_hash(),
+        "encoderManifestSha256": encoder_manifest_hash(),
+        "installedBy": env!("CARGO_PKG_VERSION"),
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn maintenance_ready(prefix: &Path) -> bool {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    let result = (|| -> std::io::Result<bool> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+            .open(prefix.join(MARKER))?;
+        if !file.metadata()?.is_file() {
+            return Ok(false);
+        }
+        let mut bytes = Vec::new();
+        file.take(65537).read_to_end(&mut bytes)?;
+        Ok(bytes.len() <= 65536 && marker_current(&bytes) && venv_python(prefix).is_file())
+    })();
+    result.unwrap_or(false)
+}
+
 /// Whether `python` runs and can find mlx-lm. Found, not imported: importing
 /// it loads MLX, which takes seconds; finding it takes a fraction of one.
 fn has_engine(python: &Path) -> bool {
@@ -203,6 +241,18 @@ fn has_engine(python: &Path) -> bool {
 }
 
 /// The interpreter the core should be started with, if there is one.
+#[cfg(unix)]
+pub(super) fn usage(app: &AppHandle) -> Result<Option<std::fs::File>, String> {
+    let root = root(app)?;
+    match crate::engine_generation::lease(&root, true) {
+        Ok(file) => Ok(Some(file)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!(
+            "Engine is busy or unavailable; maintenance/setup may be running: {error}"
+        )),
+    }
+}
+
 pub fn python(app: &AppHandle) -> Option<PathBuf> {
     find(app).map(|(_, python)| python)
 }
@@ -267,7 +317,7 @@ pub async fn engine_install(app: AppHandle, setup: State<'_, Setup>) -> Result<(
             .activity
             .try_lock()
             .map_err(|_| "Wait for the current native operation to finish.".to_string())?;
-        updates.allow_activity()?;
+        updates.allow_activity(&app.state::<crate::Closing>())?;
         if app
             .state::<crate::Core>()
             .0
@@ -332,15 +382,37 @@ impl Drop for StepCleanup<'_> {
     }
 }
 
-/// Stops an install; what it left is replaced by the next one.
+/// Stops an install; its isolated prefix is retained and never reused.
 #[tauri::command]
 pub fn engine_cancel(setup: State<'_, Setup>) {
-    setup.cancelled.store(true, Ordering::SeqCst);
-    if let Ok(mut guard) = setup.child.lock() {
-        if let Some(child) = guard.as_mut() {
-            let _ = kill_step(child);
-        }
+    cancel_install(&setup.child, &setup.cancelled);
+}
+
+fn cancel_install(child: &Mutex<Option<Child>>, cancelled: &AtomicBool) {
+    // The same mutex serializes cancellation acknowledgement and publication.
+    // A cancel that wins prevents publication; one ordered after publication
+    // cannot retroactively undo a completed, verified selection.
+    let mut guard = child
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    cancelled.store(true, Ordering::SeqCst);
+    if let Some(child) = guard.as_mut() {
+        let _ = kill_step(child);
     }
+}
+
+fn publish_verified(
+    child: &Mutex<Option<Child>>,
+    cancelled: &AtomicBool,
+    publish: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let _guard = child
+        .lock()
+        .map_err(|_| "Installer state unavailable; engine was not published.")?;
+    if cancelled.load(Ordering::SeqCst) {
+        return Err("Cancelled. The previous engine selection was not changed.".into());
+    }
+    publish()
 }
 
 fn install(
@@ -351,25 +423,22 @@ fn install(
     let root = root(app)?;
     let uv = uv(app)?;
     std::fs::create_dir_all(&root).map_err(|error| format!("{}: {error}", root.display()))?;
-    let mut previous = crate::engine_install::Transaction::begin(&root, MARKER)
-        .map_err(|error| format!("Cannot preserve the previous engine: {error}"))?;
-    // Declared after the transaction: on unwind, stop children before restoring
-    // the old prefix. A surviving installer must never write into that prefix.
+    let generation = crate::engine_generation::Generation::begin(&root)
+        .map_err(|error| format!("Cannot prepare an isolated engine installation: {error}"))?;
+    // Never move the working environment or reuse an interrupted prefix.
+    // Even a worker surviving this app can only modify its own generation.
     let steps = StepCleanup(child);
-    let result = install_into(app, child, cancelled, &root, &uv);
+    let result = install_into(app, child, cancelled, &generation, &uv);
     steps.stop();
     match result {
-        Ok(()) => {
-            previous.commit();
-            Ok(())
-        }
-        Err(error) => match previous.rollback() {
-            Ok(()) => Err(error),
-            Err(restore) => Err(format!(
-                "{error}\nCould not restore the previous engine: {restore}. Backup retained at {}",
-                previous.backup().display()
-            )),
-        },
+        Ok(()) => publish_verified(child, cancelled, || {
+            generation.commit(MARKER)
+            .map_err(|error| format!("Engine verification finished but publication failed: {error}. Recheck engine status before retrying."))
+        }),
+        Err(error) => Err(format!(
+            "{error}\nThe previous engine was not changed. Incomplete installation retained at {}.",
+            generation.prefix().display()
+        )),
     }
 }
 
@@ -377,9 +446,10 @@ fn install_into(
     app: &AppHandle,
     child: &Mutex<Option<Child>>,
     cancelled: &AtomicBool,
-    root: &Path,
+    generation: &crate::engine_generation::Generation,
     uv: &Path,
 ) -> Result<(), String> {
+    let root = generation.prefix();
     let venv = root.join("venv");
     let python = venv_python(root);
 
@@ -400,7 +470,7 @@ fn install_into(
     venv_command
         .args(["venv", "--python", PYTHON_VERSION])
         .arg(&venv);
-    run(app, 1, venv_command, child, cancelled)?;
+    run(app, 1, venv_command, child, cancelled, generation)?;
 
     // Use the bytes compiled into this app, not a mutable external lock file.
     let requirements = root.join(format!("requirements-{}.lock", uuid::Uuid::new_v4()));
@@ -431,7 +501,7 @@ fn install_into(
     .arg(&python)
     .arg("--requirement")
     .arg(&requirements);
-    let installed = run(app, 2, pip, child, cancelled);
+    let installed = run(app, 2, pip, child, cancelled, generation);
     let _ = std::fs::remove_file(&requirements);
     installed?;
 
@@ -452,23 +522,16 @@ fn install_into(
     }
     let mut encoder = base(&python);
     encoder.arg(assets).arg("--install");
-    run(app, 3, encoder, child, cancelled)?;
+    run(app, 3, encoder, child, cancelled, generation)?;
 
     let mut check = base(&python);
     check.args([
         "-c",
         "import mlx.core as mx, mlx_lm, mlx_vlm, mlx_embeddings; print('mlx', mx.__version__, 'on', mx.default_device())",
     ]);
-    run(app, 4, check, child, cancelled)?;
+    run(app, 4, check, child, cancelled, generation)?;
 
-    let marker = serde_json::json!({
-        "python": PYTHON_VERSION,
-        "packages": PACKAGES,
-        "encoder": ENCODER,
-        "requirementsSha256": requirements_hash(),
-        "encoderManifestSha256": encoder_manifest_hash(),
-        "installedBy": env!("CARGO_PKG_VERSION"),
-    });
+    let marker = current_marker();
     std::fs::write(
         root.join(MARKER),
         serde_json::to_vec_pretty(&marker).unwrap_or_default(),
@@ -483,9 +546,10 @@ fn install_into(
 fn run(
     app: &AppHandle,
     step: usize,
-    mut command: Command,
+    command: Command,
     slot: &Mutex<Option<Child>>,
     cancelled: &AtomicBool,
+    generation: &crate::engine_generation::Generation,
 ) -> Result<(), String> {
     let label = STEPS[step - 1];
     let emit = |line: Option<String>| {
@@ -503,11 +567,15 @@ fn run(
     if cancelled.load(Ordering::SeqCst) {
         return Err("Cancelled.".into());
     }
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    let mut command = crate::supervision::installer(command);
+    #[cfg(not(unix))]
+    let mut command = command;
+    #[cfg(not(unix))]
+    command.stdin(Stdio::null());
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     isolate_step(&mut command);
+    generation.inherit(&mut command);
     let mut current = slot.lock().map_err(|_| "installer state poisoned")?;
     let mut spawned = command
         .spawn()
@@ -687,5 +755,57 @@ mod tests {
         let older_python = serde_json::json!({"python":"3.11","packages":PACKAGES,"requirementsSha256":requirements_hash(),"encoderManifestSha256":encoder_manifest_hash()});
         assert!(!marker_current(&serde_json::to_vec(&older_python).unwrap()));
         assert!(!marker_current(b""));
+    }
+    #[test]
+    fn cancellation_before_publication_does_not_select_the_verified_generation() {
+        let child = Mutex::new(None);
+        let cancelled = AtomicBool::new(false);
+        cancel_install(&child, &cancelled);
+        let published = AtomicBool::new(false);
+        let result = publish_verified(&child, &cancelled, || {
+            published.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+        assert!(result.is_err(), "cancelled setup was published");
+        assert!(!published.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn cancellation_after_publication_waits_for_the_completed_selection() {
+        let child = Arc::new(Mutex::new(None));
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let (begin, ready) = std::sync::mpsc::channel();
+        let (queued, waiting) = std::sync::mpsc::channel();
+        let (ack, acknowledged) = std::sync::mpsc::channel();
+        let worker = {
+            let child = child.clone();
+            let cancelled = cancelled.clone();
+            std::thread::spawn(move || {
+                ready
+                    .recv_timeout(std::time::Duration::from_secs(3))
+                    .unwrap();
+                queued.send(()).unwrap();
+                cancel_install(&child, &cancelled);
+                ack.send(()).unwrap();
+            })
+        };
+        publish_verified(&child, &cancelled, || {
+            begin.send(()).unwrap();
+            waiting
+                .recv_timeout(std::time::Duration::from_secs(3))
+                .unwrap();
+            assert!(matches!(
+                acknowledged.recv_timeout(std::time::Duration::from_millis(50)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+            assert!(!cancelled.load(Ordering::SeqCst));
+            Ok(())
+        })
+        .unwrap();
+        acknowledged
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        worker.join().unwrap();
+        assert!(cancelled.load(Ordering::SeqCst));
     }
 }

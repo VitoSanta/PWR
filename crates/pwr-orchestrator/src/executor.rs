@@ -563,6 +563,11 @@ pub struct GoalBudget {
     pub verifications: usize,
     pub reviews: usize,
     pub proposals: usize,
+    /// Wall time spent in closing verification and in the final review. Not
+    /// limits: the wall clock still bounds the goal. Counted so the cost of
+    /// the second reading is measured, not guessed (CLI-05, S03).
+    pub verification_time: std::time::Duration,
+    pub review_time: std::time::Duration,
     /// The goal's work meter, shared with its turns.
     pub work: Arc<std::sync::atomic::AtomicU64>,
 }
@@ -576,6 +581,8 @@ impl GoalBudget {
             verifications: 0,
             reviews: 0,
             proposals: 0,
+            verification_time: std::time::Duration::ZERO,
+            review_time: std::time::Duration::ZERO,
             work: Arc::default(),
         }
     }
@@ -608,7 +615,7 @@ impl GoalBudget {
         self.limits.wall.saturating_sub(self.started.elapsed())
     }
     pub fn snapshot(&self) -> Value {
-        json!({"limits": self.limits, "spent": {"actions": self.actions, "refused_completions": self.refused, "verification_runs": self.verifications, "review_rounds": self.reviews, "proposals": self.proposals, "work": self.work_done(), "wall_seconds": self.started.elapsed().as_secs()}})
+        json!({"limits": self.limits, "spent": {"actions": self.actions, "refused_completions": self.refused, "verification_runs": self.verifications, "review_rounds": self.reviews, "proposals": self.proposals, "work": self.work_done(), "wall_seconds": self.started.elapsed().as_secs(), "verification_seconds": self.verification_time.as_secs(), "review_seconds": self.review_time.as_secs()}})
     }
 }
 
@@ -1126,7 +1133,10 @@ async fn drive<H: SessionHost + ?Sized>(
                 };
             }
             budget.verifications += 1;
-            bounded!(host.verify())
+            let verifying = tokio::time::Instant::now();
+            let verified = bounded!(host.verify());
+            budget.verification_time += verifying.elapsed();
+            verified
         }};
     }
     let mut total_actions = 0usize;
@@ -1801,7 +1811,12 @@ async fn drive<H: SessionHost + ?Sized>(
                     }
                 });
                 let findings = match prompt {
-                    Some(prompt) => bounded!(host.review(&root, prompt)).ok(),
+                    Some(prompt) => {
+                        let reviewing = tokio::time::Instant::now();
+                        let found = bounded!(host.review(&root, prompt)).ok();
+                        budget.review_time += reviewing.elapsed();
+                        found
+                    }
                     None => None,
                 };
                 let guidance = review_guidance(findings.as_deref());
@@ -1973,15 +1988,21 @@ pub enum CheckVerdict {
     ///
     /// Named with the commands, because "some were already failing" invites the
     /// reader to assume they are the ones they already knew about.
-    BaselinePreserved { still_failing: Vec<String> },
+    BaselinePreserved {
+        still_failing: Vec<String>,
+    },
     /// Something that passed before fails now.
     NewFailures(Vec<String>),
+    Incomplete {
+        missing_checks: Vec<String>,
+    },
 }
 
 impl CheckVerdict {
     pub fn mark(&self) -> &'static str {
         match self {
             Self::Green => "✓",
+            Self::Incomplete { .. } => "–",
             Self::BaselinePreserved { .. } => "–",
             Self::NewFailures(_) => "✗",
         }
@@ -1989,6 +2010,11 @@ impl CheckVerdict {
     pub fn said(&self) -> String {
         match self {
             Self::Green => "the repository's own checks passed after the change".to_owned(),
+            Self::Incomplete { missing_checks } => format!(
+                "baseline comparison incomplete: checks were not rerun: {}. The change remains unverified",
+                missing_checks.join(", ")
+            ),
+
             Self::BaselinePreserved { still_failing } => format!(
                 "no check that passed before the change fails now, and {} still \
                  {} as {} before the change: {}. The change is not verified by \
@@ -2036,10 +2062,15 @@ pub fn check_verdict(
     if !comparison.new_failures.is_empty() {
         return CheckVerdict::NewFailures(comparison.new_failures);
     }
+    if !comparison.missing_checks.is_empty() {
+        return CheckVerdict::Incomplete {
+            missing_checks: comparison.missing_checks,
+        };
+    }
     let still_failing: Vec<String> = after
         .checks
         .iter()
-        .filter(|check| check.result.exit_code != Some(0))
+        .filter(|check| !check.succeeded())
         .map(|check| check.command.clone())
         .collect();
     if still_failing.is_empty() {
@@ -2165,10 +2196,17 @@ pub async fn close_turn(
                 let failing: Vec<_> = after
                     .checks
                     .iter()
-                    .filter(|check| check.result.exit_code != Some(0))
+                    .filter(|check| !check.succeeded())
                     .map(|check| check.command.as_str())
                     .collect();
-                if failing.is_empty() {
+                if let pwr_domain::ChecksOutcome::CouldNotRun { why } = &evidence {
+                    (
+                        "–",
+                        format!(
+                            "verification evidence is invalid: {why}; the work remains unverified"
+                        ),
+                    )
+                } else if failing.is_empty() {
                     if matches!(evidence, pwr_domain::ChecksOutcome::RanZeroTests) {
                         ("–", "the new project checks exited successfully but ran zero tests; its behavior has not been verified".to_owned())
                     } else {
@@ -2209,6 +2247,21 @@ pub async fn close_turn(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_budget_snapshot_reports_time_spent_verifying_and_reviewing() {
+        let mut budget = GoalBudget::new(GoalLimits::default());
+        let fresh = budget.snapshot();
+        assert_eq!(fresh["spent"]["verification_seconds"], 0);
+        assert_eq!(fresh["spent"]["review_seconds"], 0);
+        budget.verification_time += std::time::Duration::from_secs(95);
+        budget.review_time += std::time::Duration::from_secs(61);
+        let spent = budget.snapshot();
+        assert_eq!(spent["spent"]["verification_seconds"], 95);
+        assert_eq!(spent["spent"]["review_seconds"], 61);
+        // Reporting only: the limits are the ones that were there.
+        assert_eq!(spent["limits"], fresh["limits"]);
+    }
+
     use super::*;
     use std::time::Duration;
 
@@ -2711,7 +2764,10 @@ mod tests {
             panic!("a passing goal did not reply");
         };
         let verification = verification.expect("the goal carries its verification");
-        let mut outcome = pwr_domain::TurnOutcome::default();
+        let mut outcome = pwr_domain::TurnOutcome {
+            terminal: pwr_domain::TurnTerminal::Completed,
+            ..Default::default()
+        };
         apply_verification(&mut outcome, &verification);
         assert!(outcome.verified());
 
@@ -2722,7 +2778,10 @@ mod tests {
             acceptance_available: false,
             ..passed
         };
-        let mut outcome = pwr_domain::TurnOutcome::default();
+        let mut outcome = pwr_domain::TurnOutcome {
+            terminal: pwr_domain::TurnTerminal::Completed,
+            ..Default::default()
+        };
         apply_verification(&mut outcome, &technical);
         assert!(!outcome.verified());
         assert!(matches!(

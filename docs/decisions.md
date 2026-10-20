@@ -464,3 +464,40 @@ by install/upgrade checks on the actual signed package in S12.
 No purchase, public ad-hoc release, version bump or publication is authorized
 by this deferral. Updater package signing remains a separate existing task.
 All other acceptance and gate requirements remain unchanged.
+
+
+## D-2026-10-20-1 — S00 closure and qualification sequencing
+
+The owner explicitly approved the [S00 scope proposal](plan/acceptance-v0.5.0.md)
+on 2026-10-20. With the [technical consolidation](reviews/2026-10-20-S00-closeout.md)
+completed, S00 is DONE. This closes the identified development baseline, local
+suites, inventory and finding routing. It does not qualify a release candidate
+or close the remaining product defects.
+
+Detailed scenarios/checkers, repetitions, budgets and quantitative criteria
+will be explicitly approved and frozen before their S04/S05/S07 campaigns.
+All eight MLX packs remain qualification candidates, without default changes
+or reliability claims. Native startup/IPC/PDF work remains in S01/S02, model
+controller/profiles in S03/S04, full macOS qualification in S09. Windows target:
+Windows 11, Intel i7, 32 GB RAM, GeForce RTX 4080 with 16 GB VRAM; actual
+platform qualification remains S10/S11. Apple remains S12 after Windows.
+
+G3/F6 remain unchanged and unsatisfied. Minimum supported platforms, final
+version/channel, package/release approval and quantitative values remain open.
+No commit, push, version bump, purchase or publication is authorized.
+
+
+## D-2026-10-20-2 — Complete S01 recovery and maintenance before S02
+
+The owner explicitly requested completing legacy recovery and cleanup before
+closing S01, declining the proposed temporary deferral. The implementation uses
+fresh isolated installation instead of reconstructing ambiguous legacy backups,
+and explicit offline cleanup guarded by inherited engine-use leases, a reviewed
+plan and external-process checks. Original recovery material is preserved.
+
+The [S01 closeout](reviews/2026-10-20-S01-closeout.md) records the development
+checks, actual process tests, real temporary Python environments and remaining
+qualification boundaries. S01 development is DONE; S02 is next, not started by
+this record. No acceptance of the earlier unresolved limitations is inferred.
+G1/G3/F6, model quality, final package/upgrade, Windows and release approval are
+not promoted. Apple remains S12 after Windows. No version, push or publication.

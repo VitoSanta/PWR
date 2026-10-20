@@ -51,6 +51,9 @@ pub enum ChecksOutcome {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum BaselineOutcome {
     Preserved,
+    Incomplete {
+        missing_checks: Vec<String>,
+    },
     Regressed {
         checks: Vec<String>,
     },
@@ -91,11 +94,42 @@ impl TurnOutcome {
     /// Delivery and green technical checks never substitute for acceptance.
     pub fn verified(&self) -> bool {
         matches!(self.acceptance, AcceptanceOutcome::Accepted)
+            && matches!(self.terminal, TurnTerminal::Completed)
+            && matches!(self.checks, ChecksOutcome::Passed)
+            && !matches!(
+                self.baseline,
+                BaselineOutcome::Incomplete { .. } | BaselineOutcome::Regressed { .. }
+            )
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn an_acceptance_flag_cannot_override_contradictory_check_or_baseline_evidence() {
+        let mut outcome = TurnOutcome {
+            terminal: TurnTerminal::Completed,
+            acceptance: AcceptanceOutcome::Accepted,
+            checks: ChecksOutcome::Passed,
+            ..Default::default()
+        };
+        assert!(outcome.verified());
+        outcome.baseline = BaselineOutcome::Incomplete {
+            missing_checks: vec!["test B".into()],
+        };
+        assert!(!outcome.verified());
+        outcome.baseline = BaselineOutcome::NoBaseline;
+        for checks in [
+            ChecksOutcome::NotRun,
+            ChecksOutcome::RanZeroTests,
+            ChecksOutcome::CouldNotRun {
+                why: "stale".into(),
+            },
+        ] {
+            outcome.checks = checks;
+            assert!(!outcome.verified());
+        }
+    }
     #[test]
     fn evidence_round_trips_without_promoting_delivery_to_acceptance() {
         for checks in [

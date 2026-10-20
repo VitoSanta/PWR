@@ -1,12 +1,12 @@
 # PWR — Sprint verso la 0.5.0 e il collaudo finale Windows
 
-Revisione: **2026-10-19**. Stato: **S00 IN_PROGRESS; S01–S12 pianificati**.
+Revisione: **2026-10-20**. Stato: **S00–S02 DONE, S03 DONE con residui; S04–S12 pianificati**.
 Target: completare sviluppo macOS, validare fixing/creazione/uso generale,
 qualificare Windows e preparare una possibile 0.5.0 pubblica. La 1.0 richiederà
 anche esperienza d'uso esterna. **Aggiornamento del proprietario 2026-10-19:**
 account Apple e qualificazione Developer ID/notarizzazione sono rinviati a S12,
 dopo Windows, quando disponibili. Non bloccano sviluppo e collaudi ad-hoc. Il frontend è dichiarato concluso dal
-proprietario: manca ancora la verifica sul candidato consolidato.
+proprietario: suite automatiche sul checkout consolidato completate; qualificazione nativa finale in S09.
 
 Questa è la scaletta settimanale di esecuzione. Conserva i contratti del
 [piano tecnico](implementation-plan.md), della [campagna Gemma/Windows](piano-campagne-gemma4-e-windows.md)
@@ -35,7 +35,7 @@ compilazione o test PWR concorrente, neppure da un'altra chat. Prenotare
 esplicitamente una finestra; controllare sorgenti e processi prima e dopo.
 Separare sempre ambiente prodotto, workspace dei task e verificatore.
 
-## Decisioni da chiudere in S00
+## Decisioni di perimetro e qualificazione
 
 | Decisione | Proposta operativa | Confine |
 |---|---|---|
@@ -56,10 +56,10 @@ Non si allentano sicurezza, integrità dei dati o onestà dei risultati.
 
 | Sprint | Obiettivo | Dipende da | Stato iniziale | Consegna principale |
 |---|---|---|---|---|
-| S00 | Consolidamento, baseline e contratto 0.5 | Frontend concluso | IN_PROGRESS | Identità candidata, perimetro e backlog riconciliato |
-| S01 | Sicurezza, lifecycle e recupero | S00 | PLANNED | Difetti bloccanti riprodotti e chiusi |
-| S02 | Verifica indipendente e correttezza | S01 | PLANNED | Risultati ancorati a prove e copertura esplicita |
-| S03 | Controller, editing e contesto | S02 | PLANNED | Meno loop e recuperi falliti, senza regressioni |
+| S00 | Consolidamento, baseline e contratto 0.5 | Frontend concluso | DONE | Identità candidata, perimetro e backlog riconciliato |
+| S01 | Sicurezza, lifecycle e recupero | S00 | DONE | Difetti bloccanti riprodotti e chiusi |
+| S02 | Verifica indipendente e correttezza | S01 | DONE | Risultati ancorati a prove e copertura esplicita |
+| S03 | Controller, editing e contesto | S02 | DONE con residui | Meno loop e recuperi falliti, senza regressioni |
 | S04 | Gemma e prestazioni locali | S03 | PLANNED | Matrice pack/runtime e profili misurati |
 | S05 | Studio integrazioni agentiche | Baseline S04 | PLANNED | ADR e misure di fattibilità per ogni candidata |
 | S06 | Integrazione selezionata o ottimizzazione mirata | Decisioni S05 | PLANNED | Una sola modifica principale misurabile e reversibile |
@@ -86,10 +86,13 @@ del candidato e decisioni di perimetro; collaudo E2E finale in S09.
 
 **Residui tecnici 2026-10-19:** [rapporto](../reviews/2026-10-19-S00-residuals.md); bozza del [contratto 0.5](acceptance-v0.5.0.md). La scelta Gemma-only e la revisione F6 sono già registrate; restano matrici e criteri numerici.
 
-**Punto 2026-10-20:** S00 resta IN_PROGRESS: frontend accettato dal proprietario,
-ma mancano consolidamento/inventario del candidato corrente, suite coerenti
-sulla stessa revisione e chiusura dei criteri del contratto. Le diagnostiche
-CLI e le correzioni S03 non equivalgono alla chiusura di S00.
+**Consolidamento 2026-10-20:** [rapporto e risultati](../reviews/2026-10-20-S00-closeout.md).
+Inventario e suite del checkout corrente completati: 192 test frontend,
+1.607 pass Rust riportati (6 ignored e un ritorno anticipato Docker), 18 test
+native; sidecar, runner, release tooling, Clippy e build riusciti.
+Windows identificato: Windows 11, Intel i7, 32 GB RAM, RTX 4080 16 GB VRAM;
+qualificazione in S10. Il proprietario ha approvato il [perimetro](acceptance-v0.5.0.md) il 2026-10-20:
+**S00 DONE**, nessuna deroga a G3/F6; decisione D-2026-10-20-1.
 Nuova segnalazione: lettura dei PDF allegati non corretta.
 Riprodotta il 2026-10-20 sulla guida del progetto: PDF valido con font
 Identity-H e sette riferimenti ToUnicode; l'estrattore PWR supporta soltanto
@@ -103,17 +106,19 @@ il collegamento attachment/IPC richiede una verifica mirata dell'app.
 
 **Lavoro tecnico**
 
-- [ ] Raccogliere il diff frontend definitivo senza sovrascrivere altri lavori;
-  controllare flussi di model picker/manager, stati, tastiera e accessibilità.
-- [ ] Inventariare tutti i file modificati/non tracciati, dipendenze, versioni,
+- [x] Raccogliere diff e inventario frontend senza sovrascrivere altri lavori;
+  accettazione del proprietario e suite consolidate registrate. Controlli nativi
+  residui, tastiera e accessibilità assegnati a S01/S02/S09 secondo perimetro approvato.
+- [x] Inventariare tutti i file modificati/non tracciati, dipendenze, versioni,
   feature flag, configurazioni e componenti nativi. Registrare strumenti/host.
-- [ ] Eseguire le suite del candidato: Rust workspace/native, frontend da
+- [x] Eseguire le suite del candidato: Rust workspace/native, frontend da
   installazione pulita, sidecar, runner e strumenti release. Registrare skip.
   Usare [testing](../testing.md) e CI correnti; i conteggi storici non valgono.
-- [ ] Ricondurre ogni finding HI/F1/W ancora aperto a ticket, test ed evidenza;
+- [x] Ricondurre ogni finding HI/F1/W ancora aperto a ticket, test ed evidenza;
   distinguere implementato, misurato, non provato, bloccato e rinviato.
-- [ ] Chiudere le decisioni sopra, predisporre macchina Windows e annotare Apple come dipendenza finale
-  differita, definire stack/pack e protocolli dei collaudi.
+- [x] Approvare il perimetro S00 e identificare il target Windows; Apple differito
+  a S12. Matrici/stack/pack e protocolli quantitativi da approvare prima delle
+  rispettive campagne S04/S05/S07; qualificazione Windows S10.
 
 **Dove:** `.github/workflows/`, `apps/desktop/`, `strategies/artifacts.json`,
 `docs/release/next-release-readiness.md`, registro HI e `docs/milestones.json`.
@@ -123,19 +128,32 @@ backlog senza finding orfani e nessun conflitto di release policy nascosto.
 
 ## S01 — Effetti sicuri, processi e recupero
 
+**Verifica finale 2026-10-20:** [rapporto e matrice](../reviews/2026-10-20-S01-closeout.md).
+Implementati generazioni MLX isolate, pubblicazione atomica, cancel/commit
+ordinati, blocco degli avvii dopo close e supervisione indipendente di core,
+PTY e installer dopo SIGKILL. Walk isolato dell’app: trust, terminale, browser
+senza IPC privilegiato, conflitto esterno, crash/restart con draft recuperato
+e uscita normale riusciti; zero processi posseduti attivi dopo entrambe le uscite.
+54 pass nativi (quattro entry point fixture), prova venv separata, 192 test frontend
+e suite workspace/sidecar/runner/tooling riportate con skip nel rapporto.
+Completati anche recupero legacy mediante reinstallazione isolata e pulizia offline
+con anteprima/apply, lease ereditate e ripresa dopo SIGKILL. Materiale legacy e
+ambienti sconosciuti conservati, non dichiarati cancellabili senza identità.
+S01 **DONE**, con procedura e confini nel rapporto; nessun gate di release promosso.
+
 **Nuove regressioni dal proprietario:** [audit website dei cinque modelli](../reviews/2026-10-19-website-manual-audit.md), WEB-01–WEB-14. Startup/lifecycle e aggiornamento dei tool precedono nuove prove lunghe; compilazione verde con scaffold non qualifica il sito.
 
-- [ ] Completare la matrice critica di browser, terminale, IPC, filesystem,
+- [x] Completare la matrice critica di browser, terminale, IPC, filesystem,
   download, servizi e autorizzazioni sul sorgente corrente.
-- [ ] Provare symlink/race, uscita dal workspace, pagina ostile, callback dopo
+- [x] Provare symlink/race, uscita dal workspace, pagina ostile, callback dopo
   chiusura, flood PTY, annullamento durante comando/download/installazione.
-- [ ] Verificare Stop, chiusura normale, crash core/app e riavvio: nessun processo
+- [x] Verificare Stop, chiusura normale, crash core/app e riavvio: nessun processo
   orfano, draft conservati, conflitto con modifica esterna, database corrotto
   riconosciuto. Distinguere crash, power loss e recovery transazionale provati.
-- [ ] Chiudere il recupero di installazioni interrotte da terminazione forzata,
+- [x] Chiudere il recupero di installazioni interrotte da terminazione forzata,
   se previsto dal contratto; in alternativa definire un recupero assistito
   sicuro e una limitazione accettata esplicitamente prima della release.
-- [ ] Aggiungere regressioni ai difetti riprodotti e ripetere il walk nativo
+- [x] Aggiungere regressioni ai difetti riprodotti e ripetere il walk nativo
   dopo la correzione, conservando il primo risultato negativo.
 
 **Dove:** `crates/pwr-tools/`, `crates/pwr-store/`, download di `pwr-models`,
@@ -147,17 +165,26 @@ dati, isolamento o processi; ogni limite residuo ha una disposizione scritta.
 
 ## S02 — Rendere la verifica affidabile
 
-- [ ] Trasformare i difetti Unicode/precisione/bool/atomicità già osservati in
+**Avvio 2026-10-20:** [registro S02](../reviews/2026-10-20-S02-verification.md).
+**Chiusura 2026-10-20: DONE per lo sviluppo macOS**, con
+[matrice e validazione finale](../reviews/2026-10-20-S02-closeout.md).
+Corretti exit 0 ingannevoli, omissioni di baseline e PDF-01; aggiunte prove
+legate al sorgente e regressioni semantiche indipendenti. 1.280 test Rust,
+194 frontend e test separato del PDF originale riusciti; nessuna inferenza.
+[Scope e limiti delle prove](verification-evidence.md): nessuna qualificazione
+universale dei modelli o del pacchetto, nessun gate promosso.
+
+- [x] Trasformare i difetti Unicode/precisione/bool/atomicità già osservati in
   regressioni dev, senza contaminare i task futuri o cambiare test sigillati.
-- [ ] Legare ogni risultato a hash dei file, comandi, baseline, test eseguiti,
+- [x] Legare ogni risultato a hash dei file, comandi, baseline, test eseguiti,
   scope e modifiche successive; invalidare prove diventate obsolete.
-- [ ] Conservare i confini: «test dichiarati superati» non equivale a «ogni
+- [x] Conservare i confini: «test dichiarati superati» non equivale a «ogni
   requisito semanticamente dimostrato». Rendere visibili requisiti non coperti,
   verifiche assenti/zero test/interrotte e interventi umani.
-- [ ] Applicare controlli indipendenti appropriati: unit/integration test,
+- [x] Applicare controlli indipendenti appropriati: unit/integration test,
   proprietà e confini, build/lint/typecheck, artefatti e interazione browser.
   Il modello può proporre test; non può ridefinire il criterio congelato.
-- [ ] Regressioni con controesempi: check verde su codice sbagliato, checker
+- [x] Regressioni con controesempi: check verde su codice sbagliato, checker
   modificato, errore nascosto da exit 0, falsa baseline, test non scoperti.
 
 **Dove:** `crates/pwr-verify/`, `pwr-orchestrator/tests/completion_checks.rs`,
@@ -168,6 +195,17 @@ universale. Qualsiasi nuova semantica UX viene prima definita con esempi.
 **Mappa:** W3, G1/G2 e requisito di zero false verifiche della campagna.
 
 ## S03 — Controller, modifiche e contesto
+
+**Chiusura 2026-10-20: DONE con residui, per decisione del proprietario** (serve
+una build per i video del post). [Rapporto S03](../reviews/2026-10-20-S03-controller.md):
+classificate le cinque tracce del sito; chiuse quattro lacune con regressioni
+deterministiche (riga di comando intera in un solo argomento, `operation`
+annidata, `delete_path` dopo una riscrittura totale rifiutata, tempo di
+verifica/review nel budget). **Non chiusi e non dimostrati:** beneficio sul
+modello reale (nessuna inferenza), preflight del prompt effettivo, conservazione
+di requisiti e file in compaction/resume, limiti aggregati di turni/goal con
+Stop in review, misure prima/dopo. Tornano in S04 (profili e misure per pack) e
+S07 (suite dev). Nessun gate promosso.
 
 **Diagnostica CLI 2026-10-19:** [matrice fixing/creazione dei cinque modelli e
 candidato E2B thinking](../reviews/2026-10-19-cli-model-usability.md).
@@ -497,5 +535,5 @@ Fonti primarie:
    di risultati appartenenti a candidati diversi.
 
 Stati consentiti: PLANNED, IN_PROGRESS, BLOCKED (con dipendenza), DONE (con
-rapporto ed evidenze), DEFERRED (con decisione e impatto). Per iniziare ora:
-**S00**, senza riaprire nuove inferenze Harness² prima del consolidamento.
+rapporto ed evidenze), DEFERRED (con decisione e impatto). Prossimo sprint:
+**S02**, dopo la chiusura tecnica S01 documentata il 2026-10-20.

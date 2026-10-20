@@ -12,6 +12,9 @@ fn main() {
             );
             println!("{}", extraction.text);
         }
-        Err(failure) => println!("REFUSED: {failure}"),
+        Err(failure) => {
+            eprintln!("REFUSED: {failure}");
+            std::process::exit(1);
+        }
     }
 }

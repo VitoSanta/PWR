@@ -668,13 +668,13 @@ pub async fn run_staged_loop<P: ModelProvider>(
     let passing_at_start: Vec<bool> = before
         .checks
         .iter()
-        .map(|record| record.result.exit_code == Some(0))
+        .map(|record| record.succeeded())
         .collect();
     let unrunnable_at_start: Vec<bool> = before
         .checks
         .iter()
         .map(|record| {
-            record.result.exit_code != Some(0)
+            !record.succeeded()
                 && pwr_verify::classify(&record.result) == pwr_verify::FailureClass::Environment
         })
         .collect();
@@ -821,7 +821,7 @@ pub async fn run_staged_loop<P: ModelProvider>(
                         .iter()
                         .enumerate()
                         .filter(|(i, record)| {
-                            record.result.exit_code != Some(0)
+                            !record.succeeded()
                                 && !unrunnable_at_start.get(*i).copied().unwrap_or(false)
                                 && !tuning.known_failures.iter().any(|(cmd, args)| {
                                     format!("{} {}", cmd, args.join(" ")).trim_end()

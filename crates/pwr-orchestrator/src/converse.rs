@@ -1941,6 +1941,9 @@ async fn take_turn_inner<P: ModelProvider>(
     // place of a run's action loop.
     let mut refused_streak = crate::repetition::RefusalStreak::new();
     let mut warned_refusals = std::collections::HashSet::new();
+    // Files whose whole-file replacement was refused as a shrink this turn:
+    // deleting one to write it again would hand the refusal back unread (S03).
+    let mut shrink_refused: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut echoes = crate::repetition::Echoes::default();
     let mut failed_runs = crate::repetition::FailedRuns::default();
     // Commands asked for after the hand-over, none of them run.
@@ -3781,6 +3784,32 @@ async fn take_turn_inner<P: ModelProvider>(
                 }
                 continue;
             }
+            // A whole-file replacement refused as a shrink, then the file deleted
+            // to write it anew: the same change by another road (WEB-07/08, 26B,
+            // twice on one site). Refused with the way that works; a later turn
+            // starts clean, so a deliberate rewrite is one message away.
+            if full
+                && let ActionProposal::DeletePath { path: doomed, .. } = &action
+                && shrink_refused.contains(doomed)
+            {
+                let why = format!(
+                    "{doomed} was just refused as a whole-file replacement that would delete most of it; \
+                     deleting it to write it again is the same change. Change the part that needs it with \
+                     replace_text or apply_patch (read the file first), or tell the engineer the file \
+                     should be rewritten and let them say so."
+                );
+                on_step(TurnStep::Refused(format!("{capability}: {why}")));
+                on_step(TurnStep::ToolCall(ToolCallStep {
+                    id: call_id,
+                    capability: capability.clone(),
+                    detail: detail.clone(),
+                    path: path.clone(),
+                    phase: ToolPhase::Refused(why.clone()),
+                    diff: None,
+                }));
+                messages.push(tool_message(call, serde_json::json!({"not_run": why})));
+                continue;
+            }
             // The control is never told it proposed a refused action again.
             let mut no_streak = crate::repetition::RefusalStreak::new();
             let gated = tokio::select! {
@@ -4489,6 +4518,12 @@ async fn take_turn_inner<P: ModelProvider>(
                 }
                 Err(problem) => {
                     failed_file_change |= edits_a_file;
+                    if edits_a_file
+                        && problem.to_string().contains("replaces the whole file")
+                        && let Some(refused) = path.as_ref()
+                    {
+                        shrink_refused.insert(refused.to_string());
+                    }
                     // A failed command may have partial effects. Its failure
                     // result and durable intent retain that uncertainty.
                     refused_streak.refused(&fingerprint);

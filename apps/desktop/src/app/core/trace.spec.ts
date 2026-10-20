@@ -15,6 +15,27 @@ const tool = (toolKind: string, text: string, extra: Partial<Entry> = {}) =>
   entry('tool', { toolKind, text, title: `${toolKind === 'execute' ? 'run_command' : 'read_file ' + text}`, ...extra });
 
 describe('the execution trace', () => {
+  it('cannot promote acceptance over stale, zero-test, regressed or stopped evidence', () => {
+    for (const status of ['could_not_run', 'ran_zero_tests', 'not_run']) {
+      const reply = { _meta: { pwr: { goal: { enabled: true }, outcome: { checks: { status, why: 'stale' }, acceptance: { status: 'accepted' } } } } };
+      expect(runOutcome(reply, false).text).not.toContain('Goal verified');
+    }
+    const reply = { _meta: { pwr: { outcome: { checks: { status: 'passed' }, baseline: { status: 'regressed' }, acceptance: { status: 'accepted' } } } } };
+    expect(runOutcome(reply, false).text).toContain('not verified');
+    const accepted = { _meta: { pwr: { outcome: { checks: { status: 'passed' }, acceptance: { status: 'accepted' } } } } };
+    expect(runOutcome(accepted, false).text).toContain('Goal verified');
+    expect(runOutcome(accepted, true).text).toBe('Stopped.');
+  });
+  it('keeps omitted baseline checks distinct from failed tests and completion', () => {
+    const reply = { _meta: { pwr: { outcome: { checks: { status: 'passed' }, baseline: { status: 'incomplete', missing_checks: ['check B'] }, acceptance: { status: 'accepted' } } } } };
+    const outcome = runOutcome(reply, false);
+    expect(outcome.tone).toBe('paused');
+    expect(outcome.text).toContain('not rerun');
+    expect(outcome.text).not.toContain('checks failed');
+    expect(outcome.detail).toBe('check B');
+    expect(runOutcome(reply, true).text).toBe('Stopped.');
+  });
+
   it('keeps a goal without an owner acceptance contract paused', () => {
     const outcome = runOutcome({ _meta: { pwr: { goal: { enabled: true, needsAcceptance: true }, outcome: { checks: { status: 'passed' }, acceptance: { status: 'not_declared' } } } } }, false);
     expect(outcome.tone).toBe('paused');

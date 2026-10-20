@@ -3,6 +3,9 @@ use super::VerificationBaseline;
 use pwr_domain::{BaselineOutcome, ChecksOutcome};
 
 pub fn checks(after: &VerificationBaseline) -> ChecksOutcome {
+    if let Some(why) = after.integrity_error() {
+        return ChecksOutcome::CouldNotRun { why };
+    }
     if after.checks.is_empty() {
         return ChecksOutcome::Unavailable {
             why: "no checks were run".into(),
@@ -11,7 +14,7 @@ pub fn checks(after: &VerificationBaseline) -> ChecksOutcome {
     let failures: Vec<_> = after
         .checks
         .iter()
-        .filter(|check| check.result.exit_code != Some(0))
+        .filter(|check| !check.succeeded())
         .collect();
     if !failures.is_empty() {
         if failures
@@ -48,6 +51,68 @@ pub fn checks(after: &VerificationBaseline) -> ChecksOutcome {
     }
     ChecksOutcome::Passed
 }
+
+/// Exact runner summaries, not arbitrary occurrences of "error" or "failed".
+/// This is a conservative contradiction check, not authentication of stdout.
+pub fn reported_test_failure(output: &str) -> bool {
+    let mut text = String::with_capacity(output.len());
+    let mut chars = output.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for c in chars.by_ref() {
+                if ('@'..='~').contains(&c) {
+                    break;
+                }
+            }
+        } else {
+            text.push(c);
+        }
+    }
+    let lines: Vec<_> = text.lines().map(str::trim).collect();
+    let positive_before = |line: &str, word: &str| {
+        let words: Vec<_> = line.split_whitespace().collect();
+        words.windows(2).any(|pair| {
+            pair[1].trim_matches([',', ';', ')']) == word
+                && pair[0].parse::<u64>().is_ok_and(|count| count > 0)
+        })
+    };
+    for (index, line) in lines.iter().enumerate() {
+        if line.starts_with("test result: FAILED.") {
+            return true;
+        }
+        if line.starts_with("Ran ")
+            && (line.contains(" test in ") || line.contains(" tests in "))
+            && lines[index + 1..]
+                .iter()
+                .find(|next| !next.is_empty())
+                .is_some_and(|verdict| verdict.starts_with("FAILED ("))
+        {
+            return true;
+        }
+        if ["# fail ", "ℹ fail "].iter().any(|prefix| {
+            line.strip_prefix(prefix)
+                .is_some_and(|count| count.parse::<u64>().is_ok_and(|count| count > 0))
+        }) {
+            return true;
+        }
+        let summary = line.trim_matches('=').trim();
+        let pytest = summary.chars().next().is_some_and(|c| c.is_ascii_digit())
+            && summary.contains(" in ")
+            && summary.ends_with('s');
+        let javascript = summary.starts_with("Tests ")
+            || summary.starts_with("Test Files ")
+            || summary.starts_with("Test Suites:");
+        if (pytest || javascript)
+            && ["failed", "error", "errors"]
+                .iter()
+                .any(|word| positive_before(summary, word))
+        {
+            return true;
+        }
+    }
+    false
+}
 pub fn baseline(
     before: Option<&VerificationBaseline>,
     after: &VerificationBaseline,
@@ -55,13 +120,17 @@ pub fn baseline(
     match before {
         None => BaselineOutcome::NoBaseline,
         Some(before) => {
-            let regressions = super::compare(before, after).new_failures;
-            if regressions.is_empty() {
-                BaselineOutcome::Preserved
-            } else {
+            let comparison = super::compare(before, after);
+            if !comparison.new_failures.is_empty() {
                 BaselineOutcome::Regressed {
-                    checks: regressions,
+                    checks: comparison.new_failures,
                 }
+            } else if !comparison.missing_checks.is_empty() {
+                BaselineOutcome::Incomplete {
+                    missing_checks: comparison.missing_checks,
+                }
+            } else {
+                BaselineOutcome::Preserved
             }
         }
     }

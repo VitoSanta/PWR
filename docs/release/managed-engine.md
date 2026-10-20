@@ -20,17 +20,23 @@ A managed-ready marker must match both the compiled requirements hash and the
 encoder manifest hash. Older markers offer setup again. An explicit external
 Python override is not covered by this managed-install qualification.
 
-Installation retains the previous environment and marker in a private backup,
-creates the replacement at its final prefix and restores the originals on
-ordinary failure, cancellation or unwinding. It does not relocate Python
-virtual environments. Unix cancellation stops and reaps the step's process
-group before restoring files. Installation shares the native activity guard
-with core startup and updating. Successful installation removes its internal
-backup; restoration/cleanup failures retain recovery material and report errors.
+Current S01 development installs into permanent UUID generations and atomically
+publishes only the verified selection. Previous environments and ambiguous legacy
+backups are not moved or reused. An interrupted legacy installation can recover
+by installing into a new isolated generation; successful verification makes it
+usable without executing or deleting the ambiguous backup contents.
 
-SIGKILL, power loss and automatic startup recovery of an abandoned transaction
-are not qualified. The local setup shell script uses the lock but does not
-provide the native installer's transaction contract. Windows remains untested.
+Cancellation is serialized with publication; Unix supervisors stop ordinary
+owned process groups, including after native-host SIGKILL. Core and installer
+descendants inherit use leases so explicit offline cleanup cannot remove an
+environment while it is still in use. Cleanup provides a reviewed JSON plan,
+refuses stale plans, active roots, unknown directories and incomplete selected
+engines, and can resume partial deletion after a process crash. Original legacy
+recovery material remains retained. See the [recovery and maintenance contract](../plan/engine-recovery.md).
+
+Power loss, a fresh install/upgrade of the final package and Windows are not
+qualified by these development checks. The local setup shell script uses the
+lock but does not provide the native generation/publication contract.
 
 ## Encoder assets and offline execution
 
@@ -47,7 +53,16 @@ Logical E5 query/passage prefixes are preserved. Cache identity includes the
 model revision, pooling, length and prefix settings so previous vectors cannot
 silently satisfy a different encoder configuration.
 
-## Observed development checks
+## Current S01 development checks
+
+The [S01 closeout](../reviews/2026-10-20-S01-closeout.md) records 54 reported
+native passes (four inert child-fixture entry points), one ignored real-venv
+case executed separately and passed, Clippy/build, compiled offline maintenance
+on real temporary Python environments, and scoped native-app process checks.
+The full dependency installation and bundled embedding observations below are
+historical: they do not qualify the changed installer or a new release artifact.
+
+## Historical checks, 2026-10-18
 
 Private evidence: `product-verification-20261018-r4/engine-lock`.
 

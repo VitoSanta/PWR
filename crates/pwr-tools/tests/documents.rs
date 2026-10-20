@@ -252,3 +252,116 @@ fn reading_a_file_that_is_not_there_says_what_is() {
     // A file that is there is still read.
     assert!(read_file(&policy, Path::new("src/app/app.ts")).is_ok());
 }
+
+#[test]
+fn unicode_page_fonts_surrogate_pairs_ranges_and_horizontal_glyph_moves_survive() {
+    let bytes = include_bytes!("fixtures/unicode-fonts.pdf");
+    let extraction = pwr_tools::document::extract(bytes).unwrap();
+    assert_eq!(extraction.pages, Some(2));
+    assert_eq!(extraction.text, "Caffè Ω 😀 12 fi\nZè");
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("unicode.pdf"), bytes).unwrap();
+    let result = extract_document(&policy(root.path()), Path::new("unicode.pdf")).unwrap();
+    let artifact = read_file(&policy(root.path()), Path::new(&result.path)).unwrap();
+    assert!(artifact.content.contains("Caffè Ω 😀 12 fi\nZè"));
+    assert_eq!(artifact.artifact_hash, result.expected_hash);
+}
+
+#[test]
+fn a_missing_or_broken_cid_map_never_falls_back_to_guessed_standard_text() {
+    let bytes = include_bytes!("fixtures/unicode-fonts.pdf");
+    // Same byte lengths preserve the valid xref offsets.
+    for replacement in [b"ToUnicodX".as_slice(), b"ToUnicode".as_slice()] {
+        let mut pdf = bytes.to_vec();
+        if replacement == b"ToUnicodX" {
+            for at in (0..pdf.len() - 9).filter(|at| &bytes[*at..*at + 9] == b"ToUnicode") {
+                pdf[at..at + 9].copy_from_slice(replacement);
+            }
+        } else {
+            let at = pdf.windows(9).position(|w| w == b"begincmap").unwrap();
+            pdf[at..at + 9].copy_from_slice(b"brokenmap");
+        }
+        assert!(pwr_tools::document::extract(&pdf).is_err());
+    }
+}
+
+fn rewrite_unicode_fixture(edit: impl FnOnce(&mut lopdf::Document)) -> Vec<u8> {
+    let mut document =
+        lopdf::Document::load_mem(include_bytes!("fixtures/unicode-fonts.pdf")).unwrap();
+    edit(&mut document);
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    bytes
+}
+
+#[test]
+fn cmap_range_expansion_and_unmapped_codes_are_refused_before_guessing() {
+    let huge = rewrite_unicode_fixture(|document| {
+        let map = document
+            .get_object_mut((7, 0))
+            .unwrap()
+            .as_stream_mut()
+            .unwrap();
+        map.set_content(
+            String::from_utf8(map.content.clone())
+                .unwrap()
+                .replace("<0010> <0011> <0031>", "<00000000> <FFFFFFFF> <0031>")
+                .into_bytes(),
+        );
+    });
+    assert_eq!(
+        pwr_tools::document::extract(&huge).unwrap_err(),
+        pwr_tools::document::ExtractionFailure::ExpansionTooLarge
+    );
+    let unmapped = rewrite_unicode_fixture(|document| {
+        document
+            .get_object_mut((9, 0))
+            .unwrap()
+            .as_stream_mut()
+            .unwrap()
+            .set_content(b"BT /F1 12 Tf <7FFF> Tj ET".to_vec());
+    });
+    assert_eq!(
+        pwr_tools::document::extract(&unmapped).unwrap_err(),
+        pwr_tools::document::ExtractionFailure::Undecodable
+    );
+}
+
+#[test]
+fn real_page_and_font_streams_keep_the_expansion_limit_and_scans_need_ocr() {
+    use std::io::Write;
+    for id in [(7, 0), (9, 0)] {
+        let bomb = rewrite_unicode_fixture(|document| {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(&vec![b' '; 8 * 1024 * 1024 + 1]).unwrap();
+            let stream = document
+                .get_object_mut(id)
+                .unwrap()
+                .as_stream_mut()
+                .unwrap();
+            stream.set_content(encoder.finish().unwrap());
+            stream
+                .dict
+                .set("Filter", lopdf::Object::Name(b"FlateDecode".to_vec()));
+        });
+        assert_eq!(
+            pwr_tools::document::extract(&bomb).unwrap_err(),
+            pwr_tools::document::ExtractionFailure::ExpansionTooLarge
+        );
+    }
+    let scan = rewrite_unicode_fixture(|document| {
+        for id in [(9, 0), (10, 0)] {
+            document
+                .get_object_mut(id)
+                .unwrap()
+                .as_stream_mut()
+                .unwrap()
+                .set_content(b"q Q".to_vec());
+        }
+    });
+    assert_eq!(
+        pwr_tools::document::extract(&scan).unwrap_err(),
+        pwr_tools::document::ExtractionFailure::NoTextContent
+    );
+}

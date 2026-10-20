@@ -13,12 +13,13 @@
 //! text is worse than nothing, because nothing is visibly nothing.
 //!
 //! What it does: inflate a PDF's content streams, read the text-showing
-//! operators, decode simple-font bytes, and collect the link targets the
-//! document declares. What it does not: OCR a scan, resolve a CID font's glyph
-//! ids without a `ToUnicode` map, preserve layout, or claim that reading order
-//! is visual order.
+//! operators using live page/font resources and bounded ToUnicode maps, and
+//! collect declared links. Legacy stream fragments retain their simple-font
+//! compatibility reader. It does not OCR a scan, guess CID glyphs without maps,
+//! preserve layout, or claim that stream order is visual reading order.
 
 use std::io::Read as _;
+mod structured;
 
 /// How much of a PDF is examined. A document larger than this is refused rather
 /// than partly extracted: a truncated CV is a wrong CV.
@@ -106,8 +107,7 @@ impl std::fmt::Display for ExtractionFailure {
             ),
             Self::Undecodable => write!(
                 f,
-                "uses font encodings this extractor cannot reliably decode. A ToUnicode map \
-                 may be present but is not supported by this extractor. The recovered text \
+                "uses font encodings this extractor cannot reliably decode. A required font map is missing or invalid. The recovered text \
                  failed validation and was discarded rather than returned"
             ),
             Self::Malformed(detail) => write!(f, "could not be parsed: {detail}"),
@@ -124,6 +124,19 @@ pub fn extract(bytes: &[u8]) -> Result<Extraction, ExtractionFailure> {
         return Err(ExtractionFailure::NotADocument);
     }
 
+    // Real PDFs use their live page/font resources, never the byte-scanning
+    // compatibility reader below (kept for legacy fragment artifacts).
+    if bytes.windows(9).any(|part| part == b"startxref") {
+        return structured::extract(bytes);
+    }
+
+    if bytes.windows(9).any(|part| part == b"ToUnicode")
+        || bytes
+            .windows(10)
+            .any(|part| part == b"Identity-H" || part == b"Identity-V")
+    {
+        return Err(ExtractionFailure::Undecodable);
+    }
     // Every stream, inflated where it is inflatable. The page tree is not
     // walked: resolving it needs the cross-reference table, an incrementally
     // updated file has several, and a document that has been edited has objects

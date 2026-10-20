@@ -1,10 +1,10 @@
-# Contratto candidato 0.5 — bozza da completare in S00
+# Contratto candidato 0.5 — perimetro S00 approvato; qualificazione da completare
 
-Data: 2026-10-19. Stato: DRAFT, non autorizza release né modifica i gate.
+Data: 2026-10-19; aggiornamento 2026-10-20. Perimetro S00 approvato; contratto quantitativo ancora da completare. Non autorizza release né modifica i gate.
 
-## Proposta di chiusura S00 — 2026-10-20
+## Decisione di chiusura S00 — 2026-10-20
 
-Da approvare dal proprietario; non è una decisione già assunta.
+Approvata esplicitamente dal proprietario il 2026-10-20 («approvo la proposta»). Vedi D-2026-10-20-1 in [decisions](../decisions.md).
 
 1. Chiudere S00 come consolidamento della baseline di sviluppo identificata,
    suite locali, inventario e backlog riconciliato. Non è un freeze release,
@@ -25,13 +25,14 @@ Da approvare dal proprietario; non è una decisione già assunta.
 6. Nessuna deroga G3/F6: restano necessari prima di dichiarare pronti release
    e Windows secondo il contratto vigente. Hosted CI e packaging sul candidato
    spettano a S07/S08; firma/account Apple restano S12 dopo Windows.
-7. Startup/IPC, controlli nativi residui e PDF Unicode rimangono lavoro aperto
-   S01/S02; protocollo/recupero modelli S03/S04. Il collaudo completo resta S09.
-   Non dichiarare questi problemi risolti né nascondere i B0/B1 nel collaudo.
+7. Alla chiusura S00, startup/IPC e PDF Unicode erano aperti in S01/S02.
+   Ora risultano chiusi nel rispettivo scope di sviluppo: [S01](../reviews/2026-10-20-S01-closeout.md)
+   e [S02](../reviews/2026-10-20-S02-closeout.md). Protocollo/recupero modelli
+   rimangono S03/S04 e il collaudo completo resta S09. Nessuna promozione dei gate.
 
-La proposta rende espliciti i confini e risolve la dipendenza circolare tra
-chiusura S00 e soglie che richiedono le baseline S04/S05. Finché non approvata,
-S00 rimane IN_PROGRESS, anche se il consolidamento tecnico è terminato.
+La decisione rende espliciti i confini e risolve la dipendenza circolare tra
+chiusura S00 e soglie che richiedono le baseline S04/S05. Con le verifiche
+tecniche completate e questa approvazione, S00 è DONE.
 
 ## Host identificati
 

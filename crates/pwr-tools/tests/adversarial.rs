@@ -1420,3 +1420,36 @@ fn killing_by_name_is_refused_where_no_sandbox_stops_it() {
     assert!(run("sh", &["-c", "echo pkillfoo is not a command"]).is_ok());
     assert!(run("sh", &["-c", "echo done"]).is_ok());
 }
+
+/// WEB-06 (E4B, 2026-10-19): `ng` called with the whole line as its only
+/// argument. It is refused with the argv to resubmit and nothing runs; free-text
+/// first arguments of other programs, and properly separated argv, are untouched.
+#[tokio::test]
+async fn a_whole_command_line_in_one_arg_is_refused_with_the_argv_to_resubmit() {
+    let root = tempfile::tempdir().unwrap();
+    let mut policy = policy(root.path());
+    policy.allow_commands.push("npm".into());
+    let error = run_command(&policy, "npm", &["npm run build --silent".into()])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("whole command line in one string"),
+        "{error}"
+    );
+    assert!(
+        error.contains(r#""args":["run","build","--silent"]"#),
+        "{error}"
+    );
+    assert!(error.contains("Nothing was executed"), "{error}");
+
+    let echoed = run_command(&policy, "echo", &["echo is a word".into()])
+        .await
+        .unwrap();
+    assert_eq!(echoed.stdout.trim(), "echo is a word");
+    let refusal = run_command(&policy, "npm", &["run".into(), "build".into()]).await;
+    assert!(
+        !matches!(&refusal, Err(e) if e.to_string().contains("whole command line")),
+        "{refusal:?}"
+    );
+}

@@ -2377,7 +2377,7 @@ fn adopted_verifier(outcome: &serde_json::Value) -> Option<(String, Vec<String>)
 fn check_ran_zero_tests(check: &pwr_verify::CheckRecord) -> bool {
     let output = format!("{}\n{}", check.result.stdout, check.result.stderr);
     pwr_verify::evidence::ran_zero_tests(&check.command, &output)
-        || (check.result.exit_code == Some(0)
+        || (check.succeeded()
             && pwr_verify::evidence::passed_without_tests(&check.command, &output))
 }
 
@@ -2388,6 +2388,7 @@ fn failing_check_report(check: &pwr_verify::CheckRecord) -> serde_json::Value {
         "command": check.command,
         "exit_code": check.result.exit_code,
         "ran_zero_tests": check_ran_zero_tests(check),
+        "reported_test_failure": pwr_verify::evidence::reported_test_failure(&format!("{}\n{}",check.result.stdout,check.result.stderr)),
         "stdout": check.result.stdout,
         "stderr": check.result.stderr,
         "duration_ms": check.result.duration_ms,
@@ -2408,7 +2409,7 @@ fn remember_verification(
 ) -> Result<serde_json::Value, String> {
     let failing: Vec<_> = checks
         .iter()
-        .filter(|c| c.result.exit_code != Some(0) || check_ran_zero_tests(c))
+        .filter(|c| !c.succeeded() || check_ran_zero_tests(c))
         .map(failing_check_report)
         .collect();
     let passing = !checks.is_empty() && failing.is_empty();
@@ -3358,7 +3359,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
     let failing_at_start: Vec<String> = before
         .checks
         .iter()
-        .filter(|check| check.result.exit_code != Some(0))
+        .filter(|check| !check.succeeded())
         .map(|check| check.command.clone())
         .collect();
     // A check that could not run here is not a check that failed.
@@ -3381,7 +3382,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
         .iter()
         .zip(&baseline_checks)
         .filter(|(record, _)| {
-            record.result.exit_code != Some(0)
+            !record.succeeded()
                 && pwr_verify::classify(&record.result) == pwr_verify::FailureClass::Environment
         })
         .map(|(_, check)| check.clone())
@@ -4033,10 +4034,11 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 .filter(|(_, command)| !exempt(command))
                 .map(|(record, _)| record)
                 .collect();
-            let acceptance_passed = !required.is_empty()
+            let acceptance_passed = after.integrity_error().is_none()
+                && !required.is_empty()
                 && required
                     .iter()
-                    .all(|check| check.result.exit_code == Some(0) && !check_ran_zero_tests(check));
+                    .all(|check| check.succeeded() && !check_ran_zero_tests(check));
             let ran_zero_tests = after.checks.iter().any(check_ran_zero_tests);
             let verified = verifiable
                 && !ran_zero_tests
@@ -4046,14 +4048,11 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 } else {
                     acceptance_passed
                 };
-            let suite_green = after
-                .checks
-                .iter()
-                .all(|check| check.result.exit_code == Some(0));
+            let suite_green = after.checks.iter().all(|check| check.succeeded());
             let still_failing_from_before: Vec<String> = after
                 .checks
                 .iter()
-                .filter(|check| check.result.exit_code != Some(0))
+                .filter(|check| !check.succeeded())
                 .map(|check| check.command.clone())
                 .filter(|command| failing_at_start.contains(command))
                 .collect();
@@ -4151,12 +4150,12 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             let failing_diagnostics: Vec<serde_json::Value> = after
                 .checks
                 .iter()
-                .filter(|check| check.result.exit_code != Some(0) || check_ran_zero_tests(check))
+                .filter(|check| !check.succeeded() || check_ran_zero_tests(check))
                 .map(failing_check_report)
                 .collect();
             let failure_class = if let Some((index, failed)) =
                 after.checks.iter().enumerate().find(|(index, check)| {
-                    check.result.exit_code != Some(0)
+                    !check.succeeded()
                         // An unchanged exception is not the failure this
                         // recovery cycle needs to fix. A changed one still is.
                         && (!exempt(&final_checks[*index])
@@ -4435,7 +4434,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
             let failing: Vec<serde_json::Value> = after
                 .checks
                 .iter()
-                .filter(|check| check.result.exit_code != Some(0))
+                .filter(|check| !check.succeeded())
                 .map(failing_check_report)
                 .collect();
             store
@@ -4564,10 +4563,7 @@ pub async fn run_action_loop_with_prompt_budget_and_context_tiers<P: ModelProvid
                 let checked =
                     pwr_verify::baseline(&policy, std::slice::from_ref(&(executable, args))).await;
                 let passed = match &checked {
-                    Ok(checked) => checked
-                        .checks
-                        .iter()
-                        .all(|check| check.result.exit_code == Some(0)),
+                    Ok(checked) => checked.checks.iter().all(|check| check.succeeded()),
                     Err(_) => false,
                 };
                 let checked = checked.ok();
@@ -5744,6 +5740,23 @@ fn repair_form(name: &str, arguments: &mut serde_json::Value) -> String {
                 object.insert("args".into(), value);
             }
         }
+    }
+    // `operation` written inside `arguments` instead of beside `target`:
+    // `{"arguments":{"id":2,"operation":"read"},"target":"terminal"}`. Measured
+    // 2026-10-19 (WEB-08, Gemma 26B building the site): thirteen calls refused
+    // for the same missing field, the model naming the mistake in its own
+    // reasoning each time and writing it again. One reading, and only when the
+    // top level has no `operation` of its own; the other fields stay as sent
+    // and the tool judges the call exactly as it judges one written right.
+    if name == "workspace_interact"
+        && !object.contains_key("operation")
+        && let Some(serde_json::Value::Object(inner)) = object.get_mut("arguments")
+        && inner
+            .get("operation")
+            .is_some_and(serde_json::Value::is_string)
+        && let Some(operation) = inner.remove("operation")
+    {
+        object.insert("operation".into(), operation);
     }
     // A program handed to a shell as if it were a script: `bash npm run
     // build` makes bash read npm's own file as shell and fail on its second
@@ -7229,6 +7242,38 @@ mod tests {
         );
         // More than punctuation after the list is not a slip.
         assert_eq!(read(r#"["a"] and more"#), None);
+    }
+
+    #[test]
+    fn an_operation_inside_arguments_is_read_beside_the_target() {
+        let mut nested = serde_json::json!({
+            "target": "terminal",
+            "arguments": {"id": 2, "operation": "read", "waitMs": 2000}
+        });
+        repair_form("workspace_interact", &mut nested);
+        assert_eq!(nested["operation"], "read");
+        assert_eq!(
+            nested["arguments"],
+            serde_json::json!({"id": 2, "waitMs": 2000})
+        );
+        assert_eq!(nested["target"], "terminal");
+
+        // A top-level operation wins and nothing inside is touched; a nested
+        // value that is not a name is left for the refusal to describe.
+        let mut both = serde_json::json!({
+            "target": "terminal", "operation": "start",
+            "arguments": {"operation": "read"}
+        });
+        repair_form("workspace_interact", &mut both);
+        assert_eq!(both["operation"], "start");
+        assert_eq!(both["arguments"]["operation"], "read");
+        let mut odd = serde_json::json!({"target": "terminal", "arguments": {"operation": 3}});
+        repair_form("workspace_interact", &mut odd);
+        assert!(odd.get("operation").is_none());
+        // Other tools are not rewritten.
+        let mut other = serde_json::json!({"arguments": {"operation": "read"}});
+        repair_form("run_command", &mut other);
+        assert!(other.get("operation").is_none());
     }
 
     #[test]

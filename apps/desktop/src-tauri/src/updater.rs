@@ -24,8 +24,10 @@ impl Updates {
     pub fn installing(&self) -> bool {
         self.installing.load(Ordering::SeqCst)
     }
-    pub fn allow_activity(&self) -> Result<(), String> {
-        if self.installed.load(Ordering::SeqCst) {
+    pub fn allow_activity(&self, closing: &super::Closing) -> Result<(), String> {
+        if closing.0.load(Ordering::SeqCst) {
+            Err("PWR is closing; reopen the app before starting another operation.".into())
+        } else if self.installed.load(Ordering::SeqCst) {
             Err("Restart PWR to finish the update.".into())
         } else {
             Ok(())
@@ -81,7 +83,7 @@ pub async fn update_check(
         if p.busy {
             return Err("An update operation is already running.".into());
         }
-        state.allow_activity()?;
+        state.allow_activity(&app.state::<super::Closing>())?;
         p.busy = true;
         p.update = None;
         p.bytes = None;
@@ -174,7 +176,7 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
             .activity
             .lock()
             .map_err(|_| "Activity state unavailable")?;
-        state.allow_activity()?;
+        state.allow_activity(&app.state::<super::Closing>())?;
         let core = app.state::<super::Core>();
         let core = core.0.lock().map_err(|_| "Core state unavailable")?;
         if core.is_some() || app.state::<super::terminal::Terminals>().has_sessions() {
@@ -227,5 +229,59 @@ mod tests {
         assert!(!config.dangerous_insecure_transport_protocol);
         assert!(!config.dangerous_accept_invalid_certs);
         assert!(!config.dangerous_accept_invalid_hostnames);
+    }
+    #[test]
+    fn queued_native_activity_cannot_start_after_close_confirmation() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc, Arc,
+        };
+        let updates = Arc::new(super::Updates::default());
+        let closing = Arc::new(crate::Closing::default());
+        let started = Arc::new(AtomicBool::new(false));
+        let activity = updates.activity.lock().unwrap();
+        let (queued, waiting) = mpsc::channel();
+        let worker = {
+            let updates = updates.clone();
+            let closing = closing.clone();
+            let started = started.clone();
+            std::thread::spawn(move || {
+                queued.send(()).unwrap();
+                let _activity = updates.activity.lock().unwrap();
+                if updates.allow_activity(&closing).is_ok() {
+                    started.store(true, Ordering::SeqCst);
+                }
+                closing.0.load(Ordering::SeqCst)
+            })
+        };
+        waiting
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        closing.0.store(true, Ordering::SeqCst);
+        drop(activity);
+        assert!(worker.join().unwrap());
+        assert!(
+            !started.load(Ordering::SeqCst),
+            "queued operation started after confirmed close"
+        );
+    }
+
+    #[test]
+    fn native_activity_remains_available_until_close_or_installed_update() {
+        let updates = super::Updates::default();
+        let closing = crate::Closing::default();
+        assert!(updates.allow_activity(&closing).is_ok());
+        updates
+            .installed
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(updates
+            .allow_activity(&closing)
+            .unwrap_err()
+            .contains("update"));
+        closing.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(updates
+            .allow_activity(&closing)
+            .unwrap_err()
+            .contains("closing"));
     }
 }

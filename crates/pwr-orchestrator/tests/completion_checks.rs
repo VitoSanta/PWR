@@ -109,6 +109,44 @@ fn passing() -> (String, Vec<String>) {
     ("sh".into(), vec!["-c".into(), "exit 0".into()])
 }
 
+#[test]
+fn wrapper_exit_zero_does_not_promote_reported_test_failures_to_verified() {
+    let (store, run_id, verified) = run(
+        |_| {},
+        vec![
+            r#"{"capability":"read_file","path":"code.rs"}"#,
+            r#"{"capability":"complete","rationale":"done"}"#,
+        ],
+        (
+            "sh".into(),
+            vec![
+                "-c".into(),
+                "printf 'Ran 1 test in 0.001s\\n\\nFAILED (failures=1)\\n'; exit 0".into(),
+            ],
+        ),
+    );
+    assert!(
+        !verified,
+        "a wrapper hid the runner failure from Goal completion"
+    );
+    assert!(
+        store.events_for_run(run_id).unwrap().iter().any(|event| {
+            event.event_type == "verification.result"
+                && event.payload["after"]["checks"]
+                    .as_array()
+                    .is_some_and(|checks| {
+                        checks.iter().any(|check| {
+                            check["result"]["exit_code"] == 0
+                                && check["result"]["stdout"]
+                                    .as_str()
+                                    .is_some_and(|stdout| stdout.contains("\nFAILED (failures=1)"))
+                        })
+                    })
+        }),
+        "the failed runner must actually execute and retain its raw zero status"
+    );
+}
+
 fn completion_commands(store: &Store, run_id: pwr_domain::Id) -> Vec<String> {
     store
         .events_for_run(run_id)

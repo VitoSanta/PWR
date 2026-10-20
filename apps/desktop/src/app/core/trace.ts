@@ -361,7 +361,7 @@ export function runOutcome(reply: any, cancelled: boolean, workspaceTask = false
   const acceptanceChanges: string[] = evidence?.acceptance?.status === 'contract_changed' ? evidence.acceptance.what : goal?.contractChanged ?? [];
   const base = { terminal, detail, confinement, acceptanceChanges };
   if (terminal === 'contract_changed' || evidence?.acceptance?.status === 'contract_changed') return { ...base, text: 'Goal stopped: acceptance checks changed. Review required.', detail: acceptanceChanges.join(', ') || detail, action: null, tone: 'failed' };
-  if (evidence?.acceptance?.status === 'accepted' || (!evidence && goal?.verified)) return { ...base, text: `Goal verified by the declared acceptance checks after ${plural(actions)}.`, action: null, tone: 'done' };
+  if (!cancelled && reply?.stopReason !== 'cancelled' && !['interrupted', 'budget', 'protocol', 'provider', 'recovery', 'declined', 'blocked', 'stalled'].includes(terminal ?? '') && evidence?.baseline?.status !== 'incomplete' && evidence?.baseline?.status !== 'regressed' && ((evidence?.checks?.status === 'passed' && evidence?.acceptance?.status === 'accepted') || (!evidence && goal?.verified))) return { ...base, text: `Goal verified by the declared acceptance checks after ${plural(actions)}.`, action: null, tone: 'done' };
   // Stalled or blocked: the core says why, and it is not a success either way.
   if (goal?.guardReached && (terminal === 'stalled' || terminal === 'blocked'))
     return {
@@ -385,6 +385,8 @@ export function runOutcome(reply: any, cancelled: boolean, workspaceTask = false
     case 'declined':
       return { ...base, text: 'The model declined the task.', action: null, tone: 'stopped' };
     default:
+      if (evidence?.baseline?.status === 'regressed') return { ...base, text: 'Baseline checks regressed; the work is not verified.', action: null, tone: 'failed' };
+      if (evidence?.baseline?.status === 'incomplete') return { ...base, text: 'Baseline comparison incomplete: some checks were not rerun. The work is not verified.', detail: (evidence.baseline.missing_checks ?? []).join(', '), action: null, tone: 'paused' };
       if (evidence?.checks?.status === 'failed') return { ...base, text: evidence.baseline?.status === 'preserved' ? 'Existing checks still fail; the baseline was preserved, but the work is not verified.' : 'The repository checks failed; the work is not verified.', action: null, tone: 'failed' };
       if (evidence?.checks?.status === 'could_not_run') return { ...base, text: 'Verification could not run.', detail: evidence.checks.why, action: null, tone: 'failed' };
       if (evidence?.checks?.status === 'ran_zero_tests') return { ...base, text: 'Checks exited successfully but ran zero tests; behavior is unverified.', action: null, tone: 'paused' };

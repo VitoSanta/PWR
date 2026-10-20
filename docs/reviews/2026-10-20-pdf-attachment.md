@@ -4,7 +4,9 @@ Il proprietario segnala un errore ricordato come «symbolich» sul documento
 nella cartella Desktop/Documenti/PWR/Progetto. File individuato:
 `PWR – Gemma guida.pdf`. L'originale è conservato senza modifiche.
 
-## Riproduzione
+**Aggiornamento finale:** PDF-01 corretto nello sviluppo S02; [prove e limiti](2026-10-20-S02-closeout.md). La riproduzione e il workaround sotto sono storici.
+
+## Riproduzione iniziale
 
 L'esempio CLI `pwr-tools/extract_pdf`, sul sorgente corrente, rifiuta il file
 con `ExtractionFailure::Undecodable`. Non serve inferenza per riprodurlo:
@@ -40,4 +42,16 @@ Nessuna evidenza richiede OCR per questo documento. È distinto da HI-33
 Evidenza privata `pdf-attachment-20261020`: SHA-256 originale, rifiuto prima
 della modifica e dati dell'estrazione indipendente. Nove test unitari del parser
 riusciti; la lettura dell'allegato nell'app e la consegna al contesto restano
-da verificare dopo il supporto effettivo dei font. S00 resta IN_PROGRESS.
+da verificare dopo il supporto effettivo dei font. S00 è stato chiuso con perimetro approvato il 2026-10-20; questo difetto rimane aperto in S01/S02.
+
+
+## Risoluzione S02
+
+Il parser ora risolve risorse/font per pagina e mappe Unicode con limiti di
+espansione. L'originale viene estratto e consegnato interamente al prompt nel
+percorso di allegato, senza inferenza e senza modificarne i byte. Regressioni
+per mappe, font fra pagine, surrogate pair, bombe e scansioni riuscite.
+Il TXT temporaneo non è più necessario per questo documento. PDF-01 è chiuso
+nello sviluppo macOS; ordine visivo, OCR e collaudo del pacchetto restano fuori
+dalla promessa di questo intervento. Il rapporto finale distingue questi limiti
+dal corretto recupero dei caratteri e dalla qualificazione Windows futura.
